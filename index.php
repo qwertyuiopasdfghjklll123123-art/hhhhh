@@ -143,7 +143,7 @@ if (isset($_GET['ajax'])) {
             $empRow->execute([$employeeId]);
             $empRow = $empRow->fetch();
 
-            $settingsRow = $pdo->query("SELECT work_start_time, work_end_time, late_grace_minutes FROM settings ORDER BY id DESC LIMIT 1")->fetch();
+            $settingsRow = $pdo->query("SELECT work_start_time, work_end_time, late_grace_minutes, company_name, company_logo FROM settings ORDER BY id DESC LIMIT 1")->fetch();
             $shiftStart = $empRow['shift_start'] ?: ($settingsRow['work_start_time'] ?? '09:00:00');
             $shiftEnd = $empRow['shift_end'] ?: ($settingsRow['work_end_time'] ?? '15:00:00');
             $graceMinutes = (int) ($settingsRow['late_grace_minutes'] ?? 15);
@@ -228,6 +228,10 @@ if (isset($_GET['ajax'])) {
                     'pendingRequests' => (int) $pendingReq->fetchColumn(),
                     'unreadNotifications' => (int) $unreadNotif->fetchColumn(),
                 ],
+                'company' => [
+                    'name' => $settingsRow['company_name'] ?: 'شركة الصوى للصرافة',
+                    'logo' => $settingsRow['company_logo'] ?: null,
+                ],
                 'honorRoll' => $honorRoll,
                 'recentAttendance' => $recentAttendance,
                 'delegation' => $delegation ? [
@@ -252,6 +256,26 @@ if (isset($_GET['ajax'])) {
                     'checkOutTime' => $todayAtt['check_out'] ? substr($todayAtt['check_out'], 0, 5) : null,
                 ],
             ], JSON_UNESCAPED_UNICODE);
+            exit;
+        }
+
+        case 'password_change': {
+            $oldPassword = (string) ($_POST['oldPassword'] ?? '');
+            $newPassword = (string) ($_POST['newPassword'] ?? '');
+            if (strlen($newPassword) < 6) {
+                echo json_encode(['ok' => false, 'error' => 'كلمة المرور الجديدة يجب ألا تقل عن 6 أحرف']);
+                exit;
+            }
+            $userRow = $pdo->prepare("SELECT password_hash FROM users WHERE id=?");
+            $userRow->execute([$emp['id']]);
+            $userRow = $userRow->fetch();
+            if (!$userRow || !password_verify($oldPassword, $userRow['password_hash'])) {
+                echo json_encode(['ok' => false, 'error' => 'كلمة المرور الحالية غير صحيحة']);
+                exit;
+            }
+            $newHash = password_hash($newPassword, PASSWORD_DEFAULT);
+            $pdo->prepare("UPDATE users SET password_hash=? WHERE id=?")->execute([$newHash, $emp['id']]);
+            echo json_encode(['ok' => true]);
             exit;
         }
 
@@ -568,9 +592,27 @@ if (isset($_GET['ajax'])) {
                 exit;
             }
 
+            if ($brief['status'] !== 'approved') {
+                $pendingMap = [
+                    'pending' => 'الإيجاز قيد مراجعة الموارد البشرية، سيظهر بعد الاعتماد النهائي',
+                    'hr_approved' => 'وافقت الموارد البشرية — بانتظار الاعتماد النهائي من المسؤول العام',
+                    'rejected' => 'تم رفض إيجاز اليوم',
+                ];
+                echo json_encode([
+                    'ok' => true,
+                    'exists' => true,
+                    'pendingApproval' => true,
+                    'branch' => $branchName,
+                    'date' => date('d / m / Y'),
+                    'statusText' => $pendingMap[$brief['status']] ?? 'قيد الاعتماد',
+                ], JSON_UNESCAPED_UNICODE);
+                exit;
+            }
+
             echo json_encode([
                 'ok' => true,
                 'exists' => true,
+                'pendingApproval' => false,
                 'branch' => $branchName,
                 'date' => date('d / m / Y'),
                 'totalIncome' => (float) $brief['total_income'],
@@ -592,6 +634,9 @@ if (isset($_GET['ajax'])) {
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>شركة الصوى للصرافة - نافذة الموظف</title>
+    <link rel="manifest" href="manifest.php?app=employee">
+    <meta name="theme-color" content="#006b73">
+    <link rel="apple-touch-icon" href="icons/icon-192.png">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
@@ -751,6 +796,100 @@ if (isset($_GET['ajax'])) {
             font-weight: 700;
             min-width: 44px;
             text-align: center;
+        }
+
+        /* ============================================================
+           الشاشة التعريفية (Onboarding) — تظهر مرة واحدة فقط عند أول استخدام
+           ============================================================ */
+        .onboarding-screen {
+            position: fixed;
+            inset: 0;
+            z-index: 9998;
+            background: linear-gradient(160deg, #004b52 0%, #006b73 60%, #0A8A94 100%);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding: 40px 24px;
+            text-align: center;
+        }
+        .onboarding-screen.hidden { display: none; }
+        .onboarding-skip {
+            position: absolute;
+            top: max(20px, env(safe-area-inset-top));
+            left: 20px;
+            background: rgba(255,255,255,0.12);
+            border: none;
+            color: #fff;
+            font-size: 13px;
+            font-weight: 700;
+            padding: 8px 18px;
+            border-radius: var(--radius-full);
+            cursor: pointer;
+        }
+        .onboarding-slides {
+            width: 100%;
+            max-width: 340px;
+            display: flex;
+            overflow: hidden;
+            transition: transform 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+        .onboarding-slide {
+            min-width: 100%;
+            flex-shrink: 0;
+        }
+        .onboarding-icon {
+            width: 96px;
+            height: 96px;
+            border-radius: 50%;
+            background: rgba(255,255,255,0.12);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 40px;
+            color: var(--accent);
+            margin: 0 auto 28px;
+        }
+        .onboarding-slide h2 {
+            color: #fff;
+            font-size: 20px;
+            font-weight: 800;
+            margin-bottom: 12px;
+        }
+        .onboarding-slide p {
+            color: rgba(255,255,255,0.75);
+            font-size: 13.5px;
+            line-height: 1.8;
+        }
+        .onboarding-dots {
+            display: flex;
+            gap: 8px;
+            margin: 32px 0 24px;
+        }
+        .onboarding-dots .dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: rgba(255,255,255,0.25);
+            border: none;
+            cursor: pointer;
+            transition: var(--transition-base);
+        }
+        .onboarding-dots .dot.active {
+            width: 24px;
+            border-radius: 4px;
+            background: var(--accent);
+        }
+        .onboarding-next {
+            background: var(--accent);
+            color: #fff;
+            border: none;
+            padding: 14px 48px;
+            border-radius: var(--radius-full);
+            font-size: 14px;
+            font-weight: 800;
+            font-family: var(--font-family);
+            cursor: pointer;
         }
 
         /* ============================================================
@@ -2054,6 +2193,7 @@ if (isset($_GET['ajax'])) {
                 background: var(--primary-dark);
             }
             .welcome-screen,
+            .onboarding-screen,
             .login-page,
             #appContainer {
                 left: 50% !important;
@@ -2063,7 +2203,7 @@ if (isset($_GET['ajax'])) {
                 transform: translateX(-50%);
                 box-shadow: 0 0 0 1px rgba(255,255,255,0.08), 0 30px 80px rgba(0,0,0,0.45);
             }
-            .welcome-screen, .login-page {
+            .welcome-screen, .onboarding-screen, .login-page {
                 position: fixed;
                 top: 0;
                 bottom: 0;
@@ -2109,6 +2249,36 @@ if (isset($_GET['ajax'])) {
     </div>
 
     <!-- ============================================================
+    شاشة تعريفية (تظهر فقط عند أول استخدام)
+    ============================================================ -->
+    <div class="onboarding-screen hidden" id="onboardingScreen">
+        <button class="onboarding-skip" id="onboardingSkipBtn" onclick="finishOnboarding()">تخطي</button>
+        <div class="onboarding-slides" id="onboardingSlides">
+            <div class="onboarding-slide">
+                <div class="onboarding-icon"><i class="fas fa-fingerprint"></i></div>
+                <h2>سجّل حضورك بضغطة واحدة</h2>
+                <p>بصمة دخول وانصراف حقيقية بتحديد موقعك، تعمل فقط ضمن نطاق فرعك وخلال وقت الدوام.</p>
+            </div>
+            <div class="onboarding-slide">
+                <div class="onboarding-icon"><i class="fas fa-file-pen"></i></div>
+                <h2>قدّم طلباتك ببضع نقرات</h2>
+                <p>إجازة، سلفة، شكوى أو استقالة — تابع حالة كل طلب لحظة بلحظة حتى الموافقة النهائية.</p>
+            </div>
+            <div class="onboarding-slide">
+                <div class="onboarding-icon"><i class="fas fa-trophy"></i></div>
+                <h2>راقب راتبك والتزامك</h2>
+                <p>راتبك الشهري، نسبة التزامك، ولائحة شرف أفضل الموظفين — كلها بمكان واحد.</p>
+            </div>
+        </div>
+        <div class="onboarding-dots" id="onboardingDots">
+            <button class="dot active" onclick="onboardingGoTo(0)"></button>
+            <button class="dot" onclick="onboardingGoTo(1)"></button>
+            <button class="dot" onclick="onboardingGoTo(2)"></button>
+        </div>
+        <button class="onboarding-next" id="onboardingNextBtn" onclick="onboardingNext()">التالي</button>
+    </div>
+
+    <!-- ============================================================
     شاشة تسجيل الدخول
     ============================================================ -->
     <div id="loginScreen" class="login-page hidden">
@@ -2146,8 +2316,8 @@ if (isset($_GET['ajax'])) {
         <!-- الهيدر -->
         <header class="header-glass">
             <div class="brand">
-                <div class="logo">✥</div>
-                <div class="name">نافذة <span>الموظف</span></div>
+                <div class="logo" id="headerLogo">✥</div>
+                <div class="name" id="headerCompanyName">نافذة <span>الموظف</span></div>
                 <span class="role-badge">موظف</span>
             </div>
             <div class="actions">
@@ -2339,6 +2509,25 @@ if (isset($_GET['ajax'])) {
                         <i class="fas fa-id-card"></i> مستمسكاتي
                     </button>
                 </div>
+
+                <div class="section-title"><i class="fas fa-key"></i> تغيير كلمة المرور</div>
+                <div class="card">
+                    <div class="form-group">
+                        <label>كلمة المرور الحالية</label>
+                        <input type="password" id="pwOld" placeholder="أدخل كلمة المرور الحالية">
+                    </div>
+                    <div class="form-group">
+                        <label>كلمة المرور الجديدة</label>
+                        <input type="password" id="pwNew" placeholder="6 أحرف على الأقل">
+                    </div>
+                    <button class="quick-action-btn" style="width:100%;padding:12px;border-color:var(--primary);" onclick="changePassword()">
+                        <i class="fas fa-save"></i> حفظ كلمة المرور الجديدة
+                    </button>
+                </div>
+
+                <button class="quick-action-btn" style="width:100%;padding:14px;border-color:#EF4444;color:#EF4444;margin-top:6px;" onclick="requestLogout()">
+                    <i class="fas fa-sign-out-alt" style="color:#EF4444;"></i> تسجيل الخروج
+                </button>
             </div>
 
             <div id="page-attendance" class="page-screen hidden">
@@ -2602,8 +2791,8 @@ if (isset($_GET['ajax'])) {
             <button class="nav-item" id="nav-profile" onclick="navigateTo('profile')">
                 <i class="fas fa-user"></i><span>ملفي</span>
             </button>
-            <button class="nav-item" id="nav-more" onclick="toggleMenu()">
-                <i class="fas fa-bars"></i><span>المزيد</span>
+            <button class="nav-item" id="nav-more" onclick="navigateTo('briefing')" style="display:none;">
+                <i class="fas fa-chart-simple"></i><span>إيجاز</span>
             </button>
         </nav>
 
@@ -2635,7 +2824,7 @@ if (isset($_GET['ajax'])) {
                 <button class="quick-action-btn" onclick="navigateTo('notifications');toggleMenu();" style="font-size:11px;padding:10px 6px;">
                     <i class="fas fa-bell"></i> الإشعارات
                 </button>
-                <button class="quick-action-btn" onclick="handleLogout();toggleMenu();" style="font-size:11px;padding:10px 6px;border-color:#EF4444;color:#EF4444;">
+                <button class="quick-action-btn" onclick="toggleMenu();requestLogout();" style="font-size:11px;padding:10px 6px;border-color:#EF4444;color:#EF4444;">
                     <i class="fas fa-sign-out-alt" style="color:#EF4444;"></i> خروج
                 </button>
             </div>
@@ -2665,6 +2854,31 @@ if (isset($_GET['ajax'])) {
     </div>
 
     <!-- ============================================================
+    شريط دعوة تثبيت التطبيق (PWA)
+    ============================================================ -->
+    <div id="pwaInstallBanner" style="display:none;position:fixed;top:0;left:50%;transform:translateX(-50%);width:100%;max-width:480px;background:var(--primary-dark);color:#fff;z-index:9999;padding:10px 16px;align-items:center;gap:10px;font-size:12.5px;">
+        <img src="icons/icon-192.png" style="width:28px;height:28px;border-radius:8px;flex-shrink:0;">
+        <span style="flex:1;">ثبّت تطبيق نافذة الموظف على جهازك للوصول السريع</span>
+        <button onclick="installPwa()" style="background:var(--accent);color:#fff;border:none;padding:6px 14px;border-radius:var(--radius-full);font-weight:700;font-size:11.5px;cursor:pointer;white-space:nowrap;">تثبيت</button>
+        <button onclick="dismissPwaBanner()" style="background:none;border:none;color:rgba(255,255,255,0.7);font-size:16px;cursor:pointer;padding:0 4px;">✕</button>
+    </div>
+
+    <!-- ============================================================
+    بطاقة تأكيد منبثقة من الأسفل (بديل عن confirm() الأصلية بالمتصفح)
+    ============================================================ -->
+    <div id="confirmSheetOverlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.5);backdrop-filter:blur(4px);z-index:600;" onclick="if(event.target===this) closeConfirmSheet()">
+        <div id="confirmSheet" style="position:fixed;bottom:0;left:50%;transform:translateX(-50%);width:100%;max-width:480px;background:var(--bg-card);border-radius:var(--radius-lg) var(--radius-lg) 0 0;box-shadow:var(--shadow-xl);padding:24px 20px calc(24px + env(safe-area-inset-bottom));animation:slideUp 0.35s cubic-bezier(0.34,1.56,0.64,1);">
+            <div style="width:40px;height:4px;background:rgba(0,0,0,0.15);border-radius:4px;margin:0 auto 16px;"></div>
+            <h3 id="confirmSheetTitle" style="font-size:16px;font-weight:800;color:var(--text-primary);text-align:center;margin-bottom:6px;">تأكيد</h3>
+            <p id="confirmSheetMessage" style="font-size:13px;color:var(--text-muted);text-align:center;margin-bottom:20px;">هل أنت متأكد؟</p>
+            <div style="display:flex;gap:10px;">
+                <button class="quick-action-btn" style="flex:1;padding:14px;border-color:#EF4444;color:#EF4444;" onclick="confirmSheetAccept()"><i class="fas fa-check"></i> تأكيد</button>
+                <button class="quick-action-btn" style="flex:1;padding:14px;" onclick="closeConfirmSheet()"><i class="fas fa-times"></i> إلغاء</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ============================================================
     TOAST CONTAINER
     ============================================================ -->
     <div class="toast-container" id="toastContainer"></div>
@@ -2680,6 +2894,44 @@ if (isset($_GET['ajax'])) {
             }
             e.preventDefault();
         });
+
+        // ============================================================
+        // PWA: تسجيل خدمة العامل + دعوة التثبيت عند أول استخدام
+        // ============================================================
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', function() {
+                navigator.serviceWorker.register('/sw.js').catch(function() {});
+            });
+        }
+        let deferredInstallPrompt = null;
+        window.addEventListener('beforeinstallprompt', function(e) {
+            e.preventDefault();
+            deferredInstallPrompt = e;
+            if (!localStorage.getItem('pwaInstallDismissed')) {
+                document.getElementById('pwaInstallBanner').style.display = 'flex';
+            }
+        });
+        function installPwa() {
+            document.getElementById('pwaInstallBanner').style.display = 'none';
+            if (!deferredInstallPrompt) return;
+            deferredInstallPrompt.prompt();
+            deferredInstallPrompt.userChoice.finally(function() {
+                deferredInstallPrompt = null;
+                localStorage.setItem('pwaInstallDismissed', '1');
+            });
+        }
+        function dismissPwaBanner() {
+            document.getElementById('pwaInstallBanner').style.display = 'none';
+            localStorage.setItem('pwaInstallDismissed', '1');
+        }
+
+        function requestNotifPermission() {
+            if (!('Notification' in window) || localStorage.getItem('notifPermissionAsked')) return;
+            localStorage.setItem('notifPermissionAsked', '1');
+            if (Notification.permission === 'default') {
+                Notification.requestPermission().catch(function() {});
+            }
+        }
 
         // ============================================================
         // شاشة الترحيب - محاكاة التحميل
@@ -2731,6 +2983,8 @@ if (isset($_GET['ajax'])) {
                             document.getElementById('appContainer').classList.remove('hidden');
                             startAutoSlide();
                             initApp();
+                        } else if (!localStorage.getItem('onboardingSeen')) {
+                            document.getElementById('onboardingScreen').classList.remove('hidden');
                         } else {
                             loginScreen.classList.remove('hidden');
                         }
@@ -2853,12 +3107,18 @@ if (isset($_GET['ajax'])) {
             loadNotifications();
             setInterval(loadNotifications, 60000);
             setInterval(loadBootstrap, 60000);
+            requestNotifPermission();
         }
 
         function loadBootstrap() {
             fetch('?ajax=bootstrap').then(r => r.json()).then(data => {
                 if (!data.ok) return;
                 const p = data.profile;
+
+                if (data.company) {
+                    document.getElementById('headerCompanyName').innerHTML = data.company.name + ' <span>نافذة الموظف</span>';
+                    if (data.company.logo) document.getElementById('headerLogo').innerHTML = `<img src="${data.company.logo}" style="width:100%;height:100%;object-fit:cover;border-radius:inherit;">`;
+                }
 
                 document.getElementById('homeAvatar').textContent = p.photo ? '' : (p.name ? p.name.charAt(0) : '؟');
                 if (p.photo) document.getElementById('homeAvatar').innerHTML = `<img src="${p.photo}" style="width:100%;height:100%;object-fit:cover;border-radius:50%;">`;
@@ -2921,6 +3181,7 @@ if (isset($_GET['ajax'])) {
                 isDelegated = data.delegation && data.delegation.active;
                 document.getElementById('qaBriefing').style.display = isDelegated ? '' : 'none';
                 document.getElementById('menuBriefing').style.display = isDelegated ? '' : 'none';
+                document.getElementById('nav-more').style.display = isDelegated ? '' : 'none';
                 document.getElementById('briefDelegatedZone').style.display = isDelegated ? 'block' : 'none';
                 document.getElementById('briefViewOnlyNote').style.display = isDelegated ? 'none' : 'block';
                 if (isDelegated) {
@@ -3072,6 +3333,11 @@ if (isset($_GET['ajax'])) {
                     document.getElementById('briefExpense').textContent = '-';
                     document.getElementById('briefIncome').textContent = '-';
                     document.getElementById('briefProfit').textContent = 'لم يُنشر بعد';
+                } else if (data.pendingApproval) {
+                    document.getElementById('briefTravelers').textContent = '-';
+                    document.getElementById('briefExpense').textContent = '-';
+                    document.getElementById('briefIncome').textContent = '-';
+                    document.getElementById('briefProfit').textContent = data.statusText;
                 } else {
                     document.getElementById('briefTravelers').textContent = data.travelersCount;
                     document.getElementById('briefExpense').textContent = Number(data.totalExpense).toLocaleString();
@@ -3125,12 +3391,17 @@ if (isset($_GET['ajax'])) {
         }
 
         function publishBriefingAsDelegate() {
+            showConfirmSheet('نشر إيجاز اليوم', 'تأكيد نشر إيجاز اليوم؟ سيُرسل للموارد البشرية للمراجعة.', doPublishBriefingAsDelegate);
+        }
+
+        function doPublishBriefingAsDelegate() {
             const travelersCount = document.getElementById('briefTravelersInput').value || 0;
-            if (!confirm('تأكيد نشر إيجاز اليوم؟ سيُرسل للموارد البشرية للمراجعة.')) return;
             fetch('?ajax=briefing_publish_delegate', { method: 'POST', body: new URLSearchParams({ travelersCount }) }).then(r => r.json()).then(data => {
                 if (!data.ok) { showToast('⚠️ خطأ', data.error || 'تعذر نشر الإيجاز', 'error'); return; }
                 showToast('✅ تم النشر', 'تم نشر إيجاز اليوم بانتظار مراجعة الموارد البشرية', 'success');
                 loadBriefing();
+            }).catch(() => {
+                showToast('⚠️ خطأ', 'تعذر الاتصال بالخادم', 'error');
             });
         }
 
@@ -3691,15 +3962,92 @@ if (isset($_GET['ajax'])) {
             menu.style.display = menu.style.display === 'none' ? 'block' : 'none';
         }
 
-        function handleLogout() {
-            if (confirm('هل أنت متأكد من رغبتك في تسجيل الخروج؟')) {
-                fetch('?ajax=logout', { method: 'POST' }).catch(() => {});
-                if (slideInterval) clearInterval(slideInterval);
-                document.getElementById('appContainer').classList.add('hidden');
-                loginScreen.classList.remove('hidden');
-                document.getElementById('sideMenu').style.display = 'none';
-                showToast('👋 تم تسجيل الخروج', 'نتمنى رؤيتك قريباً', 'info');
+        // ============================================================
+        // الشاشة التعريفية (Onboarding)
+        // ============================================================
+        let onboardingSlideIndex = 0;
+        const onboardingSlideCount = 3;
+
+        function onboardingGoTo(index) {
+            onboardingSlideIndex = index;
+            document.getElementById('onboardingSlides').style.transform = `translateX(-${index * 100}%)`;
+            document.querySelectorAll('#onboardingDots .dot').forEach((dot, i) => dot.classList.toggle('active', i === index));
+            document.getElementById('onboardingNextBtn').textContent = index === onboardingSlideCount - 1 ? 'ابدأ الآن' : 'التالي';
+        }
+
+        function onboardingNext() {
+            if (onboardingSlideIndex < onboardingSlideCount - 1) {
+                onboardingGoTo(onboardingSlideIndex + 1);
+            } else {
+                finishOnboarding();
             }
+        }
+
+        function finishOnboarding() {
+            localStorage.setItem('onboardingSeen', '1');
+            document.getElementById('onboardingScreen').classList.add('hidden');
+            loginScreen.classList.remove('hidden');
+        }
+
+        function handleLogout() {
+            fetch('?ajax=logout', { method: 'POST' }).catch(() => {});
+            if (slideInterval) clearInterval(slideInterval);
+            document.getElementById('appContainer').classList.add('hidden');
+            loginScreen.classList.remove('hidden');
+            document.getElementById('sideMenu').style.display = 'none';
+            showToast('👋 تم تسجيل الخروج', 'نتمنى رؤيتك قريباً', 'info');
+        }
+
+        function requestLogout() {
+            showConfirmSheet('تسجيل الخروج', 'هل أنت متأكد من رغبتك في تسجيل الخروج؟', handleLogout);
+        }
+
+        // ============================================================
+        // بطاقة تأكيد منبثقة (بديل عن confirm() الأصلية بالمتصفح)
+        // ============================================================
+        let confirmSheetCallback = null;
+
+        function showConfirmSheet(title, message, onConfirm) {
+            document.getElementById('confirmSheetTitle').textContent = title;
+            document.getElementById('confirmSheetMessage').textContent = message;
+            confirmSheetCallback = onConfirm;
+            document.getElementById('confirmSheetOverlay').style.display = 'block';
+        }
+
+        function closeConfirmSheet() {
+            document.getElementById('confirmSheetOverlay').style.display = 'none';
+            confirmSheetCallback = null;
+        }
+
+        function confirmSheetAccept() {
+            const cb = confirmSheetCallback;
+            closeConfirmSheet();
+            if (cb) cb();
+        }
+
+        // ============================================================
+        // تغيير كلمة المرور
+        // ============================================================
+        function changePassword() {
+            const oldPw = document.getElementById('pwOld').value;
+            const newPw = document.getElementById('pwNew').value;
+            if (!oldPw || !newPw) {
+                showToast('⚠️ تنبيه', 'يرجى تعبئة كلمة المرور الحالية والجديدة', 'warning');
+                return;
+            }
+            if (newPw.length < 6) {
+                showToast('⚠️ تنبيه', 'كلمة المرور الجديدة يجب ألا تقل عن 6 أحرف', 'warning');
+                return;
+            }
+            fetch('?ajax=password_change', { method: 'POST', body: new URLSearchParams({ oldPassword: oldPw, newPassword: newPw }) })
+                .then(r => r.json()).then(data => {
+                    if (!data.ok) { showToast('⚠️ خطأ', data.error || 'تعذر تغيير كلمة المرور', 'error'); return; }
+                    document.getElementById('pwOld').value = '';
+                    document.getElementById('pwNew').value = '';
+                    showToast('✅ تم التغيير', 'تم تغيير كلمة المرور بنجاح', 'success');
+                }).catch(() => {
+                    showToast('⚠️ خطأ', 'تعذر الاتصال بالخادم', 'error');
+                });
         }
 
         function markAllRead() {

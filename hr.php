@@ -748,9 +748,15 @@ if (isset($_GET['ajax'])) {
             $workEnd = $_POST['workEnd'] ?? '17:00';
             $lateGrace = (int) ($_POST['lateGrace'] ?? 15);
             $lateDeduction = (float) ($_POST['lateDeduction'] ?? 0);
-            $pdo->prepare("UPDATE settings SET company_name=?, company_email=?, work_start_time=?, work_end_time=?, late_grace_minutes=?, late_deduction_per_hour=? ORDER BY id DESC LIMIT 1")
-                ->execute([$companyName, $companyEmail, $workStart, $workEnd, $lateGrace, $lateDeduction]);
-            echo json_encode(['ok' => true]);
+            $logoPath = handle_upload('logo', 'branding', ['jpg', 'jpeg', 'png', 'webp']);
+            if ($logoPath) {
+                $pdo->prepare("UPDATE settings SET company_name=?, company_email=?, work_start_time=?, work_end_time=?, late_grace_minutes=?, late_deduction_per_hour=?, company_logo=? ORDER BY id DESC LIMIT 1")
+                    ->execute([$companyName, $companyEmail, $workStart, $workEnd, $lateGrace, $lateDeduction, $logoPath]);
+            } else {
+                $pdo->prepare("UPDATE settings SET company_name=?, company_email=?, work_start_time=?, work_end_time=?, late_grace_minutes=?, late_deduction_per_hour=? ORDER BY id DESC LIMIT 1")
+                    ->execute([$companyName, $companyEmail, $workStart, $workEnd, $lateGrace, $lateDeduction]);
+            }
+            echo json_encode(['ok' => true, 'logo' => $logoPath]);
             exit;
         }
 
@@ -866,6 +872,9 @@ function report_data(PDO $pdo, string $type, string $from, string $to, int $bran
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>نظام إدارة الموارد البشرية - HR</title>
+    <link rel="manifest" href="manifest.php?app=hr">
+    <meta name="theme-color" content="#006b73">
+    <link rel="apple-touch-icon" href="icons/icon-192.png">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
@@ -2227,10 +2236,10 @@ function report_data(PDO $pdo, string $type, string $from, string $to, int $bran
         <!-- ===== الشريط الجانبي ===== -->
         <aside class="sidebar" id="sidebar">
             <div class="brand">
-                <div class="logo">✥</div>
+                <div class="logo" id="headerLogo">✥</div>
                 <div>
-                    <div class="name">نظام <span>الموارد</span></div>
-                    <span class="version">v3.0 · HR</span>
+                    <div class="name" id="headerCompanyName">نظام <span>الموارد</span></div>
+                    <span class="version">HR</span>
                 </div>
             </div>
 
@@ -2801,6 +2810,13 @@ function report_data(PDO $pdo, string $type, string $from, string $to, int $bran
                     <div class="content-card">
                         <div class="card-header"><h4><i class="fas fa-building"></i> إعدادات الشركة</h4></div>
                         <div class="card-body">
+                            <div style="display:flex;align-items:center;gap:16px;margin-bottom:16px;">
+                                <div id="settingsLogoPreview" style="width:64px;height:64px;border-radius:12px;background:var(--primary-gradient);display:flex;align-items:center;justify-content:center;color:#fff;font-size:28px;overflow:hidden;flex-shrink:0;">✥</div>
+                                <div class="form-group" style="flex:1;">
+                                    <label style="font-size:12px;font-weight:600;color:var(--text-muted);">شعار الشركة (يظهر في كل الأقسام)</label>
+                                    <input type="file" id="settingsLogoFile" accept=".jpg,.jpeg,.png,.webp" style="width:100%;padding:8px;border:2px solid rgba(0,107,115,0.06);border-radius:var(--radius-sm);font-family:var(--font-family);">
+                                </div>
+                            </div>
                             <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">
                                 <div class="form-group"><label style="font-size:12px;font-weight:600;color:var(--text-muted);">اسم الشركة</label><input type="text" id="settingsCompanyName" value="شركة الصوى للصرافة" style="width:100%;padding:10px 12px;border:2px solid rgba(0,107,115,0.06);border-radius:var(--radius-sm);font-family:var(--font-family);"></div>
                                 <div class="form-group"><label style="font-size:12px;font-weight:600;color:var(--text-muted);">البريد الإلكتروني</label><input type="email" id="settingsCompanyEmail" value="hr@alsawwa.com" style="width:100%;padding:10px 12px;border:2px solid rgba(0,107,115,0.06);border-radius:var(--radius-sm);font-family:var(--font-family);"></div>
@@ -2834,6 +2850,34 @@ function report_data(PDO $pdo, string $type, string $from, string $to, int $bran
     </div>
 
     <!-- ============================================================
+    شريط دعوة تثبيت التطبيق (PWA)
+    ============================================================ -->
+    <div id="pwaInstallBanner" style="display:none;position:fixed;top:0;left:0;right:0;background:var(--primary-dark);color:#fff;z-index:9999;padding:10px 16px;align-items:center;gap:10px;font-size:12.5px;">
+        <img src="icons/icon-192.png" style="width:28px;height:28px;border-radius:8px;flex-shrink:0;">
+        <span style="flex:1;">ثبّت تطبيق الموارد البشرية على جهازك للوصول السريع</span>
+        <button onclick="installPwa()" style="background:var(--accent);color:#fff;border:none;padding:6px 14px;border-radius:var(--radius-full);font-weight:700;font-size:11.5px;cursor:pointer;white-space:nowrap;">تثبيت</button>
+        <button onclick="dismissPwaBanner()" style="background:none;border:none;color:rgba(255,255,255,0.7);font-size:16px;cursor:pointer;padding:0 4px;">✕</button>
+    </div>
+
+    <!-- ============================================================
+    بطاقة تأكيد منبثقة من الأسفل (بديل عن confirm() الأصلية بالمتصفح)
+    ============================================================ -->
+    <style>
+        @keyframes confirmSheetSlideUp { from { transform: translate(-50%, 100%); } to { transform: translate(-50%, 0); } }
+    </style>
+    <div id="confirmSheetOverlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.5);backdrop-filter:blur(4px);z-index:9998;" onclick="if(event.target===this) closeConfirmSheet()">
+        <div id="confirmSheet" style="position:fixed;bottom:0;left:50%;width:100%;max-width:420px;background:var(--bg-card);border-radius:var(--radius-lg) var(--radius-lg) 0 0;box-shadow:var(--shadow-xl);padding:24px 20px calc(24px + env(safe-area-inset-bottom));animation:confirmSheetSlideUp 0.3s ease;transform:translate(-50%,0);">
+            <div style="width:40px;height:4px;background:rgba(0,0,0,0.15);border-radius:4px;margin:0 auto 16px;"></div>
+            <h3 id="confirmSheetTitle" style="font-size:16px;font-weight:800;color:var(--text-primary);text-align:center;margin-bottom:6px;">تأكيد</h3>
+            <p id="confirmSheetMessage" style="font-size:13px;color:var(--text-muted);text-align:center;margin-bottom:20px;">هل أنت متأكد؟</p>
+            <div style="display:flex;gap:10px;">
+                <button style="flex:1;padding:14px;border:1.5px solid #EF4444;color:#EF4444;background:#fff;border-radius:10px;font-weight:700;cursor:pointer;" onclick="confirmSheetAccept()">تأكيد</button>
+                <button style="flex:1;padding:14px;border:1.5px solid rgba(0,107,115,0.15);color:var(--text-primary);background:#fff;border-radius:10px;font-weight:700;cursor:pointer;" onclick="closeConfirmSheet()">إلغاء</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ============================================================
     TOAST CONTAINER
     ============================================================ -->
     <div class="toast-container" id="toastContainer"></div>
@@ -2853,6 +2897,64 @@ function report_data(PDO $pdo, string $type, string $from, string $to, int $bran
             }
             e.preventDefault();
         });
+
+        // ============================================================
+        // PWA: تسجيل خدمة العامل + دعوة التثبيت عند أول استخدام
+        // ============================================================
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', function() {
+                navigator.serviceWorker.register('/sw.js').catch(function() {});
+            });
+        }
+        let deferredInstallPrompt = null;
+        window.addEventListener('beforeinstallprompt', function(e) {
+            e.preventDefault();
+            deferredInstallPrompt = e;
+            if (!localStorage.getItem('pwaInstallDismissed')) {
+                document.getElementById('pwaInstallBanner').style.display = 'flex';
+            }
+        });
+        function installPwa() {
+            document.getElementById('pwaInstallBanner').style.display = 'none';
+            if (!deferredInstallPrompt) return;
+            deferredInstallPrompt.prompt();
+            deferredInstallPrompt.userChoice.finally(function() {
+                deferredInstallPrompt = null;
+                localStorage.setItem('pwaInstallDismissed', '1');
+            });
+        }
+        function dismissPwaBanner() {
+            document.getElementById('pwaInstallBanner').style.display = 'none';
+            localStorage.setItem('pwaInstallDismissed', '1');
+        }
+
+        function requestNotifPermission() {
+            if (!('Notification' in window) || localStorage.getItem('notifPermissionAsked')) return;
+            localStorage.setItem('notifPermissionAsked', '1');
+            if (Notification.permission === 'default') {
+                Notification.requestPermission().catch(function() {});
+            }
+        }
+
+        // ============================================================
+        // بطاقة تأكيد منبثقة (بديل عن confirm() الأصلية بالمتصفح)
+        // ============================================================
+        let confirmSheetCallback = null;
+        function showConfirmSheet(title, message, onConfirm) {
+            document.getElementById('confirmSheetTitle').textContent = title;
+            document.getElementById('confirmSheetMessage').textContent = message;
+            confirmSheetCallback = onConfirm;
+            document.getElementById('confirmSheetOverlay').style.display = 'block';
+        }
+        function closeConfirmSheet() {
+            document.getElementById('confirmSheetOverlay').style.display = 'none';
+            confirmSheetCallback = null;
+        }
+        function confirmSheetAccept() {
+            const cb = confirmSheetCallback;
+            closeConfirmSheet();
+            if (cb) cb();
+        }
 
         // ============================================================
         // المتغيرات العامة
@@ -2915,6 +3017,7 @@ function report_data(PDO $pdo, string $type, string $from, string $to, int $bran
             generateStocks();
             loadNotifications();
             setInterval(loadNotifications, 60000);
+            requestNotifPermission();
 
             fetch('?ajax=bootstrap').then(r => r.json()).then(data => {
                 if (!data.ok) return;
@@ -2932,6 +3035,9 @@ function report_data(PDO $pdo, string $type, string $from, string $to, int $bran
                     const s = data.settings;
                     const byId = id => document.getElementById(id);
                     if (byId('settingsCompanyName')) byId('settingsCompanyName').value = s.company_name || '';
+                    if (s.company_logo && byId('settingsLogoPreview')) byId('settingsLogoPreview').innerHTML = `<img src="${s.company_logo}" style="width:100%;height:100%;object-fit:cover;">`;
+                    if (byId('headerCompanyName')) byId('headerCompanyName').innerHTML = (s.company_name || 'نظام') + ' <span>الموارد البشرية</span>';
+                    if (s.company_logo && byId('headerLogo')) byId('headerLogo').innerHTML = `<img src="${s.company_logo}" style="width:100%;height:100%;object-fit:cover;border-radius:inherit;">`;
                     if (byId('settingsCompanyEmail')) byId('settingsCompanyEmail').value = s.company_email || '';
                     if (byId('settingsWorkStart')) byId('settingsWorkStart').value = (s.work_start_time || '').slice(0, 5);
                     if (byId('settingsWorkEnd')) byId('settingsWorkEnd').value = (s.work_end_time || '').slice(0, 5);
@@ -3065,13 +3171,15 @@ function report_data(PDO $pdo, string $type, string $from, string $to, int $bran
         }
 
         function handleLogout() {
-            if (confirm('هل أنت متأكد من رغبتك في تسجيل الخروج؟')) {
+            showConfirmSheet('تسجيل الخروج', 'هل أنت متأكد من رغبتك في تسجيل الخروج؟', function() {
                 fetch('?ajax=logout', { method: 'POST' }).then(() => {
                     document.getElementById('appContainer').style.display = 'none';
                     document.getElementById('loginPage').style.display = 'flex';
                     showToast('👋 تم تسجيل الخروج', 'نتمنى رؤيتك قريباً', 'info');
+                }).catch(() => {
+                    showToast('❌ خطأ', 'تعذر الاتصال بالخادم', 'error');
                 });
-            }
+            });
         }
 
         // ============================================================
@@ -3183,17 +3291,22 @@ function report_data(PDO $pdo, string $type, string $from, string $to, int $bran
         }
 
         function settingsSave() {
-            const body = new URLSearchParams({
-                companyName: document.getElementById('settingsCompanyName').value,
-                companyEmail: document.getElementById('settingsCompanyEmail').value,
-                workStart: document.getElementById('settingsWorkStart').value,
-                workEnd: document.getElementById('settingsWorkEnd').value,
-                lateGrace: document.getElementById('settingsLateGrace').value,
-                lateDeduction: document.getElementById('settingsLateDeduction').value,
-            });
-            fetch('?ajax=settings_save', { method: 'POST', body }).then(r => r.json()).then(data => {
-                if (data.ok) showToast('✅ تم الحفظ', 'تم حفظ إعدادات الشركة بنجاح', 'success');
-                else showToast('⚠️ خطأ', data.error || 'تعذر الحفظ', 'error');
+            const fd = new FormData();
+            fd.append('companyName', document.getElementById('settingsCompanyName').value);
+            fd.append('companyEmail', document.getElementById('settingsCompanyEmail').value);
+            fd.append('workStart', document.getElementById('settingsWorkStart').value);
+            fd.append('workEnd', document.getElementById('settingsWorkEnd').value);
+            fd.append('lateGrace', document.getElementById('settingsLateGrace').value);
+            fd.append('lateDeduction', document.getElementById('settingsLateDeduction').value);
+            const logoFile = document.getElementById('settingsLogoFile').files[0];
+            if (logoFile) fd.append('logo', logoFile);
+            fetch('?ajax=settings_save', { method: 'POST', body: fd }).then(r => r.json()).then(data => {
+                if (data.ok) {
+                    showToast('✅ تم الحفظ', 'تم حفظ إعدادات الشركة بنجاح', 'success');
+                    if (data.logo) document.getElementById('settingsLogoPreview').innerHTML = `<img src="${data.logo}" style="width:100%;height:100%;object-fit:cover;">`;
+                } else showToast('⚠️ خطأ', data.error || 'تعذر الحفظ', 'error');
+            }).catch(() => {
+                showToast('⚠️ خطأ', 'تعذر الاتصال بالخادم', 'error');
             });
         }
 
@@ -3435,7 +3548,10 @@ function report_data(PDO $pdo, string $type, string $from, string $to, int $bran
         }
 
         function deleteBranch(id) {
-            if (!confirm('هل أنت متأكد من حذف هذا الفرع؟')) return;
+            showConfirmSheet('حذف الفرع', 'هل أنت متأكد من حذف هذا الفرع؟', function() { doDeleteBranch(id); });
+        }
+
+        function doDeleteBranch(id) {
             const body = new URLSearchParams({ id });
             fetch('?ajax=branch_delete', { method: 'POST', body }).then(r => r.json()).then(data => {
                 if (!data.ok) { showToast('⚠️ خطأ', data.error || 'تعذر الحذف', 'error'); return; }
@@ -3546,12 +3662,17 @@ function report_data(PDO $pdo, string $type, string $from, string $to, int $bran
         }
 
         function deliverSalary(employeeId, name) {
-            if (!confirm(`تأكيد تسليم راتب ${name} لهذا الشهر؟`)) return;
+            showConfirmSheet('تسليم الراتب', `تأكيد تسليم راتب ${name} لهذا الشهر؟`, function() { doDeliverSalary(employeeId, name); });
+        }
+
+        function doDeliverSalary(employeeId, name) {
             const body = new URLSearchParams({ employeeId });
             fetch('?ajax=salary_deliver', { method: 'POST', body }).then(r => r.json()).then(data => {
                 if (!data.ok) { showToast('⚠️ تنبيه', data.error || 'تعذر التسليم', 'warning'); return; }
                 loadSalaries();
                 showToast('✅ تم التسليم', `تم تسليم راتب ${name} بصافي ${Number(data.net).toLocaleString()} دينار`, 'success');
+            }).catch(() => {
+                showToast('⚠️ خطأ', 'تعذر الاتصال بالخادم', 'error');
             });
         }
 

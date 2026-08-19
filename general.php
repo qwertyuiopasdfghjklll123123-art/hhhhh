@@ -164,10 +164,15 @@ if (isset($_GET['ajax'])) {
             $winStmt->execute([$month, $year]);
             $expiresAt = $winStmt->fetchColumn();
             $windowOpen = $expiresAt && strtotime($expiresAt) > time();
+            $settingsRow = $pdo->query("SELECT company_name, company_logo FROM settings ORDER BY id DESC LIMIT 1")->fetch();
 
             echo json_encode([
                 'ok' => true,
                 'username' => $gmUser['username'],
+                'company' => [
+                    'name' => $settingsRow['company_name'] ?: 'شركة الصوى للصرافة',
+                    'logo' => $settingsRow['company_logo'] ?: null,
+                ],
                 'stats' => [
                     'pending' => $pending,
                     'approvedToday' => $approvedToday,
@@ -455,6 +460,9 @@ if (isset($_GET['ajax'])) {
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>شركة الصوى للصرافة - المسؤول العام</title>
+<link rel="manifest" href="manifest.php?app=general">
+<meta name="theme-color" content="#006b73">
+<link rel="apple-touch-icon" href="icons/icon-192.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
@@ -582,7 +590,7 @@ if (isset($_GET['ajax'])) {
     <!-- التطبيق -->
     <div id="appContainer" class="hidden">
         <header class="topbar">
-            <div class="brand"><div class="logo">✥</div> شركة الصوى <span class="role-badge" id="roleBadge">المسؤول العام</span></div>
+            <div class="brand"><div class="logo" id="headerLogo">✥</div> <span id="headerCompanyName">شركة الصوى</span> <span class="role-badge" id="roleBadge">المسؤول العام</span></div>
             <button class="btn small red" onclick="handleLogout()"><i class="fas fa-sign-out-alt"></i> تسجيل الخروج</button>
         </header>
 
@@ -677,6 +685,30 @@ if (isset($_GET['ajax'])) {
         </div>
     </div>
 
+    <!-- شريط دعوة تثبيت التطبيق (PWA) -->
+    <div id="pwaInstallBanner" style="display:none;position:fixed;top:0;left:0;right:0;background:var(--primary-dark);color:#fff;z-index:9999;padding:10px 16px;align-items:center;gap:10px;font-size:12.5px;">
+        <img src="icons/icon-192.png" style="width:28px;height:28px;border-radius:8px;flex-shrink:0;">
+        <span style="flex:1;">ثبّت تطبيق المسؤول العام على جهازك للوصول السريع</span>
+        <button onclick="installPwa()" style="background:var(--accent);color:#fff;border:none;padding:6px 14px;border-radius:999px;font-weight:700;font-size:11.5px;cursor:pointer;white-space:nowrap;">تثبيت</button>
+        <button onclick="dismissPwaBanner()" style="background:none;border:none;color:rgba(255,255,255,0.7);font-size:16px;cursor:pointer;padding:0 4px;">✕</button>
+    </div>
+
+    <!-- بطاقة تأكيد منبثقة من الأسفل (بديل عن confirm() الأصلية بالمتصفح) -->
+    <style>
+        @keyframes confirmSheetSlideUp { from { transform: translate(-50%, 100%); } to { transform: translate(-50%, 0); } }
+    </style>
+    <div id="confirmSheetOverlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.5);backdrop-filter:blur(4px);z-index:9998;" onclick="if(event.target===this) closeConfirmSheet()">
+        <div id="confirmSheet" style="position:fixed;bottom:0;left:50%;width:100%;max-width:420px;background:var(--bg-card);border-radius:var(--radius-lg) var(--radius-lg) 0 0;box-shadow:var(--shadow-xl);padding:24px 20px calc(24px + env(safe-area-inset-bottom));animation:confirmSheetSlideUp 0.3s ease;transform:translate(-50%,0);">
+            <div style="width:40px;height:4px;background:rgba(0,0,0,0.15);border-radius:4px;margin:0 auto 16px;"></div>
+            <h3 id="confirmSheetTitle" style="font-size:16px;font-weight:800;color:var(--text-primary);text-align:center;margin-bottom:6px;">تأكيد</h3>
+            <p id="confirmSheetMessage" style="font-size:13px;color:var(--text-muted);text-align:center;margin-bottom:20px;">هل أنت متأكد؟</p>
+            <div style="display:flex;gap:10px;">
+                <button style="flex:1;padding:14px;border:1.5px solid #EF4444;color:#EF4444;background:#fff;border-radius:10px;font-weight:700;cursor:pointer;" onclick="confirmSheetAccept()">تأكيد</button>
+                <button style="flex:1;padding:14px;border:1.5px solid rgba(0,107,115,0.15);color:var(--text-primary);background:#fff;border-radius:10px;font-weight:700;cursor:pointer;" onclick="closeConfirmSheet()">إلغاء</button>
+            </div>
+        </div>
+    </div>
+
     <div class="toast-container" id="toastContainer"></div>
 
 <script>
@@ -688,6 +720,60 @@ if (isset($_GET['ajax'])) {
         }
         e.preventDefault();
     });
+
+    // PWA: تسجيل خدمة العامل + دعوة التثبيت عند أول استخدام
+    if ('serviceWorker' in navigator) {
+        window.addEventListener('load', function() {
+            navigator.serviceWorker.register('/sw.js').catch(function() {});
+        });
+    }
+    let deferredInstallPrompt = null;
+    window.addEventListener('beforeinstallprompt', function(e) {
+        e.preventDefault();
+        deferredInstallPrompt = e;
+        if (!localStorage.getItem('pwaInstallDismissed')) {
+            document.getElementById('pwaInstallBanner').style.display = 'flex';
+        }
+    });
+    function installPwa() {
+        document.getElementById('pwaInstallBanner').style.display = 'none';
+        if (!deferredInstallPrompt) return;
+        deferredInstallPrompt.prompt();
+        deferredInstallPrompt.userChoice.finally(function() {
+            deferredInstallPrompt = null;
+            localStorage.setItem('pwaInstallDismissed', '1');
+        });
+    }
+    function dismissPwaBanner() {
+        document.getElementById('pwaInstallBanner').style.display = 'none';
+        localStorage.setItem('pwaInstallDismissed', '1');
+    }
+
+    function requestNotifPermission() {
+        if (!('Notification' in window) || localStorage.getItem('notifPermissionAsked')) return;
+        localStorage.setItem('notifPermissionAsked', '1');
+        if (Notification.permission === 'default') {
+            Notification.requestPermission().catch(function() {});
+        }
+    }
+
+    // بطاقة تأكيد منبثقة (بديل عن confirm() الأصلية بالمتصفح)
+    let confirmSheetCallback = null;
+    function showConfirmSheet(title, message, onConfirm) {
+        document.getElementById('confirmSheetTitle').textContent = title;
+        document.getElementById('confirmSheetMessage').textContent = message;
+        confirmSheetCallback = onConfirm;
+        document.getElementById('confirmSheetOverlay').style.display = 'block';
+    }
+    function closeConfirmSheet() {
+        document.getElementById('confirmSheetOverlay').style.display = 'none';
+        confirmSheetCallback = null;
+    }
+    function confirmSheetAccept() {
+        const cb = confirmSheetCallback;
+        closeConfirmSheet();
+        if (cb) cb();
+    }
 
     const loginScreen = document.getElementById('loginScreen');
     const appContainer = document.getElementById('appContainer');
@@ -723,10 +809,13 @@ if (isset($_GET['ajax'])) {
     }
 
     function handleLogout() {
-        if (!confirm('هل أنت متأكد من رغبتك في تسجيل الخروج؟')) return;
-        fetch('?ajax=logout', { method: 'POST' }).then(() => {
-            appContainer.classList.add('hidden');
-            loginScreen.classList.remove('hidden');
+        showConfirmSheet('تسجيل الخروج', 'هل أنت متأكد من رغبتك في تسجيل الخروج؟', function() {
+            fetch('?ajax=logout', { method: 'POST' }).then(() => {
+                appContainer.classList.add('hidden');
+                loginScreen.classList.remove('hidden');
+            }).catch(() => {
+                showToast('❌ خطأ', 'تعذر الاتصال بالخادم', 'error');
+            });
         });
     }
 
@@ -734,6 +823,7 @@ if (isset($_GET['ajax'])) {
 
     function initApp() {
         loadBootstrap();
+        requestNotifPermission();
         if (currentRole !== 'shareholder') loadPending();
         const today = new Date().toISOString().split('T')[0];
         const monthStart = today.slice(0, 8) + '01';
@@ -808,6 +898,10 @@ if (isset($_GET['ajax'])) {
     function loadBootstrap() {
         fetch('?ajax=bootstrap').then(r => r.json()).then(data => {
             if (!data.ok) return;
+            if (data.company) {
+                document.getElementById('headerCompanyName').textContent = data.company.name;
+                if (data.company.logo) document.getElementById('headerLogo').innerHTML = `<img src="${data.company.logo}" style="width:100%;height:100%;object-fit:cover;border-radius:inherit;">`;
+            }
             document.getElementById('statPending').textContent = data.stats.pending;
             document.getElementById('statApprovedToday').textContent = data.stats.approvedToday;
             document.getElementById('statBranches').textContent = data.stats.branches;
@@ -836,11 +930,14 @@ if (isset($_GET['ajax'])) {
     }
 
     function openPayrollWindow() {
-        if (!confirm('سيمنح هذا صلاحية تسليم الرواتب لـ HR لمدة 3 أيام من الآن. متابعة؟')) return;
-        fetch('?ajax=payroll_window_open', { method: 'POST' }).then(r => r.json()).then(data => {
-            if (!data.ok) { showToast('⚠️ خطأ', data.error || 'تعذر الفتح', 'error'); return; }
-            showToast('✅ تم الفتح', 'أصبح بإمكان HR تسليم الرواتب لمدة 3 أيام', 'success');
-            loadBootstrap();
+        showConfirmSheet('فتح نافذة تسليم الرواتب', 'سيمنح هذا صلاحية تسليم الرواتب لـ HR ولمديري الفروع لمدة 3 أيام من الآن. متابعة؟', function() {
+            fetch('?ajax=payroll_window_open', { method: 'POST' }).then(r => r.json()).then(data => {
+                if (!data.ok) { showToast('⚠️ خطأ', data.error || 'تعذر الفتح', 'error'); return; }
+                showToast('✅ تم الفتح', 'أصبح بإمكان HR تسليم الرواتب لمدة 3 أيام', 'success');
+                loadBootstrap();
+            }).catch(() => {
+                showToast('⚠️ خطأ', 'تعذر الاتصال بالخادم', 'error');
+            });
         });
     }
 

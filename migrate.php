@@ -162,6 +162,11 @@ function migration_steps(): array
                 UNIQUE KEY uniq_period (period_month, period_year)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4"),
         ],
+        [
+            'label' => 'إضافة شعار الشركة القابل للتعديل من إعدادات HR (company_logo)',
+            'needed' => fn(PDO $pdo) => !column_exists($pdo, 'settings', 'company_logo'),
+            'run' => fn(PDO $pdo) => $pdo->exec("ALTER TABLE settings ADD COLUMN company_logo VARCHAR(255) DEFAULT NULL"),
+        ],
     ];
 }
 

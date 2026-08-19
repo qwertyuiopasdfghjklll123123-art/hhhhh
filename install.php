@@ -18,6 +18,7 @@ function install_schema(PDO $pdo): void
             id INT AUTO_INCREMENT PRIMARY KEY,
             company_name VARCHAR(150) NOT NULL DEFAULT 'شركة الصرافة',
             company_email VARCHAR(150) DEFAULT NULL,
+            company_logo VARCHAR(255) DEFAULT NULL,
             work_start_time TIME NOT NULL DEFAULT '09:00:00',
             work_end_time TIME NOT NULL DEFAULT '15:00:00',
             usd_exchange_rate DECIMAL(10,2) NOT NULL DEFAULT 0,

@@ -147,7 +147,7 @@ if (isset($_GET['ajax'])) {
             $mgrRow = $mgrPhotoStmt->fetch();
             $mgrPhoto = $mgrRow['photo'] ?? null;
 
-            $settingsRow = $pdo->query("SELECT work_start_time, work_end_time, late_grace_minutes FROM settings ORDER BY id DESC LIMIT 1")->fetch();
+            $settingsRow = $pdo->query("SELECT work_start_time, work_end_time, late_grace_minutes, company_name, company_logo FROM settings ORDER BY id DESC LIMIT 1")->fetch();
             $shiftStart = $mgrRow['shift_start'] ?: ($settingsRow['work_start_time'] ?? '09:00:00');
             $shiftEnd = $mgrRow['shift_end'] ?: ($settingsRow['work_end_time'] ?? '17:00:00');
             $graceMinutes = (int) ($settingsRow['late_grace_minutes'] ?? 15);
@@ -187,6 +187,7 @@ if (isset($_GET['ajax'])) {
             echo json_encode([
                 'ok' => true,
                 'manager' => ['name' => $mgr['full_name'], 'code' => $mgr['employee_number'], 'branch' => $branch['name'], 'photo' => $mgrPhoto ?: null],
+                'company' => ['name' => $settingsRow['company_name'] ?: 'شركة الصوى للصرافة', 'logo' => $settingsRow['company_logo'] ?: null],
                 'stats' => [
                     'employees' => (int) $empCount->fetchColumn(),
                     'presentToday' => (int) $presentToday->fetchColumn(),
@@ -334,12 +335,29 @@ if (isset($_GET['ajax'])) {
             $now = date('H:i:s');
             $employeeId = $mgr['employee_id'];
             if ($type === 'in') {
+                $existing = $pdo->prepare("SELECT check_in FROM attendance WHERE employee_id=? AND attendance_date=?");
+                $existing->execute([$employeeId, $today]);
+                if ($existing->fetchColumn()) {
+                    echo json_encode(['ok' => false, 'error' => 'تم تسجيل حضورك اليوم مسبقاً']);
+                    exit;
+                }
                 $settingsRow = $pdo->query("SELECT work_start_time, late_grace_minutes FROM settings ORDER BY id DESC LIMIT 1")->fetch();
                 $status = is_late($now, $settingsRow) ? 'late' : 'present';
                 $stmt = $pdo->prepare("INSERT INTO attendance (employee_id, branch_id, attendance_date, check_in, status)
                     VALUES (?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE check_in=VALUES(check_in), status=VALUES(status)");
                 $stmt->execute([$employeeId, $branchId, $today, $now, $status]);
             } else {
+                $checkedIn = $pdo->prepare("SELECT check_in, check_out FROM attendance WHERE employee_id=? AND attendance_date=?");
+                $checkedIn->execute([$employeeId, $today]);
+                $checkedIn = $checkedIn->fetch();
+                if (!$checkedIn || !$checkedIn['check_in']) {
+                    echo json_encode(['ok' => false, 'error' => 'يجب تسجيل الحضور أولاً']);
+                    exit;
+                }
+                if ($checkedIn['check_out']) {
+                    echo json_encode(['ok' => false, 'error' => 'تم تسجيل انصرافك اليوم مسبقاً']);
+                    exit;
+                }
                 $pdo->prepare("UPDATE attendance SET check_out=? WHERE employee_id=? AND attendance_date=?")->execute([$now, $employeeId, $today]);
             }
             echo json_encode(['ok' => true, 'time' => substr($now, 0, 5)]);
@@ -715,6 +733,9 @@ function branch_report_data(PDO $pdo, string $type, string $from, string $to, in
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>شركة الصوى للصرافة - مدير الفرع</title>
+    <link rel="manifest" href="manifest.php?app=branch">
+    <meta name="theme-color" content="#006b73">
+    <link rel="apple-touch-icon" href="icons/icon-192.png">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
@@ -1154,8 +1175,8 @@ function branch_report_data(PDO $pdo, string $type, string $from, string $to, in
         <!-- الهيدر -->
         <header class="header-glass">
             <div class="brand">
-                <div class="logo">✥</div>
-                <div class="name">شركة <span>الصوى</span></div>
+                <div class="logo" id="headerLogo">✥</div>
+                <div class="name" id="headerCompanyName">شركة <span>الصوى</span></div>
                 <span class="role-badge">مدير فرع</span>
             </div>
             <div class="actions">
@@ -1728,10 +1749,56 @@ function branch_report_data(PDO $pdo, string $type, string $from, string $to, in
         </div>
     </div>
 
+    <!-- شريط دعوة تثبيت التطبيق (PWA) -->
+    <div id="pwaInstallBanner" style="display:none;position:fixed;top:0;left:0;right:0;background:#004b52;color:#fff;z-index:9999;padding:10px 16px;align-items:center;gap:10px;font-size:12.5px;">
+        <img src="icons/icon-192.png" style="width:28px;height:28px;border-radius:8px;flex-shrink:0;">
+        <span style="flex:1;">ثبّت تطبيق مدير الفرع على جهازك للوصول السريع</span>
+        <button onclick="installPwa()" style="background:var(--accent);color:#fff;border:none;padding:6px 14px;border-radius:var(--radius-full);font-weight:700;font-size:11.5px;cursor:pointer;white-space:nowrap;">تثبيت</button>
+        <button onclick="dismissPwaBanner()" style="background:none;border:none;color:rgba(255,255,255,0.7);font-size:16px;cursor:pointer;padding:0 4px;">✕</button>
+    </div>
+
     <!-- التوست -->
     <div class="toast-container" id="toastContainer"></div>
 
     <script>
+        // ============================================================
+        // PWA: تسجيل خدمة العامل + دعوة التثبيت عند أول استخدام
+        // ============================================================
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', function() {
+                navigator.serviceWorker.register('/sw.js').catch(function() {});
+            });
+        }
+        let deferredInstallPrompt = null;
+        window.addEventListener('beforeinstallprompt', function(e) {
+            e.preventDefault();
+            deferredInstallPrompt = e;
+            if (!localStorage.getItem('pwaInstallDismissed')) {
+                document.getElementById('pwaInstallBanner').style.display = 'flex';
+            }
+        });
+        function installPwa() {
+            document.getElementById('pwaInstallBanner').style.display = 'none';
+            if (!deferredInstallPrompt) return;
+            deferredInstallPrompt.prompt();
+            deferredInstallPrompt.userChoice.finally(function() {
+                deferredInstallPrompt = null;
+                localStorage.setItem('pwaInstallDismissed', '1');
+            });
+        }
+        function dismissPwaBanner() {
+            document.getElementById('pwaInstallBanner').style.display = 'none';
+            localStorage.setItem('pwaInstallDismissed', '1');
+        }
+
+        function requestNotifPermission() {
+            if (!('Notification' in window) || localStorage.getItem('notifPermissionAsked')) return;
+            localStorage.setItem('notifPermissionAsked', '1');
+            if (Notification.permission === 'default') {
+                Notification.requestPermission().catch(function() {});
+            }
+        }
+
         // ============================================================
         // شبكة أمان: التقاط أي طلب فشل بصمت (مثال: قاعدة بيانات غير محدّثة)
         // بدل أن يظهر وكأن الزر لا يستجيب
@@ -1852,6 +1919,7 @@ function branch_report_data(PDO $pdo, string $type, string $from, string $to, in
             loadBriefStatus();
             loadNotifications();
             setInterval(loadNotifications, 60000);
+            requestNotifPermission();
         }
 
         // ============================================================
@@ -1890,6 +1958,10 @@ function branch_report_data(PDO $pdo, string $type, string $from, string $to, in
         function loadHomeStats() {
             fetch('?ajax=bootstrap').then(r => r.json()).then(data => {
                 if (!data.ok) return;
+                if (data.company) {
+                    document.getElementById('headerCompanyName').innerHTML = data.company.name + ' <span>مدير الفرع</span>';
+                    if (data.company.logo) document.getElementById('headerLogo').innerHTML = `<img src="${data.company.logo}" style="width:100%;height:100%;object-fit:cover;border-radius:inherit;">`;
+                }
                 document.getElementById('homeManagerName').textContent = data.manager.name;
                 document.getElementById('homeManagerRole').textContent = 'مدير فرع — ' + data.manager.branch;
                 document.getElementById('homeManagerCode').textContent = 'رقم الموظف: ' + data.manager.code;
