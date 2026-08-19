@@ -125,6 +125,43 @@ function migration_steps(): array
                 CONSTRAINT fk_padj_branch FOREIGN KEY (branch_id) REFERENCES branches(id) ON DELETE CASCADE
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4"),
         ],
+        [
+            'label' => 'إضافة رقم الهاتف لجدول الموظفين',
+            'needed' => fn(PDO $pdo) => !column_exists($pdo, 'employees', 'phone_number'),
+            'run' => fn(PDO $pdo) => $pdo->exec("ALTER TABLE employees ADD COLUMN phone_number VARCHAR(30) DEFAULT NULL AFTER mother_name"),
+        ],
+        [
+            'label' => 'إضافة صورة الفرع لجدول الفروع',
+            'needed' => fn(PDO $pdo) => !column_exists($pdo, 'branches', 'photo'),
+            'run' => fn(PDO $pdo) => $pdo->exec("ALTER TABLE branches ADD COLUMN photo VARCHAR(255) DEFAULT NULL AFTER geofence_radius"),
+        ],
+        [
+            'label' => 'إضافة دور "المساهم" واسم العرض إلى جدول المستخدمين',
+            'needed' => function (PDO $pdo) {
+                $stmt = $pdo->query("SHOW COLUMNS FROM users LIKE 'role'");
+                $col = $stmt->fetch();
+                return ($col && strpos($col['Type'], 'shareholder') === false) || !column_exists($pdo, 'users', 'display_name');
+            },
+            'run' => function (PDO $pdo) {
+                $pdo->exec("ALTER TABLE users MODIFY role ENUM('hr','branch_manager','employee','general_manager','shareholder') NOT NULL");
+                if (!column_exists($pdo, 'users', 'display_name')) {
+                    $pdo->exec("ALTER TABLE users ADD COLUMN display_name VARCHAR(100) DEFAULT NULL");
+                }
+            },
+        ],
+        [
+            'label' => 'إنشاء جدول نوافذ صرف الرواتب الشهرية (payroll_windows)',
+            'needed' => fn(PDO $pdo) => !table_exists($pdo, 'payroll_windows'),
+            'run' => fn(PDO $pdo) => $pdo->exec("CREATE TABLE IF NOT EXISTS payroll_windows (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                period_month TINYINT NOT NULL,
+                period_year SMALLINT NOT NULL,
+                opened_by INT DEFAULT NULL,
+                opened_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                expires_at TIMESTAMP NOT NULL,
+                UNIQUE KEY uniq_period (period_month, period_year)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4"),
+        ],
     ];
 }
 

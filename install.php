@@ -34,6 +34,7 @@ function install_schema(PDO $pdo): void
             latitude DECIMAL(10,6) DEFAULT NULL,
             longitude DECIMAL(10,6) DEFAULT NULL,
             geofence_radius INT NOT NULL DEFAULT 100,
+            photo VARCHAR(255) DEFAULT NULL,
             status ENUM('active','inactive') NOT NULL DEFAULT 'active',
             notes TEXT DEFAULT NULL,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
@@ -46,6 +47,7 @@ function install_schema(PDO $pdo): void
             full_name VARCHAR(100) NOT NULL,
             national_id VARCHAR(50) DEFAULT NULL,
             mother_name VARCHAR(100) DEFAULT NULL,
+            phone_number VARCHAR(30) DEFAULT NULL,
             job_title VARCHAR(100) DEFAULT NULL,
             birth_date DATE DEFAULT NULL,
             hire_date DATE DEFAULT NULL,
@@ -67,7 +69,8 @@ function install_schema(PDO $pdo): void
 
         'users' => "CREATE TABLE IF NOT EXISTS users (
             id INT AUTO_INCREMENT PRIMARY KEY,
-            role ENUM('hr','branch_manager','employee','general_manager') NOT NULL,
+            role ENUM('hr','branch_manager','employee','general_manager','shareholder') NOT NULL,
+            display_name VARCHAR(100) DEFAULT NULL,
             username VARCHAR(50) NOT NULL UNIQUE,
             password_hash VARCHAR(255) NOT NULL,
             employee_id INT DEFAULT NULL,
@@ -195,6 +198,16 @@ function install_schema(PDO $pdo): void
             CONSTRAINT fk_notif_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4",
 
+        'payroll_windows' => "CREATE TABLE IF NOT EXISTS payroll_windows (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            period_month TINYINT NOT NULL,
+            period_year SMALLINT NOT NULL,
+            opened_by INT DEFAULT NULL,
+            opened_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            expires_at TIMESTAMP NOT NULL,
+            UNIQUE KEY uniq_period (period_month, period_year)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4",
+
         'payroll_adjustments' => "CREATE TABLE IF NOT EXISTS payroll_adjustments (
             id INT AUTO_INCREMENT PRIMARY KEY,
             employee_id INT NOT NULL,
@@ -212,7 +225,7 @@ function install_schema(PDO $pdo): void
     ];
 
     // الترتيب مهم بسبب المفاتيح الأجنبية
-    foreach (['settings', 'branches', 'employees', 'users', 'attendance', 'payroll', 'requests', 'daily_ledger', 'delegations', 'daily_briefs', 'exchange_rate_history', 'notifications', 'payroll_adjustments'] as $table) {
+    foreach (['settings', 'branches', 'employees', 'users', 'attendance', 'payroll', 'requests', 'daily_ledger', 'delegations', 'daily_briefs', 'exchange_rate_history', 'notifications', 'payroll_windows', 'payroll_adjustments'] as $table) {
         $pdo->exec($tables[$table]);
     }
 }
@@ -307,7 +320,7 @@ if (!$alreadyInstalled && $requirementsOk && $_SERVER['REQUEST_METHOD'] === 'POS
                 PDO::ATTR_EMULATE_PREPARES => false,
             ]);
 
-            $ourTables = ['settings', 'branches', 'employees', 'users', 'attendance', 'payroll', 'requests', 'daily_ledger', 'delegations', 'daily_briefs', 'exchange_rate_history', 'notifications', 'payroll_adjustments'];
+            $ourTables = ['settings', 'branches', 'employees', 'users', 'attendance', 'payroll', 'requests', 'daily_ledger', 'delegations', 'daily_briefs', 'exchange_rate_history', 'notifications', 'payroll_windows', 'payroll_adjustments'];
             $existing = $pdo->query("SHOW TABLES")->fetchAll(PDO::FETCH_COLUMN);
             $conflicting = array_intersect($ourTables, $existing);
             if (!empty($conflicting)) {

@@ -192,6 +192,7 @@ if (isset($_GET['ajax'])) {
             $name = trim($_POST['name'] ?? '');
             $manager = trim($_POST['manager'] ?? '');
             $nationalId = trim($_POST['nationalId'] ?? '');
+            $phone = trim($_POST['phone'] ?? '');
             $birthDate = $_POST['birthDate'] ?: null;
             $hireDate = $_POST['hireDate'] ?: null;
             $startDate = $_POST['startDate'] ?: null;
@@ -200,23 +201,32 @@ if (isset($_GET['ajax'])) {
             $status = ($_POST['status'] ?? 'active') === 'inactive' ? 'inactive' : 'active';
             $managerPassword = (string) ($_POST['managerPassword'] ?? '');
 
-            if ($name === '' || $manager === '' || $nationalId === '') {
-                echo json_encode(['ok' => false, 'error' => 'اسم الفرع، اسم المسؤول، ورقم الهوية مطلوبة']);
+            if ($name === '' || $manager === '' || $nationalId === '' || $phone === '') {
+                echo json_encode(['ok' => false, 'error' => 'اسم الفرع، اسم المسؤول، رقم الهوية، ورقم الهاتف مطلوبة']);
                 exit;
             }
 
             $photoPath = handle_upload('photo', 'photos', ['jpg', 'jpeg', 'png', 'webp']);
             $docsPath = handle_upload('docs', 'documents', ['jpg', 'jpeg', 'png', 'pdf', 'doc', 'docx']);
 
+            if ($id === 0 && !$photoPath) {
+                echo json_encode(['ok' => false, 'error' => 'صورة مسؤول الفرع مطلوبة عند إنشاء فرع جديد']);
+                exit;
+            }
+
             $pdo->beginTransaction();
             try {
                 if ($id > 0) {
-                    $stmt = $pdo->prepare("UPDATE branches SET name=?, notes=?, status=? WHERE id=?");
-                    $stmt->execute([$name, $notes, $status, $id]);
+                    $sql = "UPDATE branches SET name=?, notes=?, status=?";
+                    $params = [$name, $notes, $status];
+                    if ($photoPath) { $sql .= ", photo=?"; $params[] = $photoPath; }
+                    $sql .= " WHERE id=?";
+                    $params[] = $id;
+                    $pdo->prepare($sql)->execute($params);
                     $branchId = $id;
                 } else {
-                    $stmt = $pdo->prepare("INSERT INTO branches (name, notes, status) VALUES (?, ?, ?)");
-                    $stmt->execute([$name, $notes, $status]);
+                    $stmt = $pdo->prepare("INSERT INTO branches (name, notes, status, photo) VALUES (?, ?, ?, ?)");
+                    $stmt->execute([$name, $notes, $status, $photoPath]);
                     $branchId = (int) $pdo->lastInsertId();
                 }
 
@@ -225,8 +235,8 @@ if (isset($_GET['ajax'])) {
                 $existingManagerId = $mgrStmt->fetchColumn();
 
                 if ($existingManagerId) {
-                    $sql = "UPDATE employees SET full_name=?, national_id=?, birth_date=?, hire_date=?, duty_start_date=?, duty_end_date=?";
-                    $params = [$manager, $nationalId, $birthDate, $hireDate, $startDate, $endDate];
+                    $sql = "UPDATE employees SET full_name=?, national_id=?, phone_number=?, birth_date=?, hire_date=?, duty_start_date=?, duty_end_date=?";
+                    $params = [$manager, $nationalId, $phone, $birthDate, $hireDate, $startDate, $endDate];
                     if ($photoPath) { $sql .= ", photo=?"; $params[] = $photoPath; }
                     if ($docsPath) { $sql .= ", documents=?"; $params[] = $docsPath; }
                     $sql .= " WHERE id=?";
@@ -236,8 +246,8 @@ if (isset($_GET['ajax'])) {
                 } else {
                     $numStmt = $pdo->query("SELECT MAX(CAST(employee_number AS UNSIGNED)) FROM employees WHERE employee_number REGEXP '^[0-9]+$'");
                     $empNumber = (string) max(1001, (int) $numStmt->fetchColumn() + 1);
-                    $stmt = $pdo->prepare("INSERT INTO employees (branch_id, employee_number, full_name, national_id, birth_date, hire_date, duty_start_date, duty_end_date, job_title, photo, documents, is_branch_manager, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'مدير فرع', ?, ?, 1, 'active')");
-                    $stmt->execute([$branchId, $empNumber, $manager, $nationalId, $birthDate, $hireDate, $startDate, $endDate, $photoPath, $docsPath]);
+                    $stmt = $pdo->prepare("INSERT INTO employees (branch_id, employee_number, full_name, national_id, phone_number, birth_date, hire_date, duty_start_date, duty_end_date, job_title, photo, documents, is_branch_manager, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'مدير فرع', ?, ?, 1, 'active')");
+                    $stmt->execute([$branchId, $empNumber, $manager, $nationalId, $phone, $birthDate, $hireDate, $startDate, $endDate, $photoPath, $docsPath]);
                     $managerEmployeeId = (int) $pdo->lastInsertId();
 
                     if ($managerPassword !== '' && strlen($managerPassword) >= 4) {
@@ -259,6 +269,22 @@ if (isset($_GET['ajax'])) {
         case 'branch_delete': {
             $id = (int) ($_POST['id'] ?? 0);
             $pdo->prepare("DELETE FROM branches WHERE id=?")->execute([$id]);
+            echo json_encode(['ok' => true]);
+            exit;
+        }
+
+        case 'notifications_list': {
+            $stmt = $pdo->prepare("SELECT id, title, message, is_read, DATE_FORMAT(created_at,'%d/%m/%Y %H:%i') AS date FROM notifications WHERE user_id=? ORDER BY created_at DESC LIMIT 30");
+            $stmt->execute([$hrUser['id']]);
+            $rows = $stmt->fetchAll();
+            $unread = $pdo->prepare("SELECT COUNT(*) FROM notifications WHERE user_id=? AND is_read=0");
+            $unread->execute([$hrUser['id']]);
+            echo json_encode(['ok' => true, 'notifications' => $rows, 'unread' => (int) $unread->fetchColumn()], JSON_UNESCAPED_UNICODE);
+            exit;
+        }
+
+        case 'notifications_mark_all_read': {
+            $pdo->prepare("UPDATE notifications SET is_read=1 WHERE user_id=?")->execute([$hrUser['id']]);
             echo json_encode(['ok' => true]);
             exit;
         }
@@ -302,6 +328,7 @@ if (isset($_GET['ajax'])) {
                 'id' => (int) $emp['id'],
                 'name' => $emp['full_name'],
                 'motherName' => $emp['mother_name'],
+                'phoneNumber' => $emp['phone_number'],
                 'nationalId' => $emp['national_id'],
                 'jobTitle' => $emp['job_title'],
                 'branch' => $emp['branchName'],
@@ -386,7 +413,7 @@ if (isset($_GET['ajax'])) {
         case 'attendance': {
             $date = $_GET['date'] ?? date('Y-m-d');
             $stmt = $pdo->prepare("
-                SELECT a.id, e.full_name AS name, b.name AS branch, a.check_in AS checkIn, a.check_out AS checkOut, a.status
+                SELECT a.id, e.id AS employeeId, e.full_name AS name, b.name AS branch, a.check_in AS checkIn, a.check_out AS checkOut, a.status
                 FROM attendance a JOIN employees e ON e.id=a.employee_id JOIN branches b ON b.id=a.branch_id
                 WHERE a.attendance_date = ? ORDER BY e.full_name
             ");
@@ -398,6 +425,47 @@ if (isset($_GET['ajax'])) {
                 return $r;
             }, $stmt->fetchAll());
             echo json_encode(['ok' => true, 'attendance' => $rows], JSON_UNESCAPED_UNICODE);
+            exit;
+        }
+
+        case 'attendance_set': {
+            $employeeId = (int) ($_POST['employeeId'] ?? 0);
+            $date = $_POST['date'] ?? date('Y-m-d');
+            $status = in_array($_POST['status'] ?? '', ['present', 'late', 'absent'], true) ? $_POST['status'] : 'present';
+            $empStmt = $pdo->prepare("SELECT branch_id FROM employees WHERE id=?");
+            $empStmt->execute([$employeeId]);
+            $branchIdForEmp = $empStmt->fetchColumn();
+            if (!$branchIdForEmp) {
+                echo json_encode(['ok' => false, 'error' => 'الموظف غير موجود']);
+                exit;
+            }
+            $existing = $pdo->prepare("SELECT check_in, check_out FROM attendance WHERE employee_id=? AND attendance_date=?");
+            $existing->execute([$employeeId, $date]);
+            $existing = $existing->fetch();
+            $checkIn = $existing['check_in'] ?? null;
+            $checkOut = $existing['check_out'] ?? null;
+            if ($status === 'absent') {
+                $checkIn = null;
+                $checkOut = null;
+            } elseif (!$checkIn) {
+                $checkIn = date('H:i:s');
+            }
+            $pdo->prepare("INSERT INTO attendance (employee_id, branch_id, attendance_date, check_in, check_out, status)
+                VALUES (?, ?, ?, ?, ?, ?)
+                ON DUPLICATE KEY UPDATE check_in=VALUES(check_in), check_out=VALUES(check_out), status=VALUES(status)")
+                ->execute([$employeeId, $branchIdForEmp, $date, $checkIn, $checkOut, $status]);
+            echo json_encode(['ok' => true]);
+            exit;
+        }
+
+        case 'payroll_window_status': {
+            $month = (int) date('n');
+            $year = (int) date('Y');
+            $winStmt = $pdo->prepare("SELECT expires_at FROM payroll_windows WHERE period_month=? AND period_year=?");
+            $winStmt->execute([$month, $year]);
+            $expiresAt = $winStmt->fetchColumn();
+            $open = $expiresAt && strtotime($expiresAt) > time();
+            echo json_encode(['ok' => true, 'open' => $open, 'expiresAt' => $expiresAt ?: null]);
             exit;
         }
 
@@ -497,6 +565,14 @@ if (isset($_GET['ajax'])) {
             $employeeId = (int) ($_POST['employeeId'] ?? 0);
             $month = (int) date('n');
             $year = (int) date('Y');
+
+            $winStmt = $pdo->prepare("SELECT expires_at FROM payroll_windows WHERE period_month=? AND period_year=?");
+            $winStmt->execute([$month, $year]);
+            $expiresAt = $winStmt->fetchColumn();
+            if (!$expiresAt || strtotime($expiresAt) < time()) {
+                echo json_encode(['ok' => false, 'error' => 'صلاحية تسليم الرواتب لهذا الشهر مغلقة، يجب أن يفتحها المسؤول العام أولاً']);
+                exit;
+            }
 
             $empStmt = $pdo->prepare("SELECT branch_id, full_name, base_salary FROM employees WHERE id=?");
             $empStmt->execute([$employeeId]);
@@ -615,6 +691,26 @@ if (isset($_GET['ajax'])) {
                 echo json_encode(['ok' => false, 'error' => 'هذا الإيجاز ليس بانتظار مراجعتك']);
                 exit;
             }
+
+            $briefRow = $pdo->prepare("SELECT branch_id FROM daily_briefs WHERE id=?");
+            $briefRow->execute([$id]);
+            $briefBranchId = $briefRow->fetchColumn();
+            $msg = $decision === 'hr_approved'
+                ? 'وافقت الموارد البشرية على إيجاز اليوم، بانتظار الاعتماد النهائي من المسؤول العام'
+                : 'رفضت الموارد البشرية إيجاز اليوم — ' . $hrNote;
+            $mgrUids = $pdo->prepare("SELECT id FROM users WHERE branch_id=? AND role='branch_manager'");
+            $mgrUids->execute([$briefBranchId]);
+            foreach ($mgrUids->fetchAll(PDO::FETCH_COLUMN) as $uid) {
+                $pdo->prepare("INSERT INTO notifications (user_id, title, message) VALUES (?, 'رد على الإيجاز', ?)")->execute([$uid, $msg]);
+            }
+            if ($decision === 'hr_approved') {
+                $gmUids = $pdo->query("SELECT id FROM users WHERE role='general_manager'")->fetchAll(PDO::FETCH_COLUMN);
+                foreach ($gmUids as $uid) {
+                    $pdo->prepare("INSERT INTO notifications (user_id, title, message) VALUES (?, 'إيجاز بانتظار اعتمادك', ?)")
+                        ->execute([$uid, 'إيجاز فرع بانتظار اعتمادك النهائي بعد موافقة HR']);
+                }
+            }
+
             echo json_encode(['ok' => true]);
             exit;
         }
@@ -681,6 +777,18 @@ if (isset($_GET['ajax'])) {
             if ($stmt->rowCount() === 0) {
                 echo json_encode(['ok' => false, 'error' => 'هذا الطلب ليس بانتظار مراجعة الموارد البشرية']);
                 exit;
+            }
+
+            $empRow = $pdo->prepare("SELECT employee_id, branch_id, type FROM requests WHERE id=?");
+            $empRow->execute([$id]);
+            $empRow = $empRow->fetch();
+            if ($empRow) {
+                $msg = ($decision === 'approved' ? 'وافقت الموارد البشرية نهائياً على طلب ' : 'رفضت الموارد البشرية طلب ') . request_type_ar($empRow['type']) . ($hrNote ? (' — ' . $hrNote) : '');
+                $uids = $pdo->prepare("SELECT id FROM users WHERE employee_id=? UNION SELECT id FROM users WHERE branch_id=? AND role='branch_manager'");
+                $uids->execute([$empRow['employee_id'], $empRow['branch_id']]);
+                foreach ($uids->fetchAll(PDO::FETCH_COLUMN) as $uid) {
+                    $pdo->prepare("INSERT INTO notifications (user_id, title, message) VALUES (?, 'رد نهائي على طلب', ?)")->execute([$uid, $msg]);
+                }
             }
             echo json_encode(['ok' => true]);
             exit;
@@ -2265,11 +2373,22 @@ function report_data(PDO $pdo, string $type, string $from, string $to, int $bran
                         <span class="sub" id="pageSub">نظرة عامة على أداء الشركة</span>
                     </div>
                 </div>
-                <div class="header-actions">
+                <div class="header-actions" style="position:relative;">
                     <span class="date-display">
                         <i class="fas fa-calendar"></i>
                         <span id="currentDateDisplay">الأربعاء 19 أغسطس 2026</span>
                     </span>
+                    <button onclick="toggleNotifPanel()" style="position:relative;width:38px;height:38px;border:none;border-radius:50%;background:rgba(0,107,115,0.06);color:var(--primary);cursor:pointer;font-size:16px;">
+                        <i class="fas fa-bell"></i>
+                        <span id="notifBadge" style="display:none;position:absolute;top:-2px;left:-2px;background:#DC2626;color:#fff;font-size:10px;font-weight:800;min-width:16px;height:16px;border-radius:50%;align-items:center;justify-content:center;">0</span>
+                    </button>
+                    <div id="notifPanel" style="display:none;position:absolute;left:0;top:48px;width:340px;max-height:420px;overflow-y:auto;background:#fff;border-radius:14px;box-shadow:0 12px 40px rgba(0,0,0,0.15);z-index:500;">
+                        <div style="padding:12px 16px;border-bottom:1px solid #eee;display:flex;justify-content:space-between;align-items:center;">
+                            <b style="font-size:13px;">الإشعارات</b>
+                            <button onclick="markAllNotifsRead()" style="background:none;border:none;color:var(--primary);font-size:11px;cursor:pointer;">تعليم الكل كمقروء</button>
+                        </div>
+                        <div id="notifList" style="padding:6px;"></div>
+                    </div>
                 </div>
             </header>
 
@@ -2372,6 +2491,10 @@ function report_data(PDO $pdo, string $type, string $from, string $to, int $bran
                                 <input type="text" id="branchNationalId" placeholder="رقم الهوية الوطنية">
                             </div>
                             <div class="form-group">
+                                <label>رقم الهاتف <span style="color:#EF4444;">*</span></label>
+                                <input type="text" id="branchPhone" placeholder="07xxxxxxxxx">
+                            </div>
+                            <div class="form-group">
                                 <label>تاريخ الميلاد</label>
                                 <input type="date" id="branchBirthDate">
                             </div>
@@ -2388,7 +2511,7 @@ function report_data(PDO $pdo, string $type, string $from, string $to, int $bran
                                 <input type="date" id="branchEndDate">
                             </div>
                             <div class="form-group">
-                                <label>الصورة الشخصية</label>
+                                <label>الصورة الشخصية <span style="color:#EF4444;">*</span></label>
                                 <div class="file-input-wrapper">
                                     <div class="file-label">
                                         <i class="fas fa-image"></i>
@@ -2473,9 +2596,31 @@ function report_data(PDO $pdo, string $type, string $from, string $to, int $bran
                             <input type="date" id="attendanceDate" value="2026-08-19" style="padding:8px 12px;border:2px solid rgba(0,107,115,0.06);border-radius:var(--radius-sm);font-family:var(--font-family);background:var(--bg);">
                             <button class="btn-primary" onclick="loadAttendance()">عرض</button>
                         </div>
-                        <button class="btn-primary" onclick="showToast('✅ تم التحديث','تم تحديث سجل الحضور','success')">
+                        <button class="btn-primary" onclick="loadAttendance()">
                             <i class="fas fa-sync"></i> تحديث
                         </button>
+                    </div>
+
+                    <div class="content-card" style="margin-bottom:16px;">
+                        <div class="card-header"><h4><i class="fas fa-user-clock"></i> تسجيل أو تعديل حضور موظف يدوياً</h4></div>
+                        <div class="card-body">
+                            <div style="display:grid;grid-template-columns:1.5fr 1fr 1fr auto;gap:10px;align-items:end;">
+                                <div class="form-group"><label style="font-size:12px;color:var(--text-muted);">الموظف</label>
+                                    <select id="manualEmployeeSelect" style="width:100%;height:38px;padding:0 10px;border:2px solid rgba(0,107,115,0.06);border-radius:var(--radius-sm);font-family:var(--font-family);"></select>
+                                </div>
+                                <div class="form-group"><label style="font-size:12px;color:var(--text-muted);">الحالة</label>
+                                    <select id="manualStatus" style="width:100%;height:38px;padding:0 10px;border:2px solid rgba(0,107,115,0.06);border-radius:var(--radius-sm);font-family:var(--font-family);">
+                                        <option value="present">حاضر</option>
+                                        <option value="late">متأخر</option>
+                                        <option value="absent">غائب</option>
+                                    </select>
+                                </div>
+                                <div class="form-group"><label style="font-size:12px;color:var(--text-muted);">ملاحظة</label>
+                                    <input type="text" id="manualNote" placeholder="اختياري" style="width:100%;height:38px;padding:0 10px;border:2px solid rgba(0,107,115,0.06);border-radius:var(--radius-sm);font-family:var(--font-family);">
+                                </div>
+                                <button class="btn-primary" onclick="saveManualAttendance()"><i class="fas fa-save"></i> حفظ</button>
+                            </div>
+                        </div>
                     </div>
 
                     <div class="content-card">
@@ -2514,6 +2659,8 @@ function report_data(PDO $pdo, string $type, string $from, string $to, int $bran
                             <i class="fas fa-plus"></i> إضافة راتب
                         </button>
                     </div>
+
+                    <div id="payrollWindowBanner" style="padding:10px 16px;border-radius:var(--radius-md);margin-bottom:16px;font-size:13px;font-weight:700;"></div>
 
                     <div id="addSalaryForm" style="display:none;background:var(--bg-card);border-radius:var(--radius-lg);padding:20px;margin-bottom:16px;border:1px solid rgba(0,107,115,0.04);box-shadow:var(--shadow-sm);">
                         <h5 style="font-size:15px;font-weight:800;margin-bottom:12px;"><i class="fas fa-plus-circle" style="color:var(--primary);"></i> إضافة تعديل على راتب موظف</h5>
@@ -2855,6 +3002,8 @@ function report_data(PDO $pdo, string $type, string $from, string $to, int $bran
             updateDateTime();
             setInterval(updateDateTime, 1000);
             generateStocks();
+            loadNotifications();
+            setInterval(loadNotifications, 60000);
 
             fetch('?ajax=bootstrap').then(r => r.json()).then(data => {
                 if (!data.ok) return;
@@ -2967,6 +3116,45 @@ function report_data(PDO $pdo, string $type, string $from, string $to, int $bran
         function toggleSidebar() {
             document.getElementById('sidebar').classList.toggle('open');
             document.getElementById('sidebarOverlay').classList.toggle('show');
+        }
+
+        // ============================================================
+        // الإشعارات
+        // ============================================================
+        function loadNotifications() {
+            fetch('?ajax=notifications_list').then(r => r.json()).then(data => {
+                if (!data.ok) return;
+                const badge = document.getElementById('notifBadge');
+                if (data.unread > 0) {
+                    badge.style.display = 'flex';
+                    badge.textContent = data.unread;
+                } else {
+                    badge.style.display = 'none';
+                }
+                const list = document.getElementById('notifList');
+                if (!data.notifications.length) {
+                    list.innerHTML = '<div style="padding:20px;text-align:center;color:var(--text-muted);font-size:12px;">لا توجد إشعارات</div>';
+                    return;
+                }
+                list.innerHTML = data.notifications.map(n => `
+                    <div style="padding:10px 12px;border-radius:8px;margin-bottom:4px;background:${n.is_read ? 'transparent' : 'rgba(0,107,115,0.05)'};">
+                        <div style="font-size:12px;font-weight:800;">${n.title}</div>
+                        <div style="font-size:11.5px;color:var(--text-secondary);margin-top:2px;">${n.message}</div>
+                        <div style="font-size:10px;color:var(--text-muted);margin-top:4px;">${n.date}</div>
+                    </div>
+                `).join('');
+            });
+        }
+
+        function toggleNotifPanel() {
+            const panel = document.getElementById('notifPanel');
+            const show = panel.style.display === 'none';
+            panel.style.display = show ? 'block' : 'none';
+            if (show) loadNotifications();
+        }
+
+        function markAllNotifsRead() {
+            fetch('?ajax=notifications_mark_all_read', { method: 'POST' }).then(() => loadNotifications());
         }
 
         function handleLogout() {
@@ -3251,9 +3439,15 @@ function report_data(PDO $pdo, string $type, string $from, string $to, int $bran
             const name = document.getElementById('branchName').value.trim();
             const manager = document.getElementById('branchManager').value.trim();
             const nationalId = document.getElementById('branchNationalId').value.trim();
+            const phone = document.getElementById('branchPhone').value.trim();
+            const photoInputEl = document.getElementById('branchPhoto');
 
-            if (!name || !manager || !nationalId) {
-                showToast('⚠️ تنبيه', 'اسم الفرع، اسم المسؤول، ورقم الهوية مطلوبة', 'warning');
+            if (!name || !manager || !nationalId || !phone) {
+                showToast('⚠️ تنبيه', 'اسم الفرع، اسم المسؤول، رقم الهوية، ورقم الهاتف مطلوبة', 'warning');
+                return;
+            }
+            if (!editingBranchId && !(photoInputEl.files && photoInputEl.files[0])) {
+                showToast('⚠️ تنبيه', 'صورة مسؤول الفرع مطلوبة عند إنشاء فرع جديد', 'warning');
                 return;
             }
 
@@ -3262,6 +3456,7 @@ function report_data(PDO $pdo, string $type, string $from, string $to, int $bran
             fd.append('name', name);
             fd.append('manager', manager);
             fd.append('nationalId', nationalId);
+            fd.append('phone', phone);
             fd.append('birthDate', document.getElementById('branchBirthDate').value);
             fd.append('hireDate', document.getElementById('branchHireDate').value);
             fd.append('startDate', document.getElementById('branchStartDate').value);
@@ -3385,7 +3580,7 @@ function report_data(PDO $pdo, string $type, string $from, string $to, int $bran
                         <td>${item.checkOut}</td>
                         <td><span class="status-badge ${statusClass}">${item.status}</span></td>
                         <td>
-                            <button class="action-btn approve" onclick="showToast('✅ تعديل','تم تعديل حالة الحضور','success')">
+                            <button class="action-btn approve" onclick="editAttendanceRow(${item.employeeId}, '${item.status === 'حاضر' ? 'present' : (item.status === 'متأخر' ? 'late' : 'absent')}')">
                                 <i class="fas fa-edit"></i>
                             </button>
                         </td>
@@ -3393,6 +3588,27 @@ function report_data(PDO $pdo, string $type, string $from, string $to, int $bran
                 `;
             });
             tbody.innerHTML = html;
+        }
+
+        function editAttendanceRow(employeeId, status) {
+            document.getElementById('manualEmployeeSelect').value = employeeId;
+            document.getElementById('manualStatus').value = status;
+            document.getElementById('manualEmployeeSelect').scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }
+
+        function saveManualAttendance() {
+            const employeeId = document.getElementById('manualEmployeeSelect').value;
+            const status = document.getElementById('manualStatus').value;
+            const note = document.getElementById('manualNote').value;
+            const date = document.getElementById('attendanceDate').value || new Date().toISOString().split('T')[0];
+            if (!employeeId) { showToast('⚠️ تنبيه', 'الرجاء اختيار الموظف', 'warning'); return; }
+            fetch('?ajax=attendance_set', { method: 'POST', body: new URLSearchParams({ employeeId, date, status, note }) })
+                .then(r => r.json()).then(data => {
+                    if (!data.ok) { showToast('⚠️ خطأ', data.error || 'تعذر الحفظ', 'error'); return; }
+                    showToast('✅ تم الحفظ', 'تم تحديث سجل الحضور', 'success');
+                    document.getElementById('manualNote').value = '';
+                    loadAttendance();
+                });
         }
 
         // ============================================================
@@ -3403,6 +3619,20 @@ function report_data(PDO $pdo, string $type, string $from, string $to, int $bran
                 if (!data.ok) return;
                 salaryData = data.salaries;
                 renderSalaries();
+            });
+            fetch('?ajax=payroll_window_status').then(r => r.json()).then(data => {
+                if (!data.ok) return;
+                const banner = document.getElementById('payrollWindowBanner');
+                if (data.open) {
+                    const expires = new Date(data.expiresAt.replace(' ', 'T'));
+                    banner.style.background = 'rgba(21,148,71,0.08)';
+                    banner.style.color = 'var(--success, #159447)';
+                    banner.innerHTML = '<i class="fas fa-unlock"></i> صلاحية تسليم الرواتب مفتوحة حتى ' + expires.toLocaleString('ar-SA');
+                } else {
+                    banner.style.background = 'rgba(223,75,75,0.08)';
+                    banner.style.color = '#df4b4b';
+                    banner.innerHTML = '<i class="fas fa-lock"></i> صلاحية تسليم الرواتب مغلقة لهذا الشهر — يجب أن يفتحها المسؤول العام أولاً';
+                }
             });
         }
 
@@ -3530,6 +3760,7 @@ function report_data(PDO $pdo, string $type, string $from, string $to, int $bran
                     <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;font-size:13px;margin-bottom:18px;">
                         <div><span style="color:var(--text-muted);">الاسم:</span> <b>${e.name}</b></div>
                         <div><span style="color:var(--text-muted);">اسم الأم:</span> <b>${e.motherName || '-'}</b></div>
+                        <div><span style="color:var(--text-muted);">رقم الهاتف:</span> <b>${e.phoneNumber || '-'}</b></div>
                         <div><span style="color:var(--text-muted);">رقم الهوية الوطنية:</span> <b>${e.nationalId || '-'}</b></div>
                         <div><span style="color:var(--text-muted);">الرقم الوظيفي:</span> <b>${e.employeeNumber}</b></div>
                         <div><span style="color:var(--text-muted);">الفرع:</span> <b>${e.branch}</b></div>
@@ -3812,6 +4043,8 @@ function report_data(PDO $pdo, string $type, string $from, string $to, int $bran
                 }
                 params.monthlyDeduction = monthlyDeduction;
             }
+            const hrNote = prompt('رد برسالة للموظف (اختياري):') || '';
+            params.hrNote = hrNote;
             const body = new URLSearchParams(params);
             fetch('?ajax=request_review', { method: 'POST', body }).then(r => r.json()).then(data => {
                 if (!data.ok) { showToast('⚠️ خطأ', data.error || 'تعذر الحفظ', 'error'); return; }

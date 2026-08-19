@@ -142,6 +142,20 @@ if (isset($_GET['ajax'])) {
             $branch->execute([$branchId]);
             $branch = $branch->fetch();
 
+            $mgrPhotoStmt = $pdo->prepare("SELECT photo, shift_start, shift_end FROM employees WHERE id = ?");
+            $mgrPhotoStmt->execute([$mgr['employee_id']]);
+            $mgrRow = $mgrPhotoStmt->fetch();
+            $mgrPhoto = $mgrRow['photo'] ?? null;
+
+            $settingsRow = $pdo->query("SELECT work_start_time, work_end_time, late_grace_minutes FROM settings ORDER BY id DESC LIMIT 1")->fetch();
+            $shiftStart = $mgrRow['shift_start'] ?: ($settingsRow['work_start_time'] ?? '09:00:00');
+            $shiftEnd = $mgrRow['shift_end'] ?: ($settingsRow['work_end_time'] ?? '17:00:00');
+            $graceMinutes = (int) ($settingsRow['late_grace_minutes'] ?? 15);
+
+            $todayAttStmt = $pdo->prepare("SELECT check_in, check_out FROM attendance WHERE employee_id=? AND attendance_date=CURDATE()");
+            $todayAttStmt->execute([$mgr['employee_id']]);
+            $todayAtt = $todayAttStmt->fetch();
+
             $empCount = $pdo->prepare("SELECT COUNT(*) FROM employees WHERE branch_id=? AND status='active' AND is_branch_manager=0");
             $empCount->execute([$branchId]);
 
@@ -172,7 +186,7 @@ if (isset($_GET['ajax'])) {
 
             echo json_encode([
                 'ok' => true,
-                'manager' => ['name' => $mgr['full_name'], 'code' => $mgr['employee_number'], 'branch' => $branch['name']],
+                'manager' => ['name' => $mgr['full_name'], 'code' => $mgr['employee_number'], 'branch' => $branch['name'], 'photo' => $mgrPhoto ?: null],
                 'stats' => [
                     'employees' => (int) $empCount->fetchColumn(),
                     'presentToday' => (int) $presentToday->fetchColumn(),
@@ -192,7 +206,32 @@ if (isset($_GET['ajax'])) {
                     'active' => true,
                 ] : null,
                 'previousDayProfit' => $previousProfit,
+                'shift' => [
+                    'start' => substr($shiftStart, 0, 5),
+                    'end' => substr($shiftEnd, 0, 5),
+                    'graceMinutes' => $graceMinutes,
+                ],
+                'todayAttendance' => [
+                    'checkedIn' => (bool) ($todayAtt['check_in'] ?? false),
+                    'checkedOut' => (bool) ($todayAtt['check_out'] ?? false),
+                ],
             ], JSON_UNESCAPED_UNICODE);
+            exit;
+        }
+
+        case 'notifications_list': {
+            $stmt = $pdo->prepare("SELECT id, title, message, is_read, DATE_FORMAT(created_at,'%d/%m/%Y %H:%i') AS date FROM notifications WHERE user_id=? ORDER BY created_at DESC LIMIT 30");
+            $stmt->execute([$mgr['id']]);
+            $rows = $stmt->fetchAll();
+            $unread = $pdo->prepare("SELECT COUNT(*) FROM notifications WHERE user_id=? AND is_read=0");
+            $unread->execute([$mgr['id']]);
+            echo json_encode(['ok' => true, 'notifications' => $rows, 'unread' => (int) $unread->fetchColumn()], JSON_UNESCAPED_UNICODE);
+            exit;
+        }
+
+        case 'notifications_mark_all_read': {
+            $pdo->prepare("UPDATE notifications SET is_read=1 WHERE user_id=?")->execute([$mgr['id']]);
+            echo json_encode(['ok' => true]);
             exit;
         }
 
@@ -225,13 +264,19 @@ if (isset($_GET['ajax'])) {
             $password = (string) ($_POST['password'] ?? '');
             $motherName = trim($_POST['motherName'] ?? '');
             $nationalId = trim($_POST['nationalId'] ?? '');
+            $phone = trim($_POST['phone'] ?? '');
             $birthDate = $_POST['birthDate'] ?: null;
             $hireDate = $_POST['hireDate'] ?: null;
             $shiftType = ($_POST['shiftType'] ?? '') === 'evening' ? 'evening' : 'morning';
             $shiftStart = $_POST['shiftStart'] ?: null;
             $shiftEnd = $_POST['shiftEnd'] ?: null;
-            if ($name === '' || $position === '' || $salary <= 0 || strlen($password) < 6) {
-                echo json_encode(['ok' => false, 'error' => 'الرجاء تعبئة جميع الحقول (كلمة المرور 6 أحرف على الأقل)']);
+            if ($name === '' || $position === '' || $salary <= 0 || strlen($password) < 6 || $phone === '') {
+                echo json_encode(['ok' => false, 'error' => 'الرجاء تعبئة جميع الحقول المطلوبة (رقم الهاتف مطلوب، وكلمة المرور 6 أحرف على الأقل)']);
+                exit;
+            }
+            $photoPath = handle_upload('photo', 'photos', ['jpg', 'jpeg', 'png', 'webp']);
+            if (!$photoPath) {
+                echo json_encode(['ok' => false, 'error' => 'صورة الموظف مطلوبة']);
                 exit;
             }
             $docsPath = handle_upload('documents', 'documents', ['jpg', 'jpeg', 'png', 'pdf', 'doc', 'docx']);
@@ -240,9 +285,9 @@ if (isset($_GET['ajax'])) {
                 $numStmt = $pdo->query("SELECT MAX(CAST(employee_number AS UNSIGNED)) FROM employees WHERE employee_number REGEXP '^[0-9]+$'");
                 $empNumber = (string) max(1001, (int) $numStmt->fetchColumn() + 1);
                 $stmt = $pdo->prepare("INSERT INTO employees
-                    (branch_id, employee_number, full_name, mother_name, national_id, birth_date, hire_date, job_title, shift_type, shift_start, shift_end, documents, base_salary, is_branch_manager, status)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 'active')");
-                $stmt->execute([$branchId, $empNumber, $name, $motherName ?: null, $nationalId ?: null, $birthDate, $hireDate, $position, $shiftType, $shiftStart, $shiftEnd, $docsPath, $salary]);
+                    (branch_id, employee_number, full_name, mother_name, national_id, phone_number, birth_date, hire_date, job_title, shift_type, shift_start, shift_end, photo, documents, base_salary, is_branch_manager, status)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 'active')");
+                $stmt->execute([$branchId, $empNumber, $name, $motherName ?: null, $nationalId ?: null, $phone, $birthDate, $hireDate, $position, $shiftType, $shiftStart, $shiftEnd, $photoPath, $docsPath, $salary]);
                 $employeeId = (int) $pdo->lastInsertId();
 
                 $hash = password_hash($password, PASSWORD_DEFAULT);
@@ -373,11 +418,25 @@ if (isset($_GET['ajax'])) {
         case 'request_review': {
             $id = (int) ($_POST['id'] ?? 0);
             $decision = ($_POST['decision'] ?? '') === 'approved' ? 'branch_approved' : 'rejected';
-            $stmt = $pdo->prepare("UPDATE requests SET status=?, branch_reviewed_by=?, branch_reviewed_at=NOW() WHERE id=? AND branch_id=? AND status='pending'");
-            $stmt->execute([$decision, $mgr['id'], $id, $branchId]);
+            $note = trim($_POST['note'] ?? '');
+            $stmt = $pdo->prepare("UPDATE requests SET status=?, branch_review_note=?, branch_reviewed_by=?, branch_reviewed_at=NOW() WHERE id=? AND branch_id=? AND status='pending'");
+            $stmt->execute([$decision, $note ?: null, $mgr['id'], $id, $branchId]);
             if ($stmt->rowCount() === 0) {
                 echo json_encode(['ok' => false, 'error' => 'الطلب غير متاح للمراجعة']);
                 exit;
+            }
+            $reqRow = $pdo->prepare("SELECT employee_id, type FROM requests WHERE id=?");
+            $reqRow->execute([$id]);
+            $reqRow = $reqRow->fetch();
+            if ($reqRow) {
+                $msg = $decision === 'branch_approved'
+                    ? 'وافق مدير الفرع على طلب ' . request_type_ar($reqRow['type']) . ' وأُرسل للموارد البشرية' . ($note ? (' — ' . $note) : '')
+                    : 'رفض مدير الفرع طلب ' . request_type_ar($reqRow['type']) . ($note ? (' — ' . $note) : '');
+                $uids = $pdo->prepare("SELECT id FROM users WHERE employee_id=?");
+                $uids->execute([$reqRow['employee_id']]);
+                foreach ($uids->fetchAll(PDO::FETCH_COLUMN) as $uid) {
+                    $pdo->prepare("INSERT INTO notifications (user_id, title, message) VALUES (?, 'رد على طلبك', ?)")->execute([$uid, $msg]);
+                }
             }
             echo json_encode(['ok' => true]);
             exit;
@@ -458,6 +517,16 @@ if (isset($_GET['ajax'])) {
                 VALUES (?, CURDATE(), ?, ?, ?, ?, 'pending', ?)
                 ON DUPLICATE KEY UPDATE total_income=VALUES(total_income), total_expense=VALUES(total_expense), travelers_count=VALUES(travelers_count), status='pending', submitted_by=VALUES(submitted_by)");
             $stmt->execute([$branchId, $totals['income'], $totals['expense'], $previousProfit, $travelersCount, $mgr['employee_id']]);
+
+            $branchName = $pdo->prepare("SELECT name FROM branches WHERE id=?");
+            $branchName->execute([$branchId]);
+            $branchName = $branchName->fetchColumn();
+            $hrUids = $pdo->query("SELECT id FROM users WHERE role='hr'")->fetchAll(PDO::FETCH_COLUMN);
+            foreach ($hrUids as $uid) {
+                $pdo->prepare("INSERT INTO notifications (user_id, title, message) VALUES (?, 'إيجاز جديد بانتظار المراجعة', ?)")
+                    ->execute([$uid, 'نشر مدير فرع ' . $branchName . ' إيجاز اليوم بانتظار مراجعتك']);
+            }
+
             echo json_encode(['ok' => true]);
             exit;
         }
@@ -509,6 +578,15 @@ if (isset($_GET['ajax'])) {
             $employeeId = (int) ($_POST['employeeId'] ?? 0);
             $month = (int) date('n');
             $year = (int) date('Y');
+
+            $winStmt = $pdo->prepare("SELECT expires_at FROM payroll_windows WHERE period_month=? AND period_year=?");
+            $winStmt->execute([$month, $year]);
+            $expiresAt = $winStmt->fetchColumn();
+            if (!$expiresAt || strtotime($expiresAt) < time()) {
+                echo json_encode(['ok' => false, 'error' => 'صلاحية تسليم الرواتب لهذا الشهر مغلقة حالياً']);
+                exit;
+            }
+
             $empStmt = $pdo->prepare("SELECT full_name, base_salary FROM employees WHERE id=? AND branch_id=?");
             $empStmt->execute([$employeeId, $branchId]);
             $emp = $empStmt->fetch();
@@ -552,10 +630,83 @@ if (isset($_GET['ajax'])) {
             echo json_encode(['ok' => true, 'net' => $net]);
             exit;
         }
+
+        case 'report': {
+            $type = $_GET['type'] ?? 'attendance';
+            $from = $_GET['from'] ?? date('Y-m-01');
+            $to = $_GET['to'] ?? date('Y-m-d');
+            echo json_encode(['ok' => true] + branch_report_data($pdo, $type, $from, $to, $branchId), JSON_UNESCAPED_UNICODE);
+            exit;
+        }
+
+        case 'report_download': {
+            $type = $_GET['type'] ?? 'attendance';
+            $from = $_GET['from'] ?? date('Y-m-01');
+            $to = $_GET['to'] ?? date('Y-m-d');
+            $data = branch_report_data($pdo, $type, $from, $to, $branchId);
+
+            header('Content-Type: text/csv; charset=utf-8');
+            header('Content-Disposition: attachment; filename="report_' . $type . '_' . date('Ymd_His') . '.csv"');
+            echo "\xEF\xBB\xBF";
+            $out = fopen('php://output', 'w');
+            foreach ($data as $section => $rows) {
+                if (empty($rows)) continue;
+                fputcsv($out, [$section]);
+                fputcsv($out, array_keys($rows[0]));
+                foreach ($rows as $row) fputcsv($out, $row);
+                fputcsv($out, []);
+            }
+            fclose($out);
+            exit;
+        }
     }
 
     echo json_encode(['ok' => false, 'error' => 'unknown action']);
     exit;
+}
+
+function branch_report_data(PDO $pdo, string $type, string $from, string $to, int $branchId): array
+{
+    $result = [];
+
+    if ($type === 'attendance' || $type === 'all') {
+        $stmt = $pdo->prepare("SELECT e.full_name AS name, a.check_in AS checkIn, a.check_out AS checkOut, a.status
+                FROM attendance a JOIN employees e ON e.id=a.employee_id
+                WHERE a.branch_id = ? AND a.attendance_date BETWEEN ? AND ? ORDER BY a.attendance_date DESC");
+        $stmt->execute([$branchId, $from, $to]);
+        $result['attendance'] = array_map(function ($r) {
+            $r['checkIn'] = $r['checkIn'] ? substr($r['checkIn'], 0, 5) : '--:--';
+            $r['checkOut'] = $r['checkOut'] ? substr($r['checkOut'], 0, 5) : '--:--';
+            $r['status'] = ['present' => 'حاضر', 'late' => 'متأخر', 'absent' => 'غائب'][$r['status']] ?? $r['status'];
+            return $r;
+        }, $stmt->fetchAll());
+    }
+
+    if ($type === 'salaries' || $type === 'all') {
+        $stmt = $pdo->prepare("SELECT e.full_name AS name, p.base_salary AS base, p.bonus, p.deduction,
+                       (p.base_salary + p.bonus - p.deduction) AS net, p.status
+                FROM payroll p JOIN employees e ON e.id=p.employee_id
+                WHERE p.branch_id = ? AND DATE(p.created_at) BETWEEN ? AND ?");
+        $stmt->execute([$branchId, $from, $to]);
+        $result['salaries'] = array_map(function ($r) {
+            foreach (['base', 'bonus', 'deduction', 'net'] as $k) $r[$k] = number_format((float) $r[$k]);
+            $r['status'] = $r['status'] === 'delivered' ? 'مدفوع' : 'قيد المعالجة';
+            return $r;
+        }, $stmt->fetchAll());
+    }
+
+    if ($type === 'briefing' || $type === 'all') {
+        $stmt = $pdo->prepare("SELECT DATE_FORMAT(brief_date,'%d/%m/%Y') AS date, total_income AS revenue, total_expense AS expense,
+                       travelers_count AS travelers, (total_income - total_expense) AS profit, status
+                FROM daily_briefs WHERE branch_id = ? AND brief_date BETWEEN ? AND ? ORDER BY brief_date DESC");
+        $stmt->execute([$branchId, $from, $to]);
+        $result['briefing'] = array_map(function ($r) {
+            foreach (['revenue', 'expense', 'profit'] as $k) $r[$k] = number_format((float) $r[$k]);
+            return $r;
+        }, $stmt->fetchAll());
+    }
+
+    return $result;
 }
 ?>
 <!DOCTYPE html>
@@ -885,7 +1036,8 @@ if (isset($_GET['ajax'])) {
         }
         .side-menu.show { transform: translateX(0); }
         .side-menu .profile { display: flex; align-items: center; gap: 12px; margin-bottom: 22px; padding-bottom: 16px; border-bottom: 1px solid rgba(255,255,255,0.08); }
-        .side-menu .profile .avatar { width: 48px; height: 48px; border-radius: var(--radius-full); background: rgba(255,255,255,0.1); display: flex; align-items: center; justify-content: center; font-size: 24px; font-weight: 900; color: #fff; }
+        .side-menu .profile .avatar { width: 48px; height: 48px; border-radius: var(--radius-full); background: rgba(255,255,255,0.1); display: flex; align-items: center; justify-content: center; font-size: 24px; font-weight: 900; color: #fff; overflow: hidden; }
+        .side-menu .profile .avatar img { width: 100%; height: 100%; object-fit: cover; }
         .side-menu .profile .info .name { font-size: 16px; font-weight: 800; }
         .side-menu .profile .info .title { font-size: 11px; opacity: 0.7; }
         .side-menu .menu-item { padding: 10px 6px; border-bottom: 1px solid rgba(255,255,255,0.06); font-size: 13px; display: flex; gap: 12px; align-items: center; cursor: pointer; border-radius: 8px; }
@@ -924,6 +1076,14 @@ if (isset($_GET['ajax'])) {
         .toast .toast-content { flex: 1; min-width: 0; }
         .toast .toast-content .toast-title { font-size: 13px; font-weight: 800; color: var(--text-primary); margin-bottom: 2px; }
         .toast .toast-content .toast-message { font-size: 12px; font-weight: 400; color: var(--text-muted); line-height: 1.5; }
+
+        /* دوائر الإحصاء الحقيقية للفرع */
+        .stats-rings { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin: 12px 0; }
+        .stat-ring-card { background: var(--bg-card); border-radius: var(--radius-md); padding: 14px 8px; text-align: center; box-shadow: 0 2px 10px rgba(0,63,70,0.04); }
+        .stat-ring { width: 76px; height: 76px; border-radius: 50%; margin: 0 auto 8px; position: relative; display: flex; align-items: center; justify-content: center; background: conic-gradient(var(--ring-color, var(--primary-light)) calc(var(--pct, 0) * 1%), #e7eeed 0); }
+        .stat-ring::before { content: ''; position: absolute; inset: 7px; background: var(--bg-card); border-radius: 50%; }
+        .stat-ring .stat-ring-val { position: relative; z-index: 1; font-weight: 900; font-size: 15px; color: var(--text-primary); }
+        .stat-ring-card .stat-ring-label { font-size: 11px; color: var(--text-muted); font-weight: 700; }
 
         @media (max-width: 480px) {
             :root { --header-height: 58px; --nav-height: 66px; }
@@ -1000,7 +1160,10 @@ if (isset($_GET['ajax'])) {
             </div>
             <div class="actions">
                 <button class="icon-btn" onclick="toggleSideMenu()"><i class="fas fa-bars"></i></button>
-                <button class="icon-btn" onclick="showToast('🔔 الإشعارات', 'لديك 5 إشعارات جديدة', 'info')"><i class="fas fa-bell"></i></button>
+                <button class="icon-btn" style="position:relative;" onclick="navigateTo('notifications')">
+                    <i class="fas fa-bell"></i>
+                    <span id="notifBadge" style="display:none;position:absolute;top:2px;left:2px;background:#EF4444;color:#fff;font-size:9px;font-weight:800;min-width:15px;height:15px;border-radius:50%;align-items:center;justify-content:center;">0</span>
+                </button>
             </div>
         </header>
 
@@ -1009,7 +1172,7 @@ if (isset($_GET['ajax'])) {
             <!-- ===== الصفحة الرئيسية ===== -->
             <div id="page-home" class="page-screen">
                 <div class="card" style="display:flex;align-items:center;gap:14px;">
-                    <div style="width:56px;height:56px;border-radius:50%;background:var(--primary-gradient);display:flex;align-items:center;justify-content:center;color:#fff;font-size:28px;font-weight:900;">👨🏻</div>
+                    <div id="homeManagerAvatar" style="width:56px;height:56px;border-radius:50%;background:var(--primary-gradient);display:flex;align-items:center;justify-content:center;color:#fff;font-size:28px;font-weight:900;overflow:hidden;">👤</div>
                     <div>
                         <div style="font-weight:800;font-size:17px;" id="homeManagerName">مدير الفرع</div>
                         <div class="muted" id="homeManagerRole">مدير فرع</div>
@@ -1017,10 +1180,25 @@ if (isset($_GET['ajax'])) {
                     </div>
                 </div>
 
-                <div class="grid-3">
-                    <div class="card" style="text-align:center;padding:12px 6px;"><div style="font-size:20px;font-weight:900;color:var(--primary-light);" id="homeRequestsCount">0</div><div class="muted">طلبات جديدة</div></div>
-                    <div class="card" style="text-align:center;padding:12px 6px;"><div style="font-size:20px;font-weight:900;color:var(--green);" id="homeAttendanceCount">0/0</div><div class="muted">الحضور</div></div>
-                    <div class="card" style="text-align:center;padding:12px 6px;"><div style="font-size:20px;font-weight:900;color:var(--primary-light);" id="homeCommitmentPct">0%</div><div class="muted">الالتزام</div></div>
+                <div class="stats-rings">
+                    <div class="stat-ring-card">
+                        <div class="stat-ring" id="ringAttendance" style="--ring-color:var(--green);">
+                            <span class="stat-ring-val" id="homeAttendanceCount">0/0</span>
+                        </div>
+                        <div class="stat-ring-label">الحضور اليوم</div>
+                    </div>
+                    <div class="stat-ring-card">
+                        <div class="stat-ring" id="ringCommitment" style="--ring-color:var(--primary-light);">
+                            <span class="stat-ring-val" id="homeCommitmentPct">0%</span>
+                        </div>
+                        <div class="stat-ring-label">الالتزام الشهري</div>
+                    </div>
+                    <div class="stat-ring-card">
+                        <div class="stat-ring" id="ringRequests" style="--ring-color:var(--accent);">
+                            <span class="stat-ring-val" id="homeRequestsCount">0</span>
+                        </div>
+                        <div class="stat-ring-label">طلبات جديدة</div>
+                    </div>
                 </div>
 
                 <div class="grid-2">
@@ -1115,10 +1293,11 @@ if (isset($_GET['ajax'])) {
                 <div class="card">
                     <h3>تسجيل حضوري</h3>
                     <div class="grid-2">
-                        <button class="btn green" onclick="recordManagerAttendance('in')"><i class="fas fa-sign-in-alt"></i> تسجيل دخول</button>
-                        <button class="btn red" onclick="recordManagerAttendance('out')"><i class="fas fa-sign-out-alt"></i> تسجيل انصراف</button>
+                        <button class="btn green hidden" id="checkInBtn" onclick="recordManagerAttendance('in')"><i class="fas fa-sign-in-alt"></i> تسجيل دخول</button>
+                        <button class="btn red hidden" id="checkOutBtn" onclick="recordManagerAttendance('out')"><i class="fas fa-sign-out-alt"></i> تسجيل انصراف</button>
                     </div>
-                    <div id="managerAttendanceStatus" class="mt-2 text-center muted">آخر تسجيل: 08:02 صباحاً (دخول)</div>
+                    <div class="muted mt-2" id="attendanceWindowNote" style="text-align:center;"></div>
+                    <div id="managerAttendanceStatus" class="mt-2 text-center muted"></div>
                 </div>
 
                 <div class="card">
@@ -1364,7 +1543,6 @@ if (isset($_GET['ajax'])) {
                 <!-- ===== أزرار النشر ===== -->
                 <div class="grid-2">
                     <button class="btn gold" onclick="publishBriefing()"><i class="fas fa-paper-plane"></i> نشر الإيجاز لـ HR</button>
-                    <button class="btn" onclick="saveBriefing()"><i class="fas fa-save"></i> حفظ كمسودة</button>
                 </div>
 
                 <!-- ===== عرض الإيجاز لـ HR ===== -->
@@ -1404,33 +1582,32 @@ if (isset($_GET['ajax'])) {
                     <h3>إنشاء تقرير</h3>
                     <div class="form-group"><label>نوع التقرير</label>
                         <select id="reportType">
-                            <option value="briefing">تقرير الإيجاز اليومي</option>
+                            <option value="all">تقرير شامل</option>
                             <option value="attendance">تقرير الحضور</option>
-                            <option value="payroll">تقرير الرواتب</option>
-                            <option value="ratings">تقرير التقييمات</option>
+                            <option value="salaries">تقرير الرواتب</option>
+                            <option value="briefing">تقرير الإيجاز اليومي</option>
                         </select>
                     </div>
                     <div class="form-row">
-                        <div class="form-group"><label>من تاريخ</label><input type="date" id="reportFrom" value="2024-05-01"></div>
-                        <div class="form-group"><label>إلى تاريخ</label><input type="date" id="reportTo" value="2024-05-31"></div>
+                        <div class="form-group"><label>من تاريخ</label><input type="date" id="reportFrom"></div>
+                        <div class="form-group"><label>إلى تاريخ</label><input type="date" id="reportTo"></div>
                     </div>
-                    <button class="btn" onclick="generateReport()"><i class="fas fa-file-pdf"></i> إنشاء التقرير</button>
+                    <div class="grid-2">
+                        <button class="btn" onclick="generateReport()"><i class="fas fa-file-lines"></i> إنشاء التقرير</button>
+                        <button class="btn gold" onclick="downloadReport()"><i class="fas fa-download"></i> تحميل CSV</button>
+                    </div>
                 </div>
 
-                <div class="section-title"><i class="fas fa-folder-open"></i> التقارير المحفوظة</div>
-                <div id="reportsList">
-                    <div class="file-manager" style="display:flex;align-items:center;justify-content:space-between;padding:10px 14px;background:var(--bg-card);border-radius:var(--radius-md);border:1px solid #e2ebeb;margin-bottom:8px;">
-                        <div style="display:flex;align-items:center;gap:10px;">
-                            <div style="width:36px;height:36px;border-radius:8px;display:flex;align-items:center;justify-content:center;background:rgba(0,107,115,0.06);color:var(--primary-light);"><i class="fas fa-file-image"></i></div>
-                            <div><div style="font-weight:700;font-size:13px;">تقرير الإيجاز - 15/05/2024</div><div style="font-size:10px;color:var(--text-muted);">15/05/2024 • 450 كيلوبايت</div></div>
-                        </div>
-                        <div style="display:flex;gap:6px;">
-                            <button class="btn-view" style="padding:4px 10px;border:none;border-radius:8px;font-size:10px;font-weight:700;cursor:pointer;background:rgba(0,107,115,0.08);color:var(--primary-light);" onclick="showToast('👁️ معاينة','جاري فتح التقرير...','info')"><i class="fas fa-eye"></i></button>
-                            <button class="btn-download" style="padding:4px 10px;border:none;border-radius:8px;font-size:10px;font-weight:700;cursor:pointer;background:rgba(21,148,71,0.08);color:var(--green);" onclick="showToast('📥 تحميل','جاري تحميل التقرير...','info')"><i class="fas fa-download"></i></button>
-                            <button class="btn-delete" style="padding:4px 10px;border:none;border-radius:8px;font-size:10px;font-weight:700;cursor:pointer;background:rgba(223,75,75,0.08);color:var(--red);" onclick="showToast('🗑️ حذف','تم حذف التقرير','warning')"><i class="fas fa-trash"></i></button>
-                        </div>
-                    </div>
-                </div>
+                <div id="reportResult"></div>
+            </div>
+
+            <!-- ==========================================================
+            الإشعارات
+            ========================================================== -->
+            <div id="page-notifications" class="page-screen hidden">
+                <div class="page-title"><h2><i class="fas fa-bell"></i> الإشعارات</h2><button onclick="navigateTo('home')" class="back-btn"><i class="fas fa-arrow-right"></i> رجوع</button></div>
+                <button class="btn small light" onclick="markAllNotifsRead()"><i class="fas fa-check-double"></i> تعليم الكل كمقروء</button>
+                <div id="notifList" style="margin-top:10px;"></div>
             </div>
 
             <!-- ==========================================================
@@ -1500,7 +1677,7 @@ if (isset($_GET['ajax'])) {
         <div class="side-menu-overlay" id="sideMenuOverlay" onclick="toggleSideMenu()"></div>
         <div class="side-menu" id="sideMenu">
             <button class="close-btn" onclick="toggleSideMenu()"><i class="fas fa-times"></i></button>
-            <div class="profile"><div class="avatar">👨🏻</div><div class="info"><div class="name">أحمد حسن علي</div><div class="title">مدير فرع — المنصور</div></div></div>
+            <div class="profile"><div class="avatar" id="sideMenuAvatar">👤</div><div class="info"><div class="name" id="sideMenuName">مدير الفرع</div><div class="title" id="sideMenuTitle">مدير فرع</div></div></div>
             <div class="menu-item" onclick="navigateTo('home');toggleSideMenu();"><i class="fas fa-home"></i> الرئيسية</div>
             <div class="menu-item" onclick="navigateTo('employees');toggleSideMenu();"><i class="fas fa-users"></i> الموظفون</div>
             <div class="menu-item" onclick="navigateTo('attendance');toggleSideMenu();"><i class="fas fa-fingerprint"></i> البصمة والحضور</div>
@@ -1509,6 +1686,7 @@ if (isset($_GET['ajax'])) {
             <div class="menu-item" onclick="navigateTo('briefing');toggleSideMenu();"><i class="fas fa-chart-simple"></i> الإيجاز اليومي</div>
             <div class="menu-item" onclick="navigateTo('payroll');toggleSideMenu();"><i class="fas fa-money-bill-wave"></i> الرواتب</div>
             <div class="menu-item" onclick="navigateTo('reports');toggleSideMenu();"><i class="fas fa-chart-bar"></i> التقارير</div>
+            <div class="menu-item" onclick="navigateTo('notifications');toggleSideMenu();"><i class="fas fa-bell"></i> الإشعارات</div>
             <div class="menu-item" onclick="navigateTo('files');toggleSideMenu();"><i class="fas fa-folder"></i> الملفات</div>
             <div class="menu-item logout" onclick="handleLogout();toggleSideMenu();"><i class="fas fa-sign-out-alt"></i> تسجيل الخروج</div>
         </div>
@@ -1528,6 +1706,7 @@ if (isset($_GET['ajax'])) {
                         <div class="form-group"><label>الاسم الكامل <span style="color:var(--red);">*</span></label><input type="text" id="reqName" placeholder="أدخل اسم الموظف" required></div>
                         <div class="form-group"><label>اسم الأم</label><input type="text" id="reqMotherName" placeholder="اسم الأم"></div>
                         <div class="form-group"><label>رقم الهوية الوطنية</label><input type="text" id="reqNationalId" placeholder="رقم الهوية الوطنية"></div>
+                        <div class="form-group"><label>رقم الهاتف <span style="color:var(--red);">*</span></label><input type="text" id="reqPhone" placeholder="07xxxxxxxxx" required></div>
                         <div class="form-group"><label>المسمى الوظيفي <span style="color:var(--red);">*</span></label><input type="text" id="reqPosition" placeholder="المسمى الوظيفي" required></div>
                         <div class="form-row">
                             <div class="form-group"><label>تاريخ الولادة</label><input type="date" id="reqBirthDate"></div>
@@ -1543,6 +1722,7 @@ if (isset($_GET['ajax'])) {
                             <div class="form-group"><label>وقت بداية الدوام</label><input type="time" id="reqShiftStart"></div>
                             <div class="form-group"><label>وقت انتهاء الدوام</label><input type="time" id="reqShiftEnd"></div>
                         </div>
+                        <div class="form-group"><label>صورة الموظف <span style="color:var(--red);">*</span></label><input type="file" id="reqPhoto" accept="image/*" required></div>
                         <div class="form-group"><label>المستمسكات (ملف)</label><input type="file" id="reqDocuments" accept=".jpg,.jpeg,.png,.pdf,.doc,.docx"></div>
                         <div class="form-group"><label>الراتب الأساسي <span style="color:var(--red);">*</span></label><input type="number" id="reqSalary" placeholder="500000" required></div>
                         <div class="form-group"><label>كلمة المرور <span style="color:var(--red);">*</span></label><input type="password" id="reqPassword" placeholder="أدخل كلمة المرور" minlength="6" required></div>
@@ -1668,6 +1848,41 @@ if (isset($_GET['ajax'])) {
             loadBriefingEntries();
             loadHomeStats();
             loadBriefStatus();
+            loadNotifications();
+            setInterval(loadNotifications, 60000);
+        }
+
+        // ============================================================
+        // الإشعارات
+        // ============================================================
+        function loadNotifications() {
+            fetch('?ajax=notifications_list').then(r => r.json()).then(data => {
+                if (!data.ok) return;
+                const badge = document.getElementById('notifBadge');
+                if (data.unread > 0) {
+                    badge.style.display = 'flex';
+                    badge.textContent = data.unread;
+                } else {
+                    badge.style.display = 'none';
+                }
+                const list = document.getElementById('notifList');
+                if (!list) return;
+                if (!data.notifications.length) {
+                    list.innerHTML = '<div class="card" style="text-align:center;padding:24px;color:var(--text-muted);">لا توجد إشعارات</div>';
+                    return;
+                }
+                list.innerHTML = data.notifications.map(n => `
+                    <div class="card" style="${n.is_read ? '' : 'border-right:3px solid var(--primary-light);'}">
+                        <b style="font-size:13px;">${n.title}</b>
+                        <p class="muted" style="margin-top:4px;">${n.message}</p>
+                        <div class="muted" style="font-size:10px;margin-top:4px;">${n.date}</div>
+                    </div>
+                `).join('');
+            });
+        }
+
+        function markAllNotifsRead() {
+            fetch('?ajax=notifications_mark_all_read', { method: 'POST' }).then(() => loadNotifications());
         }
 
         function loadHomeStats() {
@@ -1676,9 +1891,19 @@ if (isset($_GET['ajax'])) {
                 document.getElementById('homeManagerName').textContent = data.manager.name;
                 document.getElementById('homeManagerRole').textContent = 'مدير فرع — ' + data.manager.branch;
                 document.getElementById('homeManagerCode').textContent = 'رقم الموظف: ' + data.manager.code;
+                document.getElementById('sideMenuName').textContent = data.manager.name;
+                document.getElementById('sideMenuTitle').textContent = 'مدير فرع — ' + data.manager.branch;
+                if (data.manager.photo) {
+                    document.getElementById('sideMenuAvatar').innerHTML = `<img src="${data.manager.photo}" alt="">`;
+                    document.getElementById('homeManagerAvatar').innerHTML = `<img src="${data.manager.photo}" alt="" style="width:100%;height:100%;object-fit:cover;">`;
+                }
                 document.getElementById('homeRequestsCount').textContent = data.stats.pendingRequests;
                 document.getElementById('homeAttendanceCount').textContent = data.stats.presentToday + '/' + data.stats.employees;
                 document.getElementById('homeCommitmentPct').textContent = data.stats.commitmentPct + '%';
+                const attendancePct = data.stats.employees > 0 ? Math.round((data.stats.presentToday / data.stats.employees) * 100) : 0;
+                document.getElementById('ringAttendance').style.setProperty('--pct', attendancePct);
+                document.getElementById('ringCommitment').style.setProperty('--pct', data.stats.commitmentPct);
+                document.getElementById('ringRequests').style.setProperty('--pct', data.stats.pendingRequests > 0 ? 100 : 0);
                 if (data.branchLocation && data.branchLocation.lat) {
                     branchLocation = { lat: data.branchLocation.lat, lng: data.branchLocation.lng, radius: data.branchLocation.radius };
                     document.getElementById('branchLat').value = branchLocation.lat;
@@ -1699,6 +1924,15 @@ if (isset($_GET['ajax'])) {
                 document.getElementById('previousDayProfit').textContent = (previousDayProfit >= 0 ? '+' : '') +
                     previousDayProfit.toLocaleString() + ' د.ع';
                 updateBriefingSummary();
+
+                shiftInfo = data.shift;
+                todayAttendance = data.todayAttendance;
+                updateAttendanceButtonVisibility();
+                const statusDiv = document.getElementById('managerAttendanceStatus');
+                if (statusDiv && !statusDiv.innerHTML) {
+                    if (todayAttendance.checkedOut) statusDiv.textContent = '✅ تم تسجيل حضورك وانصرافك اليوم';
+                    else if (todayAttendance.checkedIn) statusDiv.textContent = '✅ تم تسجيل دخولك اليوم';
+                }
             });
         }
 
@@ -1784,13 +2018,17 @@ if (isset($_GET['ajax'])) {
                     <div class="card">
                         <div class="flex-between"><b>${icons[r.type] || '📄'} طلب ${r.type}</b><span class="badge ${badgeClass[r.status] || 'wait'}">${r.status}</span></div>
                         <p class="muted">${r.name} • ${r.details}</p>
-                        ${r.canReview ? `<div class="flex gap-2 mt-2"><button class="btn green small" onclick="reviewRequest(${r.id},'approved')">موافقة</button><button class="btn red small" onclick="reviewRequest(${r.id},'rejected')">رفض</button></div>` : ''}
+                        ${r.canReview ? `
+                            <input type="text" id="reqNote_${r.id}" placeholder="رد برسالة (اختياري)" style="width:100%;height:36px;padding:0 10px;border:1.5px solid #e2ebeb;border-radius:8px;font-family:var(--font-family);margin-top:6px;">
+                            <div class="flex gap-2 mt-2"><button class="btn green small" onclick="reviewRequest(${r.id},'approved')">موافقة</button><button class="btn red small" onclick="reviewRequest(${r.id},'rejected')">رفض</button></div>
+                        ` : ''}
                     </div>
                 `).join('');
         }
 
         function reviewRequest(id, decision) {
-            fetch('?ajax=request_review', { method: 'POST', body: new URLSearchParams({ id, decision }) })
+            const note = document.getElementById('reqNote_' + id) ? document.getElementById('reqNote_' + id).value : '';
+            fetch('?ajax=request_review', { method: 'POST', body: new URLSearchParams({ id, decision, note }) })
                 .then(r => r.json()).then(data => {
                     if (data.ok) {
                         showToast(decision === 'approved' ? '✅ تم الإرسال' : '❌ تم الرفض',
@@ -1860,6 +2098,16 @@ if (isset($_GET['ajax'])) {
             else if (page === 'requests') loadRequests();
             else if (page === 'payroll') loadPayroll();
             else if (page === 'home') loadHomeStats();
+            else if (page === 'notifications') loadNotifications();
+            else if (page === 'reports') {
+                const fromEl = document.getElementById('reportFrom');
+                const toEl = document.getElementById('reportTo');
+                if (!toEl.value) {
+                    const today = new Date().toISOString().split('T')[0];
+                    fromEl.value = today.slice(0, 8) + '01';
+                    toEl.value = today;
+                }
+            }
         }
 
         function toggleSideMenu() {
@@ -1874,6 +2122,45 @@ if (isset($_GET['ajax'])) {
         // نظام تحديد موقع الفرع
         // ============================================================
         let branchLocation = { lat: 33.3152, lng: 44.3661, radius: 100 };
+        let shiftInfo = null;
+        let todayAttendance = { checkedIn: false, checkedOut: false };
+
+        function updateAttendanceButtonVisibility() {
+            const inBtn = document.getElementById('checkInBtn');
+            const outBtn = document.getElementById('checkOutBtn');
+            const note = document.getElementById('attendanceWindowNote');
+            if (!inBtn || !outBtn || !shiftInfo) return;
+
+            const now = new Date();
+            const nowMinutes = now.getHours() * 60 + now.getMinutes();
+            const [startH, startM] = shiftInfo.start.split(':').map(Number);
+            const [endH, endM] = shiftInfo.end.split(':').map(Number);
+            const shiftStartMin = startH * 60 + startM;
+            const shiftEndMin = endH * 60 + endM;
+            const grace = shiftInfo.graceMinutes || 15;
+
+            const inWindowOpen = nowMinutes >= (shiftStartMin - 15) && nowMinutes <= (shiftStartMin + grace);
+            const outWindowOpen = nowMinutes >= shiftEndMin && nowMinutes <= (shiftEndMin + 15);
+
+            const showIn = !todayAttendance.checkedIn && inWindowOpen;
+            const showOut = todayAttendance.checkedIn && !todayAttendance.checkedOut && outWindowOpen;
+
+            inBtn.classList.toggle('hidden', !showIn);
+            outBtn.classList.toggle('hidden', !showOut);
+
+            if (note) {
+                if (showIn || showOut) {
+                    note.textContent = '';
+                } else if (todayAttendance.checkedIn && todayAttendance.checkedOut) {
+                    note.textContent = 'تم تسجيل حضورك وانصرافك اليوم';
+                } else if (!todayAttendance.checkedIn) {
+                    note.textContent = 'يظهر زر تسجيل الدخول من ' + shiftInfo.start + ' حتى مضي ' + grace + ' دقيقة من بداية الدوام';
+                } else {
+                    note.textContent = 'يظهر زر تسجيل الانصراف عند نهاية الدوام (' + shiftInfo.end + ') لمدة 15 دقيقة فقط';
+                }
+            }
+        }
+        setInterval(updateAttendanceButtonVisibility, 30000);
         let userLocation = null;
         let gpsActive = false;
 
@@ -2219,15 +2506,8 @@ if (isset($_GET['ajax'])) {
         }
 
         // ============================================================
-        // حفظ ونشر الإيجاز
+        // نشر الإيجاز
         // ============================================================
-        function saveBriefing() {
-            if (briefingEntries.length === 0) {
-                showToast('⚠️ تنبيه', 'لا توجد قيود لحفظها، أضف قيداً أولاً', 'warning');
-                return;
-            }
-            showToast('✅ محفوظ', 'كل القيود محفوظة تلقائياً فور إضافتها', 'success');
-        }
 
         function publishBriefing() {
             if (briefingEntries.length === 0) {
@@ -2265,28 +2545,61 @@ if (isset($_GET['ajax'])) {
         // ============================================================
         // دوال التقارير
         // ============================================================
+        function reportAttendanceTable(rows) {
+            if (!rows || !rows.length) return '<p class="muted">لا توجد بيانات</p>';
+            return '<div class="table-wrap"><table class="table"><tr><th>الموظف</th><th>دخول</th><th>انصراف</th><th>الحالة</th></tr>' +
+                rows.map(r => `<tr><td>${r.name}</td><td>${r.checkIn}</td><td>${r.checkOut}</td><td>${r.status}</td></tr>`).join('') + '</table></div>';
+        }
+        function reportSalariesTable(rows) {
+            if (!rows || !rows.length) return '<p class="muted">لا توجد بيانات</p>';
+            return '<div class="table-wrap"><table class="table"><tr><th>الموظف</th><th>الأساسي</th><th>المكافأة</th><th>الخصم</th><th>الصافي</th><th>الحالة</th></tr>' +
+                rows.map(r => `<tr><td>${r.name}</td><td>${r.base}</td><td>${r.bonus}</td><td>${r.deduction}</td><td>${r.net}</td><td>${r.status}</td></tr>`).join('') + '</table></div>';
+        }
+        function reportBriefingTable(rows) {
+            if (!rows || !rows.length) return '<p class="muted">لا توجد بيانات</p>';
+            return '<div class="table-wrap"><table class="table"><tr><th>التاريخ</th><th>الإيراد</th><th>المصروف</th><th>المسافرون</th><th>الربح</th></tr>' +
+                rows.map(r => `<tr><td>${r.date}</td><td>${r.revenue}</td><td>${r.expense}</td><td>${r.travelers}</td><td>${r.profit}</td></tr>`).join('') + '</table></div>';
+        }
+
         function generateReport() {
             const type = document.getElementById('reportType').value;
             const from = document.getElementById('reportFrom').value;
             const to = document.getElementById('reportTo').value;
-            const typeNames = {
-                'briefing': 'تقرير الإيجاز اليومي',
-                'attendance': 'تقرير الحضور',
-                'payroll': 'تقرير الرواتب',
-                'ratings': 'تقرير التقييمات'
-            };
-            showToast('📊 جاري الإنشاء', 'جاري إنشاء ' + typeNames[type] + ' من ' + from + ' إلى ' + to, 'info', 2000);
-            setTimeout(() => {
-                showToast('✅ تم الإنشاء', 'تم إنشاء ' + typeNames[type] + ' بنجاح', 'success');
-            }, 1500);
+            const qs = new URLSearchParams({ type, from, to });
+            fetch('?ajax=report&' + qs.toString()).then(r => r.json()).then(data => {
+                if (!data.ok) { showToast('⚠️ خطأ', 'تعذر إنشاء التقرير', 'error'); return; }
+                let html = '<div class="card">';
+                if (type === 'attendance' || type === 'all') html += '<h3><i class="fas fa-clock"></i> الحضور</h3>' + reportAttendanceTable(data.attendance);
+                if (type === 'salaries' || type === 'all') html += '<h3 style="margin-top:14px;"><i class="fas fa-wallet"></i> الرواتب</h3>' + reportSalariesTable(data.salaries);
+                if (type === 'briefing' || type === 'all') html += '<h3 style="margin-top:14px;"><i class="fas fa-chart-simple"></i> الإيجاز</h3>' + reportBriefingTable(data.briefing);
+                html += '</div>';
+                document.getElementById('reportResult').innerHTML = html;
+                showToast('✅ تم الإنشاء', 'تم إنشاء التقرير بنجاح', 'success');
+            });
+        }
+
+        function downloadReport() {
+            const type = document.getElementById('reportType').value;
+            const from = document.getElementById('reportFrom').value;
+            const to = document.getElementById('reportTo').value;
+            const qs = new URLSearchParams({ type, from, to });
+            window.location.href = '?ajax=report_download&' + qs.toString();
         }
 
         function saveAttendanceReport() {
-            showToast('✅ تم الحفظ', 'تم حفظ تقرير الحضور في الملفات', 'success');
+            const today = new Date().toISOString().split('T')[0];
+            const qs = new URLSearchParams({ type: 'attendance', from: today, to: today });
+            showToast('📥 جاري التحميل', 'يتم تحميل تقرير حضور اليوم...', 'info');
+            window.location.href = '?ajax=report_download&' + qs.toString();
         }
 
         function savePayrollReport() {
-            showToast('✅ تم الحفظ', 'تم حفظ تقرير الرواتب في الملفات', 'success');
+            const today = new Date();
+            const from = today.toISOString().slice(0, 8) + '01';
+            const to = today.toISOString().split('T')[0];
+            const qs = new URLSearchParams({ type: 'salaries', from, to });
+            showToast('📥 جاري التحميل', 'يتم تحميل تقرير رواتب هذا الشهر...', 'info');
+            window.location.href = '?ajax=report_download&' + qs.toString();
         }
 
         // ============================================================
@@ -2315,6 +2628,7 @@ if (isset($_GET['ajax'])) {
             formData.append('name', document.getElementById('reqName').value);
             formData.append('motherName', document.getElementById('reqMotherName').value);
             formData.append('nationalId', document.getElementById('reqNationalId').value);
+            formData.append('phone', document.getElementById('reqPhone').value);
             formData.append('position', document.getElementById('reqPosition').value);
             formData.append('birthDate', document.getElementById('reqBirthDate').value);
             formData.append('hireDate', document.getElementById('reqHireDate').value);
@@ -2323,6 +2637,12 @@ if (isset($_GET['ajax'])) {
             formData.append('shiftEnd', document.getElementById('reqShiftEnd').value);
             formData.append('salary', document.getElementById('reqSalary').value);
             formData.append('password', document.getElementById('reqPassword').value);
+            const photoInput = document.getElementById('reqPhoto');
+            if (!photoInput.files || photoInput.files.length === 0) {
+                showToast('⚠️ تنبيه', 'صورة الموظف مطلوبة', 'warning');
+                return;
+            }
+            formData.append('photo', photoInput.files[0]);
             const docsInput = document.getElementById('reqDocuments');
             if (docsInput.files && docsInput.files.length > 0) {
                 formData.append('documents', docsInput.files[0]);
@@ -2437,8 +2757,9 @@ if (isset($_GET['ajax'])) {
         window.cancelDelegation = cancelDelegation;
         window.addBriefingEntry = addBriefingEntry;
         window.deleteEntry = deleteEntry;
-        window.saveBriefing = saveBriefing;
         window.publishBriefing = publishBriefing;
+        window.downloadReport = downloadReport;
+        window.markAllNotifsRead = markAllNotifsRead;
         window.generateReport = generateReport;
         window.saveAttendanceReport = saveAttendanceReport;
         window.savePayrollReport = savePayrollReport;

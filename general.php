@@ -32,6 +32,68 @@ function db(): PDO
     return $pdo;
 }
 
+function attendance_status_ar(string $s): string
+{
+    return ['present' => 'حاضر', 'late' => 'متأخر', 'absent' => 'غائب'][$s] ?? $s;
+}
+
+function gm_report_data(PDO $pdo, string $type, string $from, string $to, int $branch): array
+{
+    $result = [];
+
+    if ($type === 'attendance' || $type === 'all') {
+        $sql = "SELECT e.full_name AS name, b.name AS branch, a.check_in AS checkIn, a.check_out AS checkOut, a.status
+                FROM attendance a JOIN employees e ON e.id=a.employee_id JOIN branches b ON b.id=a.branch_id
+                WHERE a.attendance_date BETWEEN ? AND ?";
+        $params = [$from, $to];
+        if ($branch > 0) { $sql .= " AND a.branch_id = ?"; $params[] = $branch; }
+        $sql .= " ORDER BY a.attendance_date DESC";
+        $stmt = $pdo->prepare($sql);
+        $stmt->execute($params);
+        $result['attendance'] = array_map(function ($r) {
+            $r['checkIn'] = $r['checkIn'] ? substr($r['checkIn'], 0, 5) : '--:--';
+            $r['checkOut'] = $r['checkOut'] ? substr($r['checkOut'], 0, 5) : '--:--';
+            $r['status'] = attendance_status_ar($r['status']);
+            return $r;
+        }, $stmt->fetchAll());
+    }
+
+    if ($type === 'salaries' || $type === 'all') {
+        $sql = "SELECT e.full_name AS name, b.name AS branch, p.base_salary AS base, p.bonus, p.deduction,
+                       (p.base_salary + p.bonus - p.deduction) AS net, p.status
+                FROM payroll p JOIN employees e ON e.id=p.employee_id JOIN branches b ON b.id=p.branch_id
+                WHERE DATE(p.created_at) BETWEEN ? AND ?";
+        $params = [$from, $to];
+        if ($branch > 0) { $sql .= " AND p.branch_id = ?"; $params[] = $branch; }
+        $stmt = $pdo->prepare($sql);
+        $stmt->execute($params);
+        $result['salaries'] = array_map(function ($r) {
+            foreach (['base', 'bonus', 'deduction', 'net'] as $k) $r[$k] = number_format((float) $r[$k]);
+            $r['status'] = $r['status'] === 'delivered' ? 'مدفوع' : 'قيد المعالجة';
+            return $r;
+        }, $stmt->fetchAll());
+    }
+
+    if ($type === 'briefing' || $type === 'all') {
+        $sql = "SELECT b.name AS branch, DATE_FORMAT(db.brief_date,'%d/%m/%Y') AS date,
+                       db.total_income AS revenue, db.total_expense AS expense, db.travelers_count AS travelers,
+                       (db.total_income - db.total_expense) AS profit, db.status
+                FROM daily_briefs db JOIN branches b ON b.id = db.branch_id
+                WHERE db.brief_date BETWEEN ? AND ?";
+        $params = [$from, $to];
+        if ($branch > 0) { $sql .= " AND db.branch_id = ?"; $params[] = $branch; }
+        $sql .= " ORDER BY db.brief_date DESC";
+        $stmt = $pdo->prepare($sql);
+        $stmt->execute($params);
+        $result['briefing'] = array_map(function ($r) {
+            foreach (['revenue', 'expense', 'profit'] as $k) $r[$k] = number_format((float) $r[$k]);
+            return $r;
+        }, $stmt->fetchAll());
+    }
+
+    return $result;
+}
+
 $isLoggedIn = !empty($_SESSION['gm_user']);
 
 /* ======================================================================
@@ -51,12 +113,17 @@ if (isset($_GET['ajax'])) {
     if ($action === 'login') {
         $username = trim($_POST['username'] ?? '');
         $password = (string) ($_POST['password'] ?? '');
-        $stmt = $pdo->prepare("SELECT * FROM users WHERE username = ? AND role = 'general_manager' AND status = 'active' LIMIT 1");
+        $stmt = $pdo->prepare("SELECT * FROM users WHERE username = ? AND role IN ('general_manager','shareholder') AND status = 'active' LIMIT 1");
         $stmt->execute([$username]);
         $row = $stmt->fetch();
         if ($row && password_verify($password, $row['password_hash'])) {
-            $_SESSION['gm_user'] = ['id' => (int) $row['id'], 'username' => $row['username']];
-            echo json_encode(['ok' => true]);
+            $_SESSION['gm_user'] = [
+                'id' => (int) $row['id'],
+                'username' => $row['username'],
+                'role' => $row['role'],
+                'displayName' => $row['display_name'],
+            ];
+            echo json_encode(['ok' => true, 'role' => $row['role']]);
         } else {
             echo json_encode(['ok' => false, 'error' => 'البريد الإلكتروني أو كلمة المرور غير صحيحة']);
         }
@@ -76,6 +143,13 @@ if (isset($_GET['ajax'])) {
         exit;
     }
     $gmUser = $_SESSION['gm_user'];
+    $isShareholder = $gmUser['role'] === 'shareholder';
+    $gmOnlyActions = ['brief_final_review', 'payroll_window_open', 'shareholders_list', 'shareholder_create', 'shareholder_toggle'];
+    if ($isShareholder && in_array($action, $gmOnlyActions, true)) {
+        http_response_code(403);
+        echo json_encode(['ok' => false, 'error' => 'هذه الصلاحية متاحة للمسؤول العام فقط']);
+        exit;
+    }
 
     switch ($action) {
 
@@ -84,6 +158,13 @@ if (isset($_GET['ajax'])) {
             $approvedToday = (int) $pdo->query("SELECT COUNT(*) FROM daily_briefs WHERE status='approved' AND brief_date=CURDATE()")->fetchColumn();
             $branches = (int) $pdo->query("SELECT COUNT(*) FROM branches WHERE status='active'")->fetchColumn();
             $employees = (int) $pdo->query("SELECT COUNT(*) FROM employees WHERE status='active'")->fetchColumn();
+            $month = (int) date('n');
+            $year = (int) date('Y');
+            $winStmt = $pdo->prepare("SELECT expires_at FROM payroll_windows WHERE period_month=? AND period_year=?");
+            $winStmt->execute([$month, $year]);
+            $expiresAt = $winStmt->fetchColumn();
+            $windowOpen = $expiresAt && strtotime($expiresAt) > time();
+
             echo json_encode([
                 'ok' => true,
                 'username' => $gmUser['username'],
@@ -93,7 +174,54 @@ if (isset($_GET['ajax'])) {
                     'branches' => $branches,
                     'employees' => $employees,
                 ],
+                'payrollWindow' => [
+                    'open' => $windowOpen,
+                    'expiresAt' => $expiresAt ?: null,
+                ],
             ], JSON_UNESCAPED_UNICODE);
+            exit;
+        }
+
+        case 'payroll_window_open': {
+            $month = (int) date('n');
+            $year = (int) date('Y');
+            $expiresAt = date('Y-m-d H:i:s', strtotime('+3 days'));
+            $pdo->prepare("INSERT INTO payroll_windows (period_month, period_year, opened_by, expires_at) VALUES (?, ?, ?, ?)
+                ON DUPLICATE KEY UPDATE opened_by=VALUES(opened_by), opened_at=NOW(), expires_at=VALUES(expires_at)")
+                ->execute([$month, $year, $gmUser['id'], $expiresAt]);
+            echo json_encode(['ok' => true, 'expiresAt' => $expiresAt]);
+            exit;
+        }
+
+        case 'shareholders_list': {
+            $rows = $pdo->query("SELECT id, username, display_name, status, created_at FROM users WHERE role='shareholder' ORDER BY created_at DESC")->fetchAll();
+            echo json_encode(['ok' => true, 'shareholders' => $rows], JSON_UNESCAPED_UNICODE);
+            exit;
+        }
+
+        case 'shareholder_create': {
+            $name = trim($_POST['name'] ?? '');
+            $username = trim($_POST['username'] ?? '');
+            $password = (string) ($_POST['password'] ?? '');
+            if ($name === '' || $username === '' || strlen($password) < 6) {
+                echo json_encode(['ok' => false, 'error' => 'الرجاء تعبئة الاسم واسم الدخول (كلمة المرور 6 أحرف على الأقل)']);
+                exit;
+            }
+            try {
+                $hash = password_hash($password, PASSWORD_DEFAULT);
+                $pdo->prepare("INSERT INTO users (role, username, password_hash, display_name, status) VALUES ('shareholder', ?, ?, ?, 'active')")
+                    ->execute([$username, $hash, $name]);
+                echo json_encode(['ok' => true]);
+            } catch (Throwable $ex) {
+                echo json_encode(['ok' => false, 'error' => 'اسم الدخول مستخدم مسبقاً']);
+            }
+            exit;
+        }
+
+        case 'shareholder_toggle': {
+            $id = (int) ($_POST['id'] ?? 0);
+            $pdo->prepare("UPDATE users SET status = IF(status='active','inactive','active') WHERE id=? AND role='shareholder'")->execute([$id]);
+            echo json_encode(['ok' => true]);
             exit;
         }
 
@@ -147,6 +275,19 @@ if (isset($_GET['ajax'])) {
                 echo json_encode(['ok' => false, 'error' => 'هذا الإيجاز ليس بانتظار اعتمادك']);
                 exit;
             }
+
+            $briefRow = $pdo->prepare("SELECT branch_id FROM daily_briefs WHERE id=?");
+            $briefRow->execute([$id]);
+            $briefBranchId = $briefRow->fetchColumn();
+            $msg = $decision === 'approved'
+                ? 'اعتمد المسؤول العام إيجاز اليوم نهائياً' . ($note ? (' — ' . $note) : '')
+                : 'رفض المسؤول العام إيجاز اليوم' . ($note ? (' — ' . $note) : '');
+            $notifyUids = $pdo->prepare("SELECT id FROM users WHERE branch_id=? AND role='branch_manager' UNION SELECT id FROM users WHERE role='hr'");
+            $notifyUids->execute([$briefBranchId]);
+            foreach ($notifyUids->fetchAll(PDO::FETCH_COLUMN) as $uid) {
+                $pdo->prepare("INSERT INTO notifications (user_id, title, message) VALUES (?, 'اعتماد نهائي للإيجاز', ?)")->execute([$uid, $msg]);
+            }
+
             echo json_encode(['ok' => true]);
             exit;
         }
@@ -161,6 +302,37 @@ if (isset($_GET['ajax'])) {
                 ORDER BY b.name
             ")->fetchAll();
             echo json_encode(['ok' => true, 'branches' => $rows], JSON_UNESCAPED_UNICODE);
+            exit;
+        }
+
+        case 'report': {
+            $type = $_GET['type'] ?? 'attendance';
+            $from = $_GET['from'] ?? date('Y-m-01');
+            $to = $_GET['to'] ?? date('Y-m-d');
+            $branch = (int) ($_GET['branch'] ?? 0);
+            echo json_encode(['ok' => true] + gm_report_data($pdo, $type, $from, $to, $branch), JSON_UNESCAPED_UNICODE);
+            exit;
+        }
+
+        case 'report_download': {
+            $type = $_GET['type'] ?? 'attendance';
+            $from = $_GET['from'] ?? date('Y-m-01');
+            $to = $_GET['to'] ?? date('Y-m-d');
+            $branch = (int) ($_GET['branch'] ?? 0);
+            $data = gm_report_data($pdo, $type, $from, $to, $branch);
+
+            header('Content-Type: text/csv; charset=utf-8');
+            header('Content-Disposition: attachment; filename="report_' . $type . '_' . date('Ymd_His') . '.csv"');
+            echo "\xEF\xBB\xBF";
+            $out = fopen('php://output', 'w');
+            foreach ($data as $section => $rows) {
+                if (empty($rows)) continue;
+                fputcsv($out, [$section]);
+                fputcsv($out, array_keys($rows[0]));
+                foreach ($rows as $row) fputcsv($out, $row);
+                fputcsv($out, []);
+            }
+            fclose($out);
             exit;
         }
     }
@@ -301,27 +473,72 @@ if (isset($_GET['ajax'])) {
     <!-- التطبيق -->
     <div id="appContainer" class="hidden">
         <header class="topbar">
-            <div class="brand"><div class="logo">✥</div> شركة الصوى <span class="role-badge">المسؤول العام</span></div>
+            <div class="brand"><div class="logo">✥</div> شركة الصوى <span class="role-badge" id="roleBadge">المسؤول العام</span></div>
             <button class="btn small red" onclick="handleLogout()"><i class="fas fa-sign-out-alt"></i> تسجيل الخروج</button>
         </header>
 
         <div class="container">
             <div class="stats-grid">
-                <div class="stat-card"><div class="label"><i class="fas fa-clock"></i> بانتظار اعتمادك</div><div class="value" id="statPending">0</div></div>
+                <div class="stat-card" id="pendingCard"><div class="label"><i class="fas fa-clock"></i> بانتظار الاعتماد</div><div class="value" id="statPending">0</div></div>
                 <div class="stat-card"><div class="label"><i class="fas fa-check-circle"></i> معتمد اليوم</div><div class="value" id="statApprovedToday">0</div></div>
                 <div class="stat-card"><div class="label"><i class="fas fa-building"></i> الفروع</div><div class="value" id="statBranches">0</div></div>
                 <div class="stat-card"><div class="label"><i class="fas fa-users"></i> الموظفون</div><div class="value" id="statEmployees">0</div></div>
+            </div>
+
+            <div class="brief-card" id="payrollWindowCard" style="display:none;border-right-color:var(--primary);">
+                <div class="brief-top">
+                    <span class="branch"><i class="fas fa-money-check-dollar"></i> نافذة صرف رواتب هذا الشهر</span>
+                    <span id="payrollWindowStatus" class="status-pill"></span>
+                </div>
+                <div style="font-size:12px;color:var(--text-muted);margin-bottom:10px;" id="payrollWindowDetail"></div>
+                <button class="btn small" id="payrollWindowBtn" onclick="openPayrollWindow()"><i class="fas fa-unlock"></i> فتح صلاحية تسليم الرواتب لهذا الشهر (3 أيام)</button>
             </div>
 
             <div class="tabs">
                 <button class="active" id="tab-pending" onclick="switchTab('pending')"><i class="fas fa-inbox"></i> بانتظار الاعتماد</button>
                 <button id="tab-history" onclick="switchTab('history')"><i class="fas fa-history"></i> سجل الاعتمادات</button>
                 <button id="tab-branches" onclick="switchTab('branches')"><i class="fas fa-building"></i> الفروع</button>
+                <button id="tab-reports" onclick="switchTab('reports')"><i class="fas fa-chart-bar"></i> التقارير</button>
+                <button id="tab-shareholders" onclick="switchTab('shareholders')"><i class="fas fa-user-tie"></i> المساهمون</button>
             </div>
 
             <div id="view-pending"></div>
             <div id="view-history" class="hidden"></div>
             <div id="view-branches" class="hidden"></div>
+            <div id="view-reports" class="hidden">
+                <div class="brief-card">
+                    <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:10px;margin-bottom:12px;">
+                        <div class="form-group"><label style="font-size:12px;">نوع التقرير</label>
+                            <select id="reportType" style="width:100%;height:38px;border:1.5px solid #e2ebeb;border-radius:8px;font-family:var(--font-family);">
+                                <option value="all">تقرير شامل</option>
+                                <option value="attendance">الحضور</option>
+                                <option value="salaries">الرواتب</option>
+                                <option value="briefing">الإيجاز</option>
+                            </select>
+                        </div>
+                        <div class="form-group"><label style="font-size:12px;">من تاريخ</label><input type="date" id="reportFrom" style="width:100%;height:38px;border:1.5px solid #e2ebeb;border-radius:8px;font-family:var(--font-family);"></div>
+                        <div class="form-group"><label style="font-size:12px;">إلى تاريخ</label><input type="date" id="reportTo" style="width:100%;height:38px;border:1.5px solid #e2ebeb;border-radius:8px;font-family:var(--font-family);"></div>
+                        <div class="form-group"><label style="font-size:12px;">الفرع</label><select id="reportBranch" style="width:100%;height:38px;border:1.5px solid #e2ebeb;border-radius:8px;font-family:var(--font-family);"><option value="0">جميع الفروع</option></select></div>
+                    </div>
+                    <div style="display:flex;gap:8px;">
+                        <button class="btn small" onclick="generateReport()"><i class="fas fa-file-lines"></i> إنشاء التقرير</button>
+                        <button class="btn small green" onclick="downloadReport()"><i class="fas fa-download"></i> تحميل CSV</button>
+                    </div>
+                </div>
+                <div id="reportResult"></div>
+            </div>
+            <div id="view-shareholders" class="hidden">
+                <div class="brief-card">
+                    <h4 style="margin-bottom:10px;"><i class="fas fa-user-plus"></i> إضافة حساب مساهم جديد</h4>
+                    <div style="display:grid;grid-template-columns:1fr 1fr 1fr auto;gap:10px;">
+                        <input type="text" id="shName" placeholder="الاسم" style="height:38px;padding:0 10px;border:1.5px solid #e2ebeb;border-radius:8px;font-family:var(--font-family);">
+                        <input type="text" id="shUsername" placeholder="اسم الدخول" style="height:38px;padding:0 10px;border:1.5px solid #e2ebeb;border-radius:8px;font-family:var(--font-family);">
+                        <input type="password" id="shPassword" placeholder="كلمة المرور" style="height:38px;padding:0 10px;border:1.5px solid #e2ebeb;border-radius:8px;font-family:var(--font-family);">
+                        <button class="btn small" onclick="createShareholder()"><i class="fas fa-save"></i> إنشاء</button>
+                    </div>
+                </div>
+                <div id="shareholdersList"></div>
+            </div>
         </div>
     </div>
 
@@ -331,6 +548,7 @@ if (isset($_GET['ajax'])) {
     const loginScreen = document.getElementById('loginScreen');
     const appContainer = document.getElementById('appContainer');
     const alreadyLoggedIn = <?= $isLoggedIn ? 'true' : 'false' ?>;
+    const initialRole = <?= json_encode($_SESSION['gm_user']['role'] ?? 'general_manager') ?>;
 
     function handleLogin(e) {
         e.preventDefault();
@@ -344,8 +562,10 @@ if (isset($_GET['ajax'])) {
             .then(r => r.json()).then(data => {
                 btn.disabled = false;
                 if (data.ok) {
+                    currentRole = data.role;
                     loginScreen.classList.add('hidden');
                     appContainer.classList.remove('hidden');
+                    applyRoleUI();
                     initApp();
                 } else {
                     error.textContent = data.error || 'بيانات الدخول غير صحيحة';
@@ -366,9 +586,29 @@ if (isset($_GET['ajax'])) {
         });
     }
 
+    let currentRole = 'general_manager';
+
     function initApp() {
         loadBootstrap();
-        loadPending();
+        if (currentRole !== 'shareholder') loadPending();
+        const today = new Date().toISOString().split('T')[0];
+        const monthStart = today.slice(0, 8) + '01';
+        document.getElementById('reportFrom').value = monthStart;
+        document.getElementById('reportTo').value = today;
+        fetch('?ajax=branches_overview').then(r => r.json()).then(data => {
+            if (!data.ok) return;
+            const select = document.getElementById('reportBranch');
+            select.innerHTML = '<option value="0">جميع الفروع</option>' + data.branches.map(b => `<option value="${b.id}">${b.name}</option>`).join('');
+        });
+    }
+
+    function applyRoleUI() {
+        const isShareholder = currentRole === 'shareholder';
+        document.getElementById('roleBadge').textContent = isShareholder ? 'مساهم' : 'المسؤول العام';
+        document.getElementById('tab-shareholders').style.display = isShareholder ? 'none' : '';
+        document.getElementById('pendingCard').style.display = isShareholder ? 'none' : '';
+        document.getElementById('tab-pending').style.display = isShareholder ? 'none' : '';
+        if (isShareholder) switchTab('history');
     }
 
     function loadBootstrap() {
@@ -378,17 +618,47 @@ if (isset($_GET['ajax'])) {
             document.getElementById('statApprovedToday').textContent = data.stats.approvedToday;
             document.getElementById('statBranches').textContent = data.stats.branches;
             document.getElementById('statEmployees').textContent = data.stats.employees;
+
+            if (currentRole !== 'shareholder') {
+                const card = document.getElementById('payrollWindowCard');
+                card.style.display = 'block';
+                const statusEl = document.getElementById('payrollWindowStatus');
+                const detailEl = document.getElementById('payrollWindowDetail');
+                const btn = document.getElementById('payrollWindowBtn');
+                if (data.payrollWindow.open) {
+                    statusEl.textContent = 'مفتوحة';
+                    statusEl.className = 'status-pill approved';
+                    const expires = new Date(data.payrollWindow.expiresAt.replace(' ', 'T'));
+                    detailEl.textContent = 'صلاحية تسليم الرواتب مفتوحة لـ HR حتى ' + expires.toLocaleString('ar-SA');
+                    btn.textContent = 'تجديد الفتح 3 أيام إضافية';
+                } else {
+                    statusEl.textContent = 'مغلقة';
+                    statusEl.className = 'status-pill rejected';
+                    detailEl.textContent = 'لا يمكن لـ HR تسليم أي راتب حتى تفتح الصلاحية لهذا الشهر';
+                    btn.innerHTML = '<i class="fas fa-unlock"></i> فتح صلاحية تسليم الرواتب لهذا الشهر (3 أيام)';
+                }
+            }
+        });
+    }
+
+    function openPayrollWindow() {
+        if (!confirm('سيمنح هذا صلاحية تسليم الرواتب لـ HR لمدة 3 أيام من الآن. متابعة؟')) return;
+        fetch('?ajax=payroll_window_open', { method: 'POST' }).then(r => r.json()).then(data => {
+            if (!data.ok) { showToast('⚠️ خطأ', data.error || 'تعذر الفتح', 'error'); return; }
+            showToast('✅ تم الفتح', 'أصبح بإمكان HR تسليم الرواتب لمدة 3 أيام', 'success');
+            loadBootstrap();
         });
     }
 
     function switchTab(tab) {
-        ['pending', 'history', 'branches'].forEach(t => {
+        ['pending', 'history', 'branches', 'reports', 'shareholders'].forEach(t => {
             document.getElementById('tab-' + t).classList.toggle('active', t === tab);
             document.getElementById('view-' + t).classList.toggle('hidden', t !== tab);
         });
         if (tab === 'pending') loadPending();
         else if (tab === 'history') loadHistory();
         else if (tab === 'branches') loadBranches();
+        else if (tab === 'shareholders') loadShareholders();
     }
 
     function loadPending() {
@@ -412,11 +682,13 @@ if (isset($_GET['ajax'])) {
                         <div class="item"><div class="v" style="color:var(--green);">${b.netProfit.toLocaleString()}</div><div class="l">صافي الربح</div></div>
                     </div>
                     ${b.hrNote ? `<div class="brief-note"><b>ملاحظة HR:</b> ${b.hrNote}</div>` : ''}
-                    <div class="brief-actions">
-                        <input type="text" id="gmNote_${b.id}" placeholder="ملاحظة الاعتماد النهائي (اختياري)">
-                        <button class="btn small green" onclick="finalReview(${b.id}, 'approved')"><i class="fas fa-check"></i> اعتماد نهائي</button>
-                        <button class="btn small red" onclick="finalReview(${b.id}, 'rejected')"><i class="fas fa-times"></i> رفض</button>
-                    </div>
+                    ${currentRole !== 'shareholder' ? `
+                        <div class="brief-actions">
+                            <input type="text" id="gmNote_${b.id}" placeholder="ملاحظة الاعتماد النهائي (اختياري)">
+                            <button class="btn small green" onclick="finalReview(${b.id}, 'approved')"><i class="fas fa-check"></i> اعتماد نهائي</button>
+                            <button class="btn small red" onclick="finalReview(${b.id}, 'rejected')"><i class="fas fa-times"></i> رفض</button>
+                        </div>
+                    ` : ''}
                 </div>
             `).join('');
         });
@@ -475,6 +747,98 @@ if (isset($_GET['ajax'])) {
         });
     }
 
+    // ============================================================
+    // التقارير
+    // ============================================================
+    function attendanceTable(rows) {
+        if (!rows || !rows.length) return '<p style="color:var(--text-muted);font-size:13px;">لا توجد بيانات</p>';
+        return '<div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font-size:12px;"><thead><tr style="background:var(--bg);"><th style="padding:6px;text-align:right;">الموظف</th><th style="padding:6px;">الفرع</th><th style="padding:6px;">دخول</th><th style="padding:6px;">انصراف</th><th style="padding:6px;">الحالة</th></tr></thead><tbody>' +
+            rows.map(r => `<tr style="border-bottom:1px solid #eee;"><td style="padding:6px;">${r.name}</td><td style="padding:6px;">${r.branch}</td><td style="padding:6px;">${r.checkIn}</td><td style="padding:6px;">${r.checkOut}</td><td style="padding:6px;">${r.status}</td></tr>`).join('') + '</tbody></table></div>';
+    }
+    function salariesTable(rows) {
+        if (!rows || !rows.length) return '<p style="color:var(--text-muted);font-size:13px;">لا توجد بيانات</p>';
+        return '<div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font-size:12px;"><thead><tr style="background:var(--bg);"><th style="padding:6px;text-align:right;">الموظف</th><th style="padding:6px;">الفرع</th><th style="padding:6px;">الأساسي</th><th style="padding:6px;">المكافأة</th><th style="padding:6px;">الخصم</th><th style="padding:6px;">الصافي</th><th style="padding:6px;">الحالة</th></tr></thead><tbody>' +
+            rows.map(r => `<tr style="border-bottom:1px solid #eee;"><td style="padding:6px;">${r.name}</td><td style="padding:6px;">${r.branch}</td><td style="padding:6px;">${r.base}</td><td style="padding:6px;">${r.bonus}</td><td style="padding:6px;">${r.deduction}</td><td style="padding:6px;">${r.net}</td><td style="padding:6px;">${r.status}</td></tr>`).join('') + '</tbody></table></div>';
+    }
+    function briefingTable(rows) {
+        if (!rows || !rows.length) return '<p style="color:var(--text-muted);font-size:13px;">لا توجد بيانات</p>';
+        return '<div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font-size:12px;"><thead><tr style="background:var(--bg);"><th style="padding:6px;text-align:right;">الفرع</th><th style="padding:6px;">التاريخ</th><th style="padding:6px;">الإيراد</th><th style="padding:6px;">المصروف</th><th style="padding:6px;">المسافرون</th><th style="padding:6px;">الربح</th></tr></thead><tbody>' +
+            rows.map(r => `<tr style="border-bottom:1px solid #eee;"><td style="padding:6px;">${r.branch}</td><td style="padding:6px;">${r.date}</td><td style="padding:6px;">${r.revenue}</td><td style="padding:6px;">${r.expense}</td><td style="padding:6px;">${r.travelers}</td><td style="padding:6px;">${r.profit}</td></tr>`).join('') + '</tbody></table></div>';
+    }
+
+    function generateReport() {
+        const type = document.getElementById('reportType').value;
+        const from = document.getElementById('reportFrom').value;
+        const to = document.getElementById('reportTo').value;
+        const branch = document.getElementById('reportBranch').value || '0';
+        const qs = new URLSearchParams({ type, from, to, branch });
+        fetch('?ajax=report&' + qs.toString()).then(r => r.json()).then(data => {
+            if (!data.ok) { showToast('⚠️ خطأ', 'تعذر إنشاء التقرير', 'error'); return; }
+            let html = '<div class="brief-card">';
+            if (type === 'attendance' || type === 'all') html += '<h4 style="margin-bottom:8px;"><i class="fas fa-clock"></i> الحضور</h4>' + attendanceTable(data.attendance);
+            if (type === 'salaries' || type === 'all') html += '<h4 style="margin:14px 0 8px;"><i class="fas fa-wallet"></i> الرواتب</h4>' + salariesTable(data.salaries);
+            if (type === 'briefing' || type === 'all') html += '<h4 style="margin:14px 0 8px;"><i class="fas fa-chart-simple"></i> الإيجاز</h4>' + briefingTable(data.briefing);
+            html += '</div>';
+            document.getElementById('reportResult').innerHTML = html;
+            showToast('📊 تم الإنشاء', 'تم إنشاء التقرير بنجاح', 'success');
+        });
+    }
+
+    function downloadReport() {
+        const type = document.getElementById('reportType').value;
+        const from = document.getElementById('reportFrom').value;
+        const to = document.getElementById('reportTo').value;
+        const branch = document.getElementById('reportBranch').value || '0';
+        const qs = new URLSearchParams({ type, from, to, branch });
+        window.location.href = '?ajax=report_download&' + qs.toString();
+    }
+
+    // ============================================================
+    // المساهمون
+    // ============================================================
+    function loadShareholders() {
+        fetch('?ajax=shareholders_list').then(r => r.json()).then(data => {
+            if (!data.ok) return;
+            const view = document.getElementById('shareholdersList');
+            if (!data.shareholders.length) {
+                view.innerHTML = '<div class="empty-state"><i class="fas fa-user-tie"></i><p>لا توجد حسابات مساهمين بعد</p></div>';
+                return;
+            }
+            view.innerHTML = data.shareholders.map(s => `
+                <div class="brief-card" style="display:flex;align-items:center;justify-content:space-between;">
+                    <div><b>${s.display_name}</b> <span style="color:var(--text-muted);font-size:12px;">(${s.username})</span></div>
+                    <button class="btn small ${s.status === 'active' ? 'red' : 'green'}" onclick="toggleShareholder(${s.id})">${s.status === 'active' ? 'تعطيل' : 'تفعيل'}</button>
+                </div>
+            `).join('');
+        });
+    }
+
+    function createShareholder() {
+        const name = document.getElementById('shName').value;
+        const username = document.getElementById('shUsername').value;
+        const password = document.getElementById('shPassword').value;
+        if (!name || !username || password.length < 6) {
+            showToast('⚠️ تنبيه', 'الرجاء تعبئة الاسم واسم الدخول وكلمة مرور 6 أحرف على الأقل', 'warning');
+            return;
+        }
+        fetch('?ajax=shareholder_create', { method: 'POST', body: new URLSearchParams({ name, username, password }) })
+            .then(r => r.json()).then(data => {
+                if (!data.ok) { showToast('⚠️ خطأ', data.error || 'تعذر الإنشاء', 'error'); return; }
+                showToast('✅ تم الإنشاء', 'تم إنشاء حساب المساهم بنجاح', 'success');
+                document.getElementById('shName').value = '';
+                document.getElementById('shUsername').value = '';
+                document.getElementById('shPassword').value = '';
+                loadShareholders();
+            });
+    }
+
+    function toggleShareholder(id) {
+        fetch('?ajax=shareholder_toggle', { method: 'POST', body: new URLSearchParams({ id }) })
+            .then(r => r.json()).then(data => {
+                if (data.ok) loadShareholders();
+            });
+    }
+
     let toastId = 0;
     function showToast(title, message, type = 'info', duration = 3500) {
         const container = document.getElementById('toastContainer');
@@ -492,8 +856,10 @@ if (isset($_GET['ajax'])) {
 
     document.addEventListener('DOMContentLoaded', function() {
         if (alreadyLoggedIn) {
+            currentRole = initialRole;
             loginScreen.classList.add('hidden');
             appContainer.classList.remove('hidden');
+            applyRoleUI();
             initApp();
         }
     });
