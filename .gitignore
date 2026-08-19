@@ -1,9 +1,3 @@
-/config/config.php
-/uploads/photos/*
-!/uploads/photos/.gitkeep
-/uploads/documents/*
-!/uploads/documents/.gitkeep
-/uploads/ledger/*
-!/uploads/ledger/.gitkeep
+/config.php
 .env
 *.log
