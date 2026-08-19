@@ -70,6 +70,16 @@ function request_status_ar_emp(string $s): string
     ][$s] ?? $s;
 }
 
+function employee_active_delegation(PDO $pdo, int $branchId, int $employeeId): ?array
+{
+    $stmt = $pdo->prepare("SELECT start_date, end_date FROM delegations
+        WHERE branch_id=? AND delegated_employee_id=? AND status='active' AND CURDATE() BETWEEN start_date AND end_date
+        LIMIT 1");
+    $stmt->execute([$branchId, $employeeId]);
+    $row = $stmt->fetch();
+    return $row ?: null;
+}
+
 $isLoggedIn = !empty($_SESSION['employee_user']);
 
 /* ======================================================================
@@ -173,6 +183,8 @@ if (isset($_GET['ajax'])) {
                 $honorRoll[] = ['name' => $r['name'], 'branch' => $r['branch'], 'photo' => $r['photo'] ?: null, 'rate' => (int) $r['rate'], 'medal' => $medals[$i]];
             }
 
+            $delegation = employee_active_delegation($pdo, $branchId, $employeeId);
+
             $month = (int) date('n');
             $year = (int) date('Y');
             $payStmt = $pdo->prepare("SELECT bonus, deduction FROM payroll WHERE employee_id=? AND period_month=? AND period_year=?");
@@ -218,6 +230,11 @@ if (isset($_GET['ajax'])) {
                 ],
                 'honorRoll' => $honorRoll,
                 'recentAttendance' => $recentAttendance,
+                'delegation' => $delegation ? [
+                    'active' => true,
+                    'start' => date('d/m/Y', strtotime($delegation['start_date'])),
+                    'end' => date('d/m/Y', strtotime($delegation['end_date'])),
+                ] : ['active' => false],
                 'branchLocation' => [
                     'lat' => $empRow['latitude'] ? (float) $empRow['latitude'] : null,
                     'lng' => $empRow['longitude'] ? (float) $empRow['longitude'] : null,
@@ -466,6 +483,74 @@ if (isset($_GET['ajax'])) {
                 'net' => $net,
                 'statusText' => $statusText,
             ], JSON_UNESCAPED_UNICODE);
+            exit;
+        }
+
+        case 'ledger_list': {
+            if (!employee_active_delegation($pdo, $branchId, $employeeId)) {
+                echo json_encode(['ok' => false, 'error' => 'غير مخوّل بهذه العملية']);
+                exit;
+            }
+            $stmt = $pdo->prepare("SELECT id, entry_type, amount, description FROM daily_ledger WHERE branch_id=? AND entry_date=CURDATE() ORDER BY created_at DESC");
+            $stmt->execute([$branchId]);
+            echo json_encode(['ok' => true, 'entries' => $stmt->fetchAll()], JSON_UNESCAPED_UNICODE);
+            exit;
+        }
+
+        case 'ledger_add': {
+            if (!employee_active_delegation($pdo, $branchId, $employeeId)) {
+                echo json_encode(['ok' => false, 'error' => 'غير مخوّل بهذه العملية — لست مفوّضاً بكتابة إيجاز اليوم']);
+                exit;
+            }
+            $type = ($_POST['type'] ?? '') === 'expense' ? 'expense' : 'income';
+            $amount = (float) ($_POST['amount'] ?? 0);
+            $note = trim($_POST['note'] ?? '');
+            if ($amount <= 0) {
+                echo json_encode(['ok' => false, 'error' => 'يرجى إدخال مبلغ صحيح']);
+                exit;
+            }
+            $stmt = $pdo->prepare("INSERT INTO daily_ledger (branch_id, entry_date, entry_type, amount, description, created_by) VALUES (?, CURDATE(), ?, ?, ?, ?)");
+            $stmt->execute([$branchId, $type, $amount, $note, $emp['id']]);
+            echo json_encode(['ok' => true]);
+            exit;
+        }
+
+        case 'briefing_publish_delegate': {
+            if (!employee_active_delegation($pdo, $branchId, $employeeId)) {
+                echo json_encode(['ok' => false, 'error' => 'غير مخوّل بهذه العملية — لست مفوّضاً بكتابة إيجاز اليوم']);
+                exit;
+            }
+            $travelersCount = (int) ($_POST['travelersCount'] ?? 0);
+            $stmt = $pdo->prepare("SELECT
+                COALESCE(SUM(CASE WHEN entry_type='income' THEN amount ELSE 0 END),0) AS income,
+                COALESCE(SUM(CASE WHEN entry_type='expense' THEN amount ELSE 0 END),0) AS expense
+                FROM daily_ledger WHERE branch_id=? AND entry_date=CURDATE()");
+            $stmt->execute([$branchId]);
+            $totals = $stmt->fetch();
+            if ((float) $totals['income'] === 0.0 && (float) $totals['expense'] === 0.0) {
+                echo json_encode(['ok' => false, 'error' => 'لا توجد قيود لنشرها، أضف قيداً أولاً']);
+                exit;
+            }
+            $yesterday = date('Y-m-d', strtotime('-1 day'));
+            $prevStmt = $pdo->prepare("SELECT (total_income - total_expense) AS profit FROM daily_briefs WHERE branch_id=? AND brief_date=?");
+            $prevStmt->execute([$branchId, $yesterday]);
+            $previousProfit = (float) ($prevStmt->fetchColumn() ?: 0);
+
+            $stmt = $pdo->prepare("INSERT INTO daily_briefs (branch_id, brief_date, total_income, total_expense, previous_profit, travelers_count, status, submitted_by)
+                VALUES (?, CURDATE(), ?, ?, ?, ?, 'pending', ?)
+                ON DUPLICATE KEY UPDATE total_income=VALUES(total_income), total_expense=VALUES(total_expense), travelers_count=VALUES(travelers_count), status='pending', submitted_by=VALUES(submitted_by)");
+            $stmt->execute([$branchId, $totals['income'], $totals['expense'], $previousProfit, $travelersCount, $employeeId]);
+
+            $branchName = $pdo->prepare("SELECT name FROM branches WHERE id=?");
+            $branchName->execute([$branchId]);
+            $branchName = $branchName->fetchColumn();
+            $hrUids = $pdo->query("SELECT id FROM users WHERE role='hr'")->fetchAll(PDO::FETCH_COLUMN);
+            foreach ($hrUids as $uid) {
+                $pdo->prepare("INSERT INTO notifications (user_id, title, message) VALUES (?, 'إيجاز جديد بانتظار المراجعة', ?)")
+                    ->execute([$uid, 'نشر ' . $emp['full_name'] . ' (مفوّض) إيجاز فرع ' . $branchName . ' اليوم بانتظار مراجعتك']);
+            }
+
+            echo json_encode(['ok' => true]);
             exit;
         }
 
@@ -1959,6 +2044,44 @@ if (isset($_GET['ajax'])) {
             .welcome-loader { height: 60px; padding: 10px 12px; }
             .welcome-loader .loader-status { display: none; }
         }
+
+        /* ============================================================
+           إطار تطبيق الجوال — على الشاشات الواسعة يظهر النظام كأنه
+           تطبيق هاتف حقيقي (عرض ثابت 480px بمنتصف الشاشة) بدل موقع ويب ممتد
+           ============================================================ */
+        @media (min-width: 641px) {
+            body {
+                background: var(--primary-dark);
+            }
+            .welcome-screen,
+            .login-page,
+            #appContainer {
+                left: 50% !important;
+                right: auto !important;
+                width: 480px !important;
+                max-width: 480px !important;
+                transform: translateX(-50%);
+                box-shadow: 0 0 0 1px rgba(255,255,255,0.08), 0 30px 80px rgba(0,0,0,0.45);
+            }
+            .welcome-screen, .login-page {
+                position: fixed;
+                top: 0;
+                bottom: 0;
+            }
+            #appContainer {
+                position: relative;
+                margin: 0 auto;
+                min-height: 100vh;
+            }
+            .bottom-nav-minimal,
+            #sideMenu {
+                left: 50% !important;
+                right: auto !important;
+                width: 480px !important;
+                max-width: 480px !important;
+                transform: translateX(-50%);
+            }
+        }
     </style>
 </head>
 <body>
@@ -2142,7 +2265,7 @@ if (isset($_GET['ajax'])) {
                         <i class="fas fa-medal"></i> الالتزام
                         <span class="sub-text" id="quickCommitmentSub">نسبتك 0%</span>
                     </button>
-                    <button class="quick-action-btn" onclick="navigateTo('briefing')">
+                    <button class="quick-action-btn" onclick="navigateTo('briefing')" id="qaBriefing" style="display:none;">
                         <i class="fas fa-chart-simple"></i> إيجاز
                         <span class="sub-text">إحصائيات الفرع</span>
                     </button>
@@ -2407,7 +2530,45 @@ if (isset($_GET['ajax'])) {
                 <div class="card" style="text-align:center;background:rgba(16,185,129,0.04);border-color:rgba(16,185,129,0.12);">
                     <div class="label">نتيجة اليوم</div>
                     <h2 style="color:var(--green);font-size:28px;margin:8px 0;" id="briefProfit">0 د.ع</h2>
-                    <p class="muted" style="font-size:13px;color:var(--text-muted);">للمشاهدة فقط. لا يمكن للموظف العادي التعديل أو الحذف.</p>
+                    <p class="muted" style="font-size:13px;color:var(--text-muted);" id="briefViewOnlyNote">للمشاهدة فقط. لا يمكن للموظف العادي التعديل أو الحذف.</p>
+                </div>
+
+                <div id="briefDelegatedZone" style="display:none;">
+                    <div class="section-title"><i class="fas fa-user-check"></i> أنت مخوّل بكتابة إيجاز اليوم</div>
+                    <div class="card" style="background:rgba(201,154,61,0.06);border-color:var(--accent);">
+                        <p class="muted" style="font-size:12px;" id="briefDelegationPeriod">فترة التفويض: ...</p>
+                    </div>
+                    <div class="card">
+                        <div class="form-group">
+                            <label>نوع القيد</label>
+                            <select id="ledgerType">
+                                <option value="income">إيراد</option>
+                                <option value="expense">مصروف</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label>المبلغ</label>
+                            <input type="number" id="ledgerAmount" placeholder="أدخل المبلغ" min="1">
+                        </div>
+                        <div class="form-group">
+                            <label>ملاحظة</label>
+                            <input type="text" id="ledgerNote" placeholder="وصف القيد (اختياري)">
+                        </div>
+                        <button class="quick-action-btn" style="width:100%;padding:12px;border-color:var(--primary);" onclick="addLedgerEntry()">
+                            <i class="fas fa-plus"></i> إضافة قيد
+                        </button>
+                    </div>
+                    <div class="section-title"><i class="fas fa-list"></i> قيود اليوم</div>
+                    <div class="card" id="ledgerEntriesList">
+                        <div class="list-item"><div class="item-content"><div class="item-title">لا توجد قيود بعد</div></div></div>
+                    </div>
+                    <div class="form-group">
+                        <label>عدد المسافرين اليوم</label>
+                        <input type="number" id="briefTravelersInput" placeholder="0" min="0">
+                    </div>
+                    <button class="quick-action-btn" style="width:100%;padding:14px;border-color:var(--accent);" onclick="publishBriefingAsDelegate()">
+                        <i class="fas fa-paper-plane"></i> نشر إيجاز اليوم
+                    </button>
                 </div>
             </div>
 
@@ -2468,7 +2629,7 @@ if (isset($_GET['ajax'])) {
                 <button class="quick-action-btn" onclick="navigateTo('salary');toggleMenu();" style="font-size:11px;padding:10px 6px;">
                     <i class="fas fa-money-bill-wave"></i> الراتب
                 </button>
-                <button class="quick-action-btn" onclick="navigateTo('briefing');toggleMenu();" style="font-size:11px;padding:10px 6px;">
+                <button class="quick-action-btn" onclick="navigateTo('briefing');toggleMenu();" id="menuBriefing" style="font-size:11px;padding:10px 6px;display:none;">
                     <i class="fas fa-chart-simple"></i> إيجاز
                 </button>
                 <button class="quick-action-btn" onclick="navigateTo('notifications');toggleMenu();" style="font-size:11px;padding:10px 6px;">
@@ -2756,6 +2917,15 @@ if (isset($_GET['ajax'])) {
                 shiftInfo = data.shift;
                 todayAttendance = data.todayAttendance;
                 updateWorkSchedule();
+
+                isDelegated = data.delegation && data.delegation.active;
+                document.getElementById('qaBriefing').style.display = isDelegated ? '' : 'none';
+                document.getElementById('menuBriefing').style.display = isDelegated ? '' : 'none';
+                document.getElementById('briefDelegatedZone').style.display = isDelegated ? 'block' : 'none';
+                document.getElementById('briefViewOnlyNote').style.display = isDelegated ? 'none' : 'block';
+                if (isDelegated) {
+                    document.getElementById('briefDelegationPeriod').textContent = 'فترة التفويض: ' + data.delegation.start + ' إلى ' + data.delegation.end;
+                }
             });
         }
 
@@ -2902,12 +3072,65 @@ if (isset($_GET['ajax'])) {
                     document.getElementById('briefExpense').textContent = '-';
                     document.getElementById('briefIncome').textContent = '-';
                     document.getElementById('briefProfit').textContent = 'لم يُنشر بعد';
+                } else {
+                    document.getElementById('briefTravelers').textContent = data.travelersCount;
+                    document.getElementById('briefExpense').textContent = Number(data.totalExpense).toLocaleString();
+                    document.getElementById('briefIncome').textContent = Number(data.totalIncome).toLocaleString();
+                    document.getElementById('briefProfit').textContent = Number(data.profit).toLocaleString() + ' د.ع';
+                }
+            });
+            if (isDelegated) loadLedgerEntries();
+        }
+
+        // ============================================================
+        // كتابة الإيجاز (للموظف المفوَّض فقط)
+        // ============================================================
+        function loadLedgerEntries() {
+            fetch('?ajax=ledger_list').then(r => r.json()).then(data => {
+                if (!data.ok) return;
+                const wrap = document.getElementById('ledgerEntriesList');
+                if (!data.entries.length) {
+                    wrap.innerHTML = '<div class="list-item"><div class="item-content"><div class="item-title">لا توجد قيود بعد</div></div></div>';
                     return;
                 }
-                document.getElementById('briefTravelers').textContent = data.travelersCount;
-                document.getElementById('briefExpense').textContent = Number(data.totalExpense).toLocaleString();
-                document.getElementById('briefIncome').textContent = Number(data.totalIncome).toLocaleString();
-                document.getElementById('briefProfit').textContent = Number(data.profit).toLocaleString() + ' د.ع';
+                wrap.innerHTML = data.entries.map(e => `
+                    <div class="list-item">
+                        <div class="item-icon" style="background:${e.entry_type === 'income' ? 'rgba(16,185,129,0.12)' : 'rgba(239,68,68,0.12)'};color:${e.entry_type === 'income' ? '#059669' : '#DC2626'};">${e.entry_type === 'income' ? '+' : '-'}</div>
+                        <div class="item-content">
+                            <div class="item-title">${e.entry_type === 'income' ? 'إيراد' : 'مصروف'}</div>
+                            <div class="item-desc">${e.description || '-'}</div>
+                        </div>
+                        <span style="font-weight:800;">${Number(e.amount).toLocaleString()}</span>
+                    </div>
+                `).join('');
+            });
+        }
+
+        function addLedgerEntry() {
+            const type = document.getElementById('ledgerType').value;
+            const amount = document.getElementById('ledgerAmount').value;
+            const note = document.getElementById('ledgerNote').value;
+            if (!amount || Number(amount) <= 0) {
+                showToast('⚠️ تنبيه', 'يرجى إدخال مبلغ صحيح', 'warning');
+                return;
+            }
+            fetch('?ajax=ledger_add', { method: 'POST', body: new URLSearchParams({ type, amount, note }) }).then(r => r.json()).then(data => {
+                if (!data.ok) { showToast('⚠️ خطأ', data.error || 'تعذر إضافة القيد', 'error'); return; }
+                document.getElementById('ledgerAmount').value = '';
+                document.getElementById('ledgerNote').value = '';
+                showToast('✅ تمت الإضافة', 'تم إضافة القيد بنجاح', 'success');
+                loadLedgerEntries();
+                loadBriefing();
+            });
+        }
+
+        function publishBriefingAsDelegate() {
+            const travelersCount = document.getElementById('briefTravelersInput').value || 0;
+            if (!confirm('تأكيد نشر إيجاز اليوم؟ سيُرسل للموارد البشرية للمراجعة.')) return;
+            fetch('?ajax=briefing_publish_delegate', { method: 'POST', body: new URLSearchParams({ travelersCount }) }).then(r => r.json()).then(data => {
+                if (!data.ok) { showToast('⚠️ خطأ', data.error || 'تعذر نشر الإيجاز', 'error'); return; }
+                showToast('✅ تم النشر', 'تم نشر إيجاز اليوم بانتظار مراجعة الموارد البشرية', 'success');
+                loadBriefing();
             });
         }
 
@@ -3157,6 +3380,7 @@ if (isset($_GET['ajax'])) {
         // أيام الدوام
         let shiftInfo = { start: '09:00', end: '15:00', graceMinutes: 15 };
         let todayAttendance = { checkedIn: false, checkedOut: false };
+        let isDelegated = false;
 
         function updateWorkSchedule() {
             const now = new Date();

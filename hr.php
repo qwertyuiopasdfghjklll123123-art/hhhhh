@@ -3881,6 +3881,8 @@ function report_data(PDO $pdo, string $type, string $from, string $to, int $bran
                         <td><span class="status-badge ${statusClass}">${item.status}</span></td>
                         <td>
                             ${item.canReview ? `
+                                ${item.rawType === 'advance' ? `<input type="number" min="1" step="1000" class="hr-note-input" id="hrDeduction_${item.id}" placeholder="الخصم الشهري (إلزامي للموافقة)" style="margin-bottom:4px;">` : ''}
+                                <input type="text" class="hr-note-input" id="hrReqNote_${item.id}" placeholder="رد برسالة (اختياري)..." style="margin-bottom:4px;">
                                 <button class="action-btn approve" onclick="approveRequest(${item.id})">
                                     <i class="fas fa-check"></i> موافقة
                                 </button>
@@ -3902,22 +3904,24 @@ function report_data(PDO $pdo, string $type, string $from, string $to, int $bran
             if (!req) return;
             const params = { id, decision };
             if (decision === 'approved' && req.rawType === 'advance') {
-                const monthlyDeduction = prompt('حدد قيمة الخصم الشهري من راتب الموظف لتسديد السلفة:');
-                if (monthlyDeduction === null) return;
+                const deductionInput = document.getElementById(`hrDeduction_${id}`);
+                const monthlyDeduction = deductionInput ? deductionInput.value : '';
                 if (!monthlyDeduction || Number(monthlyDeduction) <= 0) {
-                    showToast('⚠️ تنبيه', 'يرجى إدخال قيمة خصم شهري صحيحة', 'warning');
+                    showToast('⚠️ تنبيه', 'يرجى إدخال قيمة الخصم الشهري قبل الموافقة على السلفة', 'warning');
                     return;
                 }
                 params.monthlyDeduction = monthlyDeduction;
             }
-            const hrNote = prompt('رد برسالة للموظف (اختياري):') || '';
-            params.hrNote = hrNote;
+            const noteInput = document.getElementById(`hrReqNote_${id}`);
+            params.hrNote = noteInput ? noteInput.value.trim() : '';
             const body = new URLSearchParams(params);
             fetch('?ajax=request_review', { method: 'POST', body }).then(r => r.json()).then(data => {
                 if (!data.ok) { showToast('⚠️ خطأ', data.error || 'تعذر الحفظ', 'error'); return; }
                 loadRequests();
                 if (decision === 'approved') showToast('✅ تمت الموافقة', `تم قبول طلب ${req.type}`, 'success');
                 else showToast('❌ تم الرفض', `تم رفض طلب ${req.type}`, 'error');
+            }).catch(() => {
+                showToast('❌ خطأ', 'تعذر الاتصال بالخادم — تأكد من تشغيل migrate.php على قاعدة البيانات', 'error');
             });
         }
 

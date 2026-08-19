@@ -420,15 +420,15 @@ input:focus{border-color:var(--primary);}
     <?php if ($alreadyInstalled): ?>
         <div class="alert alert-success">النظام مُثبّت بالفعل. لإعادة التثبيت احذف ملف <code>config.php</code> من السيرفر أولاً.</div>
         <div class="links">
-            <a class="btn" href="/hr.php">دخول الموارد البشرية (HR)</a>
-            <a class="btn" href="/general.php">دخول المسؤول العام</a>
-            <a class="btn" href="/branch.php">دخول مدير الفرع</a>
-            <a class="btn" href="/employee.php">دخول الموظف</a>
+            <a class="btn" href="/hr">دخول الموارد البشرية (HR)</a>
+            <a class="btn" href="/general">دخول المسؤول العام</a>
+            <a class="btn" href="/branch">دخول مدير الفرع</a>
+            <a class="btn" href="/">دخول الموظف</a>
         </div>
 
     <?php elseif ($success): ?>
         <div class="alert alert-success">تم تثبيت النظام بنجاح! يمكنك الآن تسجيل الدخول بحساب الموارد البشرية الذي أنشأته.</div>
-        <a class="btn" href="/hr.php">تسجيل الدخول إلى لوحة الموارد البشرية</a>
+        <a class="btn" href="/hr">تسجيل الدخول إلى لوحة الموارد البشرية</a>
 
     <?php else: ?>
         <?php if (!$requirementsOk): ?><div class="alert alert-danger">بعض متطلبات السيرفر غير متوفرة:</div><?php endif; ?>

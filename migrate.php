@@ -247,9 +247,9 @@ h1{font-size:20px;font-weight:700;margin:0 0 6px;color:var(--primary-dark);}
     <?php if (empty($pending)): ?>
         <div class="alert alert-success">✅ قاعدة البيانات محدَّثة بالكامل، لا توجد تحديثات معلَّقة.</div>
         <div class="links">
-            <a class="btn" href="/hr.php">لوحة HR</a>
-            <a class="btn secondary" href="/general.php">لوحة المسؤول العام</a>
-            <a class="btn secondary" href="/branch.php">لوحة مدير الفرع</a>
+            <a class="btn" href="/hr">لوحة HR</a>
+            <a class="btn secondary" href="/general">لوحة المسؤول العام</a>
+            <a class="btn secondary" href="/branch">لوحة مدير الفرع</a>
         </div>
     <?php else: ?>
         <div class="alert alert-info">التحديثات التالية بانتظار التنفيذ (<?= count($pending) ?>):</div>

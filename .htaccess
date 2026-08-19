@@ -1,0 +1,19 @@
+# نظام إدارة شركة الصوى للصرافة — روابط نظيفة بدون امتداد .php
+# نافذة الموظف = الصفحة الرئيسية (index.php) تلقائياً عبر DirectoryIndex
+
+DirectoryIndex index.php
+
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+    RewriteBase /
+
+    # لا تُعِد كتابة الروابط لملفات أو مجلدات موجودة فعلياً (صور، uploads، إلخ)
+    RewriteCond %{REQUEST_FILENAME} !-f
+    RewriteCond %{REQUEST_FILENAME} !-d
+
+    RewriteRule ^hr/?$ hr.php [L]
+    RewriteRule ^branch/?$ branch.php [L]
+    RewriteRule ^general/?$ general.php [L]
+    RewriteRule ^migrate/?$ migrate.php [L]
+    RewriteRule ^install/?$ install.php [L]
+</IfModule>
