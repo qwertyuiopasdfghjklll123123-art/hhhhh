@@ -29,6 +29,9 @@ function install_schema(PDO $pdo): void
             id INT AUTO_INCREMENT PRIMARY KEY,
             name VARCHAR(100) NOT NULL,
             location VARCHAR(150) DEFAULT NULL,
+            latitude DECIMAL(10,6) DEFAULT NULL,
+            longitude DECIMAL(10,6) DEFAULT NULL,
+            geofence_radius INT NOT NULL DEFAULT 100,
             status ENUM('active','inactive') NOT NULL DEFAULT 'active',
             notes TEXT DEFAULT NULL,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
@@ -41,10 +44,15 @@ function install_schema(PDO $pdo): void
             full_name VARCHAR(100) NOT NULL,
             national_id VARCHAR(50) DEFAULT NULL,
             job_title VARCHAR(100) DEFAULT NULL,
+            birth_date DATE DEFAULT NULL,
             hire_date DATE DEFAULT NULL,
+            duty_start_date DATE DEFAULT NULL,
+            duty_end_date DATE DEFAULT NULL,
             base_salary DECIMAL(12,2) NOT NULL DEFAULT 0,
+            rating DECIMAL(2,1) NOT NULL DEFAULT 0,
             photo VARCHAR(255) DEFAULT NULL,
             documents VARCHAR(255) DEFAULT NULL,
+            notes TEXT DEFAULT NULL,
             is_branch_manager TINYINT(1) NOT NULL DEFAULT 0,
             status ENUM('active','inactive') NOT NULL DEFAULT 'active',
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -136,6 +144,24 @@ function install_schema(PDO $pdo): void
             CONSTRAINT fk_del_employee FOREIGN KEY (delegated_employee_id) REFERENCES employees(id) ON DELETE CASCADE
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4",
 
+        'daily_briefs' => "CREATE TABLE IF NOT EXISTS daily_briefs (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            branch_id INT NOT NULL,
+            brief_date DATE NOT NULL,
+            total_income DECIMAL(14,2) NOT NULL DEFAULT 0,
+            total_expense DECIMAL(14,2) NOT NULL DEFAULT 0,
+            previous_profit DECIMAL(14,2) NOT NULL DEFAULT 0,
+            note TEXT DEFAULT NULL,
+            status ENUM('pending','approved','rejected') NOT NULL DEFAULT 'pending',
+            hr_note VARCHAR(255) DEFAULT NULL,
+            submitted_by INT DEFAULT NULL,
+            reviewed_by INT DEFAULT NULL,
+            reviewed_at TIMESTAMP NULL DEFAULT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE KEY uniq_branch_date (branch_id, brief_date),
+            CONSTRAINT fk_brief_branch FOREIGN KEY (branch_id) REFERENCES branches(id) ON DELETE CASCADE
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4",
+
         'exchange_rate_history' => "CREATE TABLE IF NOT EXISTS exchange_rate_history (
             id INT AUTO_INCREMENT PRIMARY KEY,
             rate DECIMAL(10,2) NOT NULL,
@@ -155,7 +181,7 @@ function install_schema(PDO $pdo): void
     ];
 
     // الترتيب مهم بسبب المفاتيح الأجنبية
-    foreach (['settings', 'branches', 'employees', 'users', 'attendance', 'payroll', 'requests', 'daily_ledger', 'delegations', 'exchange_rate_history', 'notifications'] as $table) {
+    foreach (['settings', 'branches', 'employees', 'users', 'attendance', 'payroll', 'requests', 'daily_ledger', 'delegations', 'daily_briefs', 'exchange_rate_history', 'notifications'] as $table) {
         $pdo->exec($tables[$table]);
     }
 }
@@ -231,7 +257,7 @@ if (!$alreadyInstalled && $requirementsOk && $_SERVER['REQUEST_METHOD'] === 'POS
                 PDO::ATTR_EMULATE_PREPARES => false,
             ]);
 
-            $ourTables = ['settings', 'branches', 'employees', 'users', 'attendance', 'payroll', 'requests', 'daily_ledger', 'delegations', 'exchange_rate_history', 'notifications'];
+            $ourTables = ['settings', 'branches', 'employees', 'users', 'attendance', 'payroll', 'requests', 'daily_ledger', 'delegations', 'daily_briefs', 'exchange_rate_history', 'notifications'];
             $existing = $pdo->query("SHOW TABLES")->fetchAll(PDO::FETCH_COLUMN);
             $conflicting = array_intersect($ourTables, $existing);
             if (!empty($conflicting)) {
