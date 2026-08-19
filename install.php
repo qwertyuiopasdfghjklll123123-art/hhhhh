@@ -216,6 +216,17 @@ if (!$alreadyInstalled && $requirementsOk && $_SERVER['REQUEST_METHOD'] === 'POS
                 PDO::ATTR_EMULATE_PREPARES => false,
             ]);
 
+            $ourTables = ['settings', 'branches', 'employees', 'users', 'attendance', 'payroll', 'requests', 'daily_ledger', 'exchange_rate_history', 'notifications'];
+            $existing = $pdo->query("SHOW TABLES")->fetchAll(PDO::FETCH_COLUMN);
+            $conflicting = array_intersect($ourTables, $existing);
+            if (!empty($conflicting)) {
+                throw new RuntimeException(
+                    'قاعدة البيانات "' . $dbName . '" تحتوي بالفعل على جداول من نظام آخر تحمل نفس الأسماء المطلوبة (' .
+                    implode('، ', $conflicting) . '). لتجنب تعارض البيانات، أنشئ قاعدة بيانات جديدة فارغة ' .
+                    'من cPanel (MySQL Databases) خاصة بهذا النظام فقط، ثم أعد المحاولة ببياناتها هنا.'
+                );
+            }
+
             $step = 3;
             install_schema($pdo);
             install_seed($pdo, $hrEmail, $hrPassword);
