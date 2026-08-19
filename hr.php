@@ -66,7 +66,7 @@ function request_type_ar(string $t): string
 }
 function request_status_ar(string $s): string
 {
-    return ['pending' => 'قيد المراجعة', 'approved' => 'مقبول', 'rejected' => 'مرفوض'][$s] ?? $s;
+    return ['pending' => 'قيد مراجعة مدير الفرع', 'branch_approved' => 'قيد مراجعة الموارد البشرية', 'approved' => 'مقبول', 'rejected' => 'مرفوض'][$s] ?? $s;
 }
 
 $isLoggedIn = !empty($_SESSION['hr_user']);
@@ -367,10 +367,12 @@ if (isset($_GET['ajax'])) {
         }
 
         case 'requests': {
+            // الموارد البشرية لا ترى إلا الطلبات التي وافق عليها مدير الفرع أولاً (أو المُنجَزة سابقاً للسجل)
             $stmt = $pdo->query("
-                SELECT r.id, e.full_name AS name, r.type, r.details, r.amount, r.date_from, r.date_to,
-                       DATE_FORMAT(r.created_at, '%d/%m/%Y') AS date, r.status
-                FROM requests r JOIN employees e ON e.id = r.employee_id
+                SELECT r.id, e.full_name AS name, b.name AS branch, r.type, r.details, r.amount, r.date_from, r.date_to,
+                       DATE_FORMAT(r.created_at, '%d/%m/%Y') AS date, r.status, r.branch_review_note AS branchNote
+                FROM requests r JOIN employees e ON e.id = r.employee_id JOIN branches b ON b.id = r.branch_id
+                WHERE r.status IN ('branch_approved','approved','rejected')
                 ORDER BY r.created_at DESC LIMIT 50
             ");
             $rows = array_map(function ($r) {
@@ -383,10 +385,13 @@ if (isset($_GET['ajax'])) {
                 return [
                     'id' => $r['id'],
                     'name' => $r['name'],
+                    'branch' => $r['branch'],
                     'type' => request_type_ar($r['type']),
                     'details' => $details ?: '-',
                     'date' => $r['date'],
                     'status' => request_status_ar($r['status']),
+                    'canReview' => $r['status'] === 'branch_approved',
+                    'branchNote' => $r['branchNote'],
                 ];
             }, $stmt->fetchAll());
             echo json_encode(['ok' => true, 'requests' => $rows], JSON_UNESCAPED_UNICODE);
@@ -396,7 +401,14 @@ if (isset($_GET['ajax'])) {
         case 'request_review': {
             $id = (int) ($_POST['id'] ?? 0);
             $decision = ($_POST['decision'] ?? '') === 'approved' ? 'approved' : 'rejected';
-            $pdo->prepare("UPDATE requests SET status=?, reviewed_by=? WHERE id=?")->execute([$decision, $hrUser['id'], $id]);
+            $hrNote = trim($_POST['hrNote'] ?? '');
+            // لا يجوز لـ HR البت إلا في طلب وافق عليه مدير الفرع أولاً
+            $stmt = $pdo->prepare("UPDATE requests SET status=?, hr_reviewed_by=?, hr_review_note=?, hr_reviewed_at=NOW() WHERE id=? AND status='branch_approved'");
+            $stmt->execute([$decision, $hrUser['id'], $hrNote, $id]);
+            if ($stmt->rowCount() === 0) {
+                echo json_encode(['ok' => false, 'error' => 'هذا الطلب ليس بانتظار مراجعة الموارد البشرية']);
+                exit;
+            }
             echo json_encode(['ok' => true]);
             exit;
         }
@@ -3295,7 +3307,7 @@ function report_data(PDO $pdo, string $type, string $from, string $to, int $bran
                         <td>${item.date}</td>
                         <td><span class="status-badge ${statusClass}">${item.status}</span></td>
                         <td>
-                            ${item.status === 'قيد المراجعة' ? `
+                            ${item.canReview ? `
                                 <button class="action-btn approve" onclick="approveRequest(${item.id})">
                                     <i class="fas fa-check"></i> موافقة
                                 </button>
@@ -3303,7 +3315,7 @@ function report_data(PDO $pdo, string $type, string $from, string $to, int $bran
                                     <i class="fas fa-times"></i> رفض
                                 </button>
                             ` : `
-                                <span style="color:var(--text-muted);font-size:11px;">تم الرد</span>
+                                <span style="color:var(--text-muted);font-size:11px;">${item.branchNote ? 'ملاحظة الفرع: ' + item.branchNote : 'تم الرد'}</span>
                             `}
                         </td>
                     </tr>
