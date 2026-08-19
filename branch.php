@@ -14,7 +14,8 @@ if (!file_exists(__DIR__ . '/config.php')) {
 }
 require_once __DIR__ . '/config.php';
 
-session_set_cookie_params(['httponly' => true, 'samesite' => 'Lax']);
+ini_set('session.gc_maxlifetime', (string) (86400 * 30));
+session_set_cookie_params(['httponly' => true, 'samesite' => 'Lax', 'lifetime' => 86400 * 30]);
 session_start();
 
 function db(): PDO
@@ -50,6 +51,16 @@ function handle_upload(string $field, string $sub, array $allowedExt): ?string
         return null;
     }
     return 'uploads/' . $sub . '/' . $filename;
+}
+
+function is_late(string $now, ?array $settingsRow): bool
+{
+    if (!$settingsRow || !$settingsRow['work_start_time']) {
+        return false;
+    }
+    $grace = (int) ($settingsRow['late_grace_minutes'] ?? 0);
+    $deadline = date('H:i:s', strtotime($settingsRow['work_start_time']) + $grace * 60);
+    return $now > $deadline;
 }
 
 function distance_meters(float $lat1, float $lon1, float $lat2, float $lon2): float
@@ -212,16 +223,26 @@ if (isset($_GET['ajax'])) {
             $position = trim($_POST['position'] ?? '');
             $salary = (float) ($_POST['salary'] ?? 0);
             $password = (string) ($_POST['password'] ?? '');
+            $motherName = trim($_POST['motherName'] ?? '');
+            $nationalId = trim($_POST['nationalId'] ?? '');
+            $birthDate = $_POST['birthDate'] ?: null;
+            $hireDate = $_POST['hireDate'] ?: null;
+            $shiftType = ($_POST['shiftType'] ?? '') === 'evening' ? 'evening' : 'morning';
+            $shiftStart = $_POST['shiftStart'] ?: null;
+            $shiftEnd = $_POST['shiftEnd'] ?: null;
             if ($name === '' || $position === '' || $salary <= 0 || strlen($password) < 6) {
                 echo json_encode(['ok' => false, 'error' => 'الرجاء تعبئة جميع الحقول (كلمة المرور 6 أحرف على الأقل)']);
                 exit;
             }
+            $docsPath = handle_upload('documents', 'documents', ['jpg', 'jpeg', 'png', 'pdf', 'doc', 'docx']);
             $pdo->beginTransaction();
             try {
                 $numStmt = $pdo->query("SELECT MAX(CAST(employee_number AS UNSIGNED)) FROM employees WHERE employee_number REGEXP '^[0-9]+$'");
                 $empNumber = (string) max(1001, (int) $numStmt->fetchColumn() + 1);
-                $stmt = $pdo->prepare("INSERT INTO employees (branch_id, employee_number, full_name, job_title, base_salary, is_branch_manager, status) VALUES (?, ?, ?, ?, ?, 0, 'active')");
-                $stmt->execute([$branchId, $empNumber, $name, $position, $salary]);
+                $stmt = $pdo->prepare("INSERT INTO employees
+                    (branch_id, employee_number, full_name, mother_name, national_id, birth_date, hire_date, job_title, shift_type, shift_start, shift_end, documents, base_salary, is_branch_manager, status)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 'active')");
+                $stmt->execute([$branchId, $empNumber, $name, $motherName ?: null, $nationalId ?: null, $birthDate, $hireDate, $position, $shiftType, $shiftStart, $shiftEnd, $docsPath, $salary]);
                 $employeeId = (int) $pdo->lastInsertId();
 
                 $hash = password_hash($password, PASSWORD_DEFAULT);
@@ -268,8 +289,8 @@ if (isset($_GET['ajax'])) {
             $now = date('H:i:s');
             $employeeId = $mgr['employee_id'];
             if ($type === 'in') {
-                $settingsRow = $pdo->query("SELECT work_start_time FROM settings ORDER BY id DESC LIMIT 1")->fetch();
-                $status = ($settingsRow && $now > $settingsRow['work_start_time']) ? 'late' : 'present';
+                $settingsRow = $pdo->query("SELECT work_start_time, late_grace_minutes FROM settings ORDER BY id DESC LIMIT 1")->fetch();
+                $status = is_late($now, $settingsRow) ? 'late' : 'present';
                 $stmt = $pdo->prepare("INSERT INTO attendance (employee_id, branch_id, attendance_date, check_in, status)
                     VALUES (?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE check_in=VALUES(check_in), status=VALUES(status)");
                 $stmt->execute([$employeeId, $branchId, $today, $now, $status]);
@@ -310,8 +331,8 @@ if (isset($_GET['ajax'])) {
             $today = date('Y-m-d');
             $now = date('H:i:s');
             if ($type === 'in') {
-                $settingsRow = $pdo->query("SELECT work_start_time FROM settings ORDER BY id DESC LIMIT 1")->fetch();
-                $status = ($settingsRow && $now > $settingsRow['work_start_time']) ? 'late' : 'present';
+                $settingsRow = $pdo->query("SELECT work_start_time, late_grace_minutes FROM settings ORDER BY id DESC LIMIT 1")->fetch();
+                $status = is_late($now, $settingsRow) ? 'late' : 'present';
                 $stmt = $pdo->prepare("INSERT INTO attendance (employee_id, branch_id, attendance_date, check_in, status)
                     VALUES (?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE check_in=VALUES(check_in), status=VALUES(status)");
                 $stmt->execute([$employeeId, $branchId, $today, $now, $status]);
@@ -417,6 +438,7 @@ if (isset($_GET['ajax'])) {
         }
 
         case 'briefing_publish': {
+            $travelersCount = (int) ($_POST['travelersCount'] ?? 0);
             $stmt = $pdo->prepare("SELECT
                 COALESCE(SUM(CASE WHEN entry_type='income' THEN amount ELSE 0 END),0) AS income,
                 COALESCE(SUM(CASE WHEN entry_type='expense' THEN amount ELSE 0 END),0) AS expense
@@ -432,11 +454,30 @@ if (isset($_GET['ajax'])) {
             $prevStmt->execute([$branchId, $yesterday]);
             $previousProfit = (float) ($prevStmt->fetchColumn() ?: 0);
 
-            $stmt = $pdo->prepare("INSERT INTO daily_briefs (branch_id, brief_date, total_income, total_expense, previous_profit, status, submitted_by)
-                VALUES (?, CURDATE(), ?, ?, ?, 'pending', ?)
-                ON DUPLICATE KEY UPDATE total_income=VALUES(total_income), total_expense=VALUES(total_expense), status='pending', submitted_by=VALUES(submitted_by)");
-            $stmt->execute([$branchId, $totals['income'], $totals['expense'], $previousProfit, $mgr['employee_id']]);
+            $stmt = $pdo->prepare("INSERT INTO daily_briefs (branch_id, brief_date, total_income, total_expense, previous_profit, travelers_count, status, submitted_by)
+                VALUES (?, CURDATE(), ?, ?, ?, ?, 'pending', ?)
+                ON DUPLICATE KEY UPDATE total_income=VALUES(total_income), total_expense=VALUES(total_expense), travelers_count=VALUES(travelers_count), status='pending', submitted_by=VALUES(submitted_by)");
+            $stmt->execute([$branchId, $totals['income'], $totals['expense'], $previousProfit, $travelersCount, $mgr['employee_id']]);
             echo json_encode(['ok' => true]);
+            exit;
+        }
+
+        case 'brief_status': {
+            $stmt = $pdo->prepare("SELECT status, hr_note, gm_review_note, travelers_count FROM daily_briefs WHERE branch_id=? AND brief_date=CURDATE()");
+            $stmt->execute([$branchId]);
+            $brief = $stmt->fetch();
+            if (!$brief) {
+                echo json_encode(['ok' => true, 'status' => null, 'statusText' => 'لم يُنشر بعد', 'note' => null]);
+                exit;
+            }
+            $map = [
+                'pending' => 'بانتظار مراجعة الموارد البشرية',
+                'hr_approved' => 'تمت الموافقة من HR — بانتظار الاعتماد النهائي من المسؤول العام',
+                'approved' => 'معتمد نهائياً',
+                'rejected' => 'مرفوض',
+            ];
+            $note = $brief['status'] === 'rejected' ? ($brief['gm_review_note'] ?: $brief['hr_note']) : null;
+            echo json_encode(['ok' => true, 'status' => $brief['status'], 'statusText' => $map[$brief['status']] ?? $brief['status'], 'note' => $note, 'travelersCount' => (int) $brief['travelers_count']]);
             exit;
         }
 
@@ -468,18 +509,47 @@ if (isset($_GET['ajax'])) {
             $employeeId = (int) ($_POST['employeeId'] ?? 0);
             $month = (int) date('n');
             $year = (int) date('Y');
-            $empStmt = $pdo->prepare("SELECT base_salary FROM employees WHERE id=? AND branch_id=?");
+            $empStmt = $pdo->prepare("SELECT full_name, base_salary FROM employees WHERE id=? AND branch_id=?");
             $empStmt->execute([$employeeId, $branchId]);
             $emp = $empStmt->fetch();
             if (!$emp) {
                 echo json_encode(['ok' => false, 'error' => 'الموظف غير موجود']);
                 exit;
             }
-            $stmt = $pdo->prepare("INSERT INTO payroll (employee_id, branch_id, period_month, period_year, base_salary, status)
-                VALUES (?, ?, ?, ?, ?, 'delivered')
-                ON DUPLICATE KEY UPDATE status='delivered'");
-            $stmt->execute([$employeeId, $branchId, $month, $year, $emp['base_salary']]);
-            echo json_encode(['ok' => true]);
+            $existing = $pdo->prepare("SELECT * FROM payroll WHERE employee_id=? AND period_month=? AND period_year=?");
+            $existing->execute([$employeeId, $month, $year]);
+            $existing = $existing->fetch();
+            if ($existing && $existing['status'] === 'delivered') {
+                echo json_encode(['ok' => false, 'error' => 'تم تسليم راتب هذا الموظف عن هذا الشهر مسبقاً']);
+                exit;
+            }
+            $baseSalary = $existing ? (float) $existing['base_salary'] : (float) $emp['base_salary'];
+            $bonus = $existing ? (float) $existing['bonus'] : 0.0;
+            $deduction = $existing ? (float) $existing['deduction'] : 0.0;
+
+            $advStmt = $pdo->prepare("SELECT id, approved_monthly_deduction, remaining_balance FROM requests WHERE employee_id=? AND type='advance' AND status='approved' AND remaining_balance > 0 ORDER BY id ASC LIMIT 1");
+            $advStmt->execute([$employeeId]);
+            $adv = $advStmt->fetch();
+            if ($adv) {
+                $advanceCut = min((float) $adv['approved_monthly_deduction'], (float) $adv['remaining_balance']);
+                $deduction += $advanceCut;
+                $pdo->prepare("UPDATE requests SET remaining_balance = remaining_balance - ? WHERE id=?")->execute([$advanceCut, $adv['id']]);
+            }
+
+            $stmt = $pdo->prepare("INSERT INTO payroll (employee_id, branch_id, period_month, period_year, base_salary, bonus, deduction, status)
+                VALUES (?, ?, ?, ?, ?, ?, ?, 'delivered')
+                ON DUPLICATE KEY UPDATE base_salary=VALUES(base_salary), bonus=VALUES(bonus), deduction=VALUES(deduction), status='delivered'");
+            $stmt->execute([$employeeId, $branchId, $month, $year, $baseSalary, $bonus, $deduction]);
+
+            $net = $baseSalary + $bonus - $deduction;
+            $notifyUsers = $pdo->prepare("SELECT id FROM users WHERE employee_id=?");
+            $notifyUsers->execute([$employeeId]);
+            foreach ($notifyUsers->fetchAll(PDO::FETCH_COLUMN) as $uid) {
+                $pdo->prepare("INSERT INTO notifications (user_id, title, message) VALUES (?, 'تم تسليم الراتب', ?)")
+                    ->execute([$uid, 'تم تسليم راتبك عن شهر ' . $month . '/' . $year . ' بصافي ' . number_format($net) . ' دينار']);
+            }
+
+            echo json_encode(['ok' => true, 'net' => $net]);
             exit;
         }
     }
@@ -860,6 +930,21 @@ if (isset($_GET['ajax'])) {
             .form-row { grid-template-columns: 1fr; }
             .grid-2 { grid-template-columns: 1fr; }
         }
+
+        /* واجهة اللابتوب/سطح المكتب: قائمة جانبية ثابتة بدل الشريط السفلي */
+        @media (min-width: 1024px) {
+            body { padding-bottom: 0; }
+            .bottom-nav-minimal { display: none; }
+            .side-menu-overlay { display: none !important; }
+            .side-menu {
+                transform: translateX(0) !important;
+                top: var(--header-height);
+                box-shadow: 2px 0 24px rgba(0,0,0,0.08);
+            }
+            .side-menu .close-btn { display: none; }
+            .page-content { max-width: 1100px; margin: 0 300px 0 auto; padding: 24px 28px 40px; }
+            .login-page { padding: 40px; }
+        }
     </style>
 </head>
 <body>
@@ -1202,6 +1287,12 @@ if (isset($_GET['ajax'])) {
                     </div>
                 </div>
 
+                <!-- ===== حالة اعتماد الإيجاز ===== -->
+                <div class="card">
+                    <div class="flex-between"><span class="muted">حالة إيجاز اليوم</span><b id="briefStatusText">لم يُنشر بعد</b></div>
+                    <div class="muted" id="briefStatusNote" style="display:none;"></div>
+                </div>
+
                 <!-- ===== صافي ربح اليوم السابق ===== -->
                 <div class="card" style="background:rgba(16,185,129,0.04);border-color:rgba(16,185,129,0.12);">
                     <div class="flex-between">
@@ -1209,6 +1300,11 @@ if (isset($_GET['ajax'])) {
                         <span style="font-size:22px;font-weight:900;color:var(--green);" id="previousDayProfit">+2,450,000 د.ع</span>
                     </div>
                     <div class="muted">تم حساب الربح بناءً على إيرادات ومصروفات الأمس</div>
+                </div>
+
+                <!-- ===== عدد المسافرين ===== -->
+                <div class="card">
+                    <div class="form-group"><label>عدد المسافرين اليوم</label><input type="number" id="travelersCount" min="0" placeholder="0"></div>
                 </div>
 
                 <!-- ===== إضافة قيد جديد ===== -->
@@ -1430,7 +1526,24 @@ if (isset($_GET['ajax'])) {
                 <form id="requestForm" onsubmit="submitRequestForm(event)">
                     <div id="requestFields">
                         <div class="form-group"><label>الاسم الكامل <span style="color:var(--red);">*</span></label><input type="text" id="reqName" placeholder="أدخل اسم الموظف" required></div>
+                        <div class="form-group"><label>اسم الأم</label><input type="text" id="reqMotherName" placeholder="اسم الأم"></div>
+                        <div class="form-group"><label>رقم الهوية الوطنية</label><input type="text" id="reqNationalId" placeholder="رقم الهوية الوطنية"></div>
                         <div class="form-group"><label>المسمى الوظيفي <span style="color:var(--red);">*</span></label><input type="text" id="reqPosition" placeholder="المسمى الوظيفي" required></div>
+                        <div class="form-row">
+                            <div class="form-group"><label>تاريخ الولادة</label><input type="date" id="reqBirthDate"></div>
+                            <div class="form-group"><label>تاريخ التعيين</label><input type="date" id="reqHireDate"></div>
+                        </div>
+                        <div class="form-group"><label>نوع الشفت</label>
+                            <select id="reqShiftType">
+                                <option value="morning">صباحي</option>
+                                <option value="evening">مسائي</option>
+                            </select>
+                        </div>
+                        <div class="form-row">
+                            <div class="form-group"><label>وقت بداية الدوام</label><input type="time" id="reqShiftStart"></div>
+                            <div class="form-group"><label>وقت انتهاء الدوام</label><input type="time" id="reqShiftEnd"></div>
+                        </div>
+                        <div class="form-group"><label>المستمسكات (ملف)</label><input type="file" id="reqDocuments" accept=".jpg,.jpeg,.png,.pdf,.doc,.docx"></div>
                         <div class="form-group"><label>الراتب الأساسي <span style="color:var(--red);">*</span></label><input type="number" id="reqSalary" placeholder="500000" required></div>
                         <div class="form-group"><label>كلمة المرور <span style="color:var(--red);">*</span></label><input type="password" id="reqPassword" placeholder="أدخل كلمة المرور" minlength="6" required></div>
                         <div style="background:#eaf7ef;padding:10px;border-radius:8px;">
@@ -1554,6 +1667,7 @@ if (isset($_GET['ajax'])) {
         function initApp() {
             loadBriefingEntries();
             loadHomeStats();
+            loadBriefStatus();
         }
 
         function loadHomeStats() {
@@ -2120,12 +2234,31 @@ if (isset($_GET['ajax'])) {
                 showToast('⚠️ تنبيه', 'لا توجد قيود لنشرها، أضف قيداً أولاً', 'warning');
                 return;
             }
-            fetch('?ajax=briefing_publish', { method: 'POST' }).then(r => r.json()).then(data => {
+            const travelersCount = document.getElementById('travelersCount').value || 0;
+            fetch('?ajax=briefing_publish', { method: 'POST', body: new URLSearchParams({ travelersCount }) }).then(r => r.json()).then(data => {
                 if (!data.ok) { showToast('⚠️ خطأ', data.error || 'تعذر نشر الإيجاز', 'error'); return; }
                 const date = document.getElementById('briefDate').textContent;
                 const total = document.getElementById('summaryTotal').textContent;
                 showToast('✅ تم النشر', 'تم نشر الإيجاز بتاريخ ' + date + '\n' + total + '\nتم إرساله إلى HR بنجاح', 'success');
                 document.getElementById('hrBriefingDisplay').scrollIntoView({ behavior: 'smooth', block: 'start' });
+                loadBriefStatus();
+            });
+        }
+
+        function loadBriefStatus() {
+            fetch('?ajax=brief_status').then(r => r.json()).then(data => {
+                if (!data.ok) return;
+                document.getElementById('briefStatusText').textContent = data.statusText;
+                const noteEl = document.getElementById('briefStatusNote');
+                if (data.note) {
+                    noteEl.textContent = 'ملاحظة: ' + data.note;
+                    noteEl.style.display = 'block';
+                } else {
+                    noteEl.style.display = 'none';
+                }
+                if (data.travelersCount !== undefined) {
+                    document.getElementById('travelersCount').value = data.travelersCount || '';
+                }
             });
         }
 
@@ -2178,14 +2311,25 @@ if (isset($_GET['ajax'])) {
         function submitRequestForm(e) {
             e.preventDefault();
             const btn = e.target.querySelector('button[type="submit"]');
-            const name = document.getElementById('reqName').value;
-            const position = document.getElementById('reqPosition').value;
-            const salary = document.getElementById('reqSalary').value;
-            const password = document.getElementById('reqPassword').value;
+            const formData = new FormData();
+            formData.append('name', document.getElementById('reqName').value);
+            formData.append('motherName', document.getElementById('reqMotherName').value);
+            formData.append('nationalId', document.getElementById('reqNationalId').value);
+            formData.append('position', document.getElementById('reqPosition').value);
+            formData.append('birthDate', document.getElementById('reqBirthDate').value);
+            formData.append('hireDate', document.getElementById('reqHireDate').value);
+            formData.append('shiftType', document.getElementById('reqShiftType').value);
+            formData.append('shiftStart', document.getElementById('reqShiftStart').value);
+            formData.append('shiftEnd', document.getElementById('reqShiftEnd').value);
+            formData.append('salary', document.getElementById('reqSalary').value);
+            formData.append('password', document.getElementById('reqPassword').value);
+            const docsInput = document.getElementById('reqDocuments');
+            if (docsInput.files && docsInput.files.length > 0) {
+                formData.append('documents', docsInput.files[0]);
+            }
             btn.innerHTML = '<span style="display:inline-block;width:18px;height:18px;border:2px solid rgba(255,255,255,0.3);border-radius:50%;border-top-color:#fff;animation:spin 0.8s linear infinite;"></span> جاري الحفظ...';
             btn.disabled = true;
-            const body = new URLSearchParams({ name, position, salary, password });
-            fetch('?ajax=employee_add', { method: 'POST', body }).then(r => r.json()).then(data => {
+            fetch('?ajax=employee_add', { method: 'POST', body: formData }).then(r => r.json()).then(data => {
                 btn.innerHTML = '<i class="fas fa-save"></i> حفظ';
                 btn.disabled = false;
                 if (!data.ok) {

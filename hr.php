@@ -14,7 +14,8 @@ if (!file_exists(__DIR__ . '/config.php')) {
 }
 require_once __DIR__ . '/config.php';
 
-session_set_cookie_params(['httponly' => true, 'samesite' => 'Lax']);
+ini_set('session.gc_maxlifetime', (string) (86400 * 30));
+session_set_cookie_params(['httponly' => true, 'samesite' => 'Lax', 'lifetime' => 86400 * 30]);
 session_start();
 
 function db(): PDO
@@ -147,6 +148,15 @@ if (isset($_GET['ajax'])) {
                 $topEmployees[] = ['rank' => $i + 1, 'name' => $r['name'], 'branch' => $r['branch'], 'rate' => (int) $r['rate'], 'medal' => $medals[$i], 'color' => $colors[$i]];
             }
 
+            $monthStart = date('Y-m-01');
+            $monthTotals = $pdo->prepare("SELECT COALESCE(SUM(total_income),0) AS income, COALESCE(SUM(total_expense),0) AS expense
+                FROM daily_briefs WHERE brief_date >= ? AND status IN ('hr_approved','approved')");
+            $monthTotals->execute([$monthStart]);
+            $monthTotals = $monthTotals->fetch();
+            $monthlyIncome = (float) $monthTotals['income'];
+            $monthlyExpense = (float) $monthTotals['expense'];
+            $profitMarginPct = $monthlyIncome > 0 ? round((($monthlyIncome - $monthlyExpense) / $monthlyIncome) * 100, 1) : 0;
+
             echo json_encode([
                 'ok' => true,
                 'branches' => $branches,
@@ -155,6 +165,9 @@ if (isset($_GET['ajax'])) {
                 'topEmployees' => $topEmployees,
                 'stats' => [
                     'employees' => (int) $pdo->query("SELECT COUNT(*) FROM employees WHERE status='active'")->fetchColumn(),
+                    'monthlyIncome' => $monthlyIncome,
+                    'monthlyExpense' => $monthlyExpense,
+                    'profitMarginPct' => $profitMarginPct,
                 ],
             ], JSON_UNESCAPED_UNICODE);
             exit;
@@ -260,6 +273,116 @@ if (isset($_GET['ajax'])) {
             exit;
         }
 
+        case 'employees_full_list': {
+            $rows = $pdo->query("
+                SELECT e.id, e.full_name AS name, b.name AS branch, e.job_title, e.employee_number,
+                       e.rating, e.status, e.is_branch_manager AS isManager
+                FROM employees e JOIN branches b ON b.id = e.branch_id
+                ORDER BY e.is_branch_manager DESC, e.full_name
+            ")->fetchAll();
+            echo json_encode(['ok' => true, 'employees' => $rows], JSON_UNESCAPED_UNICODE);
+            exit;
+        }
+
+        case 'employee_profile': {
+            $employeeId = (int) ($_GET['employeeId'] ?? 0);
+            $stmt = $pdo->prepare("
+                SELECT e.*, b.name AS branchName
+                FROM employees e JOIN branches b ON b.id = e.branch_id
+                WHERE e.id = ?
+            ");
+            $stmt->execute([$employeeId]);
+            $emp = $stmt->fetch();
+            if (!$emp) {
+                echo json_encode(['ok' => false, 'error' => 'الموظف غير موجود']);
+                exit;
+            }
+            $shiftAr = ['morning' => 'صباحي', 'evening' => 'مسائي'];
+            echo json_encode(['ok' => true, 'employee' => [
+                'id' => (int) $emp['id'],
+                'name' => $emp['full_name'],
+                'motherName' => $emp['mother_name'],
+                'nationalId' => $emp['national_id'],
+                'jobTitle' => $emp['job_title'],
+                'branch' => $emp['branchName'],
+                'employeeNumber' => $emp['employee_number'],
+                'birthDate' => $emp['birth_date'],
+                'hireDate' => $emp['hire_date'],
+                'shiftType' => $shiftAr[$emp['shift_type']] ?? $emp['shift_type'],
+                'shiftStart' => $emp['shift_start'] ? substr($emp['shift_start'], 0, 5) : null,
+                'shiftEnd' => $emp['shift_end'] ? substr($emp['shift_end'], 0, 5) : null,
+                'baseSalary' => (float) $emp['base_salary'],
+                'rating' => (float) $emp['rating'],
+                'status' => $emp['status'],
+                'isManager' => (bool) $emp['is_branch_manager'],
+                'documents' => $emp['documents'],
+                'photo' => $emp['photo'],
+            ]], JSON_UNESCAPED_UNICODE);
+            exit;
+        }
+
+        case 'employee_day_check': {
+            $employeeId = (int) ($_GET['employeeId'] ?? 0);
+            $date = $_GET['date'] ?? date('Y-m-d');
+            $attStmt = $pdo->prepare("SELECT check_in, check_out, status FROM attendance WHERE employee_id=? AND attendance_date=?");
+            $attStmt->execute([$employeeId, $date]);
+            $att = $attStmt->fetch();
+
+            $dt = DateTime::createFromFormat('Y-m-d', $date) ?: new DateTime();
+            $month = (int) $dt->format('n');
+            $year = (int) $dt->format('Y');
+            $payStmt = $pdo->prepare("SELECT status, (base_salary + bonus - deduction) AS net FROM payroll WHERE employee_id=? AND period_month=? AND period_year=?");
+            $payStmt->execute([$employeeId, $month, $year]);
+            $pay = $payStmt->fetch();
+
+            echo json_encode([
+                'ok' => true,
+                'attendance' => $att ? [
+                    'checkIn' => $att['check_in'] ? substr($att['check_in'], 0, 5) : null,
+                    'checkOut' => $att['check_out'] ? substr($att['check_out'], 0, 5) : null,
+                    'status' => attendance_status_ar($att['status']),
+                ] : null,
+                'payroll' => $pay ? [
+                    'delivered' => $pay['status'] === 'delivered',
+                    'net' => (float) $pay['net'],
+                ] : null,
+            ], JSON_UNESCAPED_UNICODE);
+            exit;
+        }
+
+        case 'employee_attendance_month': {
+            $employeeId = (int) ($_GET['employeeId'] ?? 0);
+            $month = (int) ($_GET['month'] ?? date('n'));
+            $year = (int) ($_GET['year'] ?? date('Y'));
+            $monthStart = sprintf('%04d-%02d-01', $year, $month);
+            $stmt = $pdo->prepare("SELECT attendance_date, check_in, check_out, status FROM attendance
+                WHERE employee_id=? AND attendance_date >= ? AND attendance_date < DATE_ADD(?, INTERVAL 1 MONTH)
+                ORDER BY attendance_date");
+            $stmt->execute([$employeeId, $monthStart, $monthStart]);
+            $rows = array_map(function ($r) {
+                return [
+                    'date' => $r['attendance_date'],
+                    'checkIn' => $r['check_in'] ? substr($r['check_in'], 0, 5) : null,
+                    'checkOut' => $r['check_out'] ? substr($r['check_out'], 0, 5) : null,
+                    'status' => attendance_status_ar($r['status']),
+                ];
+            }, $stmt->fetchAll());
+            echo json_encode(['ok' => true, 'days' => $rows], JSON_UNESCAPED_UNICODE);
+            exit;
+        }
+
+        case 'rating_save': {
+            $employeeId = (int) ($_POST['employeeId'] ?? 0);
+            $rating = (float) ($_POST['rating'] ?? 0);
+            if ($rating < 0 || $rating > 5) {
+                echo json_encode(['ok' => false, 'error' => 'التقييم يجب أن يكون بين 0 و 5']);
+                exit;
+            }
+            $pdo->prepare("UPDATE employees SET rating=? WHERE id=?")->execute([$rating, $employeeId]);
+            echo json_encode(['ok' => true]);
+            exit;
+        }
+
         case 'attendance': {
             $date = $_GET['date'] ?? date('Y-m-d');
             $stmt = $pdo->prepare("
@@ -282,10 +405,17 @@ if (isset($_GET['ajax'])) {
             $month = (int) ($_GET['month'] ?? date('n'));
             $year = (int) ($_GET['year'] ?? date('Y'));
             $stmt = $pdo->prepare("
-                SELECT p.id, e.full_name AS name, b.name AS branch, p.base_salary AS base, p.bonus, p.deduction,
-                       (p.base_salary + p.bonus - p.deduction) AS net, p.status
-                FROM payroll p JOIN employees e ON e.id=p.employee_id JOIN branches b ON b.id=p.branch_id
-                WHERE p.period_month=? AND p.period_year=? ORDER BY e.full_name
+                SELECT e.id AS employeeId, e.full_name AS name, b.name AS branch, e.is_branch_manager AS isManager,
+                       p.id AS payrollId, COALESCE(p.base_salary, e.base_salary) AS base, COALESCE(p.bonus,0) AS bonus, COALESCE(p.deduction,0) AS deduction,
+                       (COALESCE(p.base_salary, e.base_salary) + COALESCE(p.bonus,0) - COALESCE(p.deduction,0)) AS net,
+                       COALESCE(p.status, 'pending') AS status,
+                       adv.approved_monthly_deduction AS advanceMonthly, adv.remaining_balance AS advanceRemaining
+                FROM employees e
+                JOIN branches b ON b.id = e.branch_id
+                LEFT JOIN payroll p ON p.employee_id = e.id AND p.period_month=? AND p.period_year=?
+                LEFT JOIN requests adv ON adv.employee_id = e.id AND adv.type='advance' AND adv.status='approved' AND adv.remaining_balance > 0
+                WHERE e.status='active'
+                ORDER BY e.full_name
             ");
             $stmt->execute([$month, $year]);
             $rows = array_map(function ($r) {
@@ -293,6 +423,10 @@ if (isset($_GET['ajax'])) {
                 $r['bonus'] = (float) $r['bonus'];
                 $r['deduction'] = (float) $r['deduction'];
                 $r['net'] = (float) $r['net'];
+                $r['hasAdvance'] = $r['advanceMonthly'] !== null;
+                $r['advanceMonthly'] = $r['advanceMonthly'] !== null ? (float) $r['advanceMonthly'] : null;
+                $r['advanceRemaining'] = $r['advanceRemaining'] !== null ? (float) $r['advanceRemaining'] : null;
+                $r['statusRaw'] = $r['status'];
                 $r['status'] = payroll_status_ar($r['status']);
                 return $r;
             }, $stmt->fetchAll());
@@ -300,35 +434,146 @@ if (isset($_GET['ajax'])) {
             exit;
         }
 
-        case 'salary_add': {
+        case 'payroll_adjustment_add': {
             $employeeId = (int) ($_POST['employeeId'] ?? 0);
-            $base = (float) ($_POST['base'] ?? 0);
-            $bonus = (float) ($_POST['bonus'] ?? 0);
-            $deduction = (float) ($_POST['deduction'] ?? 0);
-            if ($base <= 0 || $employeeId <= 0) {
-                echo json_encode(['ok' => false, 'error' => 'الرجاء إدخال راتب أساسي صحيح']);
+            $type = $_POST['type'] ?? '';
+            $amount = (float) ($_POST['amount'] ?? 0);
+            $note = trim($_POST['note'] ?? '');
+            if (!in_array($type, ['salary', 'bonus', 'deduction'], true) || $amount <= 0 || $employeeId <= 0) {
+                echo json_encode(['ok' => false, 'error' => 'الرجاء اختيار الموظف ونوع التعديل وإدخال مبلغ صحيح']);
                 exit;
             }
-            $empStmt = $pdo->prepare("SELECT branch_id FROM employees WHERE id=?");
+            $empStmt = $pdo->prepare("SELECT branch_id, full_name, is_branch_manager FROM employees WHERE id=?");
             $empStmt->execute([$employeeId]);
-            $branchId = $empStmt->fetchColumn();
-            if (!$branchId) {
+            $emp = $empStmt->fetch();
+            if (!$emp) {
                 echo json_encode(['ok' => false, 'error' => 'الموظف غير موجود']);
                 exit;
             }
             $month = (int) date('n');
             $year = (int) date('Y');
-            $stmt = $pdo->prepare("INSERT INTO payroll (employee_id, branch_id, period_month, period_year, base_salary, bonus, deduction, status)
-                VALUES (?, ?, ?, ?, ?, ?, ?, 'pending')
-                ON DUPLICATE KEY UPDATE base_salary=VALUES(base_salary), bonus=VALUES(bonus), deduction=VALUES(deduction)");
-            $stmt->execute([$employeeId, $branchId, $month, $year, $base, $bonus, $deduction]);
+            $branchId = (int) $emp['branch_id'];
+
+            $existing = $pdo->prepare("SELECT id, status FROM payroll WHERE employee_id=? AND period_month=? AND period_year=?");
+            $existing->execute([$employeeId, $month, $year]);
+            $existing = $existing->fetch();
+            if ($existing && $existing['status'] === 'delivered') {
+                echo json_encode(['ok' => false, 'error' => 'تم تسليم راتب هذا الشهر مسبقاً، لا يمكن تعديله']);
+                exit;
+            }
+
+            if ($type === 'salary') {
+                $pdo->prepare("INSERT INTO payroll (employee_id, branch_id, period_month, period_year, base_salary, status)
+                    VALUES (?, ?, ?, ?, ?, 'pending') ON DUPLICATE KEY UPDATE base_salary=?")
+                    ->execute([$employeeId, $branchId, $month, $year, $amount, $amount]);
+            } elseif ($type === 'bonus') {
+                $pdo->prepare("INSERT INTO payroll (employee_id, branch_id, period_month, period_year, base_salary, bonus, status)
+                    VALUES (?, ?, ?, ?, (SELECT base_salary FROM employees WHERE id=?), ?, 'pending')
+                    ON DUPLICATE KEY UPDATE bonus = bonus + VALUES(bonus)")
+                    ->execute([$employeeId, $branchId, $month, $year, $employeeId, $amount]);
+            } else {
+                $pdo->prepare("INSERT INTO payroll (employee_id, branch_id, period_month, period_year, base_salary, deduction, status)
+                    VALUES (?, ?, ?, ?, (SELECT base_salary FROM employees WHERE id=?), ?, 'pending')
+                    ON DUPLICATE KEY UPDATE deduction = deduction + VALUES(deduction)")
+                    ->execute([$employeeId, $branchId, $month, $year, $employeeId, $amount]);
+            }
+
+            $pdo->prepare("INSERT INTO payroll_adjustments (employee_id, branch_id, period_month, period_year, type, amount, note, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
+                ->execute([$employeeId, $branchId, $month, $year, $type, $amount, $note ?: null, $hrUser['id']]);
+
+            $typeLabel = ['salary' => 'تحديث الراتب الأساسي', 'bonus' => 'مكافأة', 'deduction' => 'خصم'];
+            $msg = $typeLabel[$type] . ' بقيمة ' . number_format($amount) . ' للموظف ' . $emp['full_name'];
+            $notifyUsers = $pdo->prepare("SELECT id FROM users WHERE employee_id=? UNION SELECT id FROM users WHERE branch_id=? AND role='branch_manager'");
+            $notifyUsers->execute([$employeeId, $branchId]);
+            foreach ($notifyUsers->fetchAll(PDO::FETCH_COLUMN) as $uid) {
+                $pdo->prepare("INSERT INTO notifications (user_id, title, message) VALUES (?, 'تحديث في الراتب', ?)")->execute([$uid, $msg]);
+            }
+
             echo json_encode(['ok' => true]);
+            exit;
+        }
+
+        case 'salary_deliver': {
+            $employeeId = (int) ($_POST['employeeId'] ?? 0);
+            $month = (int) date('n');
+            $year = (int) date('Y');
+
+            $empStmt = $pdo->prepare("SELECT branch_id, full_name, base_salary FROM employees WHERE id=?");
+            $empStmt->execute([$employeeId]);
+            $emp = $empStmt->fetch();
+            if (!$emp) {
+                echo json_encode(['ok' => false, 'error' => 'الموظف غير موجود']);
+                exit;
+            }
+            $branchId = (int) $emp['branch_id'];
+
+            $existing = $pdo->prepare("SELECT * FROM payroll WHERE employee_id=? AND period_month=? AND period_year=?");
+            $existing->execute([$employeeId, $month, $year]);
+            $existing = $existing->fetch();
+            if ($existing && $existing['status'] === 'delivered') {
+                echo json_encode(['ok' => false, 'error' => 'تم تسليم راتب هذا الموظف عن هذا الشهر مسبقاً']);
+                exit;
+            }
+
+            $baseSalary = $existing ? (float) $existing['base_salary'] : (float) $emp['base_salary'];
+            $bonus = $existing ? (float) $existing['bonus'] : 0.0;
+            $deduction = $existing ? (float) $existing['deduction'] : 0.0;
+
+            // خصم التأخير عن الشهر الحالي
+            $settingsRow = $pdo->query("SELECT late_grace_minutes, late_deduction_per_hour, work_start_time FROM settings ORDER BY id DESC LIMIT 1")->fetch();
+            if ($settingsRow && (float) $settingsRow['late_deduction_per_hour'] > 0) {
+                $lateStmt = $pdo->prepare("SELECT check_in FROM attendance WHERE employee_id=? AND status='late' AND attendance_date >= ? AND attendance_date < DATE_ADD(?, INTERVAL 1 MONTH)");
+                $monthStart = sprintf('%04d-%02d-01', $year, $month);
+                $lateStmt->execute([$employeeId, $monthStart, $monthStart]);
+                $grace = (int) $settingsRow['late_grace_minutes'];
+                $deadline = strtotime($settingsRow['work_start_time']) + $grace * 60;
+                $lateMinutes = 0;
+                foreach ($lateStmt->fetchAll(PDO::FETCH_COLUMN) as $checkIn) {
+                    if (!$checkIn) continue;
+                    $diff = (strtotime($checkIn) - $deadline) / 60;
+                    if ($diff > 0) $lateMinutes += $diff;
+                }
+                if ($lateMinutes > 0) {
+                    $lateDeduction = ceil($lateMinutes / 60) * (float) $settingsRow['late_deduction_per_hour'];
+                    $deduction += $lateDeduction;
+                }
+            }
+
+            // خصم السلفة الشهري النشط
+            $advStmt = $pdo->prepare("SELECT id, approved_monthly_deduction, remaining_balance FROM requests WHERE employee_id=? AND type='advance' AND status='approved' AND remaining_balance > 0 ORDER BY id ASC LIMIT 1");
+            $advStmt->execute([$employeeId]);
+            $adv = $advStmt->fetch();
+            if ($adv) {
+                $advanceCut = min((float) $adv['approved_monthly_deduction'], (float) $adv['remaining_balance']);
+                $deduction += $advanceCut;
+                $pdo->prepare("UPDATE requests SET remaining_balance = remaining_balance - ? WHERE id=?")->execute([$advanceCut, $adv['id']]);
+            }
+
+            $stmt = $pdo->prepare("INSERT INTO payroll (employee_id, branch_id, period_month, period_year, base_salary, bonus, deduction, status)
+                VALUES (?, ?, ?, ?, ?, ?, ?, 'delivered')
+                ON DUPLICATE KEY UPDATE base_salary=VALUES(base_salary), bonus=VALUES(bonus), deduction=VALUES(deduction), status='delivered'");
+            $stmt->execute([$employeeId, $branchId, $month, $year, $baseSalary, $bonus, $deduction]);
+
+            $net = $baseSalary + $bonus - $deduction;
+            $msg = 'تم تسليم راتب شهر ' . $month . '/' . $year . ' بصافي ' . number_format($net) . ' دينار للموظف ' . $emp['full_name'];
+            $notifyUsers = $pdo->prepare("SELECT id FROM users WHERE employee_id=? UNION SELECT id FROM users WHERE branch_id=? AND role='branch_manager'");
+            $notifyUsers->execute([$employeeId, $branchId]);
+            foreach ($notifyUsers->fetchAll(PDO::FETCH_COLUMN) as $uid) {
+                $pdo->prepare("INSERT INTO notifications (user_id, title, message) VALUES (?, 'تم تسليم الراتب', ?)")->execute([$uid, $msg]);
+            }
+
+            echo json_encode(['ok' => true, 'net' => $net]);
             exit;
         }
 
         case 'salary_delete': {
             $id = (int) ($_POST['id'] ?? 0);
-            $pdo->prepare("DELETE FROM payroll WHERE id=?")->execute([$id]);
+            $stmt = $pdo->prepare("DELETE FROM payroll WHERE id=? AND status != 'delivered'");
+            $stmt->execute([$id]);
+            if ($stmt->rowCount() === 0) {
+                echo json_encode(['ok' => false, 'error' => 'لا يمكن حذف راتب تم تسليمه بالفعل']);
+                exit;
+            }
             echo json_encode(['ok' => true]);
             exit;
         }
@@ -337,19 +582,23 @@ if (isset($_GET['ajax'])) {
             $stmt = $pdo->query("
                 SELECT db.id, e.full_name AS sender, e.job_title AS senderRole, b.name AS branch,
                        DATE_FORMAT(db.brief_date, '%d/%m/%Y') AS date,
-                       db.total_income AS revenue, db.total_expense AS expenses, db.note,
+                       db.total_income AS revenue, db.total_expense AS expenses, db.travelers_count AS travelersCount, db.note,
                        db.status, db.hr_note AS hrNote
                 FROM daily_briefs db
                 JOIN branches b ON b.id = db.branch_id
                 LEFT JOIN employees e ON e.id = db.submitted_by
                 ORDER BY db.brief_date DESC, db.id DESC LIMIT 30
             ");
-            $rows = array_map(function ($r) {
+            $statusAr = ['pending' => 'بانتظار مراجعتك', 'hr_approved' => 'بانتظار الاعتماد النهائي من المسؤول العام', 'approved' => 'معتمد نهائياً', 'rejected' => 'مرفوض'];
+            $rows = array_map(function ($r) use ($statusAr) {
                 $r['revenue'] = (float) $r['revenue'];
                 $r['expenses'] = (float) $r['expenses'];
+                $r['travelersCount'] = (int) $r['travelersCount'];
                 $r['netProfit'] = $r['revenue'] - $r['expenses'];
                 $r['sender'] = $r['sender'] ?: 'مدير الفرع';
                 $r['senderRole'] = $r['senderRole'] ?: 'مدير فرع';
+                $r['canReview'] = $r['status'] === 'pending';
+                $r['statusText'] = $statusAr[$r['status']] ?? $r['status'];
                 return $r;
             }, $stmt->fetchAll());
             echo json_encode(['ok' => true, 'briefs' => $rows], JSON_UNESCAPED_UNICODE);
@@ -358,10 +607,14 @@ if (isset($_GET['ajax'])) {
 
         case 'brief_review': {
             $id = (int) ($_POST['id'] ?? 0);
-            $decision = ($_POST['decision'] ?? '') === 'approved' ? 'approved' : 'rejected';
-            $hrNote = trim($_POST['hrNote'] ?? '') ?: ($decision === 'approved' ? 'تم الاعتماد من قبل الموارد البشرية' : 'تم الرفض من قبل الموارد البشرية');
-            $pdo->prepare("UPDATE daily_briefs SET status=?, hr_note=?, reviewed_by=?, reviewed_at=NOW() WHERE id=?")
-                ->execute([$decision, $hrNote, $hrUser['id'], $id]);
+            $decision = ($_POST['decision'] ?? '') === 'approved' ? 'hr_approved' : 'rejected';
+            $hrNote = trim($_POST['hrNote'] ?? '') ?: ($decision === 'hr_approved' ? 'تمت الموافقة من قبل الموارد البشرية، بانتظار الاعتماد النهائي' : 'تم الرفض من قبل الموارد البشرية');
+            $stmt = $pdo->prepare("UPDATE daily_briefs SET status=?, hr_note=?, reviewed_by=?, reviewed_at=NOW() WHERE id=? AND status='pending'");
+            $stmt->execute([$decision, $hrNote, $hrUser['id'], $id]);
+            if ($stmt->rowCount() === 0) {
+                echo json_encode(['ok' => false, 'error' => 'هذا الإيجاز ليس بانتظار مراجعتك']);
+                exit;
+            }
             echo json_encode(['ok' => true]);
             exit;
         }
@@ -387,6 +640,8 @@ if (isset($_GET['ajax'])) {
                     'name' => $r['name'],
                     'branch' => $r['branch'],
                     'type' => request_type_ar($r['type']),
+                    'rawType' => $r['type'],
+                    'amount' => $r['amount'] ? (float) $r['amount'] : null,
                     'details' => $details ?: '-',
                     'date' => $r['date'],
                     'status' => request_status_ar($r['status']),
@@ -402,9 +657,27 @@ if (isset($_GET['ajax'])) {
             $id = (int) ($_POST['id'] ?? 0);
             $decision = ($_POST['decision'] ?? '') === 'approved' ? 'approved' : 'rejected';
             $hrNote = trim($_POST['hrNote'] ?? '');
-            // لا يجوز لـ HR البت إلا في طلب وافق عليه مدير الفرع أولاً
-            $stmt = $pdo->prepare("UPDATE requests SET status=?, hr_reviewed_by=?, hr_review_note=?, hr_reviewed_at=NOW() WHERE id=? AND status='branch_approved'");
-            $stmt->execute([$decision, $hrUser['id'], $hrNote, $id]);
+            $monthlyDeduction = (float) ($_POST['monthlyDeduction'] ?? 0);
+
+            $reqRow = $pdo->prepare("SELECT type, amount FROM requests WHERE id=? AND status='branch_approved'");
+            $reqRow->execute([$id]);
+            $reqRow = $reqRow->fetch();
+            if (!$reqRow) {
+                echo json_encode(['ok' => false, 'error' => 'هذا الطلب ليس بانتظار مراجعة الموارد البشرية']);
+                exit;
+            }
+            if ($decision === 'approved' && $reqRow['type'] === 'advance' && $monthlyDeduction <= 0) {
+                echo json_encode(['ok' => false, 'error' => 'الرجاء تحديد قيمة الخصم الشهري للسلفة قبل الموافقة']);
+                exit;
+            }
+
+            if ($decision === 'approved' && $reqRow['type'] === 'advance') {
+                $stmt = $pdo->prepare("UPDATE requests SET status=?, hr_reviewed_by=?, hr_review_note=?, hr_reviewed_at=NOW(), approved_monthly_deduction=?, remaining_balance=? WHERE id=? AND status='branch_approved'");
+                $stmt->execute([$decision, $hrUser['id'], $hrNote, $monthlyDeduction, $reqRow['amount'], $id]);
+            } else {
+                $stmt = $pdo->prepare("UPDATE requests SET status=?, hr_reviewed_by=?, hr_review_note=?, hr_reviewed_at=NOW() WHERE id=? AND status='branch_approved'");
+                $stmt->execute([$decision, $hrUser['id'], $hrNote, $id]);
+            }
             if ($stmt->rowCount() === 0) {
                 echo json_encode(['ok' => false, 'error' => 'هذا الطلب ليس بانتظار مراجعة الموارد البشرية']);
                 exit;
@@ -436,8 +709,10 @@ if (isset($_GET['ajax'])) {
             $companyEmail = trim($_POST['companyEmail'] ?? '');
             $workStart = $_POST['workStart'] ?? '09:00';
             $workEnd = $_POST['workEnd'] ?? '17:00';
-            $pdo->prepare("UPDATE settings SET company_name=?, company_email=?, work_start_time=?, work_end_time=? ORDER BY id DESC LIMIT 1")
-                ->execute([$companyName, $companyEmail, $workStart, $workEnd]);
+            $lateGrace = (int) ($_POST['lateGrace'] ?? 15);
+            $lateDeduction = (float) ($_POST['lateDeduction'] ?? 0);
+            $pdo->prepare("UPDATE settings SET company_name=?, company_email=?, work_start_time=?, work_end_time=?, late_grace_minutes=?, late_deduction_per_hour=? ORDER BY id DESC LIMIT 1")
+                ->execute([$companyName, $companyEmail, $workStart, $workEnd, $lateGrace, $lateDeduction]);
             echo json_encode(['ok' => true]);
             exit;
         }
@@ -1930,6 +2205,9 @@ function report_data(PDO $pdo, string $type, string $from, string $to, int $bran
                     <i class="fas fa-building"></i> الفروع
                     <span class="badge success" id="branchBadge">3</span>
                 </button>
+                <button class="nav-item" onclick="navigateTo('employees')">
+                    <i class="fas fa-users"></i> الموظفون
+                </button>
                 <button class="nav-item" onclick="navigateTo('attendance')">
                     <i class="fas fa-clock"></i> الحضور
                     <span class="badge">12</span>
@@ -2006,23 +2284,19 @@ function report_data(PDO $pdo, string $type, string $from, string $to, int $bran
                     <div class="stats-grid">
                         <div class="stat-card">
                             <div class="stat-label"><i class="fas fa-users"></i> إجمالي الموظفين</div>
-                            <div class="stat-value primary">247</div>
-                            <div class="stat-change up"><i class="fas fa-arrow-up"></i> +12 هذا الشهر</div>
+                            <div class="stat-value primary" id="statEmployees">0</div>
                         </div>
                         <div class="stat-card">
-                            <div class="stat-label"><i class="fas fa-percent"></i> نسبة الإيداع</div>
-                            <div class="stat-value green">78%</div>
-                            <div class="stat-change up"><i class="fas fa-arrow-up"></i> +5% عن الشهر الماضي</div>
+                            <div class="stat-label"><i class="fas fa-percent"></i> نسبة الربح الشهرية</div>
+                            <div class="stat-value green" id="statProfitMargin">0%</div>
                         </div>
                         <div class="stat-card">
-                            <div class="stat-label"><i class="fas fa-money-bill-wave"></i> صافي الربح الشهري</div>
-                            <div class="stat-value gold">4,250,000</div>
-                            <div class="stat-change up"><i class="fas fa-arrow-up"></i> +8.2% عن الشهر الماضي</div>
+                            <div class="stat-label"><i class="fas fa-money-bill-wave"></i> صافي الإيراد الشهري</div>
+                            <div class="stat-value gold" id="statMonthlyIncome">0</div>
                         </div>
                         <div class="stat-card">
-                            <div class="stat-label"><i class="fas fa-hand-holding-usd"></i> إجمالي الديون</div>
-                            <div class="stat-value red">1,820,000</div>
-                            <div class="stat-change down"><i class="fas fa-arrow-down"></i> +3.5% عن الشهر الماضي</div>
+                            <div class="stat-label"><i class="fas fa-hand-holding-usd"></i> صافي الصرف الشهري</div>
+                            <div class="stat-value red" id="statMonthlyExpense">0</div>
                         </div>
                     </div>
 
@@ -2171,6 +2445,26 @@ function report_data(PDO $pdo, string $type, string $from, string $to, int $bran
                 </div>
 
                 <!-- ==========================================================
+                صفحة الموظفون
+                ========================================================== -->
+                <div id="page-employees" class="page-section" style="display:none;">
+                    <div class="content-card">
+                        <div class="card-header">
+                            <h4><i class="fas fa-users"></i> جميع الموظفين ومديري الفروع</h4>
+                            <input type="text" id="employeeSearch" placeholder="بحث بالاسم..." oninput="renderEmployeesTable()" style="padding:8px 12px;border:2px solid rgba(0,107,115,0.06);border-radius:var(--radius-sm);font-family:var(--font-family);font-size:13px;">
+                        </div>
+                        <div class="card-body">
+                            <div class="table-wrap">
+                                <table class="table">
+                                    <thead><tr><th>#</th><th>الاسم</th><th>الفرع</th><th>المسمى</th><th>الرقم الوظيفي</th><th>التقييم</th><th>الحالة</th><th>إجراء</th></tr></thead>
+                                    <tbody id="employeesBody"></tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- ==========================================================
                 صفحة الحضور
                 ========================================================== -->
                 <div id="page-attendance" class="page-section" style="display:none;">
@@ -2222,32 +2516,31 @@ function report_data(PDO $pdo, string $type, string $from, string $to, int $bran
                     </div>
 
                     <div id="addSalaryForm" style="display:none;background:var(--bg-card);border-radius:var(--radius-lg);padding:20px;margin-bottom:16px;border:1px solid rgba(0,107,115,0.04);box-shadow:var(--shadow-sm);">
-                        <h5 style="font-size:15px;font-weight:800;margin-bottom:12px;"><i class="fas fa-plus-circle" style="color:var(--primary);"></i> إضافة راتب جديد</h5>
-                        <div class="salary-form" style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:12px;">
+                        <h5 style="font-size:15px;font-weight:800;margin-bottom:12px;"><i class="fas fa-plus-circle" style="color:var(--primary);"></i> إضافة تعديل على راتب موظف</h5>
+                        <div class="salary-form" style="display:grid;grid-template-columns:1.5fr 1fr 1fr 1.5fr 1fr;gap:12px;">
                             <div class="form-group">
                                 <label style="font-size:12px;font-weight:600;color:var(--text-muted);">الموظف</label>
-                                <select id="salaryEmployee" style="padding:8px 12px;border:2px solid rgba(0,107,115,0.06);border-radius:var(--radius-sm);font-size:13px;font-family:var(--font-family);background:var(--bg);color:var(--text-primary);outline:none;">
-                                    <option value="1">أحمد محمد علي - صراف</option>
-                                    <option value="2">سارة حسين - صرافة</option>
-                                    <option value="3">محمد باسم - مدير فرع</option>
-                                    <option value="4">علي حسن - مسؤول فرع</option>
+                                <select id="salaryEmployee" style="padding:8px 12px;border:2px solid rgba(0,107,115,0.06);border-radius:var(--radius-sm);font-size:13px;font-family:var(--font-family);background:var(--bg);color:var(--text-primary);outline:none;"></select>
+                            </div>
+                            <div class="form-group">
+                                <label style="font-size:12px;font-weight:600;color:var(--text-muted);">النوع</label>
+                                <select id="salaryType" style="padding:8px 12px;border:2px solid rgba(0,107,115,0.06);border-radius:var(--radius-sm);font-size:13px;font-family:var(--font-family);background:var(--bg);color:var(--text-primary);outline:none;">
+                                    <option value="salary">راتب أساسي</option>
+                                    <option value="bonus">مكافأة</option>
+                                    <option value="deduction">خصم</option>
                                 </select>
                             </div>
                             <div class="form-group">
-                                <label style="font-size:12px;font-weight:600;color:var(--text-muted);">الراتب الأساسي</label>
-                                <input type="number" id="salaryBase" value="1200000" placeholder="الراتب الأساسي" style="padding:8px 12px;border:2px solid rgba(0,107,115,0.06);border-radius:var(--radius-sm);font-size:13px;font-family:var(--font-family);background:var(--bg);color:var(--text-primary);outline:none;">
+                                <label style="font-size:12px;font-weight:600;color:var(--text-muted);">المبلغ</label>
+                                <input type="number" id="salaryAmount" placeholder="المبلغ" style="padding:8px 12px;border:2px solid rgba(0,107,115,0.06);border-radius:var(--radius-sm);font-size:13px;font-family:var(--font-family);background:var(--bg);color:var(--text-primary);outline:none;">
                             </div>
                             <div class="form-group">
-                                <label style="font-size:12px;font-weight:600;color:var(--text-muted);">المكافأة</label>
-                                <input type="number" id="salaryBonus" value="100000" placeholder="المكافأة" style="padding:8px 12px;border:2px solid rgba(0,107,115,0.06);border-radius:var(--radius-sm);font-size:13px;font-family:var(--font-family);background:var(--bg);color:var(--text-primary);outline:none;">
-                            </div>
-                            <div class="form-group">
-                                <label style="font-size:12px;font-weight:600;color:var(--text-muted);">الخصم</label>
-                                <input type="number" id="salaryDeduction" value="25000" placeholder="الخصم" style="padding:8px 12px;border:2px solid rgba(0,107,115,0.06);border-radius:var(--radius-sm);font-size:13px;font-family:var(--font-family);background:var(--bg);color:var(--text-primary);outline:none;">
+                                <label style="font-size:12px;font-weight:600;color:var(--text-muted);">ملاحظة</label>
+                                <input type="text" id="salaryNote" placeholder="سبب التعديل (اختياري)" style="padding:8px 12px;border:2px solid rgba(0,107,115,0.06);border-radius:var(--radius-sm);font-size:13px;font-family:var(--font-family);background:var(--bg);color:var(--text-primary);outline:none;">
                             </div>
                             <div class="form-group" style="display:flex;align-items:flex-end;">
                                 <button class="btn-primary" onclick="addSalary()" style="width:100%;">
-                                    <i class="fas fa-save"></i> حفظ الراتب
+                                    <i class="fas fa-save"></i> حفظ
                                 </button>
                             </div>
                         </div>
@@ -2467,6 +2760,8 @@ function report_data(PDO $pdo, string $type, string $from, string $to, int $bran
                                 <div class="form-group"><label style="font-size:12px;font-weight:600;color:var(--text-muted);">البريد الإلكتروني</label><input type="email" id="settingsCompanyEmail" value="hr@alsawwa.com" style="width:100%;padding:10px 12px;border:2px solid rgba(0,107,115,0.06);border-radius:var(--radius-sm);font-family:var(--font-family);"></div>
                                 <div class="form-group"><label style="font-size:12px;font-weight:600;color:var(--text-muted);">وقت بداية الدوام</label><input type="time" id="settingsWorkStart" value="09:00" style="width:100%;padding:10px 12px;border:2px solid rgba(0,107,115,0.06);border-radius:var(--radius-sm);font-family:var(--font-family);"></div>
                                 <div class="form-group"><label style="font-size:12px;font-weight:600;color:var(--text-muted);">وقت نهاية الدوام</label><input type="time" id="settingsWorkEnd" value="17:00" style="width:100%;padding:10px 12px;border:2px solid rgba(0,107,115,0.06);border-radius:var(--radius-sm);font-family:var(--font-family);"></div>
+                                <div class="form-group"><label style="font-size:12px;font-weight:600;color:var(--text-muted);">مدة السماح بالتأخير (دقيقة)</label><input type="number" id="settingsLateGrace" value="15" min="0" style="width:100%;padding:10px 12px;border:2px solid rgba(0,107,115,0.06);border-radius:var(--radius-sm);font-family:var(--font-family);"></div>
+                                <div class="form-group"><label style="font-size:12px;font-weight:600;color:var(--text-muted);">قيمة الخصم عن كل ساعة تأخير</label><input type="number" id="settingsLateDeduction" value="0" min="0" style="width:100%;padding:10px 12px;border:2px solid rgba(0,107,115,0.06);border-radius:var(--radius-sm);font-family:var(--font-family);"></div>
                             </div>
                             <button class="btn-primary" style="margin-top:12px;" onclick="settingsSave()">
                                 <i class="fas fa-save"></i> حفظ الإعدادات
@@ -2477,6 +2772,19 @@ function report_data(PDO $pdo, string $type, string $from, string $to, int $bran
 
             </div>
         </main>
+    </div>
+
+    <!-- ============================================================
+    نافذة الملف الشخصي للموظف
+    ============================================================ -->
+    <div id="profileModal" style="display:none;position:fixed;inset:0;z-index:900;background:rgba(0,0,0,0.5);backdrop-filter:blur(6px);align-items:center;justify-content:center;padding:20px;">
+        <div style="background:#fff;border-radius:20px;max-width:640px;width:100%;max-height:90vh;overflow-y:auto;box-shadow:0 12px 56px rgba(0,63,70,0.15);">
+            <div style="padding:18px 22px;border-bottom:1px solid #e2ebeb;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;background:#fff;border-radius:20px 20px 0 0;">
+                <h3 style="font-size:17px;font-weight:800;"><i class="fas fa-id-card" style="color:var(--primary);"></i> الملف الشخصي</h3>
+                <button onclick="closeProfileModal()" style="width:34px;height:34px;border:none;border-radius:50%;background:rgba(0,63,70,0.06);color:var(--text-muted);cursor:pointer;font-size:16px;">✕</button>
+            </div>
+            <div style="padding:22px;" id="profileModalBody"></div>
+        </div>
     </div>
 
     <!-- ============================================================
@@ -2554,6 +2862,12 @@ function report_data(PDO $pdo, string $type, string $from, string $to, int $bran
                 updateExchangeRateDisplay();
                 loadRateHistory();
                 renderTopEmployees(data.topEmployees || []);
+                if (data.stats) {
+                    document.getElementById('statEmployees').textContent = data.stats.employees;
+                    document.getElementById('statProfitMargin').textContent = data.stats.profitMarginPct + '%';
+                    document.getElementById('statMonthlyIncome').textContent = Number(data.stats.monthlyIncome).toLocaleString();
+                    document.getElementById('statMonthlyExpense').textContent = Number(data.stats.monthlyExpense).toLocaleString();
+                }
                 if (data.settings) {
                     const s = data.settings;
                     const byId = id => document.getElementById(id);
@@ -2561,12 +2875,15 @@ function report_data(PDO $pdo, string $type, string $from, string $to, int $bran
                     if (byId('settingsCompanyEmail')) byId('settingsCompanyEmail').value = s.company_email || '';
                     if (byId('settingsWorkStart')) byId('settingsWorkStart').value = (s.work_start_time || '').slice(0, 5);
                     if (byId('settingsWorkEnd')) byId('settingsWorkEnd').value = (s.work_end_time || '').slice(0, 5);
+                    if (byId('settingsLateGrace')) byId('settingsLateGrace').value = s.late_grace_minutes ?? 15;
+                    if (byId('settingsLateDeduction')) byId('settingsLateDeduction').value = s.late_deduction_per_hour ?? 0;
                 }
                 loadAttendance();
                 loadSalaries();
                 loadRequests();
                 loadBriefingRequests();
                 loadBranches();
+                loadEmployeesFullList();
             });
 
             fetch('?ajax=employees_list').then(r => r.json()).then(data => {
@@ -2619,6 +2936,7 @@ function report_data(PDO $pdo, string $type, string $from, string $to, int $bran
             const titles = {
                 'dashboard': { title: 'لوحة التحكم', sub: 'نظرة عامة على أداء الشركة' },
                 'branches': { title: 'الفروع', sub: 'إدارة الفروع ومسؤوليها' },
+                'employees': { title: 'الموظفون', sub: 'ملفات الموظفين الكاملة والتقييمات' },
                 'attendance': { title: 'الحضور', sub: 'سجل حضور الموظفين اليومي' },
                 'salaries': { title: 'الرواتب', sub: 'إدارة رواتب الموظفين والمكافآت' },
                 'briefing': { title: 'الإيجاز', sub: 'معاينة واعتماد الإيجازات' },
@@ -2637,12 +2955,12 @@ function report_data(PDO $pdo, string $type, string $from, string $to, int $bran
         }
 
         function getPageTitle(page) {
-            const titles = { 'dashboard': 'لوحة التحكم', 'branches': 'الفروع', 'attendance': 'الحضور', 'salaries': 'الرواتب', 'briefing': 'الإيجاز', 'requests': 'الطلبات', 'reports': 'التقارير', 'exchange': 'سعر الصرف', 'settings': 'الإعدادات' };
+            const titles = { 'dashboard': 'لوحة التحكم', 'branches': 'الفروع', 'employees': 'الموظفون', 'attendance': 'الحضور', 'salaries': 'الرواتب', 'briefing': 'الإيجاز', 'requests': 'الطلبات', 'reports': 'التقارير', 'exchange': 'سعر الصرف', 'settings': 'الإعدادات' };
             return titles[page] || page;
         }
 
         function getPageIcon(page) {
-            const icons = { 'dashboard': 'fa-chart-pie', 'branches': 'fa-building', 'attendance': 'fa-clock', 'salaries': 'fa-wallet', 'briefing': 'fa-file-signature', 'requests': 'fa-file-pen', 'reports': 'fa-chart-bar', 'exchange': 'fa-dollar-sign', 'settings': 'fa-cog' };
+            const icons = { 'dashboard': 'fa-chart-pie', 'branches': 'fa-building', 'employees': 'fa-users', 'attendance': 'fa-clock', 'salaries': 'fa-wallet', 'briefing': 'fa-file-signature', 'requests': 'fa-file-pen', 'reports': 'fa-chart-bar', 'exchange': 'fa-dollar-sign', 'settings': 'fa-cog' };
             return icons[page] || 'fa-circle';
         }
 
@@ -2775,6 +3093,8 @@ function report_data(PDO $pdo, string $type, string $from, string $to, int $bran
                 companyEmail: document.getElementById('settingsCompanyEmail').value,
                 workStart: document.getElementById('settingsWorkStart').value,
                 workEnd: document.getElementById('settingsWorkEnd').value,
+                lateGrace: document.getElementById('settingsLateGrace').value,
+                lateDeduction: document.getElementById('settingsLateDeduction').value,
             });
             fetch('?ajax=settings_save', { method: 'POST', body }).then(r => r.json()).then(data => {
                 if (data.ok) showToast('✅ تم الحفظ', 'تم حفظ إعدادات الشركة بنجاح', 'success');
@@ -3087,10 +3407,22 @@ function report_data(PDO $pdo, string $type, string $from, string $to, int $bran
         }
 
         function deleteSalary(id) {
+            if (!id) return;
             if (!confirm('هل أنت متأكد من حذف هذا الراتب؟')) return;
             const body = new URLSearchParams({ id });
             fetch('?ajax=salary_delete', { method: 'POST', body }).then(r => r.json()).then(data => {
                 if (data.ok) { loadSalaries(); showToast('🗑️ حذف', 'تم حذف الراتب', 'warning'); }
+                else showToast('⚠️ خطأ', data.error || 'تعذر الحذف', 'error');
+            });
+        }
+
+        function deliverSalary(employeeId, name) {
+            if (!confirm(`تأكيد تسليم راتب ${name} لهذا الشهر؟`)) return;
+            const body = new URLSearchParams({ employeeId });
+            fetch('?ajax=salary_deliver', { method: 'POST', body }).then(r => r.json()).then(data => {
+                if (!data.ok) { showToast('⚠️ تنبيه', data.error || 'تعذر التسليم', 'warning'); return; }
+                loadSalaries();
+                showToast('✅ تم التسليم', `تم تسليم راتب ${name} بصافي ${Number(data.net).toLocaleString()} دينار`, 'success');
             });
         }
 
@@ -3103,7 +3435,7 @@ function report_data(PDO $pdo, string $type, string $from, string $to, int $bran
                 html += `
                     <tr>
                         <td>${index + 1}</td>
-                        <td>${item.name}</td>
+                        <td>${item.name}${item.isManager ? ' <span style="font-size:10px;color:var(--accent);">(مدير فرع)</span>' : ''}${item.hasAdvance ? `<br><span style="font-size:10px;color:#DC2626;"><i class="fas fa-hand-holding-usd"></i> لديه سلفة نشطة (خصم شهري ${Number(item.advanceMonthly).toLocaleString()})</span>` : ''}</td>
                         <td>${item.branch}</td>
                         <td>${item.base.toLocaleString()}</td>
                         <td style="color:#059669;">+${item.bonus.toLocaleString()}</td>
@@ -3111,12 +3443,16 @@ function report_data(PDO $pdo, string $type, string $from, string $to, int $bran
                         <td><strong>${item.net.toLocaleString()}</strong></td>
                         <td><span class="status-badge ${statusClass}">${item.status}</span></td>
                         <td>
-                            <button class="action-btn add" onclick="showToast('✏️ تعديل','تم فتح نموذج تعديل الراتب','info')">
-                                <i class="fas fa-edit"></i>
-                            </button>
-                            <button class="action-btn reject" onclick="deleteSalary(${item.id})">
-                                <i class="fas fa-trash"></i>
-                            </button>
+                            ${item.statusRaw !== 'delivered' ? `
+                                <button class="action-btn approve" onclick="deliverSalary(${item.employeeId}, '${item.name}')" title="تسليم">
+                                    <i class="fas fa-check"></i>
+                                </button>
+                            ` : ''}
+                            ${item.payrollId && item.statusRaw !== 'delivered' ? `
+                                <button class="action-btn reject" onclick="deleteSalary(${item.payrollId})" title="حذف">
+                                    <i class="fas fa-trash"></i>
+                                </button>
+                            ` : ''}
                         </td>
                     </tr>
                 `;
@@ -3133,21 +3469,156 @@ function report_data(PDO $pdo, string $type, string $from, string $to, int $bran
             const select = document.getElementById('salaryEmployee');
             const name = select.options[select.selectedIndex] ? select.options[select.selectedIndex].text : '';
             const employeeId = select.value;
-            const base = parseFloat(document.getElementById('salaryBase').value) || 0;
-            const bonus = parseFloat(document.getElementById('salaryBonus').value) || 0;
-            const deduction = parseFloat(document.getElementById('salaryDeduction').value) || 0;
+            const type = document.getElementById('salaryType').value;
+            const amount = parseFloat(document.getElementById('salaryAmount').value) || 0;
+            const note = document.getElementById('salaryNote').value;
 
-            if (base <= 0 || !employeeId) {
-                showToast('⚠️ تنبيه', 'الرجاء إدخال راتب أساسي صحيح واختيار الموظف', 'warning');
+            if (amount <= 0 || !employeeId) {
+                showToast('⚠️ تنبيه', 'الرجاء إدخال مبلغ صحيح واختيار الموظف', 'warning');
                 return;
             }
 
-            const body = new URLSearchParams({ employeeId, base, bonus, deduction });
-            fetch('?ajax=salary_add', { method: 'POST', body }).then(r => r.json()).then(data => {
+            const body = new URLSearchParams({ employeeId, type, amount, note });
+            fetch('?ajax=payroll_adjustment_add', { method: 'POST', body }).then(r => r.json()).then(data => {
                 if (!data.ok) { showToast('⚠️ خطأ', data.error || 'تعذر الحفظ', 'error'); return; }
                 loadSalaries();
                 document.getElementById('addSalaryForm').style.display = 'none';
-                showToast('✅ تم الإضافة', `تم إضافة راتب ${name} بنجاح`, 'success');
+                document.getElementById('salaryAmount').value = '';
+                document.getElementById('salaryNote').value = '';
+                showToast('✅ تم الحفظ', `تم تحديث راتب ${name} وإرسال إشعار له ولمسؤول الفرع`, 'success');
+            });
+        }
+
+        // ============================================================
+        // صفحة الموظفين — الملف الشخصي الكامل
+        // ============================================================
+        let employeesFullData = [];
+
+        function loadEmployeesFullList() {
+            fetch('?ajax=employees_full_list').then(r => r.json()).then(data => {
+                if (!data.ok) return;
+                employeesFullData = data.employees;
+                renderEmployeesTable();
+            });
+        }
+
+        function renderEmployeesTable() {
+            const tbody = document.getElementById('employeesBody');
+            if (!tbody) return;
+            const search = (document.getElementById('employeeSearch')?.value || '').trim();
+            const rows = employeesFullData.filter(e => !search || e.name.includes(search));
+            tbody.innerHTML = rows.map((item, index) => `
+                <tr>
+                    <td>${index + 1}</td>
+                    <td>${item.name}${item.isManager ? ' <span style="font-size:10px;color:var(--accent);">(مدير فرع)</span>' : ''}</td>
+                    <td>${item.branch}</td>
+                    <td>${item.job_title || '-'}</td>
+                    <td>${item.employee_number}</td>
+                    <td>${Number(item.rating).toFixed(1)} ★</td>
+                    <td><span class="status-badge ${item.status === 'active' ? 'approved' : 'rejected'}">${item.status === 'active' ? 'نشط' : 'غير نشط'}</span></td>
+                    <td><button class="action-btn add" onclick="openProfile(${item.id})"><i class="fas fa-eye"></i> عرض الملف</button></td>
+                </tr>
+            `).join('');
+        }
+
+        function openProfile(employeeId) {
+            fetch('?ajax=employee_profile&employeeId=' + employeeId).then(r => r.json()).then(data => {
+                if (!data.ok) { showToast('⚠️ خطأ', data.error || 'تعذر تحميل الملف', 'error'); return; }
+                const e = data.employee;
+                const today = new Date().toISOString().split('T')[0];
+                document.getElementById('profileModalBody').innerHTML = `
+                    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;font-size:13px;margin-bottom:18px;">
+                        <div><span style="color:var(--text-muted);">الاسم:</span> <b>${e.name}</b></div>
+                        <div><span style="color:var(--text-muted);">اسم الأم:</span> <b>${e.motherName || '-'}</b></div>
+                        <div><span style="color:var(--text-muted);">رقم الهوية الوطنية:</span> <b>${e.nationalId || '-'}</b></div>
+                        <div><span style="color:var(--text-muted);">الرقم الوظيفي:</span> <b>${e.employeeNumber}</b></div>
+                        <div><span style="color:var(--text-muted);">الفرع:</span> <b>${e.branch}</b></div>
+                        <div><span style="color:var(--text-muted);">المسمى الوظيفي:</span> <b>${e.jobTitle || '-'}</b></div>
+                        <div><span style="color:var(--text-muted);">تاريخ الولادة:</span> <b>${e.birthDate || '-'}</b></div>
+                        <div><span style="color:var(--text-muted);">تاريخ التعيين:</span> <b>${e.hireDate || '-'}</b></div>
+                        <div><span style="color:var(--text-muted);">الشفت:</span> <b>${e.shiftType || '-'}</b></div>
+                        <div><span style="color:var(--text-muted);">دوام:</span> <b>${e.shiftStart || '-'} — ${e.shiftEnd || '-'}</b></div>
+                        <div><span style="color:var(--text-muted);">الراتب الأساسي:</span> <b>${Number(e.baseSalary).toLocaleString()}</b></div>
+                        <div><span style="color:var(--text-muted);">الحالة:</span> <b>${e.status === 'active' ? 'نشط' : 'غير نشط'}</b></div>
+                        ${e.documents ? `<div><span style="color:var(--text-muted);">المستمسكات:</span> <a href="${e.documents}" target="_blank">عرض الملف</a></div>` : ''}
+                    </div>
+
+                    <div style="background:rgba(0,107,115,0.04);border-radius:10px;padding:14px;margin-bottom:18px;">
+                        <label style="font-size:12px;font-weight:700;color:var(--text-muted);display:block;margin-bottom:6px;">التقييم (0 - 5) — يحدده HR فقط</label>
+                        <div style="display:flex;gap:8px;">
+                            <input type="number" id="ratingInput" min="0" max="5" step="0.1" value="${e.rating}" style="flex:1;padding:8px 12px;border:2px solid rgba(0,107,115,0.08);border-radius:8px;font-family:var(--font-family);">
+                            <button class="btn-primary" onclick="saveRating(${e.id})"><i class="fas fa-save"></i> حفظ التقييم</button>
+                        </div>
+                    </div>
+
+                    <div style="border-top:1px solid #e2ebeb;padding-top:14px;margin-bottom:14px;">
+                        <label style="font-size:12px;font-weight:700;color:var(--text-muted);display:block;margin-bottom:6px;">التحقق من الحضور واستلام الراتب في تاريخ محدد</label>
+                        <div style="display:flex;gap:8px;margin-bottom:10px;">
+                            <input type="date" id="checkDate_${e.id}" value="${today}" style="flex:1;padding:8px 12px;border:2px solid rgba(0,107,115,0.08);border-radius:8px;font-family:var(--font-family);">
+                            <button class="btn-primary" onclick="checkEmployeeDay(${e.id})"><i class="fas fa-search"></i> تحقق</button>
+                        </div>
+                        <div id="dayCheckResult_${e.id}" style="font-size:13px;"></div>
+                    </div>
+
+                    <div style="border-top:1px solid #e2ebeb;padding-top:14px;">
+                        <label style="font-size:12px;font-weight:700;color:var(--text-muted);display:block;margin-bottom:6px;">سجل حضور الشهر الحالي</label>
+                        <div class="table-wrap" style="max-height:260px;overflow-y:auto;">
+                            <table class="table">
+                                <thead><tr><th>التاريخ</th><th>دخول</th><th>انصراف</th><th>الحالة</th></tr></thead>
+                                <tbody id="monthTable_${e.id}"></tbody>
+                            </table>
+                        </div>
+                    </div>
+                `;
+                document.getElementById('profileModal').style.display = 'flex';
+                loadEmployeeMonthTable(e.id);
+            });
+        }
+
+        function loadEmployeeMonthTable(employeeId) {
+            fetch('?ajax=employee_attendance_month&employeeId=' + employeeId).then(r => r.json()).then(data => {
+                if (!data.ok) return;
+                const tbody = document.getElementById('monthTable_' + employeeId);
+                if (!tbody) return;
+                if (!data.days.length) {
+                    tbody.innerHTML = '<tr><td colspan="4" style="text-align:center;color:var(--text-muted);">لا يوجد سجل حضور لهذا الشهر</td></tr>';
+                    return;
+                }
+                tbody.innerHTML = data.days.map(d => `<tr><td>${d.date}</td><td>${d.checkIn || '-'}</td><td>${d.checkOut || '-'}</td><td>${d.status}</td></tr>`).join('');
+            });
+        }
+
+        function closeProfileModal() {
+            document.getElementById('profileModal').style.display = 'none';
+        }
+
+        function saveRating(employeeId) {
+            const rating = document.getElementById('ratingInput').value;
+            fetch('?ajax=rating_save', { method: 'POST', body: new URLSearchParams({ employeeId, rating }) })
+                .then(r => r.json()).then(data => {
+                    if (!data.ok) { showToast('⚠️ خطأ', data.error || 'تعذر الحفظ', 'error'); return; }
+                    showToast('✅ تم الحفظ', 'تم تحديث تقييم الموظف', 'success');
+                    loadEmployeesFullList();
+                });
+        }
+
+        function checkEmployeeDay(employeeId) {
+            const date = document.getElementById('checkDate_' + employeeId).value;
+            fetch('?ajax=employee_day_check&employeeId=' + employeeId + '&date=' + date).then(r => r.json()).then(data => {
+                if (!data.ok) return;
+                const box = document.getElementById('dayCheckResult_' + employeeId);
+                let html = '';
+                if (data.attendance) {
+                    html += `<div style="padding:8px 0;border-bottom:1px solid #e2ebeb;">الحضور: <b>${data.attendance.status}</b> — دخول: ${data.attendance.checkIn || '-'} — انصراف: ${data.attendance.checkOut || '-'}</div>`;
+                } else {
+                    html += `<div style="padding:8px 0;border-bottom:1px solid #e2ebeb;color:var(--text-muted);">لا يوجد سجل حضور في هذا التاريخ</div>`;
+                }
+                if (data.payroll) {
+                    html += `<div style="padding:8px 0;">راتب شهر هذا التاريخ: <b>${data.payroll.delivered ? 'تم الاستلام (' + Number(data.payroll.net).toLocaleString() + ')' : 'لم يُسلَّم بعد'}</b></div>`;
+                } else {
+                    html += `<div style="padding:8px 0;color:var(--text-muted);">لا يوجد سجل راتب لشهر هذا التاريخ</div>`;
+                }
+                box.innerHTML = html;
             });
         }
 
@@ -3181,10 +3652,11 @@ function report_data(PDO $pdo, string $type, string $from, string $to, int $bran
             let html = '';
             briefingRequests.forEach((item) => {
                 const statusClass = item.status === 'approved' ? 'approved' : (item.status === 'rejected' ? 'rejected' : 'pending');
-                const statusLabel = item.status === 'approved' ? '✅ معتمد' : (item.status === 'rejected' ? '❌ مرفوض' : '⏳ قيد المراجعة');
+                const statusColors = { pending: '#D97706', hr_approved: '#0A8A94', approved: '#10B981', rejected: '#DC2626' };
+                const statusIcons = { pending: '⏳', hr_approved: '📤', approved: '✅', rejected: '❌' };
 
                 html += `
-                    <div class="briefing-card" style="${item.status === 'pending' ? 'border-right-color: #D97706;' : (item.status === 'approved' ? 'border-right-color: #10B981;' : 'border-right-color: #DC2626;')}">
+                    <div class="briefing-card" style="border-right-color: ${statusColors[item.status] || '#D97706'};">
                         <div class="briefing-top">
                             <div>
                                 <div class="sender">
@@ -3194,7 +3666,7 @@ function report_data(PDO $pdo, string $type, string $from, string $to, int $bran
                                 <div style="font-size:12px;color:var(--text-muted);">${item.branch}</div>
                             </div>
                             <div>
-                                <span class="briefing-status ${statusClass}">${statusLabel}</span>
+                                <span class="briefing-status ${statusClass}">${statusIcons[item.status] || ''} ${item.statusText}</span>
                                 <span class="date" style="margin-right:10px;">${item.date}</span>
                             </div>
                         </div>
@@ -3208,7 +3680,11 @@ function report_data(PDO $pdo, string $type, string $from, string $to, int $bran
                                 <span class="label">📈 الإيرادات</span>
                                 <span class="value" style="color:#059669;">${item.revenue.toLocaleString()}</span>
                             </div>
-                            <div class="detail-item" style="grid-column: span 2;">
+                            <div class="detail-item">
+                                <span class="label">🧳 عدد المسافرين</span>
+                                <span class="value">${item.travelersCount}</span>
+                            </div>
+                            <div class="detail-item">
                                 <span class="label">💰 صافي الربح</span>
                                 <span class="value" style="color:#059669;font-size:16px;">${item.netProfit.toLocaleString()}</span>
                             </div>
@@ -3228,7 +3704,7 @@ function report_data(PDO $pdo, string $type, string $from, string $to, int $bran
                             </div>
                         ` : ''}
 
-                        ${item.status === 'pending' ? `
+                        ${item.canReview ? `
                             <div class="briefing-actions">
                                 <input type="text" class="hr-note-input" id="hrNote_${item.id}" placeholder="أضف ملاحظة (اختياري)...">
                                 <button class="btn-success" onclick="approveBriefing(${item.id})">
@@ -3240,9 +3716,8 @@ function report_data(PDO $pdo, string $type, string $from, string $to, int $bran
                             </div>
                         ` : `
                             <div style="font-size:12px;color:var(--text-muted);padding-top:8px;">
-                                <i class="fas fa-${item.status === 'approved' ? 'check-circle' : 'times-circle'}" style="color:${item.status === 'approved' ? '#059669' : '#DC2626'};"></i>
-                                تم ${item.status === 'approved' ? 'اعتماد' : 'رفض'} هذا الإيجاز
-                                ${item.hrNote ? ` - ملاحظة: ${item.hrNote}` : ''}
+                                <i class="fas fa-info-circle" style="color:${statusColors[item.status] || '#666'};"></i>
+                                ${item.statusText}
                             </div>
                         `}
                     </div>
@@ -3263,7 +3738,7 @@ function report_data(PDO $pdo, string $type, string $from, string $to, int $bran
             fetch('?ajax=brief_review', { method: 'POST', body }).then(r => r.json()).then(data => {
                 if (!data.ok) { showToast('⚠️ خطأ', data.error || 'تعذر الحفظ', 'error'); return; }
                 loadBriefingRequests();
-                if (decision === 'approved') showToast('✅ تم الاعتماد', `تم اعتماد إيجاز ${item.sender} - ${item.branch}`, 'success');
+                if (decision === 'approved') showToast('✅ تمت الموافقة', `تمت موافقتك على إيجاز ${item.sender} - ${item.branch}، بانتظار الاعتماد النهائي من المسؤول العام`, 'success');
                 else showToast('❌ تم الرفض', `تم رفض إيجاز ${item.sender} - ${item.branch}`, 'error');
             });
         }
@@ -3327,7 +3802,17 @@ function report_data(PDO $pdo, string $type, string $from, string $to, int $bran
         function reviewRequest(id, decision) {
             const req = requestsData.find(r => r.id === id);
             if (!req) return;
-            const body = new URLSearchParams({ id, decision });
+            const params = { id, decision };
+            if (decision === 'approved' && req.rawType === 'advance') {
+                const monthlyDeduction = prompt('حدد قيمة الخصم الشهري من راتب الموظف لتسديد السلفة:');
+                if (monthlyDeduction === null) return;
+                if (!monthlyDeduction || Number(monthlyDeduction) <= 0) {
+                    showToast('⚠️ تنبيه', 'يرجى إدخال قيمة خصم شهري صحيحة', 'warning');
+                    return;
+                }
+                params.monthlyDeduction = monthlyDeduction;
+            }
+            const body = new URLSearchParams(params);
             fetch('?ajax=request_review', { method: 'POST', body }).then(r => r.json()).then(data => {
                 if (!data.ok) { showToast('⚠️ خطأ', data.error || 'تعذر الحفظ', 'error'); return; }
                 loadRequests();

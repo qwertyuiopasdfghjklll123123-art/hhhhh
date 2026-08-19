@@ -21,6 +21,8 @@ function install_schema(PDO $pdo): void
             work_start_time TIME NOT NULL DEFAULT '09:00:00',
             work_end_time TIME NOT NULL DEFAULT '15:00:00',
             usd_exchange_rate DECIMAL(10,2) NOT NULL DEFAULT 0,
+            late_grace_minutes INT NOT NULL DEFAULT 15,
+            late_deduction_per_hour DECIMAL(10,2) NOT NULL DEFAULT 0,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4",
@@ -43,11 +45,15 @@ function install_schema(PDO $pdo): void
             employee_number VARCHAR(20) NOT NULL UNIQUE,
             full_name VARCHAR(100) NOT NULL,
             national_id VARCHAR(50) DEFAULT NULL,
+            mother_name VARCHAR(100) DEFAULT NULL,
             job_title VARCHAR(100) DEFAULT NULL,
             birth_date DATE DEFAULT NULL,
             hire_date DATE DEFAULT NULL,
             duty_start_date DATE DEFAULT NULL,
             duty_end_date DATE DEFAULT NULL,
+            shift_type ENUM('morning','evening') NOT NULL DEFAULT 'morning',
+            shift_start TIME DEFAULT NULL,
+            shift_end TIME DEFAULT NULL,
             base_salary DECIMAL(12,2) NOT NULL DEFAULT 0,
             rating DECIMAL(2,1) NOT NULL DEFAULT 0,
             photo VARCHAR(255) DEFAULT NULL,
@@ -61,7 +67,7 @@ function install_schema(PDO $pdo): void
 
         'users' => "CREATE TABLE IF NOT EXISTS users (
             id INT AUTO_INCREMENT PRIMARY KEY,
-            role ENUM('hr','branch_manager','employee') NOT NULL,
+            role ENUM('hr','branch_manager','employee','general_manager') NOT NULL,
             username VARCHAR(50) NOT NULL UNIQUE,
             password_hash VARCHAR(255) NOT NULL,
             employee_id INT DEFAULT NULL,
@@ -118,6 +124,8 @@ function install_schema(PDO $pdo): void
             hr_reviewed_by INT DEFAULT NULL,
             hr_review_note VARCHAR(255) DEFAULT NULL,
             hr_reviewed_at TIMESTAMP NULL DEFAULT NULL,
+            approved_monthly_deduction DECIMAL(12,2) DEFAULT NULL,
+            remaining_balance DECIMAL(12,2) DEFAULT NULL,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             CONSTRAINT fk_req_employee FOREIGN KEY (employee_id) REFERENCES employees(id) ON DELETE CASCADE,
             CONSTRAINT fk_req_branch FOREIGN KEY (branch_id) REFERENCES branches(id) ON DELETE CASCADE
@@ -155,12 +163,16 @@ function install_schema(PDO $pdo): void
             total_income DECIMAL(14,2) NOT NULL DEFAULT 0,
             total_expense DECIMAL(14,2) NOT NULL DEFAULT 0,
             previous_profit DECIMAL(14,2) NOT NULL DEFAULT 0,
+            travelers_count INT NOT NULL DEFAULT 0,
             note TEXT DEFAULT NULL,
-            status ENUM('pending','approved','rejected') NOT NULL DEFAULT 'pending',
+            status ENUM('pending','hr_approved','approved','rejected') NOT NULL DEFAULT 'pending',
             hr_note VARCHAR(255) DEFAULT NULL,
             submitted_by INT DEFAULT NULL,
             reviewed_by INT DEFAULT NULL,
             reviewed_at TIMESTAMP NULL DEFAULT NULL,
+            gm_review_note VARCHAR(255) DEFAULT NULL,
+            gm_reviewed_by INT DEFAULT NULL,
+            gm_reviewed_at TIMESTAMP NULL DEFAULT NULL,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             UNIQUE KEY uniq_branch_date (branch_id, brief_date),
             CONSTRAINT fk_brief_branch FOREIGN KEY (branch_id) REFERENCES branches(id) ON DELETE CASCADE
@@ -182,16 +194,31 @@ function install_schema(PDO $pdo): void
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             CONSTRAINT fk_notif_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4",
+
+        'payroll_adjustments' => "CREATE TABLE IF NOT EXISTS payroll_adjustments (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            employee_id INT NOT NULL,
+            branch_id INT NOT NULL,
+            period_month TINYINT NOT NULL,
+            period_year SMALLINT NOT NULL,
+            type ENUM('salary','bonus','deduction') NOT NULL,
+            amount DECIMAL(12,2) NOT NULL,
+            note VARCHAR(255) DEFAULT NULL,
+            created_by INT DEFAULT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            CONSTRAINT fk_padj_employee FOREIGN KEY (employee_id) REFERENCES employees(id) ON DELETE CASCADE,
+            CONSTRAINT fk_padj_branch FOREIGN KEY (branch_id) REFERENCES branches(id) ON DELETE CASCADE
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4",
     ];
 
     // الترتيب مهم بسبب المفاتيح الأجنبية
-    foreach (['settings', 'branches', 'employees', 'users', 'attendance', 'payroll', 'requests', 'daily_ledger', 'delegations', 'daily_briefs', 'exchange_rate_history', 'notifications'] as $table) {
+    foreach (['settings', 'branches', 'employees', 'users', 'attendance', 'payroll', 'requests', 'daily_ledger', 'delegations', 'daily_briefs', 'exchange_rate_history', 'notifications', 'payroll_adjustments'] as $table) {
         $pdo->exec($tables[$table]);
     }
 }
 
-/** إدراج البيانات الافتراضية: فرع تجريبي، إعدادات، حساب HR الأول */
-function install_seed(PDO $pdo, string $hrEmail, string $hrPassword): void
+/** إدراج البيانات الافتراضية: فرع تجريبي، إعدادات، حساب HR الأول، حساب المسؤول العام الأول */
+function install_seed(PDO $pdo, string $hrEmail, string $hrPassword, string $gmEmail, string $gmPassword): void
 {
     if ((int) $pdo->query("SELECT COUNT(*) FROM settings")->fetchColumn() === 0) {
         $pdo->exec("INSERT INTO settings (company_name, company_email, usd_exchange_rate) VALUES ('شركة الصوى للصرافة', 'info@example.com', 1320)");
@@ -207,6 +234,13 @@ function install_seed(PDO $pdo, string $hrEmail, string $hrPassword): void
         $hash = password_hash($hrPassword, PASSWORD_DEFAULT);
         $stmt = $pdo->prepare("INSERT INTO users (role, username, password_hash, status) VALUES ('hr', ?, ?, 'active')");
         $stmt->execute([$hrEmail, $hash]);
+    }
+
+    $gmExists = $pdo->query("SELECT COUNT(*) FROM users WHERE role = 'general_manager'")->fetchColumn();
+    if ((int) $gmExists === 0) {
+        $hash = password_hash($gmPassword, PASSWORD_DEFAULT);
+        $stmt = $pdo->prepare("INSERT INTO users (role, username, password_hash, status) VALUES ('general_manager', ?, ?, 'active')");
+        $stmt->execute([$gmEmail, $hash]);
     }
 }
 
@@ -239,6 +273,9 @@ if (!$alreadyInstalled && $requirementsOk && $_SERVER['REQUEST_METHOD'] === 'POS
     $hrEmail = trim($_POST['hr_email'] ?? '');
     $hrPassword = (string) ($_POST['hr_password'] ?? '');
     $hrPasswordConfirm = (string) ($_POST['hr_password_confirm'] ?? '');
+    $gmEmail = trim($_POST['gm_email'] ?? '');
+    $gmPassword = (string) ($_POST['gm_password'] ?? '');
+    $gmPasswordConfirm = (string) ($_POST['gm_password_confirm'] ?? '');
 
     if ($dbHost === '' || $dbName === '' || $dbUser === '') {
         $errors[] = 'الرجاء تعبئة جميع بيانات الاتصال بقاعدة البيانات.';
@@ -250,7 +287,16 @@ if (!$alreadyInstalled && $requirementsOk && $_SERVER['REQUEST_METHOD'] === 'POS
         $errors[] = 'كلمة مرور مدير الموارد البشرية يجب ألا تقل عن 8 أحرف.';
     }
     if ($hrPassword !== $hrPasswordConfirm) {
-        $errors[] = 'كلمتا المرور غير متطابقتين.';
+        $errors[] = 'كلمتا مرور الموارد البشرية غير متطابقتين.';
+    }
+    if (!filter_var($gmEmail, FILTER_VALIDATE_EMAIL)) {
+        $errors[] = 'البريد الإلكتروني للمسؤول العام غير صالح.';
+    }
+    if (strlen($gmPassword) < 8) {
+        $errors[] = 'كلمة مرور المسؤول العام يجب ألا تقل عن 8 أحرف.';
+    }
+    if ($gmPassword !== $gmPasswordConfirm) {
+        $errors[] = 'كلمتا مرور المسؤول العام غير متطابقتين.';
     }
 
     if (empty($errors)) {
@@ -261,7 +307,7 @@ if (!$alreadyInstalled && $requirementsOk && $_SERVER['REQUEST_METHOD'] === 'POS
                 PDO::ATTR_EMULATE_PREPARES => false,
             ]);
 
-            $ourTables = ['settings', 'branches', 'employees', 'users', 'attendance', 'payroll', 'requests', 'daily_ledger', 'delegations', 'daily_briefs', 'exchange_rate_history', 'notifications'];
+            $ourTables = ['settings', 'branches', 'employees', 'users', 'attendance', 'payroll', 'requests', 'daily_ledger', 'delegations', 'daily_briefs', 'exchange_rate_history', 'notifications', 'payroll_adjustments'];
             $existing = $pdo->query("SHOW TABLES")->fetchAll(PDO::FETCH_COLUMN);
             $conflicting = array_intersect($ourTables, $existing);
             if (!empty($conflicting)) {
@@ -274,7 +320,7 @@ if (!$alreadyInstalled && $requirementsOk && $_SERVER['REQUEST_METHOD'] === 'POS
 
             $step = 3;
             install_schema($pdo);
-            install_seed($pdo, $hrEmail, $hrPassword);
+            install_seed($pdo, $hrEmail, $hrPassword, $gmEmail, $gmPassword);
 
             $configContent = "<?php\n" .
                 "define('DB_HOST', " . var_export($dbHost, true) . ");\n" .
@@ -362,6 +408,7 @@ input:focus{border-color:var(--primary);}
         <div class="alert alert-success">النظام مُثبّت بالفعل. لإعادة التثبيت احذف ملف <code>config.php</code> من السيرفر أولاً.</div>
         <div class="links">
             <a class="btn" href="/hr.php">دخول الموارد البشرية (HR)</a>
+            <a class="btn" href="/general.php">دخول المسؤول العام</a>
             <a class="btn" href="/branch.php">دخول مدير الفرع</a>
             <a class="btn" href="/employee.php">دخول الموظف</a>
         </div>
@@ -396,6 +443,13 @@ input:focus{border-color:var(--primary);}
                 <div class="grid-2">
                     <div class="form-group"><label>كلمة المرور</label><input type="password" name="hr_password" required></div>
                     <div class="form-group"><label>تأكيد كلمة المرور</label><input type="password" name="hr_password_confirm" required></div>
+                </div>
+                <hr style="border-color:var(--border);margin:20px 0;">
+                <div class="form-group" style="font-size:13px;color:var(--text-muted);">حساب المسؤول العام الأول (اعتماد نهائي فوق HR)</div>
+                <div class="form-group"><label>البريد الإلكتروني لتسجيل الدخول</label><input type="email" name="gm_email" value="<?= h($_POST['gm_email'] ?? '') ?>" required></div>
+                <div class="grid-2">
+                    <div class="form-group"><label>كلمة المرور</label><input type="password" name="gm_password" required></div>
+                    <div class="form-group"><label>تأكيد كلمة المرور</label><input type="password" name="gm_password_confirm" required></div>
                 </div>
                 <button type="submit" class="btn">تثبيت النظام الآن</button>
             </form>
