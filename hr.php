@@ -78,6 +78,27 @@ function notify_user(PDO $pdo, int $userId, string $title, string $message = '')
     $pdo->prepare("INSERT INTO notifications (user_id, title, message) VALUES (?, ?, ?)")->execute([$userId, $title, $message]);
 }
 
+/** يرفع ملفاً (صورة/مستمسك) إلى uploads/<sub> ويعيد المسار النسبي، أو null إن لم يُرفع شيء */
+function handle_upload(string $field, string $sub, array $allowedExt): ?string
+{
+    if (empty($_FILES[$field]) || $_FILES[$field]['error'] !== UPLOAD_ERR_OK) {
+        return null;
+    }
+    $ext = strtolower(pathinfo($_FILES[$field]['name'], PATHINFO_EXTENSION));
+    if (!in_array($ext, $allowedExt, true)) {
+        return null;
+    }
+    $dir = __DIR__ . '/uploads/' . $sub;
+    if (!is_dir($dir)) {
+        @mkdir($dir, 0755, true);
+    }
+    $filename = bin2hex(random_bytes(12)) . '.' . $ext;
+    if (!move_uploaded_file($_FILES[$field]['tmp_name'], $dir . '/' . $filename)) {
+        return null;
+    }
+    return 'uploads/' . $sub . '/' . $filename;
+}
+
 /* ---------------------- تسجيل الخروج ---------------------- */
 if (isset($_GET['logout'])) {
     $_SESSION = [];
@@ -115,20 +136,20 @@ if (!$currentUser) {
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>تسجيل دخول الموارد البشرية — شركة الصوى للصرافة</title>
     <style>
-    @import url('https://fonts.googleapis.com/css2?family=Cairo:wght@400;500;600;700;800&display=swap');
-    :root{--bg:#0f172a;--bg-soft:#16213a;--surface:#1b2544;--border:#2b3660;--text:#e8ecf7;--text-muted:#9aa4c4;--primary:#d4af37;--danger:#ef4444;--radius:14px;}
+    @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@400;500;600;700&family=Tajawal:wght@400;500;700;800&display=swap');
+    :root{--primary:#006b73;--primary-dark:#004b52;--primary-gradient:linear-gradient(135deg,#006b73 0%,#0A8A94 100%);--accent:#c99a3d;--bg:#F0F4F8;--border:#E1E8ED;--text:#1A2E35;--text-muted:#8AA0B0;--danger:#df4b4b;--radius:14px;}
     *{box-sizing:border-box;}
-    body{margin:0;font-family:'Cairo','Tahoma',sans-serif;background:radial-gradient(circle at top left,#16213a 0%,#0f172a 55%,#0b1120 100%);color:var(--text);direction:rtl;text-align:right;min-height:100vh;display:flex;align-items:center;justify-content:center;padding:24px;}
-    .card{width:100%;max-width:400px;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);box-shadow:0 10px 30px rgba(0,0,0,.35);padding:36px 32px;}
-    .logo{text-align:center;font-size:34px;color:var(--primary);margin-bottom:6px;}
-    h1{text-align:center;font-size:18px;margin:0 0 4px;}
+    body{margin:0;font-family:'IBM Plex Sans Arabic','Tajawal',sans-serif;background:var(--bg);color:var(--text);direction:rtl;text-align:right;min-height:100vh;display:flex;align-items:center;justify-content:center;padding:24px;}
+    .card{width:100%;max-width:400px;background:#fff;border:1px solid var(--border);border-radius:var(--radius);box-shadow:0 10px 30px rgba(0,107,115,.10);padding:36px 32px;}
+    .logo{text-align:center;font-size:34px;color:var(--accent);margin-bottom:6px;}
+    h1{text-align:center;font-size:18px;margin:0 0 4px;color:var(--primary-dark);}
     .sub{text-align:center;color:var(--text-muted);font-size:13px;margin-bottom:22px;}
     .form-group{margin-bottom:16px;}
     label{display:block;font-size:13px;color:var(--text-muted);margin-bottom:6px;}
-    input{width:100%;padding:11px 14px;border-radius:10px;border:1px solid var(--border);background:var(--bg-soft);color:var(--text);font-family:inherit;font-size:14px;outline:none;}
+    input{width:100%;padding:11px 14px;border-radius:10px;border:1.5px solid var(--border);background:#fff;color:var(--text);font-family:inherit;font-size:14px;outline:none;}
     input:focus{border-color:var(--primary);}
-    .btn{width:100%;padding:11px 20px;border-radius:10px;border:none;font-weight:600;font-size:14px;cursor:pointer;background:linear-gradient(135deg,var(--primary),#b8912a);color:#1a1200;}
-    .alert{padding:12px 16px;border-radius:10px;font-size:13px;margin-bottom:16px;background:rgba(239,68,68,.12);border:1px solid rgba(239,68,68,.4);color:#fca5a5;}
+    .btn{width:100%;padding:11px 20px;border-radius:10px;border:none;font-weight:600;font-size:14px;cursor:pointer;background:var(--primary-gradient);color:#fff;box-shadow:0 4px 14px rgba(0,107,115,.25);}
+    .alert{padding:12px 16px;border-radius:10px;font-size:13px;margin-bottom:16px;background:#FCEAEA;border:1px solid #F6C6C6;color:#B23A3A;}
     </style>
     </head>
     <body>
@@ -153,7 +174,7 @@ if (!$currentUser) {
 
 $pdo = db();
 
-$validTabs = ['dashboard', 'branches', 'employees', 'requests', 'payroll', 'exchange_rate', 'settings'];
+$validTabs = ['dashboard', 'branches', 'employees', 'requests', 'payroll', 'reports', 'exchange_rate', 'settings'];
 $tab = $_GET['tab'] ?? 'dashboard';
 if (!in_array($tab, $validTabs, true)) {
     $tab = 'dashboard';
@@ -205,11 +226,14 @@ if (is_post() && ($_POST['form'] ?? '') !== 'login') {
                 break;
             }
 
+            $photoPath = handle_upload('photo', 'photos', ['jpg', 'jpeg', 'png', 'webp']);
+            $documentPath = handle_upload('documents', 'documents', ['jpg', 'jpeg', 'png', 'pdf']);
+
             $pdo->beginTransaction();
             try {
                 $empNumber = generate_employee_number($pdo);
-                $stmt = $pdo->prepare("INSERT INTO employees (branch_id, employee_number, full_name, national_id, job_title, hire_date, base_salary, is_branch_manager, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'active')");
-                $stmt->execute([$branchId, $empNumber, $fullName, $nationalId, $jobTitle, $hireDate, $baseSalary, $isManager]);
+                $stmt = $pdo->prepare("INSERT INTO employees (branch_id, employee_number, full_name, national_id, job_title, hire_date, base_salary, photo, documents, is_branch_manager, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active')");
+                $stmt->execute([$branchId, $empNumber, $fullName, $nationalId, $jobTitle, $hireDate, $baseSalary, $photoPath, $documentPath, $isManager]);
                 $employeeId = (int) $pdo->lastInsertId();
 
                 if ($initialPassword !== '' && strlen($initialPassword) >= 4) {
@@ -360,6 +384,86 @@ if ($tab === 'settings') {
     $settingsRow = $pdo->query("SELECT * FROM settings ORDER BY id DESC LIMIT 1")->fetch();
 }
 
+if ($tab === 'reports') {
+    $reportType = in_array($_GET['report_type'] ?? '', ['attendance', 'payroll', 'leave', 'comprehensive'], true) ? $_GET['report_type'] : 'attendance';
+    $dateFrom = $_GET['date_from'] ?? date('Y-m-01');
+    $dateTo = $_GET['date_to'] ?? date('Y-m-d');
+    $reportBranch = (int) ($_GET['report_branch'] ?? 0);
+    $reportColumns = [];
+    $reportRows = [];
+
+    if ($reportType === 'attendance') {
+        $reportColumns = ['التاريخ', 'الموظف', 'الفرع', 'الدخول', 'الخروج', 'الحالة'];
+        $sql = "SELECT a.attendance_date, e.full_name, b.name AS branch_name, a.check_in, a.check_out, a.status
+                FROM attendance a JOIN employees e ON e.id=a.employee_id JOIN branches b ON b.id=a.branch_id
+                WHERE a.attendance_date BETWEEN ? AND ?";
+        $params = [$dateFrom, $dateTo];
+        if ($reportBranch > 0) { $sql .= " AND a.branch_id = ?"; $params[] = $reportBranch; }
+        $sql .= " ORDER BY a.attendance_date DESC";
+        $stmt = $pdo->prepare($sql);
+        $stmt->execute($params);
+        $statusAr = ['present' => 'حاضر', 'late' => 'تأخير', 'absent' => 'غائب'];
+        foreach ($stmt->fetchAll() as $r) {
+            $reportRows[] = [$r['attendance_date'], $r['full_name'], $r['branch_name'], $r['check_in'] ?? '-', $r['check_out'] ?? '-', $statusAr[$r['status']] ?? $r['status']];
+        }
+    } elseif ($reportType === 'payroll') {
+        $reportColumns = ['الموظف', 'الفرع', 'الشهر', 'السنة', 'الأساسي', 'المكافأة', 'الخصم', 'الصافي', 'الحالة'];
+        $sql = "SELECT p.*, e.full_name, b.name AS branch_name FROM payroll p JOIN employees e ON e.id=p.employee_id JOIN branches b ON b.id=p.branch_id
+                WHERE DATE(p.created_at) BETWEEN ? AND ?";
+        $params = [$dateFrom, $dateTo];
+        if ($reportBranch > 0) { $sql .= " AND p.branch_id = ?"; $params[] = $reportBranch; }
+        $sql .= " ORDER BY p.period_year DESC, p.period_month DESC";
+        $stmt = $pdo->prepare($sql);
+        $stmt->execute($params);
+        foreach ($stmt->fetchAll() as $r) {
+            $net = (float) $r['base_salary'] + (float) $r['bonus'] - (float) $r['deduction'];
+            $reportRows[] = [$r['full_name'], $r['branch_name'], $r['period_month'], $r['period_year'], $r['base_salary'], $r['bonus'], $r['deduction'], $net, $r['status'] === 'delivered' ? 'تم التسليم' : 'قيد الانتظار'];
+        }
+    } elseif ($reportType === 'leave') {
+        $reportColumns = ['التاريخ', 'الموظف', 'الفرع', 'النوع', 'من', 'إلى', 'الحالة'];
+        $sql = "SELECT r.*, e.full_name, b.name AS branch_name FROM requests r JOIN employees e ON e.id=r.employee_id JOIN branches b ON b.id=r.branch_id
+                WHERE DATE(r.created_at) BETWEEN ? AND ?";
+        $params = [$dateFrom, $dateTo];
+        if ($reportBranch > 0) { $sql .= " AND r.branch_id = ?"; $params[] = $reportBranch; }
+        $sql .= " ORDER BY r.created_at DESC";
+        $stmt = $pdo->prepare($sql);
+        $stmt->execute($params);
+        $typeAr = ['leave' => 'إجازة', 'advance' => 'سلفة', 'complaint' => 'شكوى', 'resignation' => 'استقالة'];
+        $statusAr = ['pending' => 'بانتظار المراجعة', 'approved' => 'مقبول', 'rejected' => 'مرفوض'];
+        foreach ($stmt->fetchAll() as $r) {
+            $reportRows[] = [substr($r['created_at'], 0, 10), $r['full_name'], $r['branch_name'], $typeAr[$r['type']] ?? $r['type'], $r['date_from'] ?? '-', $r['date_to'] ?? '-', $statusAr[$r['status']]];
+        }
+    } else {
+        $reportColumns = ['الفرع', 'إجمالي الإيرادات', 'إجمالي المصروفات', 'الصافي'];
+        $sql = "SELECT b.id, b.name,
+                COALESCE(SUM(CASE WHEN l.entry_type='income' THEN l.amount ELSE 0 END),0) AS income,
+                COALESCE(SUM(CASE WHEN l.entry_type='expense' THEN l.amount ELSE 0 END),0) AS expense
+                FROM branches b LEFT JOIN daily_ledger l ON l.branch_id=b.id AND l.entry_date BETWEEN ? AND ?
+                WHERE 1=1";
+        $params = [$dateFrom, $dateTo];
+        if ($reportBranch > 0) { $sql .= " AND b.id = ?"; $params[] = $reportBranch; }
+        $sql .= " GROUP BY b.id, b.name ORDER BY b.name";
+        $stmt = $pdo->prepare($sql);
+        $stmt->execute($params);
+        foreach ($stmt->fetchAll() as $r) {
+            $reportRows[] = [$r['name'], money((float) $r['income']), money((float) $r['expense']), money((float) $r['income'] - (float) $r['expense'])];
+        }
+    }
+
+    if (isset($_GET['export'])) {
+        header('Content-Type: text/csv; charset=utf-8');
+        header('Content-Disposition: attachment; filename="report_' . $reportType . '_' . date('Ymd_His') . '.csv"');
+        echo "\xEF\xBB\xBF";
+        $out = fopen('php://output', 'w');
+        fputcsv($out, $reportColumns);
+        foreach ($reportRows as $row) {
+            fputcsv($out, $row);
+        }
+        fclose($out);
+        exit;
+    }
+}
+
 $pageTitle = 'لوحة تحكم الموارد البشرية';
 $typeLabels = ['leave' => 'إجازة', 'advance' => 'سلفة', 'complaint' => 'شكوى', 'resignation' => 'استقالة'];
 $statusLabels = ['pending' => ['بانتظار المراجعة', 'warning'], 'approved' => ['مقبول', 'success'], 'rejected' => ['مرفوض', 'danger']];
@@ -375,51 +479,55 @@ $statusLabels = ['pending' => ['بانتظار المراجعة', 'warning'], 'a
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title><?= e($pageTitle) ?></title>
 <style>
-@import url('https://fonts.googleapis.com/css2?family=Cairo:wght@400;500;600;700;800&display=swap');
-:root{--bg:#0f172a;--bg-soft:#16213a;--surface:#1b2544;--surface-2:#212c4f;--border:#2b3660;--text:#e8ecf7;--text-muted:#9aa4c4;--primary:#d4af37;--primary-soft:rgba(212,175,55,.15);--success:#22c55e;--danger:#ef4444;--warning:#f59e0b;--radius:14px;}
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@400;500;600;700&family=Tajawal:wght@400;500;700;800&display=swap');
+:root{--primary:#006b73;--primary-light:#0A8A94;--primary-dark:#004b52;--primary-gradient:linear-gradient(135deg,#006b73 0%,#0A8A94 100%);--accent:#c99a3d;--green:#159447;--red:#df4b4b;--orange:#d98c1a;--bg:#F0F4F8;--bg-card:#FFFFFF;--border:#E1E8ED;--text:#1A2E35;--text-secondary:#4A6A78;--text-muted:#8AA0B0;--radius-sm:8px;--radius-md:14px;--radius-lg:20px;--radius-full:9999px;--shadow-sm:0 2px 8px rgba(0,107,115,.06);--shadow-md:0 4px 20px rgba(0,107,115,.08);}
 *{box-sizing:border-box;}
 html,body{margin:0;padding:0;min-height:100%;}
-body{font-family:'Cairo','Tahoma',sans-serif;background:radial-gradient(circle at top left,#16213a 0%,#0f172a 55%,#0b1120 100%);color:var(--text);direction:rtl;text-align:right;min-height:100vh;}
+body{font-family:'IBM Plex Sans Arabic','Tajawal',sans-serif;background:var(--bg);color:var(--text);direction:rtl;text-align:right;min-height:100vh;}
 a{color:inherit;text-decoration:none;} ul{list-style:none;margin:0;padding:0;}
-.form-group{margin-bottom:16px;} label{display:block;font-size:13px;color:var(--text-muted);margin-bottom:6px;}
-.form-control,select.form-control,textarea.form-control{width:100%;padding:11px 14px;border-radius:10px;border:1px solid var(--border);background:var(--bg-soft);color:var(--text);font-family:inherit;font-size:14px;outline:none;}
+.form-group{margin-bottom:16px;} label{display:block;font-size:13px;color:var(--text-secondary);margin-bottom:6px;font-weight:500;}
+.form-control,select.form-control,textarea.form-control{width:100%;padding:11px 14px;border-radius:var(--radius-sm);border:1.5px solid var(--border);background:#fff;color:var(--text);font-family:inherit;font-size:14px;outline:none;transition:border-color .2s;}
 .form-control:focus{border-color:var(--primary);}
-.btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;padding:11px 20px;border-radius:10px;border:none;font-family:inherit;font-weight:600;font-size:14px;cursor:pointer;}
-.btn-primary{background:linear-gradient(135deg,var(--primary),#b8912a);color:#1a1200;}
-.btn-secondary{background:var(--surface-2);color:var(--text);border:1px solid var(--border);}
-.btn-danger{background:var(--danger);color:#fff;} .btn-success{background:var(--success);color:#06280f;}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;padding:11px 20px;border-radius:var(--radius-sm);border:none;font-family:inherit;font-weight:600;font-size:14px;cursor:pointer;transition:transform .1s;}
+.btn:active{transform:scale(.98);}
+.btn-primary{background:var(--primary-gradient);color:#fff;box-shadow:0 4px 14px rgba(0,107,115,.25);}
+.btn-secondary{background:#EFF3F6;color:var(--text);border:1.5px solid var(--border);}
+.btn-danger{background:var(--red);color:#fff;} .btn-success{background:var(--green);color:#fff;}
 .btn-block{width:100%;} .btn-sm{padding:6px 12px;font-size:12px;}
-.alert{padding:12px 16px;border-radius:10px;font-size:13px;margin-bottom:16px;border:1px solid transparent;}
-.alert-danger{background:rgba(239,68,68,.12);border-color:rgba(239,68,68,.4);color:#fca5a5;}
-.alert-success{background:rgba(34,197,94,.12);border-color:rgba(34,197,94,.4);color:#86efac;}
+.alert{padding:12px 16px;border-radius:var(--radius-sm);font-size:13px;margin-bottom:16px;border:1px solid transparent;}
+.alert-danger{background:#FCEAEA;border-color:#F6C6C6;color:#B23A3A;}
+.alert-success{background:#E8F6EE;border-color:#B9E4C9;color:#0E6B34;}
 .app-shell{display:flex;min-height:100vh;}
-.sidebar{width:260px;flex-shrink:0;background:var(--surface);border-left:1px solid var(--border);padding:22px 16px;position:sticky;top:0;height:100vh;overflow-y:auto;}
+.sidebar{width:260px;flex-shrink:0;background:var(--bg-card);border-left:1px solid var(--border);padding:22px 16px;position:sticky;top:0;height:100vh;overflow-y:auto;}
 .sidebar-brand{display:flex;align-items:center;gap:10px;padding:0 6px 20px;border-bottom:1px solid var(--border);margin-bottom:16px;}
-.sidebar-brand .mark{font-size:26px;color:var(--primary);} .sidebar-brand .name{font-weight:800;font-size:15px;} .sidebar-brand .role{font-size:11px;color:var(--text-muted);}
-.nav-link{display:flex;align-items:center;gap:10px;padding:10px 12px;border-radius:10px;font-size:13.5px;color:var(--text-muted);margin-bottom:2px;}
-.nav-link:hover{background:var(--surface-2);color:var(--text);}
-.nav-link.active{background:var(--primary-soft);color:var(--primary);font-weight:700;}
+.sidebar-brand .mark{font-size:26px;color:var(--accent);} .sidebar-brand .name{font-weight:800;font-size:15px;color:var(--primary-dark);} .sidebar-brand .role{font-size:11px;color:var(--text-muted);}
+.nav-link{display:flex;align-items:center;gap:10px;padding:10px 12px;border-radius:var(--radius-sm);font-size:13.5px;color:var(--text-secondary);margin-bottom:2px;font-weight:500;}
+.nav-link:hover{background:#EFF6F7;color:var(--primary);}
+.nav-link.active{background:var(--primary);color:#fff;font-weight:700;box-shadow:var(--shadow-sm);}
 .nav-link .icon{font-size:16px;width:20px;text-align:center;}
 .sidebar-footer{margin-top:18px;padding-top:14px;border-top:1px solid var(--border);}
 .main{flex:1;min-width:0;padding:26px 30px 60px;}
 .topbar{display:flex;align-items:center;justify-content:space-between;margin-bottom:22px;flex-wrap:wrap;gap:12px;}
-.topbar h1{font-size:20px;margin:0;}
-.user-chip{display:flex;align-items:center;gap:10px;background:var(--surface);border:1px solid var(--border);padding:8px 14px;border-radius:30px;font-size:13px;}
-.user-chip .avatar{width:30px;height:30px;border-radius:50%;background:var(--primary-soft);color:var(--primary);display:flex;align-items:center;justify-content:center;font-weight:700;font-size:13px;}
+.topbar h1{font-size:20px;margin:0;color:var(--primary-dark);}
+.user-chip{display:flex;align-items:center;gap:10px;background:#fff;border:1px solid var(--border);padding:8px 14px;border-radius:var(--radius-full);font-size:13px;box-shadow:var(--shadow-sm);}
+.user-chip .avatar{width:30px;height:30px;border-radius:50%;background:var(--primary-gradient);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:13px;}
 .stat-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:16px;margin-bottom:24px;}
-.stat-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:18px 20px;}
-.stat-card .label{color:var(--text-muted);font-size:12.5px;margin-bottom:8px;} .stat-card .value{font-size:26px;font-weight:800;}
-.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:20px 22px;margin-bottom:20px;}
-.card-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;flex-wrap:wrap;gap:10px;} .card-header h2{font-size:16px;margin:0;}
+.stat-card{background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius-md);padding:18px 20px;box-shadow:var(--shadow-sm);}
+.stat-card .label{color:var(--text-muted);font-size:12.5px;margin-bottom:8px;} .stat-card .value{font-size:26px;font-weight:800;color:var(--primary-dark);}
+.card{background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius-lg);padding:20px 22px;margin-bottom:20px;box-shadow:var(--shadow-sm);}
+.card-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;flex-wrap:wrap;gap:10px;} .card-header h2{font-size:16px;margin:0;color:var(--primary-dark);}
 .table-wrap{overflow-x:auto;} table.data-table{width:100%;border-collapse:collapse;font-size:13.5px;}
 .data-table th,.data-table td{padding:12px 10px;text-align:right;border-bottom:1px solid var(--border);white-space:nowrap;}
-.data-table th{color:var(--text-muted);font-weight:600;font-size:12.5px;} .data-table tbody tr:hover{background:rgba(255,255,255,0.02);}
-.badge{display:inline-block;padding:4px 10px;border-radius:20px;font-size:11.5px;font-weight:700;}
-.badge-success{background:rgba(34,197,94,.15);color:#4ade80;} .badge-danger{background:rgba(239,68,68,.15);color:#f87171;}
-.badge-warning{background:rgba(245,158,11,.15);color:#fbbf24;} .badge-info{background:rgba(59,130,246,.15);color:#60a5fa;} .badge-muted{background:rgba(255,255,255,.08);color:var(--text-muted);}
+.data-table th{color:var(--text-muted);font-weight:600;font-size:12.5px;} .data-table tbody tr:hover{background:#F7FAFB;}
+.badge{display:inline-block;padding:4px 10px;border-radius:var(--radius-full);font-size:11.5px;font-weight:700;}
+.badge-success{background:#E8F6EE;color:var(--green);} .badge-danger{background:#FCEAEA;color:var(--red);}
+.badge-warning{background:#FCF2E3;color:var(--orange);} .badge-info{background:#E6F4F5;color:var(--primary);} .badge-muted{background:#EEF1F3;color:var(--text-muted);}
 .grid-2{display:grid;grid-template-columns:1fr 1fr;gap:14px;} .grid-3{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;}
 .empty-state{text-align:center;padding:40px 10px;color:var(--text-muted);} .empty-state .icon{font-size:34px;margin-bottom:10px;}
-.menu-toggle{display:none;background:var(--surface);border:1px solid var(--border);color:var(--text);border-radius:8px;padding:8px 12px;cursor:pointer;}
+.menu-toggle{display:none;background:var(--bg-card);border:1px solid var(--border);color:var(--text);border-radius:8px;padding:8px 12px;cursor:pointer;}
+.honor-list{display:flex;flex-direction:column;gap:10px;}
+.honor-item{display:flex;align-items:center;gap:12px;padding:12px 14px;border-radius:var(--radius-md);background:#F7FAFB;border:1px solid var(--border);}
+.honor-item .medal{font-size:22px;} .honor-item .name{font-weight:700;flex:1;} .honor-item .pct{font-weight:800;color:var(--primary);}
 @media (max-width:720px){.grid-2,.grid-3{grid-template-columns:1fr;} .sidebar{position:fixed;right:-280px;z-index:50;transition:right .2s;} .sidebar.open{right:0;} .main{padding:18px 16px 50px;} .menu-toggle{display:inline-flex;}}
 </style>
 </head>
@@ -439,6 +547,7 @@ a{color:inherit;text-decoration:none;} ul{list-style:none;margin:0;padding:0;}
             <li><a class="nav-link <?= $tab==='employees'?'active':'' ?>" href="?tab=employees"><span class="icon">👥</span><span>الموظفون (كل الفروع)</span></a></li>
             <li><a class="nav-link <?= $tab==='requests'?'active':'' ?>" href="?tab=requests"><span class="icon">📥</span><span>الطلبات والإجازات</span></a></li>
             <li><a class="nav-link <?= $tab==='payroll'?'active':'' ?>" href="?tab=payroll"><span class="icon">💰</span><span>الرواتب</span></a></li>
+            <li><a class="nav-link <?= $tab==='reports'?'active':'' ?>" href="?tab=reports"><span class="icon">📊</span><span>التقارير</span></a></li>
             <li><a class="nav-link <?= $tab==='exchange_rate'?'active':'' ?>" href="?tab=exchange_rate"><span class="icon">💵</span><span>سعر الصرف</span></a></li>
             <li><a class="nav-link <?= $tab==='settings'?'active':'' ?>" href="?tab=settings"><span class="icon">⚙️</span><span>إعدادات النظام</span></a></li>
         </ul>
@@ -538,7 +647,7 @@ a{color:inherit;text-decoration:none;} ul{list-style:none;margin:0;padding:0;}
         <?php elseif ($tab === 'employees'): ?>
             <div class="card">
                 <div class="card-header"><h2>إضافة موظف جديد</h2></div>
-                <form method="post" action="/hr.php">
+                <form method="post" action="/hr.php" enctype="multipart/form-data">
                     <?= csrf_field() ?>
                     <input type="hidden" name="action" value="employee_save">
                     <input type="hidden" name="tab" value="employees">
@@ -558,10 +667,12 @@ a{color:inherit;text-decoration:none;} ul{list-style:none;margin:0;padding:0;}
                         <div class="form-group"><label>الراتب الأساسي</label><input type="number" step="0.01" name="base_salary" class="form-control" value="0"></div>
                     </div>
                     <div class="grid-3">
-                        <div class="form-group" style="display:flex;align-items:center;gap:8px;padding-top:22px;">
-                            <input type="checkbox" name="is_branch_manager" value="1" id="is_mgr"> <label for="is_mgr" style="margin:0;">تعيينه مديراً للفرع</label>
-                        </div>
+                        <div class="form-group"><label>الصورة الشخصية</label><input type="file" name="photo" class="form-control" accept="image/*"></div>
+                        <div class="form-group"><label>ملف المستمسكات</label><input type="file" name="documents" class="form-control" accept="image/*,.pdf"></div>
                         <div class="form-group"><label>كلمة مرور حساب الدخول (اختياري)</label><input type="text" name="initial_password" class="form-control" placeholder="اتركه فارغاً لعدم إنشاء حساب دخول"></div>
+                    </div>
+                    <div class="form-group" style="display:flex;align-items:center;gap:8px;">
+                        <input type="checkbox" name="is_branch_manager" value="1" id="is_mgr"> <label for="is_mgr" style="margin:0;">تعيينه مديراً للفرع</label>
                     </div>
                     <button type="submit" class="btn btn-primary">حفظ الموظف</button>
                 </form>
@@ -685,6 +796,48 @@ a{color:inherit;text-decoration:none;} ul{list-style:none;margin:0;padding:0;}
                         </tr>
                     <?php endforeach; ?></tbody>
                 </table></div>
+            </div>
+
+        <?php elseif ($tab === 'reports'): ?>
+            <div class="card">
+                <div class="card-header"><h2>إعدادات التقرير</h2></div>
+                <form method="get" action="/hr.php">
+                    <input type="hidden" name="tab" value="reports">
+                    <div class="grid-3">
+                        <div class="form-group"><label>نوع التقرير</label>
+                            <select name="report_type" class="form-control">
+                                <option value="attendance" <?= $reportType==='attendance'?'selected':'' ?>>تقرير الحضور</option>
+                                <option value="payroll" <?= $reportType==='payroll'?'selected':'' ?>>تقرير الرواتب</option>
+                                <option value="leave" <?= $reportType==='leave'?'selected':'' ?>>تقرير الإجازات والطلبات</option>
+                                <option value="comprehensive" <?= $reportType==='comprehensive'?'selected':'' ?>>تقرير شامل (الإيجاز اليومي)</option>
+                            </select>
+                        </div>
+                        <div class="form-group"><label>من تاريخ</label><input type="date" name="date_from" class="form-control" value="<?= e($dateFrom) ?>"></div>
+                        <div class="form-group"><label>إلى تاريخ</label><input type="date" name="date_to" class="form-control" value="<?= e($dateTo) ?>"></div>
+                    </div>
+                    <div class="form-group"><label>الفرع</label>
+                        <select name="report_branch" class="form-control">
+                            <option value="0">جميع الفروع</option>
+                            <?php foreach ($branchesList as $b): ?><option value="<?= (int)$b['id'] ?>" <?= $reportBranch===(int)$b['id']?'selected':'' ?>><?= e($b['name']) ?></option><?php endforeach; ?>
+                        </select>
+                    </div>
+                    <button type="submit" class="btn btn-primary">إنشاء التقرير</button>
+                </form>
+            </div>
+            <div class="card">
+                <div class="card-header">
+                    <h2>النتائج (<?= count($reportRows) ?>)</h2>
+                    <a class="btn btn-secondary btn-sm" href="?tab=reports&report_type=<?= e($reportType) ?>&date_from=<?= e($dateFrom) ?>&date_to=<?= e($dateTo) ?>&report_branch=<?= (int)$reportBranch ?>&export=1">⬇ تحميل CSV</a>
+                </div>
+                <?php if (empty($reportRows)): ?><div class="empty-state"><div class="icon">📊</div>لا توجد بيانات ضمن هذا النطاق</div>
+                <?php else: ?>
+                <div class="table-wrap"><table class="data-table">
+                    <thead><tr><?php foreach ($reportColumns as $col): ?><th><?= e($col) ?></th><?php endforeach; ?></tr></thead>
+                    <tbody><?php foreach ($reportRows as $row): ?>
+                        <tr><?php foreach ($row as $cell): ?><td><?= e((string)$cell) ?></td><?php endforeach; ?></tr>
+                    <?php endforeach; ?></tbody>
+                </table></div>
+                <?php endif; ?>
             </div>
 
         <?php elseif ($tab === 'exchange_rate'): ?>

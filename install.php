@@ -43,6 +43,8 @@ function install_schema(PDO $pdo): void
             job_title VARCHAR(100) DEFAULT NULL,
             hire_date DATE DEFAULT NULL,
             base_salary DECIMAL(12,2) NOT NULL DEFAULT 0,
+            photo VARCHAR(255) DEFAULT NULL,
+            documents VARCHAR(255) DEFAULT NULL,
             is_branch_manager TINYINT(1) NOT NULL DEFAULT 0,
             status ENUM('active','inactive') NOT NULL DEFAULT 'active',
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -116,9 +118,22 @@ function install_schema(PDO $pdo): void
             entry_type ENUM('income','expense') NOT NULL,
             amount DECIMAL(14,2) NOT NULL,
             description VARCHAR(255) DEFAULT NULL,
+            attachment VARCHAR(255) DEFAULT NULL,
             created_by INT NOT NULL,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             CONSTRAINT fk_ledger_branch FOREIGN KEY (branch_id) REFERENCES branches(id) ON DELETE CASCADE
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4",
+
+        'delegations' => "CREATE TABLE IF NOT EXISTS delegations (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            branch_id INT NOT NULL,
+            delegated_employee_id INT NOT NULL,
+            start_date DATE NOT NULL,
+            end_date DATE NOT NULL,
+            status ENUM('active','ended') NOT NULL DEFAULT 'active',
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            CONSTRAINT fk_del_branch FOREIGN KEY (branch_id) REFERENCES branches(id) ON DELETE CASCADE,
+            CONSTRAINT fk_del_employee FOREIGN KEY (delegated_employee_id) REFERENCES employees(id) ON DELETE CASCADE
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4",
 
         'exchange_rate_history' => "CREATE TABLE IF NOT EXISTS exchange_rate_history (
@@ -140,7 +155,7 @@ function install_schema(PDO $pdo): void
     ];
 
     // الترتيب مهم بسبب المفاتيح الأجنبية
-    foreach (['settings', 'branches', 'employees', 'users', 'attendance', 'payroll', 'requests', 'daily_ledger', 'exchange_rate_history', 'notifications'] as $table) {
+    foreach (['settings', 'branches', 'employees', 'users', 'attendance', 'payroll', 'requests', 'daily_ledger', 'delegations', 'exchange_rate_history', 'notifications'] as $table) {
         $pdo->exec($tables[$table]);
     }
 }
@@ -216,7 +231,7 @@ if (!$alreadyInstalled && $requirementsOk && $_SERVER['REQUEST_METHOD'] === 'POS
                 PDO::ATTR_EMULATE_PREPARES => false,
             ]);
 
-            $ourTables = ['settings', 'branches', 'employees', 'users', 'attendance', 'payroll', 'requests', 'daily_ledger', 'exchange_rate_history', 'notifications'];
+            $ourTables = ['settings', 'branches', 'employees', 'users', 'attendance', 'payroll', 'requests', 'daily_ledger', 'delegations', 'exchange_rate_history', 'notifications'];
             $existing = $pdo->query("SHOW TABLES")->fetchAll(PDO::FETCH_COLUMN);
             $conflicting = array_intersect($ourTables, $existing);
             if (!empty($conflicting)) {
@@ -242,6 +257,13 @@ if (!$alreadyInstalled && $requirementsOk && $_SERVER['REQUEST_METHOD'] === 'POS
                 throw new RuntimeException('تعذر كتابة ملف config.php. تحقق من صلاحيات الكتابة في المجلد.');
             }
 
+            foreach (['uploads', 'uploads/photos', 'uploads/documents', 'uploads/ledger'] as $dir) {
+                $path = __DIR__ . '/' . $dir;
+                if (!is_dir($path)) {
+                    @mkdir($path, 0755, true);
+                }
+            }
+
             $success = true;
             $step = 4;
         } catch (PDOException $e) {
@@ -265,31 +287,31 @@ if (!$alreadyInstalled && $requirementsOk && $_SERVER['REQUEST_METHOD'] === 'POS
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>تثبيت النظام — شركة الصوى للصرافة</title>
 <style>
-@import url('https://fonts.googleapis.com/css2?family=Cairo:wght@400;500;600;700;800&display=swap');
-:root{--bg:#0f172a;--bg-soft:#16213a;--surface:#1b2544;--border:#2b3660;--text:#e8ecf7;--text-muted:#9aa4c4;--primary:#d4af37;--primary-soft:rgba(212,175,55,.15);--success:#22c55e;--danger:#ef4444;--radius:14px;}
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@400;500;600;700&family=Tajawal:wght@400;500;700;800&display=swap');
+:root{--primary:#006b73;--primary-light:#0A8A94;--primary-dark:#004b52;--primary-gradient:linear-gradient(135deg,#006b73 0%,#0A8A94 100%);--accent:#c99a3d;--bg:#F0F4F8;--border:#E1E8ED;--text:#1A2E35;--text-muted:#8AA0B0;--success:#159447;--danger:#df4b4b;--radius:14px;}
 *{box-sizing:border-box;}
-body{margin:0;font-family:'Cairo','Tahoma',sans-serif;background:radial-gradient(circle at top left,#16213a 0%,#0f172a 55%,#0b1120 100%);color:var(--text);direction:rtl;text-align:right;min-height:100vh;display:flex;align-items:center;justify-content:center;padding:24px;}
-.card{width:100%;max-width:560px;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);box-shadow:0 10px 30px rgba(0,0,0,.35);padding:36px 32px;}
-.logo{text-align:center;font-size:34px;color:var(--primary);margin-bottom:6px;}
-h1{text-align:center;font-size:20px;font-weight:700;margin:0 0 4px;}
+body{margin:0;font-family:'IBM Plex Sans Arabic','Tajawal',sans-serif;background:var(--bg);color:var(--text);direction:rtl;text-align:right;min-height:100vh;display:flex;align-items:center;justify-content:center;padding:24px;}
+.card{width:100%;max-width:560px;background:#fff;border:1px solid var(--border);border-radius:var(--radius);box-shadow:0 10px 30px rgba(0,107,115,.10);padding:36px 32px;}
+.logo{text-align:center;font-size:34px;color:var(--accent);margin-bottom:6px;}
+h1{text-align:center;font-size:20px;font-weight:700;margin:0 0 4px;color:var(--primary-dark);}
 .sub{text-align:center;color:var(--text-muted);font-size:13px;margin-bottom:24px;}
 .steps{display:flex;gap:8px;margin-bottom:24px;}
 .steps span{flex:1;height:4px;border-radius:4px;background:var(--border);}
 .steps span.done{background:var(--primary);}
 .form-group{margin-bottom:16px;}
 label{display:block;font-size:13px;color:var(--text-muted);margin-bottom:6px;}
-input{width:100%;padding:11px 14px;border-radius:10px;border:1px solid var(--border);background:var(--bg-soft);color:var(--text);font-family:inherit;font-size:14px;outline:none;}
+input{width:100%;padding:11px 14px;border-radius:10px;border:1.5px solid var(--border);background:#fff;color:var(--text);font-family:inherit;font-size:14px;outline:none;}
 input:focus{border-color:var(--primary);}
 .grid-2{display:grid;grid-template-columns:1fr 1fr;gap:14px;}
-.btn{display:block;width:100%;padding:11px 20px;border-radius:10px;border:none;font-family:inherit;font-weight:600;font-size:14px;cursor:pointer;background:linear-gradient(135deg,var(--primary),#b8912a);color:#1a1200;text-align:center;text-decoration:none;}
+.btn{display:block;width:100%;padding:11px 20px;border-radius:10px;border:none;font-family:inherit;font-weight:600;font-size:14px;cursor:pointer;background:var(--primary-gradient);color:#fff;text-align:center;text-decoration:none;box-shadow:0 4px 14px rgba(0,107,115,.25);}
 .alert{padding:12px 16px;border-radius:10px;font-size:13px;margin-bottom:16px;border:1px solid transparent;}
-.alert-danger{background:rgba(239,68,68,.12);border-color:rgba(239,68,68,.4);color:#fca5a5;}
-.alert-success{background:rgba(34,197,94,.12);border-color:rgba(34,197,94,.4);color:#86efac;}
-.req-box{padding:14px 16px;margin-bottom:20px;background:var(--bg-soft);border-radius:10px;}
+.alert-danger{background:#FCEAEA;border-color:#F6C6C6;color:#B23A3A;}
+.alert-success{background:#E8F6EE;border-color:#B9E4C9;color:#0E6B34;}
+.req-box{padding:14px 16px;margin-bottom:20px;background:#F7FAFB;border-radius:10px;}
 .req-row{display:flex;justify-content:space-between;padding:6px 0;font-size:13px;}
 .badge{display:inline-block;padding:3px 10px;border-radius:20px;font-size:11.5px;font-weight:700;}
-.badge-success{background:rgba(34,197,94,.15);color:#4ade80;}
-.badge-danger{background:rgba(239,68,68,.15);color:#f87171;}
+.badge-success{background:#E8F6EE;color:var(--success);}
+.badge-danger{background:#FCEAEA;color:var(--danger);}
 .links{display:flex;flex-direction:column;gap:10px;margin-top:10px;}
 </style>
 </head>
