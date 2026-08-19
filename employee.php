@@ -1,10 +1,8 @@
 <?php
 /* ======================================================================
-   نافذة الموظف — ملف واحد مستقل بالكامل
-   يدير: الحضور الذاتي (بصمة)، تقديم الطلبات، عرض الملف الوظيفي والراتب
-   لا يعتمد على أي ملف آخر سوى config.php (الذي ينشئه install.php تلقائياً)
-   القسم الأول: منطق PHP بالكامل (Backend)
-   القسم الثاني: الواجهة HTML/CSS (Frontend) — بعد وسم "الواجهة" أدناه
+   نافذة الموظف — نفس الملف الأصلي (HTML/CSS/JS) تماماً
+   مع طبقة PHP + MySQL حقيقية خلفه بدل البيانات الوهمية في JavaScript.
+   القسم الأول: منطق PHP ونقاط AJAX — القسم الثاني: نفس HTML/CSS/JS الأصلي
    ====================================================================== */
 declare(strict_types=1);
 error_reporting(E_ALL);
@@ -16,10 +14,10 @@ if (!file_exists(__DIR__ . '/config.php')) {
 }
 require_once __DIR__ . '/config.php';
 
-session_set_cookie_params(['httponly' => true, 'samesite' => 'Lax']);
+ini_set('session.gc_maxlifetime', (string) (86400 * 30));
+session_set_cookie_params(['httponly' => true, 'samesite' => 'Lax', 'lifetime' => 86400 * 30]);
 session_start();
 
-/* ---------------------- دوال مساعدة عامة ---------------------- */
 function db(): PDO
 {
     static $pdo = null;
@@ -27,616 +25,3558 @@ function db(): PDO
         return $pdo;
     }
     $dsn = 'mysql:host=' . DB_HOST . ';dbname=' . DB_NAME . ';charset=' . DB_CHARSET;
-    try {
-        $pdo = new PDO($dsn, DB_USER, DB_PASS, [
-            PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
-            PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
-            PDO::ATTR_EMULATE_PREPARES => false,
-        ]);
-    } catch (PDOException $e) {
-        http_response_code(500);
-        die('تعذر الاتصال بقاعدة البيانات. تحقق من إعدادات config.php.');
-    }
+    $pdo = new PDO($dsn, DB_USER, DB_PASS, [
+        PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
+        PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
+        PDO::ATTR_EMULATE_PREPARES => false,
+    ]);
     return $pdo;
 }
 
-function e(?string $v): string { return htmlspecialchars($v ?? '', ENT_QUOTES, 'UTF-8'); }
-function money(float $amount): string { return number_format($amount, 0) . ' د.ع'; }
-function is_post(): bool { return $_SERVER['REQUEST_METHOD'] === 'POST'; }
-
-function flash_set(string $type, string $message): void { $_SESSION['flash'] = ['type' => $type, 'message' => $message]; }
-function flash_get(): ?array
+function is_late(string $now, ?array $settingsRow): bool
 {
-    if (empty($_SESSION['flash'])) return null;
-    $f = $_SESSION['flash'];
-    unset($_SESSION['flash']);
-    return $f;
+    if (!$settingsRow || !$settingsRow['work_start_time']) {
+        return false;
+    }
+    $grace = (int) ($settingsRow['late_grace_minutes'] ?? 0);
+    $deadline = date('H:i:s', strtotime($settingsRow['work_start_time']) + $grace * 60);
+    return $now > $deadline;
 }
 
-function csrf_token(): string
+function distance_meters(float $lat1, float $lon1, float $lat2, float $lon2): float
 {
-    if (empty($_SESSION['csrf_token'])) $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
-    return $_SESSION['csrf_token'];
+    $r = 6371000;
+    $dLat = deg2rad($lat2 - $lat1);
+    $dLon = deg2rad($lon2 - $lon1);
+    $a = sin($dLat / 2) ** 2 + cos(deg2rad($lat1)) * cos(deg2rad($lat2)) * sin($dLon / 2) ** 2;
+    return $r * (2 * atan2(sqrt($a), sqrt(1 - $a)));
 }
-function csrf_field(): string { return '<input type="hidden" name="csrf_token" value="' . e(csrf_token()) . '">'; }
-function csrf_verify(): void
+
+function request_type_en(string $t): string
 {
-    $token = $_POST['csrf_token'] ?? '';
-    if (!$token || !hash_equals($_SESSION['csrf_token'] ?? '', $token)) {
-        http_response_code(419);
-        die('انتهت صلاحية الجلسة. الرجاء إعادة تحميل الصفحة والمحاولة مجدداً.');
-    }
+    return ['إجازة' => 'leave', 'سلفة' => 'advance', 'شكوى' => 'complaint', 'استقالة' => 'resignation'][$t] ?? 'complaint';
+}
+function request_type_ar_emp(string $t): string
+{
+    return ['leave' => 'إجازة', 'advance' => 'سلفة', 'complaint' => 'شكوى', 'resignation' => 'استقالة'][$t] ?? $t;
+}
+function request_status_ar_emp(string $s): string
+{
+    return [
+        'pending' => 'بانتظار موافقة مدير الفرع',
+        'branch_approved' => 'قيد المراجعة لدى الموارد البشرية',
+        'approved' => 'مقبول نهائياً',
+        'rejected' => 'مرفوض',
+    ][$s] ?? $s;
 }
 
-/* ---------------------- تسجيل الخروج ---------------------- */
-if (isset($_GET['logout'])) {
-    $_SESSION = [];
-    session_destroy();
-    header('Location: /employee.php');
-    exit;
-}
-
-/* ---------------------- تسجيل الدخول ---------------------- */
-$currentUser = $_SESSION['employee_user'] ?? null;
-$loginError = null;
-
-if (!$currentUser && is_post() && ($_POST['form'] ?? '') === 'login') {
-    csrf_verify();
-    $username = trim($_POST['username'] ?? '');
-    $password = (string) ($_POST['password'] ?? '');
-    $stmt = db()->prepare("SELECT u.*, e.full_name FROM users u LEFT JOIN employees e ON e.id = u.employee_id WHERE u.username = ? AND u.role = 'employee' AND u.status = 'active' LIMIT 1");
-    $stmt->execute([$username]);
-    $row = $stmt->fetch();
-    if ($row && password_verify($password, $row['password_hash'])) {
-        $_SESSION['employee_user'] = [
-            'id' => (int) $row['id'],
-            'username' => $row['username'],
-            'employee_id' => (int) $row['employee_id'],
-        ];
-        header('Location: /employee.php');
-        exit;
-    }
-    $loginError = 'بيانات الدخول غير صحيحة.';
-}
-
-if (!$currentUser) {
-    ?>
-    <!DOCTYPE html>
-    <html lang="ar" dir="rtl">
-    <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>تسجيل دخول الموظف — شركة الصوى للصرافة</title>
-    <style>
-    @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@400;500;600;700&family=Tajawal:wght@400;500;700;800&display=swap');
-    :root{--primary:#006b73;--primary-dark:#004b52;--primary-gradient:linear-gradient(135deg,#006b73 0%,#0A8A94 100%);--accent:#c99a3d;--bg:#F0F4F8;--border:#E1E8ED;--text:#1A2E35;--text-muted:#8AA0B0;--danger:#df4b4b;--radius:14px;}
-    *{box-sizing:border-box;}
-    body{margin:0;font-family:'IBM Plex Sans Arabic','Tajawal',sans-serif;background:var(--bg);color:var(--text);direction:rtl;text-align:right;min-height:100vh;display:flex;align-items:center;justify-content:center;padding:24px;}
-    .card{width:100%;max-width:400px;background:#fff;border:1px solid var(--border);border-radius:var(--radius);box-shadow:0 10px 30px rgba(0,107,115,.10);padding:36px 32px;}
-    .logo{text-align:center;font-size:34px;color:var(--accent);margin-bottom:6px;}
-    h1{text-align:center;font-size:18px;margin:0 0 4px;color:var(--primary-dark);}
-    .sub{text-align:center;color:var(--text-muted);font-size:13px;margin-bottom:22px;}
-    .form-group{margin-bottom:16px;}
-    label{display:block;font-size:13px;color:var(--text-muted);margin-bottom:6px;}
-    input{width:100%;padding:11px 14px;border-radius:10px;border:1.5px solid var(--border);background:#fff;color:var(--text);font-family:inherit;font-size:14px;outline:none;}
-    input:focus{border-color:var(--primary);}
-    .btn{width:100%;padding:11px 20px;border-radius:10px;border:none;font-weight:600;font-size:14px;cursor:pointer;background:var(--primary-gradient);color:#fff;box-shadow:0 4px 14px rgba(0,107,115,.25);}
-    .alert{padding:12px 16px;border-radius:10px;font-size:13px;margin-bottom:16px;background:#FCEAEA;border:1px solid #F6C6C6;color:#B23A3A;}
-    </style>
-    </head>
-    <body>
-    <div class="card">
-        <div class="logo">✥</div>
-        <h1>نافذة الموظف</h1>
-        <div class="sub">شركة الصوى للصرافة</div>
-        <?php if ($loginError): ?><div class="alert"><?= e($loginError) ?></div><?php endif; ?>
-        <form method="post" action="/employee.php">
-            <?= csrf_field() ?>
-            <input type="hidden" name="form" value="login">
-            <div class="form-group"><label>رقم التوظيف</label><input type="text" name="username" required autofocus></div>
-            <div class="form-group"><label>كلمة المرور</label><input type="password" name="password" required></div>
-            <button type="submit" class="btn">تسجيل الدخول</button>
-        </form>
-    </div>
-    </body>
-    </html>
-    <?php
-    exit;
-}
-
-$pdo = db();
-$employeeId = (int) $currentUser['employee_id'];
-
-if (!$employeeId) {
-    http_response_code(403);
-    die('هذا الحساب غير مرتبط بملف موظف. الرجاء مراجعة الموارد البشرية.');
-}
-
-$employee = $pdo->prepare("SELECT e.*, b.name AS branch_name FROM employees e JOIN branches b ON b.id=e.branch_id WHERE e.id=?");
-$employee->execute([$employeeId]);
-$employee = $employee->fetch();
-if (!$employee) {
-    http_response_code(404);
-    die('تعذر العثور على بيانات الموظف.');
-}
-$branchId = (int) $employee['branch_id'];
-
-$validTabs = ['dashboard', 'attendance', 'requests', 'ledger', 'profile'];
-$tab = $_GET['tab'] ?? 'dashboard';
-if (!in_array($tab, $validTabs, true)) {
-    $tab = 'dashboard';
-}
-
-/* ---------------------- معالجة النماذج (POST) ---------------------- */
-if (is_post() && ($_POST['form'] ?? '') !== 'login') {
-    csrf_verify();
-    $action = $_POST['action'] ?? '';
-    $redirectTab = $_POST['tab'] ?? $tab;
-
-    switch ($action) {
-        case 'check_in':
-            $today = date('Y-m-d');
-            $now = date('H:i:s');
-            $settingsRow = $pdo->query("SELECT work_start_time FROM settings ORDER BY id DESC LIMIT 1")->fetch();
-            $status = ($settingsRow && $now > $settingsRow['work_start_time']) ? 'late' : 'present';
-            $stmt = $pdo->prepare("INSERT INTO attendance (employee_id, branch_id, attendance_date, check_in, status)
-                VALUES (?, ?, ?, ?, ?)
-                ON DUPLICATE KEY UPDATE check_in=VALUES(check_in), status=VALUES(status)");
-            $stmt->execute([$employeeId, $branchId, $today, $now, $status]);
-            flash_set('success', 'تم تسجيل حضورك بنجاح.');
-            break;
-
-        case 'check_out':
-            $today = date('Y-m-d');
-            $now = date('H:i:s');
-            $stmt = $pdo->prepare("UPDATE attendance SET check_out=? WHERE employee_id=? AND attendance_date=?");
-            $stmt->execute([$now, $employeeId, $today]);
-            flash_set('success', 'تم تسجيل انصرافك بنجاح.');
-            break;
-
-        case 'request_submit':
-            $type = $_POST['type'] ?? '';
-            if (!in_array($type, ['leave', 'advance', 'complaint', 'resignation'], true)) {
-                flash_set('danger', 'نوع الطلب غير صالح.');
-                break;
-            }
-            $details = trim($_POST['details'] ?? '');
-            $amount = $type === 'advance' ? (float) ($_POST['amount'] ?? 0) : null;
-            $dateFrom = $type === 'leave' ? ($_POST['date_from'] ?: null) : null;
-            $dateTo = $type === 'leave' ? ($_POST['date_to'] ?: null) : null;
-
-            $stmt = $pdo->prepare("INSERT INTO requests (employee_id, branch_id, type, details, amount, date_from, date_to, status) VALUES (?, ?, ?, ?, ?, ?, ?, 'pending')");
-            $stmt->execute([$employeeId, $branchId, $type, $details, $amount, $dateFrom, $dateTo]);
-            flash_set('success', 'تم إرسال طلبك بنجاح، بانتظار المراجعة.');
-            break;
-
-        case 'ledger_save':
-            $delegated = $pdo->prepare("SELECT COUNT(*) FROM delegations WHERE branch_id=? AND delegated_employee_id=? AND status='active' AND CURDATE() BETWEEN start_date AND end_date");
-            $delegated->execute([$branchId, $employeeId]);
-            if (!$delegated->fetchColumn()) {
-                flash_set('danger', 'لا تملك صلاحية الكتابة في الإيجاز اليومي حالياً.');
-                break;
-            }
-            $entryType = $_POST['entry_type'] === 'expense' ? 'expense' : 'income';
-            $amount = (float) ($_POST['amount'] ?? 0);
-            $description = trim($_POST['description'] ?? '');
-            $entryDate = $_POST['entry_date'] ?: date('Y-m-d');
-            if ($amount <= 0) {
-                flash_set('danger', 'المبلغ يجب أن يكون أكبر من صفر.');
-                break;
-            }
-            $attachmentPath = null;
-            if (!empty($_FILES['attachment']) && $_FILES['attachment']['error'] === UPLOAD_ERR_OK) {
-                $ext = strtolower(pathinfo($_FILES['attachment']['name'], PATHINFO_EXTENSION));
-                if (in_array($ext, ['jpg', 'jpeg', 'png', 'pdf'], true)) {
-                    $dir = __DIR__ . '/uploads/ledger';
-                    if (!is_dir($dir)) { @mkdir($dir, 0755, true); }
-                    $filename = bin2hex(random_bytes(12)) . '.' . $ext;
-                    if (move_uploaded_file($_FILES['attachment']['tmp_name'], $dir . '/' . $filename)) {
-                        $attachmentPath = 'uploads/ledger/' . $filename;
-                    }
-                }
-            }
-            $stmt = $pdo->prepare("INSERT INTO daily_ledger (branch_id, entry_date, entry_type, amount, description, attachment, created_by) VALUES (?, ?, ?, ?, ?, ?, ?)");
-            $stmt->execute([$branchId, $entryDate, $entryType, $amount, $description, $attachmentPath, $currentUser['id']]);
-            flash_set('success', 'تم إضافة القيد بصلاحية التفويض.');
-            break;
-    }
-
-    header('Location: /employee.php?tab=' . $redirectTab);
-    exit;
-}
-
-/* ---------------------- تجهيز بيانات كل تبويب ---------------------- */
-$today = date('Y-m-d');
-$stmt = $pdo->prepare("SELECT * FROM attendance WHERE employee_id=? AND attendance_date=?");
-$stmt->execute([$employeeId, $today]);
-$todayAttendance = $stmt->fetch();
-
-$stmt = $pdo->prepare("SELECT COUNT(*) FROM notifications WHERE user_id=? AND is_read=0");
-$stmt->execute([$currentUser['id']]);
-$unreadNotifications = (int) $stmt->fetchColumn();
-
-$delegatedStmt = $pdo->prepare("SELECT COUNT(*) FROM delegations WHERE branch_id=? AND delegated_employee_id=? AND status='active' AND CURDATE() BETWEEN start_date AND end_date");
-$delegatedStmt->execute([$branchId, $employeeId]);
-$canWriteLedger = (bool) $delegatedStmt->fetchColumn();
-
-if ($tab === 'dashboard') {
-    $monthStart = date('Y-m-01');
-    $stmt = $pdo->prepare("SELECT
-        SUM(status IN ('present','late')) AS present_days,
-        SUM(status='absent') AS absent_days,
-        COUNT(*) AS total_days
-        FROM attendance WHERE employee_id=? AND attendance_date >= ?");
-    $stmt->execute([$employeeId, $monthStart]);
-    $commitment = $stmt->fetch();
-    $totalDays = max(1, (int) ($commitment['total_days'] ?? 0));
-    $commitmentPct = round((((int)($commitment['present_days'] ?? 0)) / $totalDays) * 100);
-
-    $stmt = $pdo->prepare("SELECT * FROM notifications WHERE user_id=? ORDER BY created_at DESC LIMIT 5");
-    $stmt->execute([$currentUser['id']]);
-    $notifications = $stmt->fetchAll();
-
-    $stmt = $pdo->prepare("SELECT e.id, e.full_name, b.name AS branch_name,
-        ROUND(SUM(a.status IN ('present','late')) / GREATEST(COUNT(a.id),1) * 100) AS pct
-        FROM employees e JOIN branches b ON b.id=e.branch_id
-        LEFT JOIN attendance a ON a.employee_id=e.id AND a.attendance_date >= ?
-        WHERE e.status='active'
-        GROUP BY e.id, e.full_name, b.name
-        HAVING COUNT(a.id) > 0
-        ORDER BY pct DESC LIMIT 3");
-    $stmt->execute([$monthStart]);
-    $honorRoll = $stmt->fetchAll();
-}
-
-if ($tab === 'attendance') {
-    $stmt = $pdo->prepare("SELECT * FROM attendance WHERE employee_id=? ORDER BY attendance_date DESC LIMIT 20");
-    $stmt->execute([$employeeId]);
-    $attendanceHistory = $stmt->fetchAll();
-}
-
-if ($tab === 'requests') {
-    $stmt = $pdo->prepare("SELECT * FROM requests WHERE employee_id=? ORDER BY created_at DESC");
-    $stmt->execute([$employeeId]);
-    $myRequests = $stmt->fetchAll();
-}
-
-if ($tab === 'ledger') {
-    $stmt = $pdo->prepare("SELECT * FROM daily_ledger WHERE branch_id=? AND entry_date=? ORDER BY created_at DESC");
-    $stmt->execute([$branchId, $today]);
-    $branchLedgerToday = $stmt->fetchAll();
-    $ledgerIncome = array_sum(array_map(fn($r) => $r['entry_type']==='income' ? (float)$r['amount'] : 0, $branchLedgerToday));
-    $ledgerExpense = array_sum(array_map(fn($r) => $r['entry_type']==='expense' ? (float)$r['amount'] : 0, $branchLedgerToday));
-}
-
-if ($tab === 'profile') {
-    $month = (int) date('n');
-    $year = (int) date('Y');
-    $stmt = $pdo->prepare("SELECT * FROM payroll WHERE employee_id=? AND period_month=? AND period_year=?");
-    $stmt->execute([$employeeId, $month, $year]);
-    $payrollRow = $stmt->fetch();
-}
-
-$pageTitle = 'نافذة الموظف';
-$typeLabels = ['leave' => 'إجازة', 'advance' => 'سلفة', 'complaint' => 'شكوى', 'resignation' => 'استقالة'];
-$statusLabels = ['pending' => ['بانتظار المراجعة', 'warning'], 'approved' => ['مقبول', 'success'], 'rejected' => ['مرفوض', 'danger']];
+$isLoggedIn = !empty($_SESSION['employee_user']);
 
 /* ======================================================================
-   الواجهة (HTML / CSS View)
+   نقاط AJAX — كل الوظائف الحقيقية للنظام
    ====================================================================== */
+if (isset($_GET['ajax'])) {
+    header('Content-Type: application/json; charset=utf-8');
+    $action = $_GET['ajax'];
+
+    try {
+        $pdo = db();
+    } catch (Throwable $ex) {
+        echo json_encode(['ok' => false, 'error' => 'تعذر الاتصال بقاعدة البيانات']);
+        exit;
+    }
+
+    if ($action === 'login') {
+        $employeeNumber = trim($_POST['employeeNumber'] ?? '');
+        $password = (string) ($_POST['password'] ?? '');
+        $stmt = $pdo->prepare("SELECT u.*, e.full_name, e.employee_number, e.branch_id AS emp_branch_id FROM users u
+            JOIN employees e ON e.id = u.employee_id
+            WHERE u.username = ? AND u.role = 'employee' AND u.status = 'active' LIMIT 1");
+        $stmt->execute([$employeeNumber]);
+        $row = $stmt->fetch();
+        if ($row && password_verify($password, $row['password_hash'])) {
+            $_SESSION['employee_user'] = [
+                'id' => (int) $row['id'],
+                'employee_id' => (int) $row['employee_id'],
+                'branch_id' => (int) $row['branch_id'],
+                'full_name' => $row['full_name'],
+                'employee_number' => $row['employee_number'],
+            ];
+            echo json_encode(['ok' => true]);
+        } else {
+            echo json_encode(['ok' => false, 'error' => 'رقم التوظيف أو الرمز السري غير صحيح']);
+        }
+        exit;
+    }
+
+    if ($action === 'logout') {
+        $_SESSION = [];
+        session_destroy();
+        echo json_encode(['ok' => true]);
+        exit;
+    }
+
+    if (empty($_SESSION['employee_user'])) {
+        http_response_code(401);
+        echo json_encode(['ok' => false, 'error' => 'unauthorized']);
+        exit;
+    }
+    $emp = $_SESSION['employee_user'];
+    $employeeId = $emp['employee_id'];
+    $branchId = $emp['branch_id'];
+
+    switch ($action) {
+
+        case 'bootstrap': {
+            $empRow = $pdo->prepare("SELECT e.*, b.name AS branch_name, b.latitude, b.longitude, b.geofence_radius
+                FROM employees e JOIN branches b ON b.id = e.branch_id WHERE e.id = ?");
+            $empRow->execute([$employeeId]);
+            $empRow = $empRow->fetch();
+
+            $settingsRow = $pdo->query("SELECT work_start_time, work_end_time, late_grace_minutes FROM settings ORDER BY id DESC LIMIT 1")->fetch();
+            $shiftStart = $empRow['shift_start'] ?: ($settingsRow['work_start_time'] ?? '09:00:00');
+            $shiftEnd = $empRow['shift_end'] ?: ($settingsRow['work_end_time'] ?? '15:00:00');
+            $graceMinutes = (int) ($settingsRow['late_grace_minutes'] ?? 15);
+
+            $today = date('Y-m-d');
+            $todayAttStmt = $pdo->prepare("SELECT check_in, check_out, status FROM attendance WHERE employee_id=? AND attendance_date=?");
+            $todayAttStmt->execute([$employeeId, $today]);
+            $todayAtt = $todayAttStmt->fetch();
+
+            $monthStart = date('Y-m-01');
+            $commitStmt = $pdo->prepare("SELECT SUM(status IN ('present','late')) AS present_days, COUNT(*) AS total_days
+                FROM attendance WHERE employee_id=? AND attendance_date >= ?");
+            $commitStmt->execute([$employeeId, $monthStart]);
+            $commit = $commitStmt->fetch();
+            $totalDays = max(1, (int) ($commit['total_days'] ?? 0));
+            $commitmentPct = round((((int) ($commit['present_days'] ?? 0)) / $totalDays) * 100);
+
+            $pendingReq = $pdo->prepare("SELECT COUNT(*) FROM requests WHERE employee_id=? AND status IN ('pending','branch_approved')");
+            $pendingReq->execute([$employeeId]);
+
+            $unreadNotif = $pdo->prepare("SELECT COUNT(*) FROM notifications WHERE user_id=? AND is_read=0");
+            $unreadNotif->execute([$emp['id']]);
+
+            $topStmt = $pdo->query("
+                SELECT e.id, e.full_name AS name, e.photo, b.name AS branch,
+                       ROUND(SUM(a.status IN ('present','late')) / GREATEST(COUNT(a.id),1) * 100) AS rate
+                FROM employees e JOIN branches b ON b.id = e.branch_id
+                LEFT JOIN attendance a ON a.employee_id = e.id AND a.attendance_date >= DATE_FORMAT(CURDATE(), '%Y-%m-01')
+                WHERE e.status = 'active'
+                GROUP BY e.id, e.full_name, e.photo, b.name
+                HAVING COUNT(a.id) > 0
+                ORDER BY rate DESC LIMIT 3
+            ");
+            $medals = ['🥇', '🥈', '🥉'];
+            $honorRoll = [];
+            foreach ($topStmt->fetchAll() as $i => $r) {
+                $honorRoll[] = ['name' => $r['name'], 'branch' => $r['branch'], 'photo' => $r['photo'] ?: null, 'rate' => (int) $r['rate'], 'medal' => $medals[$i]];
+            }
+
+            $month = (int) date('n');
+            $year = (int) date('Y');
+            $payStmt = $pdo->prepare("SELECT bonus, deduction FROM payroll WHERE employee_id=? AND period_month=? AND period_year=?");
+            $payStmt->execute([$employeeId, $month, $year]);
+            $pay = $payStmt->fetch();
+
+            $todayStatusText = 'لم يسجل بعد';
+            if ($todayAtt) {
+                if ($todayAtt['check_in'] && $todayAtt['check_out']) $todayStatusText = '✓ حضور وانصراف';
+                elseif ($todayAtt['check_in']) $todayStatusText = ($todayAtt['status'] === 'late') ? '⏰ تأخير' : '✓ حضور';
+            }
+
+            $recentStmt = $pdo->prepare("SELECT attendance_date, check_in, check_out, status FROM attendance WHERE employee_id=? ORDER BY attendance_date DESC LIMIT 5");
+            $recentStmt->execute([$employeeId]);
+            $recentAttendance = array_map(function ($r) {
+                return [
+                    'date' => date('d/m/Y', strtotime($r['attendance_date'])),
+                    'checkIn' => $r['check_in'] ? substr($r['check_in'], 0, 5) : null,
+                    'checkOut' => $r['check_out'] ? substr($r['check_out'], 0, 5) : null,
+                    'late' => $r['status'] === 'late',
+                ];
+            }, $recentStmt->fetchAll());
+
+            echo json_encode([
+                'ok' => true,
+                'profile' => [
+                    'name' => $empRow['full_name'],
+                    'code' => $empRow['employee_number'],
+                    'title' => $empRow['job_title'],
+                    'branch' => $empRow['branch_name'],
+                    'photo' => $empRow['photo'] ?: null,
+                    'hireDate' => $empRow['hire_date'],
+                    'baseSalary' => (float) $empRow['base_salary'],
+                    'shiftTypeText' => $empRow['shift_type'] === 'evening' ? 'مطبق' : 'غير مطبق',
+                    'adminDeduction' => (float) ($pay['deduction'] ?? 0),
+                    'adminBonus' => (float) ($pay['bonus'] ?? 0),
+                ],
+                'stats' => [
+                    'commitmentPct' => $commitmentPct,
+                    'todayStatus' => $todayStatusText,
+                    'pendingRequests' => (int) $pendingReq->fetchColumn(),
+                    'unreadNotifications' => (int) $unreadNotif->fetchColumn(),
+                ],
+                'honorRoll' => $honorRoll,
+                'recentAttendance' => $recentAttendance,
+                'branchLocation' => [
+                    'lat' => $empRow['latitude'] ? (float) $empRow['latitude'] : null,
+                    'lng' => $empRow['longitude'] ? (float) $empRow['longitude'] : null,
+                    'radius' => (int) $empRow['geofence_radius'],
+                ],
+                'shift' => [
+                    'start' => substr($shiftStart, 0, 5),
+                    'end' => substr($shiftEnd, 0, 5),
+                    'graceMinutes' => $graceMinutes,
+                ],
+                'todayAttendance' => [
+                    'checkedIn' => (bool) ($todayAtt['check_in'] ?? false),
+                    'checkedOut' => (bool) ($todayAtt['check_out'] ?? false),
+                    'checkInTime' => $todayAtt['check_in'] ? substr($todayAtt['check_in'], 0, 5) : null,
+                    'checkOutTime' => $todayAtt['check_out'] ? substr($todayAtt['check_out'], 0, 5) : null,
+                ],
+            ], JSON_UNESCAPED_UNICODE);
+            exit;
+        }
+
+        case 'notifications_list': {
+            $stmt = $pdo->prepare("SELECT id, title, message, is_read, DATE_FORMAT(created_at,'%d/%m/%Y %H:%i') AS date FROM notifications WHERE user_id=? ORDER BY created_at DESC LIMIT 30");
+            $stmt->execute([$emp['id']]);
+            $rows = $stmt->fetchAll();
+            $unread = $pdo->prepare("SELECT COUNT(*) FROM notifications WHERE user_id=? AND is_read=0");
+            $unread->execute([$emp['id']]);
+            echo json_encode(['ok' => true, 'notifications' => $rows, 'unread' => (int) $unread->fetchColumn()], JSON_UNESCAPED_UNICODE);
+            exit;
+        }
+
+        case 'notifications_mark_all_read': {
+            $pdo->prepare("UPDATE notifications SET is_read=1 WHERE user_id=?")->execute([$emp['id']]);
+            echo json_encode(['ok' => true]);
+            exit;
+        }
+
+        case 'attendance_self': {
+            $type = ($_POST['type'] ?? '') === 'out' ? 'out' : 'in';
+            $lat = (float) ($_POST['lat'] ?? 0);
+            $lng = (float) ($_POST['lng'] ?? 0);
+
+            $branch = $pdo->prepare("SELECT latitude, longitude, geofence_radius FROM branches WHERE id=?");
+            $branch->execute([$branchId]);
+            $branch = $branch->fetch();
+            if (!$branch['latitude'] || !$branch['longitude']) {
+                echo json_encode(['ok' => false, 'error' => 'لم يتم تحديد موقع الفرع بعد من قبل الإدارة']);
+                exit;
+            }
+            $dist = distance_meters((float) $branch['latitude'], (float) $branch['longitude'], $lat, $lng);
+            if ($dist > (int) $branch['geofence_radius']) {
+                echo json_encode(['ok' => false, 'error' => 'أنت خارج نطاق الفرع (المسافة: ' . round($dist) . 'م)']);
+                exit;
+            }
+
+            $today = date('Y-m-d');
+            $now = date('H:i:s');
+            if ($type === 'in') {
+                $existing = $pdo->prepare("SELECT check_in FROM attendance WHERE employee_id=? AND attendance_date=?");
+                $existing->execute([$employeeId, $today]);
+                if ($existing->fetchColumn()) {
+                    echo json_encode(['ok' => false, 'error' => 'تم تسجيل حضورك اليوم مسبقاً']);
+                    exit;
+                }
+                $settingsRow = $pdo->query("SELECT work_start_time, late_grace_minutes FROM settings ORDER BY id DESC LIMIT 1")->fetch();
+                $status = is_late($now, $settingsRow) ? 'late' : 'present';
+                $stmt = $pdo->prepare("INSERT INTO attendance (employee_id, branch_id, attendance_date, check_in, status)
+                    VALUES (?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE check_in=VALUES(check_in), status=VALUES(status)");
+                $stmt->execute([$employeeId, $branchId, $today, $now, $status]);
+            } else {
+                $checkedIn = $pdo->prepare("SELECT check_in, check_out FROM attendance WHERE employee_id=? AND attendance_date=?");
+                $checkedIn->execute([$employeeId, $today]);
+                $checkedIn = $checkedIn->fetch();
+                if (!$checkedIn || !$checkedIn['check_in']) {
+                    echo json_encode(['ok' => false, 'error' => 'يجب تسجيل الحضور أولاً']);
+                    exit;
+                }
+                if ($checkedIn['check_out']) {
+                    echo json_encode(['ok' => false, 'error' => 'تم تسجيل انصرافك اليوم مسبقاً']);
+                    exit;
+                }
+                $pdo->prepare("UPDATE attendance SET check_out=? WHERE employee_id=? AND attendance_date=?")->execute([$now, $employeeId, $today]);
+            }
+            echo json_encode(['ok' => true, 'time' => substr($now, 0, 5)]);
+            exit;
+        }
+
+        case 'my_requests': {
+            $stmt = $pdo->prepare("SELECT * FROM requests WHERE employee_id=? ORDER BY created_at DESC LIMIT 50");
+            $stmt->execute([$employeeId]);
+            $rows = array_map(function ($r) {
+                $details = $r['details'];
+                if ($r['type'] === 'advance' && $r['amount']) {
+                    $details = number_format((float) $r['amount']) . ' د.ع';
+                } elseif (in_array($r['type'], ['leave', 'resignation'], true) && $r['date_from']) {
+                    $details = $r['date_from'] . ' إلى ' . $r['date_to'];
+                }
+                $responseText = null;
+                if ($r['status'] === 'branch_approved') {
+                    $responseText = 'تمت الموافقة من مدير الفرع' . ($r['branch_reviewed_at'] ? (' في ' . date('d/m/Y', strtotime($r['branch_reviewed_at']))) : '') . ($r['branch_review_note'] ? (' — ' . $r['branch_review_note']) : '');
+                } elseif ($r['status'] === 'approved') {
+                    $responseText = 'تمت الموافقة النهائية من الموارد البشرية' . ($r['hr_reviewed_at'] ? (' في ' . date('d/m/Y', strtotime($r['hr_reviewed_at']))) : '') . ($r['hr_review_note'] ? (' — ' . $r['hr_review_note']) : '');
+                } elseif ($r['status'] === 'rejected') {
+                    $by = $r['hr_reviewed_at'] ? 'الموارد البشرية' : 'مدير الفرع';
+                    $at = $r['hr_reviewed_at'] ?: $r['branch_reviewed_at'];
+                    $note = $r['hr_review_note'] ?: $r['branch_review_note'];
+                    $responseText = 'تم الرفض من ' . $by . ($at ? (' في ' . date('d/m/Y', strtotime($at))) : '') . ($note ? (' — ' . $note) : '');
+                } else {
+                    $responseText = 'بانتظار مراجعة مدير الفرع';
+                }
+                return [
+                    'id' => (int) $r['id'],
+                    'type' => request_type_ar_emp($r['type']),
+                    'details' => $details ?: '-',
+                    'status' => $r['status'],
+                    'statusText' => request_status_ar_emp($r['status']),
+                    'responseText' => $responseText,
+                ];
+            }, $stmt->fetchAll());
+            echo json_encode(['ok' => true, 'requests' => $rows], JSON_UNESCAPED_UNICODE);
+            exit;
+        }
+
+        case 'submit_request': {
+            $typeAr = trim($_POST['requestType'] ?? '');
+            $type = request_type_en($typeAr);
+            $amount = null;
+            $dateFrom = null;
+            $dateTo = null;
+            $details = trim($_POST['reason'] ?? '');
+
+            if ($type === 'leave') {
+                $leaveType = trim($_POST['leaveType'] ?? '');
+                $dateFrom = $_POST['startDate'] ?: null;
+                $dateTo = $_POST['endDate'] ?: null;
+                $details = 'إجازة ' . $leaveType . ($details ? (' — ' . $details) : '');
+                if (!$dateFrom || !$dateTo || $details === '') {
+                    echo json_encode(['ok' => false, 'error' => 'الرجاء تعبئة جميع الحقول المطلوبة']);
+                    exit;
+                }
+            } elseif ($type === 'advance') {
+                $amount = (float) ($_POST['loanAmount'] ?? 0);
+                $installments = trim($_POST['installments'] ?? '');
+                $notes = trim($_POST['notes'] ?? '');
+                $details .= ' (عدد الدفعات: ' . $installments . ')' . ($notes ? (' — ' . $notes) : '');
+                if ($amount <= 0 || trim($_POST['reason'] ?? '') === '') {
+                    echo json_encode(['ok' => false, 'error' => 'الرجاء تعبئة جميع الحقول المطلوبة']);
+                    exit;
+                }
+            } elseif ($type === 'complaint') {
+                $title = trim($_POST['complaintTitle'] ?? '');
+                $details = $title . ($details ? (' — ' . $details) : '');
+                if ($title === '' || trim($_POST['reason'] ?? '') === '') {
+                    echo json_encode(['ok' => false, 'error' => 'الرجاء تعبئة جميع الحقول المطلوبة']);
+                    exit;
+                }
+            } elseif ($type === 'resignation') {
+                $dateFrom = $_POST['resignDate'] ?: null;
+                $dateTo = $_POST['lastDay'] ?: null;
+                $notes = trim($_POST['notes'] ?? '');
+                $details .= $notes ? (' — ' . $notes) : '';
+                if (!$dateFrom || !$dateTo || trim($_POST['reason'] ?? '') === '') {
+                    echo json_encode(['ok' => false, 'error' => 'الرجاء تعبئة جميع الحقول المطلوبة']);
+                    exit;
+                }
+            }
+
+            $stmt = $pdo->prepare("INSERT INTO requests (employee_id, branch_id, type, details, amount, date_from, date_to, status)
+                VALUES (?, ?, ?, ?, ?, ?, ?, 'pending')");
+            $stmt->execute([$employeeId, $branchId, $type, $details, $amount, $dateFrom, $dateTo]);
+
+            $mgrUids = $pdo->prepare("SELECT id FROM users WHERE role='branch_manager' AND branch_id=?");
+            $mgrUids->execute([$branchId]);
+            foreach ($mgrUids->fetchAll(PDO::FETCH_COLUMN) as $uid) {
+                $pdo->prepare("INSERT INTO notifications (user_id, title, message) VALUES (?, 'طلب جديد بانتظار المراجعة', ?)")
+                    ->execute([$uid, 'قدّم ' . $emp['full_name'] . ' طلب ' . request_type_ar_emp($type) . ' بانتظار مراجعتك']);
+            }
+
+            echo json_encode(['ok' => true]);
+            exit;
+        }
+
+        case 'commitment': {
+            $monthStart = date('Y-m-01');
+            $stmt = $pdo->prepare("SELECT status, COUNT(*) AS c FROM attendance WHERE employee_id=? AND attendance_date >= ? GROUP BY status");
+            $stmt->execute([$employeeId, $monthStart]);
+            $present = 0; $late = 0; $absent = 0;
+            foreach ($stmt->fetchAll() as $r) {
+                if ($r['status'] === 'present') $present = (int) $r['c'];
+                elseif ($r['status'] === 'late') $late = (int) $r['c'];
+                elseif ($r['status'] === 'absent') $absent = (int) $r['c'];
+            }
+            $total = max(1, $present + $late + $absent);
+            $pct = round((($present + $late) / $total) * 100);
+
+            $prevMonthStart = date('Y-m-01', strtotime('-1 month'));
+            $prevMonthEnd = date('Y-m-t', strtotime('-1 month'));
+            $prevStmt = $pdo->prepare("SELECT SUM(status IN ('present','late')) AS ok_days, COUNT(*) AS total_days
+                FROM attendance WHERE employee_id=? AND attendance_date BETWEEN ? AND ?");
+            $prevStmt->execute([$employeeId, $prevMonthStart, $prevMonthEnd]);
+            $prev = $prevStmt->fetch();
+            $prevTotal = max(1, (int) ($prev['total_days'] ?? 0));
+            $prevPct = (int) ($prev['total_days'] ?? 0) > 0 ? round((((int) ($prev['ok_days'] ?? 0)) / $prevTotal) * 100) : 0;
+
+            $rating = 'ضعيف';
+            if ($pct >= 90) $rating = 'ممتاز';
+            elseif ($pct >= 75) $rating = 'جيد جداً';
+            elseif ($pct >= 60) $rating = 'جيد';
+
+            echo json_encode([
+                'ok' => true,
+                'pct' => $pct,
+                'previousPct' => $prevPct,
+                'rating' => $rating,
+                'presentDays' => $present,
+                'lateDays' => $late,
+                'absentDays' => $absent,
+                'totalDays' => $present + $late + $absent,
+            ], JSON_UNESCAPED_UNICODE);
+            exit;
+        }
+
+        case 'salary': {
+            $month = (int) date('n');
+            $year = (int) date('Y');
+            $stmt = $pdo->prepare("SELECT * FROM payroll WHERE employee_id=? AND period_month=? AND period_year=?");
+            $stmt->execute([$employeeId, $month, $year]);
+            $pay = $stmt->fetch();
+
+            $empRow = $pdo->prepare("SELECT base_salary FROM employees WHERE id=?");
+            $empRow->execute([$employeeId]);
+            $baseSalary = (float) $empRow->fetchColumn();
+
+            $bonus = $pay ? (float) $pay['bonus'] : 0.0;
+            $deduction = $pay ? (float) $pay['deduction'] : 0.0;
+            $base = $pay ? (float) $pay['base_salary'] : $baseSalary;
+            $net = $base + $bonus - $deduction;
+            $statusText = !$pay ? 'لم يُحتسب بعد' : ($pay['status'] === 'delivered' ? 'تم التسليم' : 'قيد المعالجة');
+
+            echo json_encode([
+                'ok' => true,
+                'month' => $month,
+                'year' => $year,
+                'baseSalary' => $base,
+                'adminBonus' => $bonus,
+                'adminDeduction' => $deduction,
+                'net' => $net,
+                'statusText' => $statusText,
+            ], JSON_UNESCAPED_UNICODE);
+            exit;
+        }
+
+        case 'branch_briefing': {
+            $branchName = $pdo->prepare("SELECT name FROM branches WHERE id=?");
+            $branchName->execute([$branchId]);
+            $branchName = $branchName->fetchColumn();
+
+            $stmt = $pdo->prepare("SELECT * FROM daily_briefs WHERE branch_id=? AND brief_date=CURDATE()");
+            $stmt->execute([$branchId]);
+            $brief = $stmt->fetch();
+
+            if (!$brief) {
+                echo json_encode(['ok' => true, 'exists' => false, 'branch' => $branchName, 'date' => date('d / m / Y')]);
+                exit;
+            }
+
+            echo json_encode([
+                'ok' => true,
+                'exists' => true,
+                'branch' => $branchName,
+                'date' => date('d / m / Y'),
+                'totalIncome' => (float) $brief['total_income'],
+                'totalExpense' => (float) $brief['total_expense'],
+                'travelersCount' => (int) $brief['travelers_count'],
+                'profit' => (float) $brief['total_income'] - (float) $brief['total_expense'],
+            ], JSON_UNESCAPED_UNICODE);
+            exit;
+        }
+    }
+
+    echo json_encode(['ok' => false, 'error' => 'unknown action']);
+    exit;
+}
 ?>
 <!DOCTYPE html>
 <html lang="ar" dir="rtl">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title><?= e($pageTitle) ?></title>
-<style>
-@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@400;500;600;700&family=Tajawal:wght@400;500;700;800&display=swap');
-:root{--primary:#006b73;--primary-light:#0A8A94;--primary-dark:#004b52;--primary-gradient:linear-gradient(135deg,#006b73 0%,#0A8A94 100%);--accent:#c99a3d;--green:#159447;--red:#df4b4b;--orange:#d98c1a;--bg:#F0F4F8;--bg-card:#FFFFFF;--border:#E1E8ED;--text:#1A2E35;--text-secondary:#4A6A78;--text-muted:#8AA0B0;--radius-sm:8px;--radius-md:14px;--radius-lg:20px;--radius-full:9999px;--shadow-sm:0 2px 8px rgba(0,107,115,.06);--shadow-md:0 4px 20px rgba(0,107,115,.08);}
-*{box-sizing:border-box;}
-html,body{margin:0;padding:0;min-height:100%;}
-body{font-family:'IBM Plex Sans Arabic','Tajawal',sans-serif;background:var(--bg);color:var(--text);direction:rtl;text-align:right;min-height:100vh;}
-a{color:inherit;text-decoration:none;} ul{list-style:none;margin:0;padding:0;}
-.form-group{margin-bottom:16px;} label{display:block;font-size:13px;color:var(--text-secondary);margin-bottom:6px;font-weight:500;}
-.form-control,select.form-control,textarea.form-control{width:100%;padding:11px 14px;border-radius:var(--radius-sm);border:1.5px solid var(--border);background:#fff;color:var(--text);font-family:inherit;font-size:14px;outline:none;transition:border-color .2s;}
-.form-control:focus{border-color:var(--primary);}
-.btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;padding:11px 20px;border-radius:var(--radius-sm);border:none;font-family:inherit;font-weight:600;font-size:14px;cursor:pointer;transition:transform .1s;}
-.btn:active{transform:scale(.98);}
-.btn-primary{background:var(--primary-gradient);color:#fff;box-shadow:0 4px 14px rgba(0,107,115,.25);}
-.btn-secondary{background:#EFF3F6;color:var(--text);border:1.5px solid var(--border);}
-.btn-danger{background:var(--red);color:#fff;} .btn-success{background:var(--green);color:#fff;}
-.btn:disabled{opacity:.5;cursor:not-allowed;}
-.alert{padding:12px 16px;border-radius:var(--radius-sm);font-size:13px;margin-bottom:16px;border:1px solid transparent;}
-.alert-danger{background:#FCEAEA;border-color:#F6C6C6;color:#B23A3A;}
-.alert-success{background:#E8F6EE;border-color:#B9E4C9;color:#0E6B34;}
-.app-shell{display:flex;min-height:100vh;}
-.sidebar{width:260px;flex-shrink:0;background:var(--bg-card);border-left:1px solid var(--border);padding:22px 16px;position:sticky;top:0;height:100vh;overflow-y:auto;}
-.sidebar-brand{display:flex;align-items:center;gap:10px;padding:0 6px 20px;border-bottom:1px solid var(--border);margin-bottom:16px;}
-.sidebar-brand .mark{font-size:26px;color:var(--accent);} .sidebar-brand .name{font-weight:800;font-size:15px;color:var(--primary-dark);} .sidebar-brand .role{font-size:11px;color:var(--text-muted);}
-.nav-link{display:flex;align-items:center;gap:10px;padding:10px 12px;border-radius:var(--radius-sm);font-size:13.5px;color:var(--text-secondary);margin-bottom:2px;font-weight:500;}
-.nav-link:hover{background:#EFF6F7;color:var(--primary);}
-.nav-link.active{background:var(--primary);color:#fff;font-weight:700;box-shadow:var(--shadow-sm);}
-.nav-link .icon{font-size:16px;width:20px;text-align:center;}
-.sidebar-footer{margin-top:18px;padding-top:14px;border-top:1px solid var(--border);}
-.main{flex:1;min-width:0;padding:26px 30px 60px;}
-.topbar{display:flex;align-items:center;justify-content:space-between;margin-bottom:22px;flex-wrap:wrap;gap:12px;}
-.topbar h1{font-size:20px;margin:0;color:var(--primary-dark);} .topbar .sub{color:var(--text-muted);font-size:12.5px;margin-top:4px;}
-.user-chip{display:flex;align-items:center;gap:10px;background:#fff;border:1px solid var(--border);padding:8px 14px;border-radius:var(--radius-full);font-size:13px;box-shadow:var(--shadow-sm);}
-.user-chip .avatar{width:30px;height:30px;border-radius:50%;background:var(--primary-gradient);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:13px;}
-.stat-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:16px;margin-bottom:24px;}
-.stat-card{background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius-md);padding:18px 20px;box-shadow:var(--shadow-sm);}
-.stat-card .label{color:var(--text-muted);font-size:12.5px;margin-bottom:8px;} .stat-card .value{font-size:26px;font-weight:800;color:var(--primary-dark);}
-.card{background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius-lg);padding:20px 22px;margin-bottom:20px;box-shadow:var(--shadow-sm);}
-.card-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;flex-wrap:wrap;gap:10px;} .card-header h2{font-size:16px;margin:0;color:var(--primary-dark);}
-.table-wrap{overflow-x:auto;} table.data-table{width:100%;border-collapse:collapse;font-size:13.5px;}
-.data-table th,.data-table td{padding:12px 10px;text-align:right;border-bottom:1px solid var(--border);white-space:nowrap;}
-.data-table th{color:var(--text-muted);font-weight:600;font-size:12.5px;} .data-table tbody tr:hover{background:#F7FAFB;}
-.badge{display:inline-block;padding:4px 10px;border-radius:var(--radius-full);font-size:11.5px;font-weight:700;}
-.badge-success{background:#E8F6EE;color:var(--green);} .badge-danger{background:#FCEAEA;color:var(--red);}
-.badge-warning{background:#FCF2E3;color:var(--orange);} .badge-muted{background:#EEF1F3;color:var(--text-muted);}
-.grid-2{display:grid;grid-template-columns:1fr 1fr;gap:14px;} .grid-3{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;}
-.empty-state{text-align:center;padding:40px 10px;color:var(--text-muted);} .empty-state .icon{font-size:34px;margin-bottom:10px;}
-.menu-toggle{display:none;background:var(--bg-card);border:1px solid var(--border);color:var(--text);border-radius:8px;padding:8px 12px;cursor:pointer;}
-.honor-list{display:flex;flex-direction:column;gap:10px;}
-.honor-item{display:flex;align-items:center;gap:12px;padding:12px 14px;border-radius:var(--radius-md);background:#F7FAFB;border:1px solid var(--border);}
-.honor-item.me{background:#E6F4F5;border-color:var(--primary-light);}
-.honor-item .medal{font-size:22px;} .honor-item .name{font-weight:700;flex:1;} .honor-item .pct{font-weight:800;color:var(--primary);}
-.bottom-nav{display:none;}
-@media (max-width:720px){.grid-2,.grid-3{grid-template-columns:1fr;} .sidebar{position:fixed;right:-280px;z-index:50;transition:right .2s;} .sidebar.open{right:0;} .main{padding:18px 16px 90px;} .menu-toggle{display:inline-flex;}
-.bottom-nav{display:flex;position:fixed;bottom:0;right:0;left:0;background:#fff;border-top:1px solid var(--border);box-shadow:0 -4px 16px rgba(0,107,115,.08);z-index:40;padding:8px 4px;}
-.bottom-nav a{flex:1;display:flex;flex-direction:column;align-items:center;gap:2px;padding:6px 2px;font-size:10.5px;color:var(--text-muted);}
-.bottom-nav a .icon{font-size:18px;} .bottom-nav a.active{color:var(--primary);font-weight:700;}}
-</style>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>شركة الصوى للصرافة - نافذة الموظف</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">
+    <style>
+        /* ============================================================
+           الأنماط الأساسية
+           ============================================================ */
+        :root {
+            --primary: #006b73;
+            --primary-light: #0A8A94;
+            --primary-dark: #004b52;
+            --primary-gradient: linear-gradient(135deg, #006b73 0%, #0A8A94 100%);
+            --accent: #c99a3d;
+            --bg: #F5F7FA;
+            --bg-card: #FFFFFF;
+            --text-primary: #1A2E35;
+            --text-secondary: #4A6A78;
+            --text-muted: #8AA0B0;
+            --shadow-sm: 0 2px 8px rgba(0,107,115,0.04);
+            --shadow-md: 0 4px 20px rgba(0,107,115,0.06);
+            --shadow-lg: 0 8px 40px rgba(0,107,115,0.08);
+            --shadow-xl: 0 12px 56px rgba(0,107,115,0.10);
+            --radius-sm: 8px;
+            --radius-md: 14px;
+            --radius-lg: 20px;
+            --radius-full: 9999px;
+            --font-family: 'IBM Plex Sans Arabic', 'Tajawal', sans-serif;
+            --transition-base: 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            --header-height: 64px;
+            --nav-height: 72px;
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            font-family: var(--font-family);
+            background: var(--bg);
+            color: var(--text-primary);
+            min-height: 100vh;
+            padding-bottom: calc(var(--nav-height) + 20px);
+            transition: background var(--transition-base), color var(--transition-base);
+            -webkit-font-smoothing: antialiased;
+            font-size: 14px;
+        }
+
+        .hidden { display: none !important; }
+
+        /* ============================================================
+           شاشة الترحيب
+           ============================================================ */
+        .welcome-screen {
+            position: fixed;
+            inset: 0;
+            z-index: 9999;
+            background: #004b52;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            animation: fadeIn 0.8s ease;
+            transition: opacity 0.8s ease, transform 0.8s ease;
+        }
+        .welcome-screen.fade-out {
+            opacity: 0;
+            transform: scale(1.05);
+            pointer-events: none;
+        }
+        @keyframes fadeIn {
+            0% { opacity: 0; transform: scale(1.02); }
+            100% { opacity: 1; transform: scale(1); }
+        }
+
+        .welcome-screen .welcome-image {
+            width: 100%;
+            height: calc(100% - 80px);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            overflow: hidden;
+        }
+        .welcome-screen .welcome-image img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+
+        .welcome-loader {
+            width: 100%;
+            height: 80px;
+            background: rgba(0, 0, 0, 0.4);
+            backdrop-filter: blur(10px);
+            -webkit-backdrop-filter: blur(10px);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding: 12px 24px;
+            gap: 6px;
+            border-top: 1px solid rgba(255,255,255,0.06);
+        }
+        .welcome-loader .loader-label {
+            color: rgba(255,255,255,0.8);
+            font-size: 13px;
+            font-weight: 500;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        .welcome-loader .loader-label i { color: var(--accent); }
+        .welcome-loader .loader-bar-wrapper {
+            width: 100%;
+            max-width: 400px;
+            height: 5px;
+            background: rgba(255,255,255,0.1);
+            border-radius: 10px;
+            overflow: hidden;
+            position: relative;
+        }
+        .welcome-loader .loader-bar {
+            height: 100%;
+            width: 0%;
+            background: linear-gradient(90deg, var(--accent), var(--primary-light));
+            border-radius: 10px;
+            transition: width 0.3s ease;
+            position: relative;
+        }
+        .welcome-loader .loader-bar::after {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: linear-gradient(90deg, transparent, rgba(255,255,255,0.3), transparent);
+            animation: shimmer 1.8s infinite;
+        }
+        @keyframes shimmer {
+            0% { transform: translateX(-100%); }
+            100% { transform: translateX(100%); }
+        }
+        .welcome-loader .loader-bottom {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            width: 100%;
+            max-width: 400px;
+        }
+        .welcome-loader .loader-status {
+            color: rgba(255,255,255,0.5);
+            font-size: 11px;
+            font-weight: 400;
+        }
+        .welcome-loader .loader-percent {
+            color: rgba(255,255,255,0.8);
+            font-size: 14px;
+            font-weight: 700;
+            min-width: 44px;
+            text-align: center;
+        }
+
+        /* ============================================================
+           شاشة تسجيل الدخول
+           ============================================================ */
+        .login-page {
+            min-height: 100vh;
+            background: linear-gradient(135deg, #004b52 0%, #006b73 100%);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+
+        .login-card {
+            background: #FFFFFF;
+            border-radius: var(--radius-lg);
+            padding: 40px 32px;
+            max-width: 420px;
+            width: 100%;
+            box-shadow: var(--shadow-xl);
+            border: 1px solid rgba(255,255,255,0.08);
+            direction: rtl;
+        }
+
+        .login-card .login-logo {
+            text-align: center;
+            margin-bottom: 28px;
+        }
+        .login-card .login-logo .logo-icon {
+            width: 72px; height: 72px;
+            background: var(--primary-gradient);
+            border-radius: var(--radius-lg);
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            color: #fff;
+            font-size: 32px;
+            font-weight: 900;
+            margin-bottom: 12px;
+            box-shadow: 0 8px 32px rgba(0,107,115,0.4);
+            overflow: hidden;
+        }
+        .login-card .login-logo h2 {
+            font-size: 24px;
+            font-weight: 900;
+            color: #1A2E35;
+            letter-spacing: -0.5px;
+        }
+        .login-card .login-logo h2 span { color: #006b73; }
+        .login-card .login-logo p {
+            color: var(--text-muted);
+            font-size: 14px;
+            margin-top: 4px;
+            font-weight: 400;
+        }
+
+        .login-card .form-group { margin-bottom: 16px; }
+        .login-card .form-group label {
+            display: block;
+            font-size: 13px;
+            font-weight: 700;
+            color: var(--text-secondary);
+            margin-bottom: 6px;
+            text-align: right;
+        }
+        .login-card .form-group input {
+            width: 100%;
+            height: 50px;
+            padding: 0 16px;
+            border: 2px solid rgba(0,107,115,0.08);
+            border-radius: var(--radius-sm);
+            font-size: 14px;
+            background: var(--bg);
+            color: var(--text-primary);
+            transition: var(--transition-base);
+            font-family: var(--font-family);
+            outline: none;
+            text-align: right;
+        }
+        .login-card .form-group input:focus {
+            border-color: var(--primary);
+            box-shadow: 0 0 0 4px rgba(0,107,115,0.06);
+        }
+
+        .login-card .btn-login {
+            width: 100%;
+            height: 50px;
+            border: none;
+            border-radius: var(--radius-md);
+            background: var(--primary-gradient);
+            color: #fff;
+            font-size: 16px;
+            font-weight: 700;
+            cursor: pointer;
+            transition: var(--transition-base);
+            font-family: var(--font-family);
+            box-shadow: 0 4px 16px rgba(0,107,115,0.25);
+            margin-top: 8px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+        }
+        .login-card .btn-login:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 28px rgba(0,107,115,0.35);
+        }
+        .login-card .btn-login:active { transform: scale(0.97); }
+        .login-card .btn-login:disabled {
+            opacity: 0.7;
+            cursor: not-allowed;
+            transform: none !important;
+        }
+
+        .login-card .login-error {
+            color: #EF4444;
+            font-size: 13px;
+            text-align: center;
+            margin-top: 12px;
+            display: none;
+        }
+        .login-card .login-toggle {
+            margin-top: 16px;
+            text-align: center;
+            font-size: 13px;
+            color: var(--text-muted);
+            font-weight: 400;
+        }
+        .login-card .login-toggle a {
+            color: var(--primary);
+            text-decoration: none;
+            font-weight: 700;
+            cursor: pointer;
+        }
+        .login-card .login-toggle a:hover { text-decoration: underline; }
+
+        /* ============================================================
+           الهيدر
+           ============================================================ */
+        .header-glass {
+            background: rgba(255,255,255,0.92);
+            backdrop-filter: blur(24px) saturate(180%);
+            -webkit-backdrop-filter: blur(24px) saturate(180%);
+            padding: 12px 24px;
+            height: var(--header-height);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            position: sticky;
+            top: 0;
+            z-index: 100;
+            border-bottom: 1px solid rgba(0,0,0,0.04);
+            box-shadow: 0 2px 20px rgba(0,0,0,0.04);
+            transition: var(--transition-base);
+        }
+
+        .header-glass .brand { display: flex; align-items: center; gap: 12px; }
+        .header-glass .brand .logo {
+            width: 40px; height: 40px;
+            border-radius: var(--radius-md);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #fff;
+            font-size: 18px;
+            font-weight: 900;
+            box-shadow: 0 4px 16px rgba(0,107,115,0.25);
+            overflow: hidden;
+            background: var(--primary-gradient);
+        }
+        .header-glass .brand .name {
+            font-size: 18px;
+            font-weight: 900;
+            color: var(--text-primary);
+            letter-spacing: -0.5px;
+        }
+        .header-glass .brand .name span {
+            background: var(--primary-gradient);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+        .header-glass .brand .role-badge {
+            font-size: 9px; font-weight: 800;
+            padding: 4px 14px;
+            border-radius: var(--radius-full);
+            background: var(--primary-gradient);
+            color: #fff;
+            letter-spacing: 0.5px;
+            text-transform: uppercase;
+            box-shadow: 0 2px 12px rgba(0,107,115,0.25);
+            border: 1px solid rgba(255,255,255,0.15);
+        }
+
+        .header-glass .actions { display: flex; align-items: center; gap: 6px; }
+        .header-glass .actions .icon-btn {
+            width: 42px; height: 42px;
+            border-radius: var(--radius-full);
+            border: none;
+            background: rgba(0,0,0,0.03);
+            backdrop-filter: blur(10px);
+            -webkit-backdrop-filter: blur(10px);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: var(--text-secondary);
+            cursor: pointer;
+            transition: var(--transition-base);
+            font-size: 18px;
+            position: relative;
+            border: 1px solid rgba(0,0,0,0.04);
+        }
+        .header-glass .actions .icon-btn:hover {
+            background: rgba(0,0,0,0.06);
+            color: var(--primary);
+            transform: scale(1.05);
+        }
+
+        /* ============================================================
+           الصفحات الداخلية
+           ============================================================ */
+        .page-content {
+            max-width: 480px;
+            margin: 0 auto;
+            padding: 16px;
+            padding-bottom: 80px;
+        }
+
+        .page-title {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 16px;
+        }
+        .page-title h2 {
+            font-size: 20px;
+            font-weight: 800;
+            color: var(--text-primary);
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        .page-title h2 i { color: var(--primary); }
+
+        .card {
+            background: var(--bg-card);
+            border-radius: var(--radius-lg);
+            border: 1px solid rgba(0,107,115,0.04);
+            box-shadow: var(--shadow-sm);
+            padding: 20px;
+            margin-bottom: 14px;
+            transition: var(--transition-base);
+        }
+        .card:hover {
+            box-shadow: var(--shadow-md);
+            border-color: rgba(0,107,115,0.06);
+        }
+
+        .section-title {
+            font-weight: 800;
+            margin: 17px 2px 10px;
+            font-size: 15px;
+            color: var(--text-primary);
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .section-title i { color: var(--primary); }
+
+        /* ============================================================
+           الملف الشخصي
+           ============================================================ */
+        .profile-card {
+            background: var(--bg-card);
+            border-radius: var(--radius-lg);
+            border: 1px solid rgba(0,107,115,0.04);
+            box-shadow: var(--shadow-sm);
+            padding: 20px;
+            margin-bottom: 14px;
+            display: flex;
+            align-items: center;
+            gap: 16px;
+            transition: var(--transition-base);
+        }
+        .profile-card .avatar {
+            width: 64px; height: 64px;
+            border-radius: var(--radius-full);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 28px;
+            font-weight: 900;
+            flex-shrink: 0;
+            box-shadow: 0 4px 16px rgba(0,107,115,0.2);
+            overflow: hidden;
+            background: var(--primary-gradient);
+            color: #fff;
+        }
+        .profile-card .info { flex: 1; }
+        .profile-card .info .name {
+            font-size: 18px;
+            font-weight: 800;
+            color: var(--text-primary);
+        }
+        .profile-card .info .email {
+            font-size: 13px;
+            color: var(--text-muted);
+        }
+        .profile-card .info .role {
+            font-size: 12px;
+            font-weight: 600;
+            color: var(--primary);
+            background: rgba(0,107,115,0.06);
+            padding: 2px 12px;
+            border-radius: var(--radius-full);
+            display: inline-block;
+            margin-top: 2px;
+        }
+
+        /* ============================================================
+           الإحصائيات
+           ============================================================ */
+        .stats-row {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 8px;
+            margin-bottom: 14px;
+        }
+        .stat-item {
+            background: var(--bg-card);
+            border-radius: var(--radius-md);
+            padding: 12px 6px;
+            text-align: center;
+            border: 1px solid rgba(0,107,115,0.04);
+            box-shadow: var(--shadow-sm);
+            transition: var(--transition-base);
+        }
+        .stat-item .num {
+            font-size: 22px;
+            font-weight: 900;
+            color: var(--text-primary);
+            line-height: 1.2;
+        }
+        .stat-item .num.green { color: #059669; }
+        .stat-item .num.primary { color: var(--primary); }
+        .stat-item .num.orange { color: #D97706; }
+        .stat-item .label {
+            font-size: 10px;
+            color: var(--text-muted);
+            margin-top: 3px;
+            font-weight: 500;
+        }
+
+        /* ============================================================
+           بطاقة لائحة الشرف
+           ============================================================ */
+        .honor-card {
+            background: var(--bg-card);
+            border-radius: var(--radius-lg);
+            border: 2px solid var(--accent);
+            box-shadow: 0 4px 24px rgba(201,154,61,0.12);
+            padding: 16px 20px;
+            margin-bottom: 14px;
+            overflow: hidden;
+            position: relative;
+        }
+        .honor-card .honor-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 12px;
+        }
+        .honor-card .honor-header h4 {
+            font-size: 15px;
+            font-weight: 800;
+            color: var(--text-primary);
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .honor-card .honor-header h4 i { color: var(--accent); }
+        .honor-card .honor-header .badge-gold {
+            font-size: 10px;
+            font-weight: 700;
+            padding: 3px 12px;
+            border-radius: var(--radius-full);
+            background: var(--accent);
+            color: #fff;
+        }
+
+        .honor-slider {
+            display: flex;
+            transition: transform 0.6s cubic-bezier(0.4, 0, 0.2, 1);
+            width: 300%;
+        }
+        .honor-slide {
+            width: 33.333%;
+            padding: 4px 0;
+            flex-shrink: 0;
+        }
+        .honor-slide .honor-item {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 10px 14px;
+            background: rgba(201,154,61,0.04);
+            border-radius: var(--radius-md);
+            border: 1px solid rgba(201,154,61,0.08);
+        }
+        .honor-slide .honor-item .medal {
+            font-size: 28px;
+            width: 40px;
+            text-align: center;
+            flex-shrink: 0;
+        }
+        .honor-slide .honor-item .avatar {
+            width: 44px; height: 44px;
+            border-radius: var(--radius-full);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            overflow: hidden;
+            flex-shrink: 0;
+            border: 2px solid rgba(201,154,61,0.15);
+            background: var(--primary-gradient);
+            color: #fff;
+            font-size: 18px;
+            font-weight: 900;
+        }
+        .honor-slide .honor-item .info { flex: 1; }
+        .honor-slide .honor-item .info .name {
+            font-size: 14px;
+            font-weight: 800;
+            color: var(--text-primary);
+        }
+        .honor-slide .honor-item .info .title {
+            font-size: 11px;
+            color: var(--text-muted);
+        }
+        .honor-slide .honor-item .percent {
+            font-size: 18px;
+            font-weight: 900;
+            color: #059669;
+            flex-shrink: 0;
+        }
+
+        .honor-dots {
+            display: flex;
+            justify-content: center;
+            gap: 8px;
+            margin-top: 12px;
+        }
+        .honor-dots .dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: var(--text-muted);
+            opacity: 0.3;
+            transition: var(--transition-base);
+            cursor: pointer;
+            border: none;
+            padding: 0;
+        }
+        .honor-dots .dot.active {
+            opacity: 1;
+            background: var(--accent);
+            width: 24px;
+            border-radius: 4px;
+        }
+
+        /* ============================================================
+           أزرار البصمة
+           ============================================================ */
+        .fingerprint-buttons {
+            display: flex;
+            gap: 16px;
+            margin: 14px 0;
+        }
+        .fingerprint-btn {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding: 20px 12px;
+            border: none;
+            border-radius: var(--radius-md);
+            cursor: pointer;
+            transition: var(--transition-base);
+            font-family: var(--font-family);
+            position: relative;
+            min-height: 130px;
+            box-shadow: var(--shadow-sm);
+            color: #fff;
+        }
+        .fingerprint-btn .fingerprint-icon {
+            font-size: 48px;
+            margin-bottom: 6px;
+            position: relative;
+            z-index: 1;
+        }
+        .fingerprint-btn .fingerprint-label {
+            font-size: 14px;
+            font-weight: 700;
+            position: relative;
+            z-index: 1;
+        }
+        .fingerprint-btn .fingerprint-sub {
+            font-size: 11px;
+            font-weight: 400;
+            opacity: 0.8;
+            position: relative;
+            z-index: 1;
+        }
+        .fingerprint-btn .fingerprint-time {
+            font-size: 12px;
+            font-weight: 600;
+            margin-top: 4px;
+            position: relative;
+            z-index: 1;
+        }
+
+        .fingerprint-btn-checkin {
+            background: linear-gradient(135deg, #10B981, #059669);
+            box-shadow: 0 4px 16px rgba(16,185,129,0.3);
+        }
+        .fingerprint-btn-checkin:hover:not(:disabled) {
+            transform: translateY(-3px);
+            box-shadow: 0 8px 28px rgba(16,185,129,0.4);
+        }
+        .fingerprint-btn-checkout {
+            background: linear-gradient(135deg, #EF4444, #DC2626);
+            box-shadow: 0 4px 16px rgba(239,68,68,0.3);
+        }
+        .fingerprint-btn-checkout:hover:not(:disabled) {
+            transform: translateY(-3px);
+            box-shadow: 0 8px 28px rgba(239,68,68,0.4);
+        }
+        .fingerprint-btn:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+            transform: none !important;
+        }
+        .fingerprint-btn .spinner-small {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border: 2px solid rgba(255,255,255,0.3);
+            border-radius: 50%;
+            border-top-color: #fff;
+            animation: spin 0.8s linear infinite;
+            position: relative;
+            z-index: 1;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        /* ============================================================
+           أيام الدوام
+           ============================================================ */
+        .work-schedule {
+            background: var(--bg-card);
+            border-radius: var(--radius-lg);
+            border: 1px solid rgba(0,107,115,0.04);
+            padding: 16px 20px;
+            margin-bottom: 14px;
+            box-shadow: var(--shadow-sm);
+        }
+        .work-schedule .schedule-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 10px;
+        }
+        .work-schedule .schedule-header h4 {
+            font-size: 14px;
+            font-weight: 800;
+            color: var(--text-primary);
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .work-schedule .schedule-header h4 i { color: var(--primary); }
+
+        .work-days {
+            display: flex;
+            gap: 6px;
+            flex-wrap: wrap;
+        }
+        .work-days .day {
+            padding: 4px 12px;
+            border-radius: var(--radius-full);
+            font-size: 11px;
+            font-weight: 700;
+            background: rgba(0,107,115,0.04);
+            color: var(--text-muted);
+            transition: var(--transition-base);
+        }
+        .work-days .day.active {
+            background: var(--primary-gradient);
+            color: #fff;
+            box-shadow: 0 2px 12px rgba(0,107,115,0.2);
+        }
+        .work-days .day.today {
+            border: 2px solid var(--primary);
+            color: var(--primary);
+            background: rgba(0,107,115,0.04);
+        }
+        .work-days .day.inactive {
+            opacity: 0.4;
+        }
+
+        .work-hours {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 16px;
+            margin-top: 10px;
+            padding-top: 10px;
+            border-top: 1px solid rgba(0,107,115,0.04);
+            flex-wrap: wrap;
+        }
+        .work-hours .time-block {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 13px;
+            font-weight: 600;
+            color: var(--text-secondary);
+        }
+        .work-hours .time-block i { color: var(--primary); }
+        .work-hours .time-block .time-value {
+            color: var(--text-primary);
+            font-weight: 800;
+        }
+        .work-hours .countdown {
+            font-size: 13px;
+            font-weight: 700;
+            color: var(--primary);
+            padding: 4px 14px;
+            background: rgba(0,107,115,0.06);
+            border-radius: var(--radius-full);
+        }
+
+        /* ============================================================
+           القائمة السريعة
+           ============================================================ */
+        .quick-actions-grid {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 10px;
+            margin-bottom: 14px;
+        }
+        .quick-action-btn {
+            padding: 14px 8px;
+            border-radius: var(--radius-md);
+            border: 2px solid rgba(0,107,115,0.06);
+            background: var(--bg-card);
+            text-align: center;
+            cursor: pointer;
+            transition: var(--transition-base);
+            font-weight: 700;
+            font-size: 11px;
+            color: var(--text-primary);
+            font-family: var(--font-family);
+            box-shadow: var(--shadow-sm);
+        }
+        .quick-action-btn:hover {
+            border-color: var(--primary);
+            background: rgba(0,107,115,0.02);
+            transform: translateY(-3px);
+            box-shadow: var(--shadow-md);
+        }
+        .quick-action-btn i {
+            font-size: 22px;
+            display: block;
+            margin-bottom: 4px;
+            color: var(--primary);
+        }
+        .quick-action-btn .badge {
+            display: inline-block;
+            font-size: 9px;
+            font-weight: 800;
+            padding: 1px 8px;
+            border-radius: var(--radius-full);
+            background: #EF4444;
+            color: #fff;
+            margin-top: 2px;
+        }
+        .quick-action-btn .sub-text {
+            font-size: 9px;
+            color: var(--text-muted);
+            font-weight: 400;
+            display: block;
+            margin-top: 2px;
+        }
+
+        /* ============================================================
+           الإشعارات المصغرة
+           ============================================================ */
+        .mini-notifications {
+            background: var(--bg-card);
+            border-radius: var(--radius-lg);
+            border: 1px solid rgba(0,107,115,0.04);
+            padding: 16px 18px;
+            margin-bottom: 14px;
+            box-shadow: var(--shadow-sm);
+            cursor: pointer;
+            transition: var(--transition-base);
+        }
+        .mini-notifications .mini-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 10px;
+        }
+        .mini-notifications .mini-header h4 {
+            font-size: 14px;
+            font-weight: 800;
+            color: var(--text-primary);
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .mini-notifications .mini-header h4 i { color: var(--primary); }
+        .mini-notifications .mini-header .view-all {
+            font-size: 11px;
+            color: var(--text-muted);
+            font-weight: 600;
+        }
+        .mini-notification-item {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 8px 0;
+            border-bottom: 1px solid rgba(0,107,115,0.04);
+        }
+        .mini-notification-item:last-child { border-bottom: 0; }
+        .mini-notification-item .notif-icon {
+            width: 32px; height: 32px;
+            border-radius: var(--radius-full);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 13px;
+            flex-shrink: 0;
+            background: var(--primary-gradient);
+            color: #fff;
+            font-weight: 900;
+        }
+        .mini-notification-item .notif-icon.success {
+            background: rgba(16,185,129,0.12);
+            color: #059669;
+        }
+        .mini-notification-item .notif-icon.info {
+            background: rgba(0,107,115,0.08);
+            color: var(--primary);
+        }
+        .mini-notification-item .notif-content { flex: 1; }
+        .mini-notification-item .notif-content .notif-title {
+            font-size: 13px;
+            font-weight: 700;
+            color: var(--text-primary);
+        }
+        .mini-notification-item .notif-content .notif-message {
+            font-size: 11px;
+            color: var(--text-muted);
+            font-weight: 400;
+        }
+        .mini-notification-item .notif-time {
+            font-size: 10px;
+            color: var(--text-muted);
+            font-weight: 400;
+            flex-shrink: 0;
+        }
+
+        /* ============================================================
+           الجداول
+           ============================================================ */
+        .table-wrap {
+            overflow-x: auto;
+            -webkit-overflow-scrolling: touch;
+        }
+        .table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 13px;
+        }
+        .table th,
+        .table td {
+            padding: 10px 5px;
+            border-bottom: 1px solid rgba(0,107,115,0.04);
+            text-align: right;
+        }
+        .table th {
+            color: var(--text-muted);
+            font-weight: 500;
+            font-size: 12px;
+        }
+
+        /* ============================================================
+           عناصر القوائم
+           ============================================================ */
+        .list-item {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 12px 0;
+            border-bottom: 1px solid rgba(0,107,115,0.04);
+        }
+        .list-item:last-child { border-bottom: 0; }
+        .list-item .item-icon {
+            width: 40px; height: 40px;
+            border-radius: var(--radius-full);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 18px;
+            flex-shrink: 0;
+            background: rgba(0,107,115,0.06);
+            color: var(--primary);
+        }
+        .list-item .item-content { flex: 1; }
+        .list-item .item-content .item-title {
+            font-size: 14px;
+            font-weight: 700;
+            color: var(--text-primary);
+        }
+        .list-item .item-content .item-desc {
+            font-size: 12px;
+            color: var(--text-muted);
+            font-weight: 400;
+        }
+        .list-item .item-badge {
+            font-size: 10px;
+            font-weight: 700;
+            padding: 3px 12px;
+            border-radius: var(--radius-full);
+        }
+        .list-item .item-badge.ok {
+            background: rgba(16,185,129,0.12);
+            color: #059669;
+        }
+        .list-item .item-badge.wait {
+            background: rgba(217,119,6,0.12);
+            color: #D97706;
+        }
+        .list-item .item-badge.danger {
+            background: rgba(239,68,68,0.12);
+            color: #DC2626;
+        }
+
+        /* ============================================================
+           الإشعارات الكاملة
+           ============================================================ */
+        .notification-item-full {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 14px 0;
+            border-bottom: 1px solid rgba(0,107,115,0.04);
+        }
+        .notification-item-full:last-child { border-bottom: 0; }
+        .notification-item-full .notif-icon {
+            width: 44px; height: 44px;
+            border-radius: var(--radius-full);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 18px;
+            flex-shrink: 0;
+            background: var(--primary-gradient);
+            color: #fff;
+            font-weight: 900;
+        }
+        .notification-item-full .notif-icon.success {
+            background: rgba(16,185,129,0.12);
+            color: #059669;
+        }
+        .notification-item-full .notif-icon.info {
+            background: rgba(0,107,115,0.08);
+            color: var(--primary);
+        }
+        .notification-item-full .notif-content { flex: 1; }
+        .notification-item-full .notif-content .notif-title {
+            font-size: 14px;
+            font-weight: 700;
+            color: var(--text-primary);
+        }
+        .notification-item-full .notif-content .notif-message {
+            font-size: 13px;
+            color: var(--text-muted);
+            font-weight: 400;
+        }
+        .notification-item-full .notif-time {
+            font-size: 11px;
+            color: var(--text-muted);
+            font-weight: 400;
+            flex-shrink: 0;
+        }
+
+        /* ============================================================
+           نافذة تقديم الطلب
+           ============================================================ */
+        .request-modal-overlay {
+            position: fixed;
+            inset: 0;
+            background: rgba(0,0,0,0.5);
+            backdrop-filter: blur(8px);
+            -webkit-backdrop-filter: blur(8px);
+            z-index: 500;
+            display: none;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+            animation: fadeInModal 0.3s ease;
+        }
+        .request-modal-overlay.show { display: flex; }
+        @keyframes fadeInModal {
+            0% { opacity: 0; }
+            100% { opacity: 1; }
+        }
+
+        .request-modal {
+            background: var(--bg-card);
+            border-radius: var(--radius-lg);
+            max-width: 480px;
+            width: 100%;
+            max-height: 90vh;
+            overflow-y: auto;
+            box-shadow: var(--shadow-xl);
+            animation: slideUp 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
+            padding: 0;
+        }
+        @keyframes slideUp {
+            0% { opacity: 0; transform: translateY(40px) scale(0.96); }
+            100% { opacity: 1; transform: translateY(0) scale(1); }
+        }
+
+        .request-modal .modal-header {
+            padding: 18px 22px;
+            border-bottom: 1px solid rgba(0,107,115,0.04);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            position: sticky;
+            top: 0;
+            background: var(--bg-card);
+            z-index: 1;
+            border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+        }
+        .request-modal .modal-header h3 {
+            font-size: 18px;
+            font-weight: 800;
+            color: var(--text-primary);
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        .request-modal .modal-header h3 i { color: var(--primary); }
+        .request-modal .modal-header .close-btn {
+            width: 36px; height: 36px;
+            border: none;
+            border-radius: var(--radius-full);
+            background: rgba(0,107,115,0.06);
+            color: var(--text-muted);
+            cursor: pointer;
+            transition: var(--transition-base);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 18px;
+        }
+        .request-modal .modal-header .close-btn:hover {
+            background: rgba(0,107,115,0.12);
+            color: var(--primary);
+            transform: rotate(90deg);
+        }
+        .request-modal .modal-body { padding: 22px; }
+        .request-modal .modal-body .form-group { margin-bottom: 16px; }
+        .request-modal .modal-body .form-group label {
+            display: block;
+            font-size: 13px;
+            font-weight: 700;
+            color: var(--text-secondary);
+            margin-bottom: 6px;
+        }
+        .request-modal .modal-body .form-group label .required {
+            color: #EF4444;
+            margin-right: 2px;
+        }
+        .request-modal .modal-body .form-group input,
+        .request-modal .modal-body .form-group select,
+        .request-modal .modal-body .form-group textarea {
+            width: 100%;
+            padding: 12px 16px;
+            border: 2px solid rgba(0,107,115,0.08);
+            border-radius: var(--radius-sm);
+            font-size: 14px;
+            background: var(--bg);
+            color: var(--text-primary);
+            transition: var(--transition-base);
+            font-family: var(--font-family);
+            outline: none;
+        }
+        .request-modal .modal-body .form-group input:focus,
+        .request-modal .modal-body .form-group select:focus,
+        .request-modal .modal-body .form-group textarea:focus {
+            border-color: var(--primary);
+            box-shadow: 0 0 0 4px rgba(0,107,115,0.06);
+        }
+        .request-modal .modal-body .form-group textarea {
+            min-height: 80px;
+            resize: vertical;
+        }
+        .request-modal .modal-body .form-row {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 12px;
+        }
+        .request-modal .modal-body .btn-submit-request {
+            width: 100%;
+            height: 50px;
+            border: none;
+            border-radius: var(--radius-md);
+            background: var(--primary-gradient);
+            color: #fff;
+            font-size: 16px;
+            font-weight: 700;
+            cursor: pointer;
+            transition: var(--transition-base);
+            font-family: var(--font-family);
+            box-shadow: 0 4px 16px rgba(0,107,115,0.25);
+            margin-top: 8px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+        }
+        .request-modal .modal-body .btn-submit-request:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 28px rgba(0,107,115,0.35);
+        }
+        .request-modal .modal-body .btn-submit-request:active { transform: scale(0.97); }
+
+        /* ============================================================
+           الشريط السفلي
+           ============================================================ */
+        .bottom-nav-minimal {
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            height: var(--nav-height);
+            min-height: var(--nav-height);
+            padding: 6px 8px 12px;
+            background: var(--bg-card);
+            border-top: 2px solid rgba(0,107,115,0.04);
+            box-shadow: 0 -4px 30px rgba(0,0,0,0.02);
+            display: flex;
+            justify-content: space-around;
+            align-items: center;
+            transition: var(--transition-base);
+            z-index: 200;
+            gap: 2px;
+        }
+        .bottom-nav-minimal .nav-item {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 2px;
+            padding: 4px 2px;
+            min-height: 48px;
+            border-radius: var(--radius-sm);
+            transition: var(--transition-base);
+            background: transparent;
+            border: none;
+            cursor: pointer;
+            font-size: 10px;
+            font-weight: 700;
+            color: var(--text-muted);
+            position: relative;
+            font-family: var(--font-family);
+        }
+        .bottom-nav-minimal .nav-item i {
+            font-size: 20px;
+            transition: var(--transition-base);
+        }
+        .bottom-nav-minimal .nav-item.active {
+            color: var(--primary);
+            background: rgba(0,107,115,0.04);
+        }
+        .bottom-nav-minimal .nav-item.active i {
+            transform: translateY(-2px);
+        }
+        .bottom-nav-minimal .nav-item .nav-badge {
+            position: absolute;
+            top: 0;
+            right: 50%;
+            transform: translateX(50%);
+            min-width: 18px;
+            height: 18px;
+            padding: 0 6px;
+            border-radius: var(--radius-full);
+            background: #EF4444;
+            color: #fff;
+            font-size: 9px;
+            font-weight: 800;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        /* ============================================================
+           التوست
+           ============================================================ */
+        .toast-container {
+            position: fixed;
+            top: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            z-index: 1000;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            align-items: center;
+            pointer-events: none;
+            width: 100%;
+            max-width: 400px;
+            padding: 0 16px;
+        }
+        .toast {
+            background: var(--bg-card);
+            border-radius: var(--radius-lg);
+            padding: 16px 20px;
+            box-shadow: var(--shadow-xl);
+            border: 1px solid rgba(0,107,115,0.04);
+            pointer-events: auto;
+            max-width: 100%;
+            width: 100%;
+            font-family: var(--font-family);
+            display: flex;
+            align-items: flex-start;
+            gap: 14px;
+            opacity: 0;
+            transform: translateY(-80px) scale(0.9);
+            transition: all 0.5s cubic-bezier(0.34, 1.56, 0.64, 1);
+            position: relative;
+            overflow: hidden;
+            font-weight: 800;
+            font-size: 14px;
+            cursor: pointer;
+        }
+        .toast.show { opacity: 1; transform: translateY(0) scale(1); }
+        .toast.swipe-up {
+            transform: translateY(-120px) scale(0.9);
+            opacity: 0;
+            transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+        .toast::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            right: 0;
+            width: 5px;
+            height: 100%;
+            border-radius: 0 4px 4px 0;
+        }
+        .toast.success::before { background: #10B981; }
+        .toast.info::before { background: var(--primary); }
+        .toast.warning::before { background: #F59E0B; }
+        .toast.error::before { background: #EF4444; }
+
+        .toast .toast-icon {
+            width: 44px; height: 44px;
+            border-radius: var(--radius-full);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 20px;
+            flex-shrink: 0;
+            margin-top: 2px;
+            position: relative;
+            font-weight: 800;
+            background: var(--primary-gradient);
+            color: #fff;
+        }
+        .toast .toast-icon.success {
+            background: rgba(16,185,129,0.15);
+            color: #059669;
+        }
+        .toast .toast-icon.info {
+            background: rgba(0,107,115,0.12);
+            color: var(--primary);
+        }
+        .toast .toast-icon.warning {
+            background: rgba(251,191,36,0.15);
+            color: #D97706;
+        }
+        .toast .toast-icon.error {
+            background: rgba(239,68,68,0.12);
+            color: #EF4444;
+        }
+        .toast .toast-content { flex: 1; min-width: 0; }
+        .toast .toast-content .toast-title {
+            font-size: 14px;
+            font-weight: 800;
+            color: var(--text-primary);
+            margin-bottom: 2px;
+        }
+        .toast .toast-content .toast-message {
+            font-size: 13px;
+            font-weight: 400;
+            color: var(--text-muted);
+            line-height: 1.5;
+        }
+
+        /* ============================================================
+           أدوات مساعدة
+           ============================================================ */
+        .back-btn {
+            height: 40px;
+            padding: 0 18px;
+            border: 2px solid rgba(0,107,115,0.08);
+            border-radius: var(--radius-md);
+            background: transparent;
+            color: var(--text-muted);
+            font-size: 13px;
+            font-weight: 700;
+            cursor: pointer;
+            transition: var(--transition-base);
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            font-family: var(--font-family);
+        }
+        .back-btn:hover {
+            border-color: var(--primary);
+            color: var(--primary);
+            background: rgba(0,107,115,0.02);
+        }
+
+        /* ============================================================
+           التجاوب
+           ============================================================ */
+        @media (max-width: 480px) {
+            :root {
+                --header-height: 58px;
+                --nav-height: 66px;
+            }
+            .header-glass { padding: 10px 16px; }
+            .header-glass .brand .name { font-size: 16px; }
+            .header-glass .brand .role-badge { font-size: 8px; padding: 2px 10px; }
+            .header-glass .brand .logo { width: 34px; height: 34px; font-size: 16px; }
+            .header-glass .actions .icon-btn { width: 36px; height: 36px; font-size: 16px; }
+            .page-title h2 { font-size: 18px; }
+            .stats-row { grid-template-columns: repeat(2, 1fr); gap: 6px; }
+            .quick-actions-grid { grid-template-columns: repeat(2, 1fr); gap: 8px; }
+            .bottom-nav-minimal .nav-item { font-size: 9px; min-height: 42px; }
+            .bottom-nav-minimal .nav-item i { font-size: 18px; }
+            .login-card { padding: 28px 20px; }
+            .profile-card .avatar { width: 50px; height: 50px; font-size: 22px; }
+            .fingerprint-buttons { flex-direction: column; gap: 10px; }
+            .fingerprint-btn { min-height: 100px; padding: 16px 12px; }
+            .fingerprint-btn .fingerprint-icon { font-size: 38px; }
+            .work-hours { flex-wrap: wrap; gap: 8px; }
+            .request-modal .modal-body .form-row { grid-template-columns: 1fr; }
+            .honor-slide .honor-item { padding: 8px 10px; }
+            .honor-slide .honor-item .medal { font-size: 22px; width: 30px; }
+            .honor-slide .honor-item .avatar { width: 36px; height: 36px; }
+            .honor-slide .honor-item .percent { font-size: 15px; }
+            .welcome-loader { height: 70px; padding: 12px 16px; }
+            .welcome-loader .loader-label { font-size: 11px; }
+            .welcome-loader .loader-percent { font-size: 12px; }
+        }
+
+        @media (max-width: 380px) {
+            .bottom-nav-minimal .nav-item span { display: none; }
+            .bottom-nav-minimal .nav-item i { font-size: 20px; }
+            .header-glass .brand .role-badge { display: none; }
+            .stats-row { grid-template-columns: 1fr 1fr; gap: 4px; }
+            .quick-actions-grid { grid-template-columns: 1fr 1fr; gap: 6px; }
+            .stat-item .num { font-size: 18px; }
+            .work-days .day { font-size: 10px; padding: 3px 8px; }
+            .welcome-loader { height: 60px; padding: 10px 12px; }
+            .welcome-loader .loader-status { display: none; }
+        }
+    </style>
 </head>
 <body>
-<div class="app-shell">
-    <aside class="sidebar">
-        <div class="sidebar-brand">
-            <div class="mark">✥</div>
-            <div>
-                <div class="name">شركة الصوى للصرافة</div>
-                <div class="role">موظف — <?= e($employee['branch_name']) ?></div>
+
+    <!-- ============================================================
+    شاشة الترحيب
+    ============================================================ -->
+    <div class="welcome-screen" id="welcomeScreen">
+        <div class="welcome-image">
+            <img src="https://i.ibb.co/rGZZhSDz/file-000000002ac481f49837b1aca8bc5b1b.png" alt="شعار الشركة - ترحيب" loading="lazy">
+        </div>
+        <div class="welcome-loader">
+            <div class="loader-label">
+                <i class="fas fa-spinner fa-spin"></i>
+                <span id="loaderLabel">جاري تحميل النظام...</span>
+            </div>
+            <div class="loader-bar-wrapper">
+                <div class="loader-bar" id="loaderBar"></div>
+            </div>
+            <div class="loader-bottom">
+                <span class="loader-status" id="loaderStatus">تهيئة البيئة...</span>
+                <span class="loader-percent" id="loaderPercent">0%</span>
             </div>
         </div>
-        <ul>
-            <li><a class="nav-link <?= $tab==='dashboard'?'active':'' ?>" href="?tab=dashboard"><span class="icon">🏠</span><span>الرئيسية</span></a></li>
-            <li><a class="nav-link <?= $tab==='attendance'?'active':'' ?>" href="?tab=attendance"><span class="icon">🕒</span><span>البصمة</span></a></li>
-            <li><a class="nav-link <?= $tab==='requests'?'active':'' ?>" href="?tab=requests"><span class="icon">📝</span><span>طلباتي</span></a></li>
-            <li><a class="nav-link <?= $tab==='ledger'?'active':'' ?>" href="?tab=ledger"><span class="icon">📒</span><span>إيجاز الفرع اليومي</span></a></li>
-            <li><a class="nav-link <?= $tab==='profile'?'active':'' ?>" href="?tab=profile"><span class="icon">👤</span><span>ملفي الوظيفي</span></a></li>
-        </ul>
-        <div class="sidebar-footer">
-            <a class="nav-link" href="/employee.php?logout=1"><span class="icon">🚪</span><span>تسجيل الخروج</span></a>
-        </div>
-    </aside>
+    </div>
 
-    <nav class="bottom-nav">
-        <a href="?tab=dashboard" class="<?= $tab==='dashboard'?'active':'' ?>"><span class="icon">🏠</span><span>الرئيسية</span></a>
-        <a href="?tab=attendance" class="<?= $tab==='attendance'?'active':'' ?>"><span class="icon">🕒</span><span>البصمة</span></a>
-        <a href="?tab=requests" class="<?= $tab==='requests'?'active':'' ?>"><span class="icon">📝</span><span>طلباتي</span></a>
-        <a href="?tab=ledger" class="<?= $tab==='ledger'?'active':'' ?>"><span class="icon">📒</span><span>الإيجاز</span></a>
-        <a href="?tab=profile" class="<?= $tab==='profile'?'active':'' ?>"><span class="icon">👤</span><span>ملفي</span></a>
-    </nav>
-
-    <main class="main">
-        <div class="topbar">
-            <div>
-                <button class="menu-toggle">☰ القائمة</button>
-                <h1><?= e($pageTitle) ?></h1>
-                <div class="sub"><?= e($employee['full_name']) ?> — <?= e($employee['job_title']) ?> — رقم التوظيف: <?= e($employee['employee_number']) ?></div>
+    <!-- ============================================================
+    شاشة تسجيل الدخول
+    ============================================================ -->
+    <div id="loginScreen" class="login-page hidden">
+        <div class="login-card">
+            <div class="login-logo">
+                <div class="logo-icon">✥</div>
+                <h2>نافذة <span>الموظف</span></h2>
+                <p>نظام إدارة الموارد البشرية</p>
             </div>
-            <div class="user-chip">
-                <div class="avatar"><?= e(mb_substr($employee['full_name'], 0, 1)) ?></div>
-                <div><?= e($employee['full_name']) ?></div>
+            <form id="loginForm" onsubmit="handleLogin(event)">
+                <div class="form-group">
+                    <label>رقم التوظيف</label>
+                    <input type="text" id="loginEmployeeId" placeholder="أدخل رقم التوظيف" required>
+                </div>
+                <div class="form-group">
+                    <label>الرمز السري</label>
+                    <input type="password" id="loginPassword" placeholder="••••••••" required>
+                </div>
+                <div class="login-error" id="loginError">بيانات الدخول غير صحيحة</div>
+                <button type="submit" class="btn-login" id="loginBtn">
+                    <i class="fas fa-arrow-left"></i> تسجيل الدخول
+                </button>
+            </form>
+            <div class="login-toggle">
+                الرمز يتم تزويد الموظف به من <a href="#">الموارد البشرية</a>
             </div>
         </div>
+    </div>
 
-        <?php $flash = flash_get(); ?>
-        <?php if ($flash): ?><div class="alert alert-<?= e($flash['type']) ?>"><?= e($flash['message']) ?></div><?php endif; ?>
+    <!-- ============================================================
+    التطبيق الرئيسي
+    ============================================================ -->
+    <div id="appContainer" class="hidden">
 
-        <?php if ($tab === 'dashboard'): ?>
-            <div class="stat-grid">
-                <div class="stat-card"><div class="label">نسبة الالتزام هذا الشهر</div><div class="value"><?= e((string)$commitmentPct) ?>%</div></div>
-                <div class="stat-card"><div class="label">حالة اليوم</div><div class="value"><?= $todayAttendance ? '✅ حاضر' : '⏳ لم تسجل بعد' ?></div></div>
-                <div class="stat-card"><div class="label">إشعارات جديدة</div><div class="value"><?= e((string)$unreadNotifications) ?></div></div>
+        <!-- الهيدر -->
+        <header class="header-glass">
+            <div class="brand">
+                <div class="logo">✥</div>
+                <div class="name">نافذة <span>الموظف</span></div>
+                <span class="role-badge">موظف</span>
             </div>
-            <div class="grid-2">
-                <div class="card">
-                    <div class="card-header"><h2>🏆 لائحة الشرف — أفضل 3</h2></div>
-                    <?php if (empty($honorRoll)): ?><div class="empty-state"><div class="icon">🏆</div>لا توجد بيانات كافية بعد</div>
-                    <?php else: ?>
-                    <div class="honor-list">
-                        <?php $medals = ['🥇', '🥈', '🥉']; foreach ($honorRoll as $i => $h): ?>
-                            <div class="honor-item <?= (int)$h['id']===$employeeId ? 'me' : '' ?>">
-                                <span class="medal"><?= $medals[$i] ?? '🏅' ?></span>
-                                <span class="name"><?= e($h['full_name']) ?> — <?= e($h['branch_name']) ?></span>
-                                <span class="pct"><?= e((string)$h['pct']) ?>%</span>
-                            </div>
-                        <?php endforeach; ?>
+            <div class="actions">
+                <button class="icon-btn" onclick="navigateTo('notifications')" title="الإشعارات">
+                    <i class="fas fa-bell"></i>
+                </button>
+                <button class="icon-btn" onclick="navigateTo('profile')" title="حسابي">
+                    <i class="fas fa-user"></i>
+                </button>
+            </div>
+        </header>
+
+        <!-- المحتوى -->
+        <div class="page-content" id="pageContent">
+
+            <!-- ===== الصفحة الرئيسية ===== -->
+            <div id="page-home" class="page-screen">
+                <!-- الملف الشخصي -->
+                <div class="profile-card" onclick="navigateTo('profile')" style="cursor:pointer;">
+                    <div class="avatar" id="homeAvatar">أ</div>
+                    <div class="info">
+                        <div class="name" id="homeName">...</div>
+                        <div class="email" id="homeTitleBranch">...</div>
+                        <div class="role" id="homeCode">...</div>
                     </div>
-                    <?php endif; ?>
+                </div>
+
+                <!-- الإحصائيات -->
+                <div class="stats-row">
+                    <div class="stat-item">
+                        <div class="num primary" id="statCommitment">0%</div>
+                        <div class="label">نسبة الالتزام</div>
+                    </div>
+                    <div class="stat-item">
+                        <div class="num green" id="statTodayStatus">...</div>
+                        <div class="label">حالة اليوم</div>
+                    </div>
+                    <div class="stat-item">
+                        <div class="num orange" id="statPendingRequests">0</div>
+                        <div class="label">طلبات قيد المراجعة</div>
+                    </div>
+                    <div class="stat-item">
+                        <div class="num primary" id="statUnreadNotifs">0</div>
+                        <div class="label">إشعارات جديدة</div>
+                    </div>
+                </div>
+
+                <!-- لائحة الشرف -->
+                <div class="honor-card">
+                    <div class="honor-header">
+                        <h4><i class="fas fa-trophy"></i> لائحة الشرف</h4>
+                        <span class="badge-gold">🏆 أفضل 3</span>
+                    </div>
+                    <div class="honor-slider" id="honorSlider"></div>
+                    <div class="honor-dots" id="honorDots"></div>
+                </div>
+
+                <!-- أزرار البصمة -->
+                <div class="fingerprint-buttons">
+                    <button class="fingerprint-btn fingerprint-btn-checkin" id="checkInBtn" onclick="handleCheckIn()" disabled>
+                        <div class="fingerprint-icon"><i class="fas fa-fingerprint"></i></div>
+                        <span class="fingerprint-label">تسجيل حضور</span>
+                        <span class="fingerprint-sub">بصمة الدخول</span>
+                        <span class="fingerprint-time" id="timeToStart">09:00 ص</span>
+                    </button>
+                    <button class="fingerprint-btn fingerprint-btn-checkout" id="checkOutBtn" onclick="handleCheckOut()" disabled>
+                        <div class="fingerprint-icon"><i class="fas fa-fingerprint"></i></div>
+                        <span class="fingerprint-label">تسجيل انصراف</span>
+                        <span class="fingerprint-sub">بصمة الخروج</span>
+                        <span class="fingerprint-time" id="timeToEnd">03:00 م</span>
+                    </button>
+                </div>
+
+                <!-- أيام الدوام -->
+                <div class="work-schedule">
+                    <div class="schedule-header">
+                        <h4><i class="fas fa-calendar-alt"></i> أيام الدوام</h4>
+                        <span style="font-size:11px;color:var(--text-muted);font-weight:600;">
+                            <i class="fas fa-clock"></i> المتبقي: <span id="remainingTime">7 ساعات</span>
+                        </span>
+                    </div>
+                    <div class="work-days" id="workDays">
+                        <span class="day" data-day="0">الأحد</span>
+                        <span class="day" data-day="1">الإثنين</span>
+                        <span class="day" data-day="2">الثلاثاء</span>
+                        <span class="day" data-day="3">الأربعاء</span>
+                        <span class="day" data-day="4">الخميس</span>
+                        <span class="day inactive" data-day="5">الجمعة</span>
+                        <span class="day inactive" data-day="6">السبت</span>
+                    </div>
+                    <div class="work-hours">
+                        <div class="time-block">
+                            <i class="fas fa-sun"></i>
+                            <span>بداية: <span class="time-value" id="startTime">09:00 ص</span></span>
+                        </div>
+                        <div class="time-block">
+                            <i class="fas fa-moon"></i>
+                            <span>نهاية: <span class="time-value" id="endTime">03:00 م</span></span>
+                        </div>
+                        <div class="countdown" id="countdownStatus">✅ في الدوام</div>
+                    </div>
+                </div>
+
+                <!-- القائمة السريعة -->
+                <div class="quick-actions-grid">
+                    <button class="quick-action-btn" onclick="navigateTo('attendance')">
+                        <i class="fas fa-fingerprint"></i> البصمة
+                        <span class="sub-text">حضور وانصراف</span>
+                    </button>
+                    <button class="quick-action-btn" onclick="navigateTo('requests')">
+                        <i class="fas fa-file-pen"></i> طلباتي
+                        <span class="sub-text">إجازة · سلفة · شكوى</span>
+                    </button>
+                    <button class="quick-action-btn" onclick="navigateTo('commitment')">
+                        <i class="fas fa-medal"></i> الالتزام
+                        <span class="sub-text" id="quickCommitmentSub">نسبتك 0%</span>
+                    </button>
+                    <button class="quick-action-btn" onclick="navigateTo('briefing')">
+                        <i class="fas fa-chart-simple"></i> إيجاز
+                        <span class="sub-text">إحصائيات الفرع</span>
+                    </button>
+                    <button class="quick-action-btn" onclick="navigateTo('salary')">
+                        <i class="fas fa-money-bill-wave"></i> الراتب
+                        <span class="sub-text">الخصومات والمكافآت</span>
+                    </button>
+                    <button class="quick-action-btn" onclick="navigateTo('profile')">
+                        <i class="fas fa-user"></i> ملفي
+                        <span class="sub-text">البيانات الشخصية</span>
+                    </button>
+                    <button class="quick-action-btn" onclick="navigateTo('notifications')">
+                        <i class="fas fa-bell"></i> الإشعارات
+                        <span class="badge" id="quickNotifBadge">0</span>
+                        <span class="sub-text">آخر التحديثات</span>
+                    </button>
+                    <button class="quick-action-btn" onclick="toggleMenu()" style="border-color:var(--accent);">
+                        <i class="fas fa-bars" style="color:var(--accent);"></i> المزيد
+                        <span class="sub-text">جميع الخدمات</span>
+                    </button>
+                </div>
+
+                <!-- الإشعارات المصغرة -->
+                <div class="mini-notifications" onclick="navigateTo('notifications')">
+                    <div class="mini-header">
+                        <h4><i class="fas fa-bell"></i> آخر الإشعارات</h4>
+                        <span class="view-all">عرض الكل</span>
+                    </div>
+                    <div id="miniNotifItems">
+                        <div class="mini-notification-item">
+                            <div class="notif-content"><div class="notif-message">لا توجد إشعارات بعد</div></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ===== باقي الصفحات ===== -->
+            <div id="page-profile" class="page-screen hidden">
+                <div class="page-title">
+                    <h2><i class="fas fa-user-circle"></i> ملفي الوظيفي</h2>
+                    <button onclick="navigateTo('home')" class="back-btn"><i class="fas fa-arrow-right"></i> رجوع</button>
+                </div>
+                <div class="profile-card">
+                    <div class="avatar" id="profileAvatar">أ</div>
+                    <div class="info">
+                        <div class="name" id="profileName">...</div>
+                        <div class="email" id="profileTitle">...</div>
+                        <div class="role" id="profileBranch">...</div>
+                    </div>
                 </div>
                 <div class="card">
-                    <div class="card-header"><h2>آخر الإشعارات</h2></div>
-                    <?php if (empty($notifications)): ?><div class="empty-state"><div class="icon">🔔</div>لا توجد إشعارات</div>
-                    <?php else: ?>
-                    <ul>
-                        <?php foreach ($notifications as $n): ?>
-                            <li style="padding:10px 0;border-bottom:1px solid var(--border);">
-                                <div style="font-weight:700;"><?= e($n['title']) ?></div>
-                                <div style="color:var(--text-muted);font-size:12.5px;"><?= e($n['message']) ?> — <?= e($n['created_at']) ?></div>
-                            </li>
-                        <?php endforeach; ?>
-                    </ul>
-                    <?php endif; ?>
+                    <div class="table-wrap">
+                        <table class="table">
+                            <tr><th>الاسم</th><td id="profileTableName">...</td></tr>
+                            <tr><th>المنصب</th><td id="profileTableTitle">...</td></tr>
+                            <tr><th>الفرع</th><td id="profileTableBranch">...</td></tr>
+                            <tr><th>تاريخ المباشرة</th><td id="profileTableHireDate">...</td></tr>
+                            <tr><th>رقم التوظيف</th><td id="profileTableCode">...</td></tr>
+                            <tr><th>الراتب الاسمي</th><td id="profileTableSalary">...</td></tr>
+                            <tr><th>الشفت المسائي</th><td id="profileTableShift">...</td></tr>
+                            <tr><th>الخصومات الإدارية</th><td id="profileTableDeduction">...</td></tr>
+                            <tr><th>المكافآت الإدارية</th><td id="profileTableBonus">...</td></tr>
+                        </table>
+                    </div>
+                </div>
+                <div class="quick-actions-grid" style="grid-template-columns:1fr 1fr;">
+                    <button class="quick-action-btn" onclick="showToast('📄 عقد العمل', 'تم عرض عقد العمل', 'info')">
+                        <i class="fas fa-file-contract"></i> عقد العمل
+                    </button>
+                    <button class="quick-action-btn" onclick="showToast('🪪 المستمسكات', 'تم عرض المستمسكات', 'info')">
+                        <i class="fas fa-id-card"></i> مستمسكاتي
+                    </button>
                 </div>
             </div>
 
-        <?php elseif ($tab === 'attendance'): ?>
-            <div class="card" style="text-align:center;">
-                <div style="font-size:14px;color:var(--text-muted);margin-bottom:14px;">
-                    آخر تسجيل: <?= $todayAttendance ? (e($todayAttendance['check_in'] ?? '-') . ($todayAttendance['check_out'] ? ' → ' . e($todayAttendance['check_out']) : '')) : 'لم تسجل حضورك اليوم بعد' ?>
+            <div id="page-attendance" class="page-screen hidden">
+                <div class="page-title">
+                    <h2><i class="fas fa-fingerprint"></i> الحضور والبصمة</h2>
+                    <button onclick="navigateTo('home')" class="back-btn"><i class="fas fa-arrow-right"></i> رجوع</button>
                 </div>
-                <div style="display:flex;gap:12px;justify-content:center;">
-                    <form method="post" action="/employee.php">
-                        <?= csrf_field() ?>
-                        <input type="hidden" name="action" value="check_in">
-                        <input type="hidden" name="tab" value="attendance">
-                        <button type="submit" class="btn btn-success" <?= $todayAttendance && $todayAttendance['check_in'] ? 'disabled' : '' ?>>تسجيل حضور (دخول)</button>
-                    </form>
-                    <form method="post" action="/employee.php">
-                        <?= csrf_field() ?>
-                        <input type="hidden" name="action" value="check_out">
-                        <input type="hidden" name="tab" value="attendance">
-                        <button type="submit" class="btn btn-danger" <?= !$todayAttendance || !$todayAttendance['check_in'] ? 'disabled' : '' ?>>تسجيل انصراف (خروج)</button>
-                    </form>
+
+                <div class="card" style="text-align:center;">
+                    <div class="muted">الوقت الحالي</div>
+                    <h2 style="margin:8px 0;font-size:28px;" id="currentTime">08:05:12</h2>
+                    <div class="muted" id="currentDate">الأربعاء 15 مايو 2024</div>
                 </div>
-            </div>
-            <div class="card">
-                <div class="card-header"><h2>سجل الحضور الأخير</h2></div>
-                <div class="table-wrap"><table class="data-table">
-                    <thead><tr><th>التاريخ</th><th>الدخول</th><th>الخروج</th><th>الحالة</th></tr></thead>
-                    <tbody><?php foreach ($attendanceHistory as $a): $badge = ['present'=>'badge-success','late'=>'badge-warning','absent'=>'badge-danger'][$a['status']]; $lbl = ['present'=>'حاضر','late'=>'تأخير','absent'=>'غائب'][$a['status']]; ?>
-                        <tr><td><?= e($a['attendance_date']) ?></td><td><?= e($a['check_in'] ?? '-') ?></td><td><?= e($a['check_out'] ?? '-') ?></td><td><span class="badge <?= $badge ?>"><?= $lbl ?></span></td></tr>
-                    <?php endforeach; ?></tbody>
-                </table></div>
+
+                <div class="fingerprint-buttons" style="flex-direction:column;gap:12px;">
+                    <button class="fingerprint-btn fingerprint-btn-checkin" style="width:100%;" id="checkInBtn2" onclick="handleCheckIn()" disabled>
+                        <div class="fingerprint-icon"><i class="fas fa-fingerprint"></i></div>
+                        <span class="fingerprint-label">تسجيل حضور</span>
+                        <span class="fingerprint-sub">بصمة الدخول</span>
+                    </button>
+                    <button class="fingerprint-btn fingerprint-btn-checkout" style="width:100%;" id="checkOutBtn2" onclick="handleCheckOut()" disabled>
+                        <div class="fingerprint-icon"><i class="fas fa-fingerprint"></i></div>
+                        <span class="fingerprint-label">تسجيل انصراف</span>
+                        <span class="fingerprint-sub">بصمة الخروج</span>
+                    </button>
+                </div>
+
+                <div id="attendanceStatus" style="display:none;padding:12px;border-radius:var(--radius-md);margin:12px 0;text-align:center;font-weight:700;"></div>
+
+                <div class="section-title"><i class="fas fa-history"></i> آخر البصمات</div>
+                <div class="card" id="attendanceHistoryList">
+                    <div class="list-item"><div class="item-content"><div class="item-title">لا يوجد سجل بعد</div></div></div>
+                </div>
+                <button class="quick-action-btn" style="width:100%;padding:14px;" onclick="showToast('📋 سجل الحضور', 'تم عرض سجل الحضور الكامل', 'info')">
+                    <i class="fas fa-list"></i> عرض سجل الحضور الكامل
+                </button>
             </div>
 
-        <?php elseif ($tab === 'requests'): ?>
-            <div class="card">
-                <div class="card-header"><h2>تقديم طلب جديد</h2></div>
-                <form method="post" action="/employee.php" id="requestForm">
-                    <?= csrf_field() ?>
-                    <input type="hidden" name="action" value="request_submit">
-                    <input type="hidden" name="tab" value="requests">
+            <div id="page-commitment" class="page-screen hidden">
+                <div class="page-title">
+                    <h2><i class="fas fa-medal"></i> نسبة الالتزام</h2>
+                    <button onclick="navigateTo('home')" class="back-btn"><i class="fas fa-arrow-right"></i> رجوع</button>
+                </div>
+                <div class="card" style="text-align:center;">
+                    <div class="label">نسبة الالتزام الشهرية</div>
+                    <div style="position:relative;width:140px;height:140px;margin:12px auto;">
+                        <svg viewBox="0 0 140 140" style="transform:rotate(-90deg);width:140px;height:140px;">
+                            <circle cx="70" cy="70" r="60" fill="none" stroke="#e5eded" stroke-width="10"/>
+                            <circle cx="70" cy="70" r="60" fill="none" stroke="#006b73" stroke-width="10"
+                                    stroke-linecap="round" stroke-dasharray="376.99" stroke-dashoffset="376.99" id="commitmentRing"/>
+                        </svg>
+                        <div style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);font-size:32px;font-weight:900;color:var(--text-primary);" id="commitmentPctText">0%</div>
+                    </div>
+                    <div style="font-size:18px;font-weight:700;color:#059669;" id="commitmentRatingText">...</div>
+                    <div style="font-size:13px;color:var(--text-muted);margin-top:4px;" id="commitmentPrevText">نسبة الشهر السابق: 0%</div>
+                </div>
+                <div class="section-title"><i class="fas fa-chart-line"></i> تفاصيل الالتزام</div>
+                <div class="card">
+                    <div class="list-item">
+                        <div class="item-icon" style="background:rgba(16,185,129,0.12);color:#059669;"><i class="fas fa-calendar-check"></i></div>
+                        <div class="item-content">
+                            <div class="item-title">أيام الحضور</div>
+                            <div class="item-desc" id="commitmentPresentDesc">0 يوم من 0 يوم عمل</div>
+                        </div>
+                        <span style="font-weight:800;color:#059669;" id="commitmentPresentPct">0%</span>
+                    </div>
+                    <div class="list-item">
+                        <div class="item-icon" style="background:rgba(217,119,6,0.12);color:#D97706;"><i class="fas fa-clock"></i></div>
+                        <div class="item-content">
+                            <div class="item-title">أيام التأخير</div>
+                            <div class="item-desc" id="commitmentLateDesc">0 أيام تأخير</div>
+                        </div>
+                        <span style="font-weight:800;color:#D97706;" id="commitmentLatePct">0%</span>
+                    </div>
+                    <div class="list-item">
+                        <div class="item-icon" style="background:rgba(239,68,68,0.12);color:#DC2626;"><i class="fas fa-times-circle"></i></div>
+                        <div class="item-content">
+                            <div class="item-title">أيام الغياب</div>
+                            <div class="item-desc" id="commitmentAbsentDesc">0 أيام غياب</div>
+                        </div>
+                        <span style="font-weight:800;color:#059669;" id="commitmentAbsentPct">0%</span>
+                    </div>
+                </div>
+            </div>
+
+            <div id="page-salary" class="page-screen hidden">
+                <div class="page-title">
+                    <h2><i class="fas fa-money-bill-wave"></i> الراتب والخصومات</h2>
+                    <button onclick="navigateTo('home')" class="back-btn"><i class="fas fa-arrow-right"></i> رجوع</button>
+                </div>
+                <div class="card">
+                    <div class="list-item">
+                        <div class="item-icon" style="background:rgba(0,107,115,0.08);color:var(--primary);"><i class="fas fa-calendar"></i></div>
+                        <div class="item-content">
+                            <div class="item-title">الشهر الحالي</div>
+                            <div class="item-desc" id="salaryPeriodText">...</div>
+                        </div>
+                        <span style="font-weight:800;" id="salaryStatusText">...</span>
+                    </div>
+                </div>
+                <div class="card">
+                    <div class="table-wrap">
+                        <table class="table">
+                            <tr><th>البيان</th><th>المبلغ</th></tr>
+                            <tr><td>الراتب الاسمي</td><td id="salaryBase">0</td></tr>
+                            <tr><td>الخصومات</td><td style="color:#DC2626;" id="salaryDeduction">- 0</td></tr>
+                            <tr><td>المكافآت</td><td style="color:#059669;" id="salaryBonus">+ 0</td></tr>
+                            <tr style="border-top:2px solid var(--primary);">
+                                <td><b>الراتب النهائي</b></td>
+                                <td><b style="color:var(--green);font-size:16px;" id="salaryNet">0 د.ع</b></td>
+                            </tr>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <div id="page-requests" class="page-screen hidden">
+                <div class="page-title">
+                    <h2><i class="fas fa-file-pen"></i> طلبات الموظف</h2>
+                    <button onclick="navigateTo('home')" class="back-btn"><i class="fas fa-arrow-right"></i> رجوع</button>
+                </div>
+                <div class="quick-actions-grid" style="grid-template-columns:1fr 1fr;">
+                    <button class="quick-action-btn" onclick="openRequestModal('إجازة')" style="padding:16px 10px;">
+                        <i class="fas fa-calendar-plus"></i> إجازة
+                    </button>
+                    <button class="quick-action-btn" onclick="openRequestModal('سلفة')" style="padding:16px 10px;">
+                        <i class="fas fa-hand-holding-usd"></i> سلفة
+                    </button>
+                    <button class="quick-action-btn" onclick="openRequestModal('شكوى')" style="padding:16px 10px;">
+                        <i class="fas fa-exclamation-triangle"></i> شكوى
+                    </button>
+                    <button class="quick-action-btn" onclick="openRequestModal('استقالة')" style="padding:16px 10px;">
+                        <i class="fas fa-sign-out-alt"></i> استقالة
+                    </button>
+                </div>
+                <div class="section-title"><i class="fas fa-list"></i> طلباتي السابقة</div>
+                <div class="card" id="recentRequestsList">
+                    <div class="list-item"><div class="item-content"><div class="item-title">لا توجد طلبات بعد</div></div></div>
+                </div>
+                <button class="quick-action-btn" style="width:100%;padding:14px;" onclick="navigateTo('myRequests')">
+                    <i class="fas fa-list"></i> عرض جميع الطلبات (<span id="allRequestsCount">0</span>)
+                </button>
+            </div>
+
+            <div id="page-myRequests" class="page-screen hidden">
+                <div class="page-title">
+                    <h2><i class="fas fa-list"></i> طلباتي</h2>
+                    <button onclick="navigateTo('requests')" class="back-btn"><i class="fas fa-arrow-right"></i> رجوع</button>
+                </div>
+                <div class="quick-actions-grid" style="grid-template-columns:1fr 1fr;margin-bottom:14px;">
+                    <button class="quick-action-btn" onclick="filterRequests('all')" style="border-color:var(--primary);font-size:11px;padding:10px;">
+                        <i class="fas fa-list"></i> الكل
+                    </button>
+                    <button class="quick-action-btn" onclick="filterRequests('pending')" style="font-size:11px;padding:10px;">
+                        <i class="fas fa-clock"></i> قيد المراجعة
+                    </button>
+                </div>
+                <div id="requestsList">
+                    <div class="card request-item" data-status="pending"><div class="list-item"><div class="item-content"><div class="item-title">لا توجد طلبات بعد</div></div></div></div>
+                </div>
+            </div>
+
+            <div id="page-briefing" class="page-screen hidden">
+                <div class="page-title">
+                    <h2><i class="fas fa-chart-simple"></i> إيجاز الفرع اليومي</h2>
+                    <button onclick="navigateTo('home')" class="back-btn"><i class="fas fa-arrow-right"></i> رجوع</button>
+                </div>
+                <div class="card">
+                    <div class="list-item">
+                        <div class="item-icon" style="background:rgba(0,107,115,0.08);color:var(--primary);"><i class="fas fa-calendar"></i></div>
+                        <div class="item-content">
+                            <div class="item-title">التاريخ</div>
+                            <div class="item-desc" id="briefDate">...</div>
+                        </div>
+                    </div>
+                    <div class="list-item">
+                        <div class="item-icon" style="background:rgba(0,107,115,0.08);color:var(--primary);"><i class="fas fa-store"></i></div>
+                        <div class="item-content">
+                            <div class="item-title">الفرع</div>
+                            <div class="item-desc" id="briefBranch">...</div>
+                        </div>
+                    </div>
+                </div>
+                <div class="card" id="briefStatsCard">
+                    <div class="list-item"><div class="item-content"><div class="item-title">المسافرين</div></div><span style="font-weight:800;" id="briefTravelers">0</span></div>
+                    <div class="list-item"><div class="item-content"><div class="item-title">المصاريف</div></div><span style="font-weight:800;" id="briefExpense">0</span></div>
+                    <div class="list-item" style="border-bottom:0;"><div class="item-content"><div class="item-title">الإيرادات</div></div><span style="font-weight:800;color:#059669;" id="briefIncome">0</span></div>
+                </div>
+                <div class="card" style="text-align:center;background:rgba(16,185,129,0.04);border-color:rgba(16,185,129,0.12);">
+                    <div class="label">نتيجة اليوم</div>
+                    <h2 style="color:var(--green);font-size:28px;margin:8px 0;" id="briefProfit">0 د.ع</h2>
+                    <p class="muted" style="font-size:13px;color:var(--text-muted);">للمشاهدة فقط. لا يمكن للموظف العادي التعديل أو الحذف.</p>
+                </div>
+            </div>
+
+            <div id="page-notifications" class="page-screen hidden">
+                <div class="page-title">
+                    <h2><i class="fas fa-bell"></i> الإشعارات</h2>
+                    <button onclick="navigateTo('home')" class="back-btn"><i class="fas fa-arrow-right"></i> رجوع</button>
+                </div>
+                <button class="quick-action-btn" style="width:100%;padding:10px;margin-bottom:14px;border-color:var(--primary);" onclick="markAllRead()">
+                    <i class="fas fa-check-double"></i> تحديد الكل كمقروء
+                </button>
+                <div class="card" id="notifFullList">
+                    <div class="notification-item-full"><div class="notif-content"><div class="notif-title">لا توجد إشعارات</div></div></div>
+                </div>
+            </div>
+
+        </div>
+
+        <!-- ===== الشريط السفلي ===== -->
+        <nav class="bottom-nav-minimal">
+            <button class="nav-item active" id="nav-home" onclick="navigateTo('home')">
+                <i class="fas fa-home"></i><span>الرئيسية</span>
+            </button>
+            <button class="nav-item" id="nav-attendance" onclick="navigateTo('attendance')">
+                <i class="fas fa-fingerprint"></i><span>البصمة</span>
+            </button>
+            <button class="nav-item" id="nav-requests" onclick="navigateTo('requests')">
+                <i class="fas fa-file-pen"></i><span>الطلبات</span>
+                <span class="nav-badge" id="navRequestsBadge" style="display:none;">0</span>
+            </button>
+            <button class="nav-item" id="nav-profile" onclick="navigateTo('profile')">
+                <i class="fas fa-user"></i><span>ملفي</span>
+            </button>
+            <button class="nav-item" id="nav-more" onclick="toggleMenu()">
+                <i class="fas fa-bars"></i><span>المزيد</span>
+            </button>
+        </nav>
+
+        <!-- ===== القائمة الجانبية ===== -->
+        <div id="sideMenu" style="display:none;position:fixed;bottom:var(--nav-height);left:0;right:0;background:var(--bg-card);border-top:2px solid rgba(0,107,115,0.04);box-shadow:var(--shadow-lg);z-index:199;max-height:60vh;overflow-y:auto;border-radius:var(--radius-lg) var(--radius-lg) 0 0;padding:16px 20px;">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;padding-bottom:12px;border-bottom:1px solid rgba(0,107,115,0.04);">
+                <h3 style="font-size:16px;font-weight:800;color:var(--text-primary);">📋 القائمة</h3>
+                <button onclick="toggleMenu()" style="background:none;border:none;font-size:24px;color:var(--text-muted);cursor:pointer;">✕</button>
+            </div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
+                <button class="quick-action-btn" onclick="navigateTo('home');toggleMenu();" style="font-size:11px;padding:10px 6px;">
+                    <i class="fas fa-home"></i> الرئيسية
+                </button>
+                <button class="quick-action-btn" onclick="navigateTo('profile');toggleMenu();" style="font-size:11px;padding:10px 6px;">
+                    <i class="fas fa-user"></i> ملفي
+                </button>
+                <button class="quick-action-btn" onclick="navigateTo('attendance');toggleMenu();" style="font-size:11px;padding:10px 6px;">
+                    <i class="fas fa-fingerprint"></i> البصمة
+                </button>
+                <button class="quick-action-btn" onclick="navigateTo('commitment');toggleMenu();" style="font-size:11px;padding:10px 6px;">
+                    <i class="fas fa-medal"></i> الالتزام
+                </button>
+                <button class="quick-action-btn" onclick="navigateTo('salary');toggleMenu();" style="font-size:11px;padding:10px 6px;">
+                    <i class="fas fa-money-bill-wave"></i> الراتب
+                </button>
+                <button class="quick-action-btn" onclick="navigateTo('briefing');toggleMenu();" style="font-size:11px;padding:10px 6px;">
+                    <i class="fas fa-chart-simple"></i> إيجاز
+                </button>
+                <button class="quick-action-btn" onclick="navigateTo('notifications');toggleMenu();" style="font-size:11px;padding:10px 6px;">
+                    <i class="fas fa-bell"></i> الإشعارات
+                </button>
+                <button class="quick-action-btn" onclick="handleLogout();toggleMenu();" style="font-size:11px;padding:10px 6px;border-color:#EF4444;color:#EF4444;">
+                    <i class="fas fa-sign-out-alt" style="color:#EF4444;"></i> خروج
+                </button>
+            </div>
+        </div>
+
+    </div>
+
+    <!-- ============================================================
+    نافذة تقديم الطلب
+    ============================================================ -->
+    <div class="request-modal-overlay" id="requestModal">
+        <div class="request-modal">
+            <div class="modal-header">
+                <h3 id="requestModalTitle"><i class="fas fa-file-pen"></i> تقديم طلب</h3>
+                <button class="close-btn" onclick="closeRequestModal()"><i class="fas fa-times"></i></button>
+            </div>
+            <div class="modal-body">
+                <form id="requestForm" onsubmit="submitRequestForm(event)">
+                    <input type="hidden" id="requestType" value="إجازة">
+                    <div id="requestFields"></div>
+                    <button type="submit" class="btn-submit-request">
+                        <i class="fas fa-paper-plane"></i> إرسال الطلب
+                    </button>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- ============================================================
+    TOAST CONTAINER
+    ============================================================ -->
+    <div class="toast-container" id="toastContainer"></div>
+
+    <!-- ============================================================
+    سكربتات JavaScript
+    ============================================================ -->
+    <script>
+        window.addEventListener('unhandledrejection', function(e) {
+            console.error('Unhandled request failure:', e.reason);
+            if (typeof showToast === 'function') {
+                showToast('❌ خطأ في الاتصال', 'تعذر تنفيذ العملية — تأكد من تشغيل migrate.php على قاعدة البيانات ثم أعد المحاولة', 'error');
+            }
+            e.preventDefault();
+        });
+
+        // ============================================================
+        // شاشة الترحيب - محاكاة التحميل
+        // ============================================================
+        let loaderProgress = 0;
+        const loaderBar = document.getElementById('loaderBar');
+        const loaderPercent = document.getElementById('loaderPercent');
+        const loaderStatus = document.getElementById('loaderStatus');
+        const loaderLabel = document.getElementById('loaderLabel');
+        const welcomeScreen = document.getElementById('welcomeScreen');
+        const loginScreen = document.getElementById('loginScreen');
+        const alreadyLoggedIn = <?= $isLoggedIn ? 'true' : 'false' ?>;
+
+        const statusMessages = [
+            { at: 0, text: 'تهيئة البيئة...' },
+            { at: 15, text: 'تحميل الملفات الأساسية...' },
+            { at: 30, text: 'تجهيز قاعدة البيانات...' },
+            { at: 45, text: 'تحميل بيانات المستخدم...' },
+            { at: 60, text: 'تهيئة النظام...' },
+            { at: 75, text: 'تحميل الإعدادات...' },
+            { at: 85, text: 'تجهيز الواجهة...' },
+            { at: 95, text: 'اكتمال التحميل...' }
+        ];
+
+        function updateLoaderStatus(progress) {
+            let currentText = statusMessages[0].text;
+            for (const msg of statusMessages) {
+                if (progress >= msg.at) {
+                    currentText = msg.text;
+                }
+            }
+            loaderStatus.textContent = currentText;
+            if (progress >= 100) {
+                loaderStatus.textContent = '✅ جاهز!';
+                loaderLabel.innerHTML = '<i class="fas fa-check-circle" style="color:#10B981;"></i> تم التحميل بنجاح';
+            }
+        }
+
+        function animateLoader() {
+            if (loaderProgress >= 100) {
+                loaderBar.style.width = '100%';
+                loaderPercent.textContent = '100%';
+                updateLoaderStatus(100);
+                setTimeout(() => {
+                    welcomeScreen.classList.add('fade-out');
+                    setTimeout(() => {
+                        welcomeScreen.style.display = 'none';
+                        if (alreadyLoggedIn) {
+                            document.getElementById('appContainer').classList.remove('hidden');
+                            startAutoSlide();
+                            initApp();
+                        } else {
+                            loginScreen.classList.remove('hidden');
+                        }
+                        showToast('👋 مرحباً', 'تم تحميل النظام بنجاح', 'success');
+                    }, 800);
+                }, 600);
+                return;
+            }
+
+            const increment = Math.random() * 2.5 + 0.8;
+            loaderProgress = Math.min(loaderProgress + increment, 100);
+            loaderBar.style.width = loaderProgress + '%';
+            loaderPercent.textContent = Math.floor(loaderProgress) + '%';
+            updateLoaderStatus(loaderProgress);
+
+            let delay = 60 + Math.random() * 70;
+            if (loaderProgress > 80) delay = 100 + Math.random() * 80;
+            if (loaderProgress > 95) delay = 150 + Math.random() * 120;
+
+            setTimeout(animateLoader, delay);
+        }
+
+        // ============================================================
+        // متغيرات GPS
+        // ============================================================
+        let gpsEnabled = false;
+        let gpsPosition = null;
+        let isGPSRequestInProgress = false;
+
+        // ============================================================
+        // دالة تفعيل الموقع (GPS) - تستدعى فقط عند الضغط على أزرار البصمة
+        // ============================================================
+        function requestGPS() {
+            return new Promise((resolve) => {
+                if (gpsEnabled) {
+                    resolve(true);
+                    return;
+                }
+
+                if (isGPSRequestInProgress) {
+                    showToast('⏳ جاري التفعيل', 'يتم تحديد الموقع حالياً...', 'info');
+                    resolve(false);
+                    return;
+                }
+
+                isGPSRequestInProgress = true;
+
+                if (!navigator.geolocation) {
+                    showToast('❌ غير مدعوم', 'متصفحك لا يدعم تحديد الموقع', 'error');
+                    isGPSRequestInProgress = false;
+                    resolve(false);
+                    return;
+                }
+
+                // إظهار طلب تفعيل الموقع
+                showToast('📍 طلب موقع', 'يرجى السماح بتحديد موقعك لتسجيل البصمة', 'info', 4000);
+
+                navigator.geolocation.getCurrentPosition(
+                    function(pos) {
+                        gpsEnabled = true;
+                        gpsPosition = {
+                            latitude: pos.coords.latitude,
+                            longitude: pos.coords.longitude,
+                            accuracy: pos.coords.accuracy
+                        };
+                        isGPSRequestInProgress = false;
+
+                        // تفعيل أزرار البصمة
+                        enableAttendanceButtons(true);
+
+                        // تحديث واجهة المستخدم في الصفحة الرئيسية
+                        showToast('✅ تم التفعيل', 'تم تحديد موقعك بنجاح', 'success');
+                        resolve(true);
+                    },
+                    function(err) {
+                        gpsEnabled = false;
+                        isGPSRequestInProgress = false;
+                        enableAttendanceButtons(false);
+
+                        let errorMsg = 'يرجى تفعيل خدمة الموقع يدوياً';
+                        if (err.code === 1) {
+                            errorMsg = 'تم رفض إذن الموقع. يرجى السماح بتحديد الموقع';
+                        } else if (err.code === 2) {
+                            errorMsg = 'الموقع غير متوفر حالياً. حاول مرة أخرى';
+                        } else if (err.code === 3) {
+                            errorMsg = 'انتهت مهلة تحديد الموقع. حاول مرة أخرى';
+                        }
+
+                        showToast('❌ فشل التفعيل', errorMsg, 'error');
+                        resolve(false);
+                    }, {
+                        enableHighAccuracy: true,
+                        timeout: 15000,
+                        maximumAge: 0
+                    }
+                );
+            });
+        }
+
+        // ============================================================
+        // تفعيل/تعطيل أزرار البصمة
+        // ============================================================
+        function enableAttendanceButtons(enabled) {
+            const btns = [
+                document.getElementById('checkInBtn'),
+                document.getElementById('checkOutBtn'),
+                document.getElementById('checkInBtn2'),
+                document.getElementById('checkOutBtn2')
+            ];
+            btns.forEach(btn => {
+                if (btn) btn.disabled = !enabled;
+            });
+        }
+
+        // ============================================================
+        // تحميل البيانات الحقيقية من الخادم
+        // ============================================================
+        function initApp() {
+            loadBootstrap();
+            loadNotifications();
+            setInterval(loadNotifications, 60000);
+            setInterval(loadBootstrap, 60000);
+        }
+
+        function loadBootstrap() {
+            fetch('?ajax=bootstrap').then(r => r.json()).then(data => {
+                if (!data.ok) return;
+                const p = data.profile;
+
+                document.getElementById('homeAvatar').textContent = p.photo ? '' : (p.name ? p.name.charAt(0) : '؟');
+                if (p.photo) document.getElementById('homeAvatar').innerHTML = `<img src="${p.photo}" style="width:100%;height:100%;object-fit:cover;border-radius:50%;">`;
+                document.getElementById('homeName').textContent = p.name;
+                document.getElementById('homeTitleBranch').textContent = (p.title || 'موظف') + ' · ' + p.branch;
+                document.getElementById('homeCode').textContent = 'رقم التوظيف: ' + p.code;
+
+                document.getElementById('profileAvatar').innerHTML = p.photo ? `<img src="${p.photo}" style="width:100%;height:100%;object-fit:cover;border-radius:50%;">` : (p.name ? p.name.charAt(0) : '؟');
+                document.getElementById('profileName').textContent = p.name;
+                document.getElementById('profileTitle').textContent = p.title || 'موظف';
+                document.getElementById('profileBranch').textContent = p.branch;
+                document.getElementById('profileTableName').textContent = p.name;
+                document.getElementById('profileTableTitle').textContent = p.title || '-';
+                document.getElementById('profileTableBranch').textContent = p.branch;
+                document.getElementById('profileTableHireDate').textContent = p.hireDate || '-';
+                document.getElementById('profileTableCode').textContent = p.code;
+                document.getElementById('profileTableSalary').textContent = Number(p.baseSalary).toLocaleString() + ' د.ع';
+                document.getElementById('profileTableShift').textContent = p.shiftTypeText;
+                document.getElementById('profileTableDeduction').textContent = Number(p.adminDeduction).toLocaleString() + ' د.ع';
+                document.getElementById('profileTableBonus').textContent = Number(p.adminBonus).toLocaleString() + ' د.ع';
+
+                document.getElementById('statCommitment').textContent = data.stats.commitmentPct + '%';
+                document.getElementById('statTodayStatus').textContent = data.stats.todayStatus;
+                document.getElementById('statPendingRequests').textContent = data.stats.pendingRequests;
+                document.getElementById('statUnreadNotifs').textContent = data.stats.unreadNotifications;
+                document.getElementById('quickCommitmentSub').textContent = 'نسبتك ' + data.stats.commitmentPct + '%';
+                document.getElementById('quickNotifBadge').textContent = data.stats.unreadNotifications;
+
+                const navBadge = document.getElementById('navRequestsBadge');
+                if (data.stats.pendingRequests > 0) {
+                    navBadge.style.display = 'flex';
+                    navBadge.textContent = data.stats.pendingRequests;
+                } else {
+                    navBadge.style.display = 'none';
+                }
+
+                renderHonorRoll(data.honorRoll);
+
+                const histWrap = document.getElementById('attendanceHistoryList');
+                if (histWrap) {
+                    if (!data.recentAttendance.length) {
+                        histWrap.innerHTML = '<div class="list-item"><div class="item-content"><div class="item-title">لا يوجد سجل بعد</div></div></div>';
+                    } else {
+                        histWrap.innerHTML = data.recentAttendance.map(a => `
+                            <div class="list-item">
+                                <div class="item-icon" style="background:${a.late ? 'rgba(217,119,6,0.12)' : 'rgba(16,185,129,0.12)'};color:${a.late ? '#D97706' : '#059669'};">${a.checkIn ? '✓' : '✕'}</div>
+                                <div class="item-content">
+                                    <div class="item-title">${a.date}${a.late ? ' (تأخير)' : ''}</div>
+                                    <div class="item-desc">دخول: ${a.checkIn || '--:--'} · انصراف: ${a.checkOut || '--:--'}</div>
+                                </div>
+                            </div>
+                        `).join('');
+                    }
+                }
+
+                shiftInfo = data.shift;
+                todayAttendance = data.todayAttendance;
+                updateWorkSchedule();
+            });
+        }
+
+        // ============================================================
+        // الإشعارات
+        // ============================================================
+        function loadNotifications() {
+            fetch('?ajax=notifications_list').then(r => r.json()).then(data => {
+                if (!data.ok) return;
+                const miniWrap = document.getElementById('miniNotifItems');
+                const fullWrap = document.getElementById('notifFullList');
+                if (!data.notifications.length) {
+                    if (miniWrap) miniWrap.innerHTML = '<div class="mini-notification-item"><div class="notif-content"><div class="notif-message">لا توجد إشعارات</div></div></div>';
+                    if (fullWrap) fullWrap.innerHTML = '<div class="notification-item-full"><div class="notif-content"><div class="notif-title">لا توجد إشعارات</div></div></div>';
+                    return;
+                }
+                if (miniWrap) {
+                    miniWrap.innerHTML = data.notifications.slice(0, 2).map(n => `
+                        <div class="mini-notification-item">
+                            <div class="notif-icon ${n.is_read ? 'info' : 'success'}">${n.is_read ? 'ℹ' : '✓'}</div>
+                            <div class="notif-content">
+                                <div class="notif-title">${n.title}</div>
+                                <div class="notif-message">${n.message || ''}</div>
+                            </div>
+                            <span class="notif-time">${n.date}</span>
+                        </div>
+                    `).join('');
+                }
+                if (fullWrap) {
+                    fullWrap.innerHTML = data.notifications.map(n => `
+                        <div class="notification-item-full" style="${n.is_read ? '' : 'border-right:3px solid var(--primary);'}">
+                            <div class="notif-icon ${n.is_read ? 'info' : 'success'}">${n.is_read ? 'ℹ' : '✓'}</div>
+                            <div class="notif-content">
+                                <div class="notif-title">${n.title}</div>
+                                <div class="notif-message">${n.message || ''}</div>
+                            </div>
+                            <span class="notif-time">${n.date}</span>
+                        </div>
+                    `).join('');
+                }
+            });
+        }
+
+        // ============================================================
+        // طلباتي
+        // ============================================================
+        function loadMyRequests() {
+            fetch('?ajax=my_requests').then(r => r.json()).then(data => {
+                if (!data.ok) return;
+                renderMyRequests(data.requests);
+            });
+        }
+
+        const requestStatusBadgeClass = { 'pending': 'wait', 'branch_approved': 'wait', 'approved': 'ok', 'rejected': 'danger' };
+        const requestTypeIcons = { 'إجازة': '📅', 'سلفة': '💰', 'شكوى': '📋', 'استقالة': '🚪' };
+
+        function renderMyRequests(requests) {
+            document.getElementById('allRequestsCount').textContent = requests.length;
+
+            const recentWrap = document.getElementById('recentRequestsList');
+            if (recentWrap) {
+                if (!requests.length) {
+                    recentWrap.innerHTML = '<div class="list-item"><div class="item-content"><div class="item-title">لا توجد طلبات بعد</div></div></div>';
+                } else {
+                    recentWrap.innerHTML = requests.slice(0, 3).map(r => `
+                        <div class="list-item" onclick="navigateTo('myRequests')" style="cursor:pointer;">
+                            <div class="item-icon">${requestTypeIcons[r.type] || '📄'}</div>
+                            <div class="item-content">
+                                <div class="item-title">طلب ${r.type}</div>
+                                <div class="item-desc">${r.details}</div>
+                            </div>
+                            <span class="item-badge ${requestStatusBadgeClass[r.status] || 'wait'}">${r.statusText}</span>
+                        </div>
+                    `).join('');
+                }
+            }
+
+            const listWrap = document.getElementById('requestsList');
+            if (!requests.length) {
+                listWrap.innerHTML = '<div class="card request-item" data-status="pending"><div class="list-item"><div class="item-content"><div class="item-title">لا توجد طلبات بعد</div></div></div></div>';
+                return;
+            }
+            listWrap.innerHTML = requests.map(r => `
+                <div class="card request-item" data-status="${r.status === 'pending' || r.status === 'branch_approved' ? 'pending' : 'done'}">
+                    <div class="list-item" style="border-bottom:1px solid rgba(0,107,115,0.04);padding-bottom:10px;margin-bottom:6px;">
+                        <div class="item-icon">${requestTypeIcons[r.type] || '📄'}</div>
+                        <div class="item-content">
+                            <div class="item-title">طلب ${r.type}</div>
+                            <div class="item-desc">${r.details}</div>
+                        </div>
+                        <span class="item-badge ${requestStatusBadgeClass[r.status] || 'wait'}">${r.statusText}</span>
+                    </div>
+                    <div style="font-size:12px;color:var(--text-muted);">${r.responseText || ''}</div>
+                </div>
+            `).join('');
+        }
+
+        // ============================================================
+        // نسبة الالتزام
+        // ============================================================
+        function loadCommitment() {
+            fetch('?ajax=commitment').then(r => r.json()).then(data => {
+                if (!data.ok) return;
+                const circumference = 376.99;
+                document.getElementById('commitmentRing').setAttribute('stroke-dashoffset', circumference * (1 - data.pct / 100));
+                document.getElementById('commitmentPctText').textContent = data.pct + '%';
+                document.getElementById('commitmentRatingText').textContent = '⭐ ' + data.rating;
+                document.getElementById('commitmentPrevText').textContent = 'نسبة الشهر السابق: ' + data.previousPct + '%';
+                document.getElementById('commitmentPresentDesc').textContent = data.presentDays + ' يوم من ' + data.totalDays + ' يوم عمل';
+                document.getElementById('commitmentPresentPct').textContent = data.pct + '%';
+                document.getElementById('commitmentLateDesc').textContent = data.lateDays + ' أيام تأخير';
+                document.getElementById('commitmentLatePct').textContent = (data.totalDays ? Math.round(data.lateDays / data.totalDays * 100) : 0) + '%';
+                document.getElementById('commitmentAbsentDesc').textContent = data.absentDays + ' أيام غياب';
+                document.getElementById('commitmentAbsentPct').textContent = (data.totalDays ? Math.round(data.absentDays / data.totalDays * 100) : 0) + '%';
+            });
+        }
+
+        // ============================================================
+        // الراتب
+        // ============================================================
+        function loadSalary() {
+            fetch('?ajax=salary').then(r => r.json()).then(data => {
+                if (!data.ok) return;
+                const months = ['يناير','فبراير','مارس','أبريل','مايو','يونيو','يوليو','أغسطس','سبتمبر','أكتوبر','نوفمبر','ديسمبر'];
+                document.getElementById('salaryPeriodText').textContent = months[data.month - 1] + ' ' + data.year;
+                document.getElementById('salaryStatusText').textContent = data.statusText;
+                document.getElementById('salaryBase').textContent = Number(data.baseSalary).toLocaleString();
+                document.getElementById('salaryDeduction').textContent = '- ' + Number(data.adminDeduction).toLocaleString();
+                document.getElementById('salaryBonus').textContent = '+ ' + Number(data.adminBonus).toLocaleString();
+                document.getElementById('salaryNet').textContent = Number(data.net).toLocaleString() + ' د.ع';
+            });
+        }
+
+        // ============================================================
+        // إيجاز الفرع
+        // ============================================================
+        function loadBriefing() {
+            fetch('?ajax=branch_briefing').then(r => r.json()).then(data => {
+                if (!data.ok) return;
+                document.getElementById('briefDate').textContent = data.date;
+                document.getElementById('briefBranch').textContent = data.branch;
+                if (!data.exists) {
+                    document.getElementById('briefTravelers').textContent = '-';
+                    document.getElementById('briefExpense').textContent = '-';
+                    document.getElementById('briefIncome').textContent = '-';
+                    document.getElementById('briefProfit').textContent = 'لم يُنشر بعد';
+                    return;
+                }
+                document.getElementById('briefTravelers').textContent = data.travelersCount;
+                document.getElementById('briefExpense').textContent = Number(data.totalExpense).toLocaleString();
+                document.getElementById('briefIncome').textContent = Number(data.totalIncome).toLocaleString();
+                document.getElementById('briefProfit').textContent = Number(data.profit).toLocaleString() + ' د.ع';
+            });
+        }
+
+        // ============================================================
+        // دوال تسجيل الدخول
+        // ============================================================
+        function handleLogin(e) {
+            e.preventDefault();
+            const employeeId = document.getElementById('loginEmployeeId').value;
+            const password = document.getElementById('loginPassword').value;
+            const btn = document.getElementById('loginBtn');
+            const error = document.getElementById('loginError');
+
+            btn.innerHTML = '<span class="spinner-small" style="display:inline-block;width:20px;height:20px;border:3px solid rgba(255,255,255,0.2);border-radius:50%;border-top-color:#fff;animation:spin 0.8s linear infinite;"></span> جاري التسجيل...';
+            btn.disabled = true;
+            error.style.display = 'none';
+
+            const body = new URLSearchParams({ employeeNumber: employeeId, password: password });
+            fetch('?ajax=login', { method: 'POST', body }).then(r => r.json()).then(data => {
+                btn.innerHTML = '<i class="fas fa-arrow-left"></i> تسجيل الدخول';
+                btn.disabled = false;
+                if (data.ok) {
+                    loginScreen.classList.add('hidden');
+                    document.getElementById('appContainer').classList.remove('hidden');
+                    showToast('✅ مرحباً بك', 'تم تسجيل الدخول بنجاح', 'success');
+                    startAutoSlide();
+                    // أزرار البصمة تبقى معطلة حتى يطلب المستخدم تفعيلها
+                    enableAttendanceButtons(false);
+                    initApp();
+                } else {
+                    error.textContent = data.error || 'رقم التوظيف أو الرمز السري غير صحيح';
+                    error.style.display = 'block';
+                }
+            }).catch(() => {
+                btn.innerHTML = '<i class="fas fa-arrow-left"></i> تسجيل الدخول';
+                btn.disabled = false;
+                error.textContent = 'تعذر الاتصال بالخادم';
+                error.style.display = 'block';
+            });
+        }
+
+        // ============================================================
+        // دوال الحضور والانصراف - تطلب تفعيل الموقع عند الضغط عليها
+        // ============================================================
+        async function handleCheckIn() {
+            const btn = document.getElementById('checkInBtn') || document.getElementById('checkInBtn2');
+
+            // إذا كان الموقع مفعلاً، سجل مباشرة
+            if (gpsEnabled) {
+                performCheckIn(btn);
+                return;
+            }
+
+            // طلب تفعيل الموقع
+            btn.disabled = true;
+            btn.innerHTML = `
+                <div class="fingerprint-icon"><span class="spinner-small"></span></div>
+                <span class="fingerprint-label">جاري طلب الموقع...</span>
+                <span class="fingerprint-sub">يرجى الانتظار</span>
+            `;
+
+            const gpsOk = await requestGPS();
+
+            btn.disabled = false;
+            if (gpsOk) {
+                performCheckIn(btn);
+            } else {
+                btn.innerHTML = `
+                    <div class="fingerprint-icon"><i class="fas fa-fingerprint"></i></div>
+                    <span class="fingerprint-label">تسجيل حضور</span>
+                    <span class="fingerprint-sub">بصمة الدخول</span>
+                    <span class="fingerprint-time">${document.getElementById('timeToStart')?.textContent || '09:00 ص'}</span>
+                `;
+                // تحديث حالة البصمة
+                showToast('⚠️ غير مفعل', 'يجب تفعيل الموقع لتسجيل البصمة', 'warning');
+            }
+        }
+
+        function performCheckIn(btn) {
+            btn.disabled = true;
+            btn.innerHTML = `
+                <div class="fingerprint-icon"><span class="spinner-small"></span></div>
+                <span class="fingerprint-label">جاري التسجيل...</span>
+                <span class="fingerprint-sub">التحقق من الموقع</span>
+            `;
+
+            const body = new URLSearchParams({ type: 'in', lat: gpsPosition ? gpsPosition.latitude : 0, lng: gpsPosition ? gpsPosition.longitude : 0 });
+            fetch('?ajax=attendance_self', { method: 'POST', body }).then(r => r.json()).then(data => {
+                if (!data.ok) {
+                    btn.disabled = false;
+                    btn.innerHTML = `
+                        <div class="fingerprint-icon"><i class="fas fa-fingerprint"></i></div>
+                        <span class="fingerprint-label">تسجيل حضور</span>
+                        <span class="fingerprint-sub">بصمة الدخول</span>
+                        <span class="fingerprint-time">${document.getElementById('timeToStart')?.textContent || ''}</span>
+                    `;
+                    showToast('❌ فشل التسجيل', data.error || 'تعذر تسجيل الحضور', 'error');
+                    return;
+                }
+                btn.innerHTML = `
+                    <div class="fingerprint-icon"><i class="fas fa-fingerprint"></i></div>
+                    <span class="fingerprint-label">✅ تم الحضور</span>
+                    <span class="fingerprint-sub">${data.time}</span>
+                `;
+                btn.style.background = 'linear-gradient(135deg, #059669, #047857)';
+                showToast('✅ تم تسجيل الدخول', 'بصمة الدخول مسجلة بنجاح', 'success');
+                loadBootstrap();
+
+                setTimeout(() => {
+                    btn.disabled = false;
+                    btn.style.background = 'linear-gradient(135deg, #10B981, #059669)';
+                }, 3000);
+            }).catch(() => {
+                btn.disabled = false;
+                showToast('❌ فشل التسجيل', 'تعذر الاتصال بالخادم', 'error');
+            });
+        }
+
+        async function handleCheckOut() {
+            const btn = document.getElementById('checkOutBtn') || document.getElementById('checkOutBtn2');
+
+            // إذا كان الموقع مفعلاً، سجل مباشرة
+            if (gpsEnabled) {
+                performCheckOut(btn);
+                return;
+            }
+
+            // طلب تفعيل الموقع
+            btn.disabled = true;
+            btn.innerHTML = `
+                <div class="fingerprint-icon"><span class="spinner-small"></span></div>
+                <span class="fingerprint-label">جاري طلب الموقع...</span>
+                <span class="fingerprint-sub">يرجى الانتظار</span>
+            `;
+
+            const gpsOk = await requestGPS();
+
+            btn.disabled = false;
+            if (gpsOk) {
+                performCheckOut(btn);
+            } else {
+                btn.innerHTML = `
+                    <div class="fingerprint-icon"><i class="fas fa-fingerprint"></i></div>
+                    <span class="fingerprint-label">تسجيل انصراف</span>
+                    <span class="fingerprint-sub">بصمة الخروج</span>
+                    <span class="fingerprint-time">${document.getElementById('timeToEnd')?.textContent || '03:00 م'}</span>
+                `;
+                showToast('⚠️ غير مفعل', 'يجب تفعيل الموقع لتسجيل البصمة', 'warning');
+            }
+        }
+
+        function performCheckOut(btn) {
+            btn.disabled = true;
+            btn.innerHTML = `
+                <div class="fingerprint-icon"><span class="spinner-small"></span></div>
+                <span class="fingerprint-label">جاري التسجيل...</span>
+                <span class="fingerprint-sub">التحقق من الموقع</span>
+            `;
+
+            const body = new URLSearchParams({ type: 'out', lat: gpsPosition ? gpsPosition.latitude : 0, lng: gpsPosition ? gpsPosition.longitude : 0 });
+            fetch('?ajax=attendance_self', { method: 'POST', body }).then(r => r.json()).then(data => {
+                if (!data.ok) {
+                    btn.disabled = false;
+                    btn.innerHTML = `
+                        <div class="fingerprint-icon"><i class="fas fa-fingerprint"></i></div>
+                        <span class="fingerprint-label">تسجيل انصراف</span>
+                        <span class="fingerprint-sub">بصمة الخروج</span>
+                        <span class="fingerprint-time">${document.getElementById('timeToEnd')?.textContent || ''}</span>
+                    `;
+                    showToast('❌ فشل التسجيل', data.error || 'تعذر تسجيل الانصراف', 'error');
+                    return;
+                }
+                btn.innerHTML = `
+                    <div class="fingerprint-icon"><i class="fas fa-fingerprint"></i></div>
+                    <span class="fingerprint-label">✅ تم الانصراف</span>
+                    <span class="fingerprint-sub">${data.time}</span>
+                `;
+                btn.style.background = 'linear-gradient(135deg, #DC2626, #B91C1C)';
+                showToast('✅ تم تسجيل الانصراف', 'بصمة الخروج مسجلة بنجاح', 'success');
+                loadBootstrap();
+
+                setTimeout(() => {
+                    btn.disabled = false;
+                    btn.style.background = 'linear-gradient(135deg, #EF4444, #DC2626)';
+                }, 3000);
+            }).catch(() => {
+                btn.disabled = false;
+                showToast('❌ فشل التسجيل', 'تعذر الاتصال بالخادم', 'error');
+            });
+        }
+
+        // ============================================================
+        // باقي الدوال
+        // ============================================================
+
+        // لائحة الشرف
+        let currentSlide = 0;
+        let slideInterval = null;
+        let honorSlideCount = 0;
+
+        function renderHonorRoll(honorRoll) {
+            const slider = document.getElementById('honorSlider');
+            const dots = document.getElementById('honorDots');
+            honorSlideCount = honorRoll.length;
+            if (!honorSlideCount) {
+                slider.style.width = '100%';
+                slider.innerHTML = '<div class="honor-slide" style="width:100%;"><div class="honor-item"><div class="info"><div class="name">لا توجد بيانات كافية بعد</div></div></div></div>';
+                dots.innerHTML = '';
+                return;
+            }
+            slider.style.width = (honorSlideCount * 100) + '%';
+            slider.innerHTML = honorRoll.map(h => `
+                <div class="honor-slide" style="width:${100 / honorSlideCount}%;">
+                    <div class="honor-item">
+                        <span class="medal">${h.medal}</span>
+                        <div class="avatar">${h.photo ? `<img src="${h.photo}" style="width:100%;height:100%;object-fit:cover;border-radius:50%;">` : h.name.charAt(0)}</div>
+                        <div class="info">
+                            <div class="name">${h.name}</div>
+                            <div class="title">${h.branch}</div>
+                        </div>
+                        <span class="percent">${h.rate}%</span>
+                    </div>
+                </div>
+            `).join('');
+            dots.innerHTML = honorRoll.map((h, i) => `<button class="dot ${i === 0 ? 'active' : ''}" data-slide="${i}" onclick="goToSlide(${i})"></button>`).join('');
+            goToSlide(0);
+        }
+
+        function goToSlide(index) {
+            currentSlide = index;
+            const slider = document.getElementById('honorSlider');
+            if (slider && honorSlideCount) slider.style.transform = `translateX(-${index * (100 / honorSlideCount)}%)`;
+            document.querySelectorAll('.honor-dots .dot').forEach((dot, i) => {
+                dot.classList.toggle('active', i === index);
+            });
+        }
+
+        function nextSlide() {
+            if (honorSlideCount > 1) goToSlide((currentSlide + 1) % honorSlideCount);
+        }
+
+        function startAutoSlide() {
+            if (slideInterval) clearInterval(slideInterval);
+            slideInterval = setInterval(nextSlide, 5000);
+        }
+
+        // أيام الدوام
+        let shiftInfo = { start: '09:00', end: '15:00', graceMinutes: 15 };
+        let todayAttendance = { checkedIn: false, checkedOut: false };
+
+        function updateWorkSchedule() {
+            const now = new Date();
+            const day = now.getDay();
+            const hours = now.getHours();
+            const minutes = now.getMinutes();
+
+            document.querySelectorAll('.work-days .day').forEach(el => {
+                const dayIndex = parseInt(el.dataset.day);
+                el.classList.remove('active', 'today', 'inactive');
+                if (dayIndex === day) el.classList.add('today');
+                if (dayIndex >= 0 && dayIndex <= 4) el.classList.add('active');
+                else el.classList.add('inactive');
+                if (dayIndex === day && dayIndex >= 0 && dayIndex <= 4) el.classList.add('active');
+            });
+
+            const [startHour, startMinute] = shiftInfo.start.split(':').map(Number);
+            const [endHour, endMinute] = shiftInfo.end.split(':').map(Number);
+            const startTotal = startHour * 60 + startMinute;
+            const endTotal = endHour * 60 + endMinute;
+            const nowTotal = hours * 60 + minutes;
+            const remaining = endTotal - nowTotal;
+            const remainingHours = Math.floor(remaining / 60);
+            const remainingMinutes = remaining % 60;
+
+            const remainingEl = document.getElementById('remainingTime');
+            const countdownEl = document.getElementById('countdownStatus');
+            document.getElementById('startTime').textContent = shiftInfo.start;
+            document.getElementById('endTime').textContent = shiftInfo.end;
+
+            if (remaining > 0 && day >= 0 && day <= 4) {
+                remainingEl.textContent = `${remainingHours} ساعات و ${remainingMinutes} دقيقة`;
+                countdownEl.textContent = `⏳ متبقي ${remainingHours}h ${remainingMinutes}m`;
+            } else if (day >= 5) {
+                remainingEl.textContent = 'يوم عطلة';
+                countdownEl.textContent = '🎉 يوم عطلة';
+            } else {
+                remainingEl.textContent = 'انتهى الدوام';
+                countdownEl.textContent = '✅ انتهى الدوام';
+            }
+
+            const timeToStart = document.getElementById('timeToStart');
+            const timeToEnd = document.getElementById('timeToEnd');
+            if (nowTotal < startTotal) {
+                const diff = startTotal - nowTotal;
+                timeToStart.textContent = `يبدأ بعد ${Math.floor(diff/60)}h ${diff%60}m`;
+                timeToEnd.textContent = shiftInfo.end;
+            } else if (nowTotal < endTotal) {
+                timeToStart.textContent = '✅ في الدوام';
+                timeToEnd.textContent = `ينتهي بعد ${remainingHours}h ${remainingMinutes}m`;
+            } else {
+                timeToStart.textContent = '✅ انتهى الدوام';
+                timeToEnd.textContent = '✅ انتهى';
+            }
+
+            updateAttendanceButtonVisibility();
+        }
+
+        // ============================================================
+        // إظهار/إخفاء أزرار البصمة حسب توقيت الدوام
+        // ============================================================
+        function updateAttendanceButtonVisibility() {
+            const inBtns = [document.getElementById('checkInBtn'), document.getElementById('checkInBtn2')];
+            const outBtns = [document.getElementById('checkOutBtn'), document.getElementById('checkOutBtn2')];
+
+            const now = new Date();
+            const nowMinutes = now.getHours() * 60 + now.getMinutes();
+            const [startH, startM] = shiftInfo.start.split(':').map(Number);
+            const [endH, endM] = shiftInfo.end.split(':').map(Number);
+            const shiftStartMin = startH * 60 + startM;
+            const shiftEndMin = endH * 60 + endM;
+            const grace = shiftInfo.graceMinutes || 15;
+
+            const inWindowOpen = nowMinutes >= (shiftStartMin - 15) && nowMinutes <= (shiftStartMin + grace);
+            const outWindowOpen = nowMinutes >= shiftEndMin && nowMinutes <= (shiftEndMin + 15);
+
+            const showIn = !todayAttendance.checkedIn && inWindowOpen;
+            const showOut = todayAttendance.checkedIn && !todayAttendance.checkedOut && outWindowOpen;
+
+            inBtns.forEach(btn => { if (btn) btn.classList.toggle('hidden', !showIn); });
+            outBtns.forEach(btn => { if (btn) btn.classList.toggle('hidden', !showOut); });
+
+            const statusDiv = document.getElementById('attendanceStatus');
+            if (statusDiv) {
+                if (todayAttendance.checkedIn && todayAttendance.checkedOut) {
+                    statusDiv.style.display = 'block';
+                    statusDiv.style.color = 'var(--green)';
+                    statusDiv.textContent = '✅ تم تسجيل حضورك وانصرافك اليوم';
+                } else if (!showIn && !showOut && !todayAttendance.checkedIn) {
+                    statusDiv.style.display = 'block';
+                    statusDiv.style.color = 'var(--text-muted)';
+                    statusDiv.textContent = 'يظهر زر تسجيل الحضور من ' + shiftInfo.start + ' حتى مضي ' + grace + ' دقيقة من بداية الدوام';
+                } else if (!showIn && !showOut && todayAttendance.checkedIn) {
+                    statusDiv.style.display = 'block';
+                    statusDiv.style.color = 'var(--text-muted)';
+                    statusDiv.textContent = 'يظهر زر تسجيل الانصراف عند نهاية الدوام (' + shiftInfo.end + ') لمدة 15 دقيقة فقط';
+                } else {
+                    statusDiv.style.display = 'none';
+                }
+            }
+        }
+        setInterval(updateAttendanceButtonVisibility, 30000);
+
+        // ============================================================
+        // نافذة تقديم الطلب
+        // ============================================================
+        function openRequestModal(type) {
+            const modal = document.getElementById('requestModal');
+            const title = document.getElementById('requestModalTitle');
+            const fields = document.getElementById('requestFields');
+            const typeInput = document.getElementById('requestType');
+
+            typeInput.value = type;
+            title.innerHTML = `<i class="fas fa-file-pen"></i> تقديم طلب ${type}`;
+
+            let html = '';
+            if (type === 'إجازة') {
+                html = `
                     <div class="form-group">
-                        <label>نوع الطلب</label>
-                        <select name="type" class="form-control" id="reqType">
-                            <option value="leave">إجازة</option>
-                            <option value="advance">سلفة</option>
-                            <option value="complaint">شكوى</option>
-                            <option value="resignation">استقالة</option>
+                        <label>نوع الإجازة <span class="required">*</span></label>
+                        <select id="reqLeaveType">
+                            <option value="سنوية">إجازة سنوية</option>
+                            <option value="مرضية">إجازة مرضية</option>
+                            <option value="اضطرارية">إجازة اضطرارية</option>
                         </select>
                     </div>
-                    <div class="grid-2" id="leaveFields">
-                        <div class="form-group"><label>من تاريخ</label><input type="date" name="date_from" class="form-control"></div>
-                        <div class="form-group"><label>إلى تاريخ</label><input type="date" name="date_to" class="form-control"></div>
-                    </div>
-                    <div class="form-group" id="amountField" style="display:none;">
-                        <label>المبلغ المطلوب</label><input type="number" step="0.01" name="amount" class="form-control">
-                    </div>
-                    <div class="form-group"><label>التفاصيل</label><textarea name="details" class="form-control" rows="3"></textarea></div>
-                    <button type="submit" class="btn btn-primary">إرسال الطلب</button>
-                </form>
-            </div>
-            <div class="card">
-                <div class="card-header"><h2>طلباتي السابقة</h2></div>
-                <?php if (empty($myRequests)): ?><div class="empty-state"><div class="icon">📝</div>لا توجد طلبات سابقة</div>
-                <?php else: ?>
-                <div class="table-wrap"><table class="data-table">
-                    <thead><tr><th>النوع</th><th>التفاصيل</th><th>الحالة</th><th>ملاحظة المراجعة</th></tr></thead>
-                    <tbody><?php foreach ($myRequests as $r): $st = $statusLabels[$r['status']]; ?>
-                        <tr><td><?= e($typeLabels[$r['type']] ?? $r['type']) ?></td><td><?= e($r['details']) ?></td><td><span class="badge badge-<?= $st[1] ?>"><?= $st[0] ?></span></td><td><?= e($r['review_note']) ?></td></tr>
-                    <?php endforeach; ?></tbody>
-                </table></div>
-                <?php endif; ?>
-            </div>
-            <script>
-            document.getElementById('reqType').addEventListener('change', function () {
-                document.getElementById('leaveFields').style.display = this.value === 'leave' ? 'grid' : 'none';
-                document.getElementById('amountField').style.display = this.value === 'advance' ? 'block' : 'none';
-            });
-            </script>
-
-        <?php elseif ($tab === 'ledger'): ?>
-            <?php if ($canWriteLedger): ?>
-                <div class="alert alert-success">✅ لديك صلاحية الكتابة في الإيجاز اليومي (بتفويض من مدير الفرع).</div>
-            <?php else: ?>
-                <div class="alert alert-danger" style="background:#FCF2E3;border-color:#F2DDB0;color:#8A6116;">للمشاهدة فقط. لا يمكنك التعديل أو الحذف إلا بتفويض من مدير الفرع.</div>
-            <?php endif; ?>
-            <div class="stat-grid">
-                <div class="stat-card"><div class="label">إجمالي الإيرادات</div><div class="value" style="color:var(--green);"><?= money($ledgerIncome) ?></div></div>
-                <div class="stat-card"><div class="label">إجمالي المصروفات</div><div class="value" style="color:var(--red);"><?= money($ledgerExpense) ?></div></div>
-                <div class="stat-card"><div class="label">صافي اليوم</div><div class="value"><?= money($ledgerIncome - $ledgerExpense) ?></div></div>
-            </div>
-            <?php if ($canWriteLedger): ?>
-            <div class="card">
-                <div class="card-header"><h2>إضافة قيد جديد</h2></div>
-                <form method="post" action="/employee.php" enctype="multipart/form-data">
-                    <?= csrf_field() ?>
-                    <input type="hidden" name="action" value="ledger_save">
-                    <input type="hidden" name="tab" value="ledger">
-                    <div class="grid-3">
-                        <div class="form-group"><label>نوع القيد</label>
-                            <select name="entry_type" class="form-control">
-                                <option value="income">💰 إيراد (دخل)</option>
-                                <option value="expense">💸 صرف (مصروف)</option>
-                            </select>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label>تاريخ البداية <span class="required">*</span></label>
+                            <input type="date" id="reqStartDate" value="${new Date().toISOString().split('T')[0]}">
                         </div>
-                        <div class="form-group"><label>المبلغ</label><input type="number" step="0.01" name="amount" class="form-control" required></div>
-                        <div class="form-group"><label>رفع ملف (اختياري)</label><input type="file" name="attachment" class="form-control" accept="image/*,.pdf"></div>
+                        <div class="form-group">
+                            <label>تاريخ النهاية <span class="required">*</span></label>
+                            <input type="date" id="reqEndDate" value="${new Date(Date.now()+7*86400000).toISOString().split('T')[0]}">
+                        </div>
                     </div>
-                    <div class="form-group"><label>البيان / الملاحظات</label><input type="text" name="description" class="form-control"></div>
-                    <button type="submit" class="btn btn-primary">إضافة القيد</button>
-                </form>
-            </div>
-            <?php endif; ?>
-            <div class="card">
-                <div class="card-header"><h2>قيود اليوم</h2></div>
-                <?php if (empty($branchLedgerToday)): ?><div class="empty-state"><div class="icon">📒</div>لا توجد قيود اليوم</div>
-                <?php else: ?>
-                <div class="table-wrap"><table class="data-table">
-                    <thead><tr><th>النوع</th><th>المبلغ</th><th>البيان</th></tr></thead>
-                    <tbody><?php foreach ($branchLedgerToday as $l): ?>
-                        <tr><td><span class="badge <?= $l['entry_type']==='income'?'badge-success':'badge-danger' ?>"><?= $l['entry_type']==='income'?'إيراد':'صرف' ?></span></td><td><?= money((float)$l['amount']) ?></td><td><?= e($l['description']) ?></td></tr>
-                    <?php endforeach; ?></tbody>
-                </table></div>
-                <?php endif; ?>
-            </div>
+                    <div class="form-group">
+                        <label>السبب <span class="required">*</span></label>
+                        <textarea id="reqReason" placeholder="اكتب سبب الإجازة..." required></textarea>
+                    </div>
+                    <div class="form-group">
+                        <label>المرفقات</label>
+                        <input type="file" id="reqAttachment" accept=".pdf,.doc,.docx,.jpg,.png">
+                    </div>
+                `;
+            } else if (type === 'سلفة') {
+                html = `
+                    <div class="form-group">
+                        <label>مبلغ السلفة <span class="required">*</span></label>
+                        <input type="number" id="reqLoanAmount" placeholder="أدخل المبلغ" min="10000" step="10000" value="500000">
+                    </div>
+                    <div class="form-group">
+                        <label>عدد دفعات التسديد</label>
+                        <select id="reqLoanInstallments">
+                            <option value="3">3 دفعات</option>
+                            <option value="6" selected>6 دفعات</option>
+                            <option value="10">10 دفعات</option>
+                            <option value="12">12 دفعة</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label>السبب <span class="required">*</span></label>
+                        <textarea id="reqReason" placeholder="اكتب سبب طلب السلفة..." required></textarea>
+                    </div>
+                    <div class="form-group">
+                        <label>ملاحظات</label>
+                        <textarea id="reqNotes" placeholder="ملاحظات إضافية (اختياري)"></textarea>
+                    </div>
+                `;
+            } else if (type === 'شكوى') {
+                html = `
+                    <div class="form-group">
+                        <label>عنوان الشكوى <span class="required">*</span></label>
+                        <input type="text" id="reqComplaintTitle" placeholder="أدخل عنوان الشكوى" required>
+                    </div>
+                    <div class="form-group">
+                        <label>التفاصيل <span class="required">*</span></label>
+                        <textarea id="reqReason" placeholder="اكتب تفاصيل الشكوى..." required></textarea>
+                    </div>
+                    <div class="form-group">
+                        <label>المرفقات</label>
+                        <input type="file" id="reqAttachment" accept=".pdf,.doc,.docx,.jpg,.png">
+                    </div>
+                `;
+            } else if (type === 'استقالة') {
+                html = `
+                    <div class="form-group">
+                        <label>تاريخ تقديم الاستقالة <span class="required">*</span></label>
+                        <input type="date" id="reqResignDate" value="${new Date().toISOString().split('T')[0]}">
+                    </div>
+                    <div class="form-group">
+                        <label>آخر يوم عمل مقترح <span class="required">*</span></label>
+                        <input type="date" id="reqLastDay" value="${new Date(Date.now()+30*86400000).toISOString().split('T')[0]}">
+                    </div>
+                    <div class="form-group">
+                        <label>السبب <span class="required">*</span></label>
+                        <textarea id="reqReason" placeholder="سبب الاستقالة..." required></textarea>
+                    </div>
+                    <div class="form-group">
+                        <label>الملاحظات</label>
+                        <textarea id="reqNotes" placeholder="ملاحظات إضافية"></textarea>
+                    </div>
+                    <div class="form-group">
+                        <label>المرفقات</label>
+                        <input type="file" id="reqAttachment" accept=".pdf,.doc,.docx,.jpg,.png">
+                    </div>
+                `;
+            }
 
-        <?php elseif ($tab === 'profile'): ?>
-            <div class="card">
-                <div class="card-header"><h2>البيانات الشخصية</h2></div>
-                <?php if ($employee['photo']): ?>
-                    <img src="/<?= e($employee['photo']) ?>" alt="" style="width:84px;height:84px;border-radius:50%;object-fit:cover;margin-bottom:16px;border:2px solid var(--border);">
-                <?php endif; ?>
-                <div class="grid-3">
-                    <div><div style="color:var(--text-muted);font-size:12px;">الاسم</div><div><?= e($employee['full_name']) ?></div></div>
-                    <div><div style="color:var(--text-muted);font-size:12px;">المنصب</div><div><?= e($employee['job_title']) ?></div></div>
-                    <div><div style="color:var(--text-muted);font-size:12px;">الفرع</div><div><?= e($employee['branch_name']) ?></div></div>
-                    <div><div style="color:var(--text-muted);font-size:12px;">تاريخ التعيين</div><div><?= e($employee['hire_date']) ?></div></div>
-                    <div><div style="color:var(--text-muted);font-size:12px;">رقم التوظيف</div><div><?= e($employee['employee_number']) ?></div></div>
-                    <?php if ($employee['documents']): ?>
-                        <div><div style="color:var(--text-muted);font-size:12px;">المستمسكات</div><div><a href="/<?= e($employee['documents']) ?>" target="_blank" class="badge badge-muted">📎 عرض الملف</a></div></div>
-                    <?php endif; ?>
+            fields.innerHTML = html;
+            modal.classList.add('show');
+            document.body.style.overflow = 'hidden';
+        }
+
+        function closeRequestModal() {
+            document.getElementById('requestModal').classList.remove('show');
+            document.body.style.overflow = '';
+        }
+
+        function submitRequestForm(e) {
+            e.preventDefault();
+            const type = document.getElementById('requestType').value;
+            const val = id => { const el = document.getElementById(id); return el ? el.value : ''; };
+
+            const params = { requestType: type, reason: val('reqReason') };
+            if (type === 'إجازة') {
+                params.leaveType = val('reqLeaveType');
+                params.startDate = val('reqStartDate');
+                params.endDate = val('reqEndDate');
+            } else if (type === 'سلفة') {
+                params.loanAmount = val('reqLoanAmount');
+                params.installments = val('reqLoanInstallments');
+                params.notes = val('reqNotes');
+            } else if (type === 'شكوى') {
+                params.complaintTitle = val('reqComplaintTitle');
+            } else if (type === 'استقالة') {
+                params.resignDate = val('reqResignDate');
+                params.lastDay = val('reqLastDay');
+                params.notes = val('reqNotes');
+            }
+
+            const btn = e.target.querySelector('.btn-submit-request');
+            btn.innerHTML = '<span class="spinner-small"></span> جاري الإرسال...';
+            btn.disabled = true;
+
+            fetch('?ajax=submit_request', { method: 'POST', body: new URLSearchParams(params) }).then(r => r.json()).then(data => {
+                btn.innerHTML = '<i class="fas fa-paper-plane"></i> إرسال الطلب';
+                btn.disabled = false;
+                if (!data.ok) {
+                    showToast('⚠️ خطأ', data.error || 'تعذر إرسال الطلب', 'error');
+                    return;
+                }
+                closeRequestModal();
+                showToast('✅ تم الإرسال', `تم إرسال طلب ${type} بنجاح`, 'success');
+                navigateTo('myRequests');
+                loadMyRequests();
+                loadBootstrap();
+            }).catch(() => {
+                btn.innerHTML = '<i class="fas fa-paper-plane"></i> إرسال الطلب';
+                btn.disabled = false;
+                showToast('⚠️ خطأ', 'تعذر الاتصال بالخادم', 'error');
+            });
+        }
+
+        // ============================================================
+        // تصفية الطلبات
+        // ============================================================
+        function filterRequests(filter) {
+            const items = document.querySelectorAll('.request-item');
+            items.forEach(item => {
+                item.style.display = (filter === 'all' || item.dataset.status === filter) ? 'block' : 'none';
+            });
+            document.querySelectorAll('.quick-actions-grid .quick-action-btn').forEach(btn => {
+                btn.style.borderColor = 'rgba(0,107,115,0.06)';
+            });
+            const btns = document.querySelectorAll('.quick-actions-grid .quick-action-btn');
+            if (filter === 'all') btns[0].style.borderColor = 'var(--primary)';
+            else btns[1].style.borderColor = 'var(--primary)';
+        }
+
+        // ============================================================
+        // دوال التنقل
+        // ============================================================
+        let currentPage = 'home';
+
+        function navigateTo(page) {
+            document.querySelectorAll('.page-screen').forEach(el => el.classList.add('hidden'));
+            const target = document.getElementById('page-' + page);
+            if (target) target.classList.remove('hidden');
+
+            document.querySelectorAll('.bottom-nav-minimal .nav-item').forEach(el => el.classList.remove('active'));
+            const navItem = document.getElementById('nav-' + page);
+            if (navItem) navItem.classList.add('active');
+
+            currentPage = page;
+            window.scrollTo(0, 0);
+            document.getElementById('sideMenu').style.display = 'none';
+
+            if (page === 'requests' || page === 'myRequests') loadMyRequests();
+            else if (page === 'commitment') loadCommitment();
+            else if (page === 'salary') loadSalary();
+            else if (page === 'briefing') loadBriefing();
+            else if (page === 'notifications') loadNotifications();
+        }
+
+        function toggleMenu() {
+            const menu = document.getElementById('sideMenu');
+            menu.style.display = menu.style.display === 'none' ? 'block' : 'none';
+        }
+
+        function handleLogout() {
+            if (confirm('هل أنت متأكد من رغبتك في تسجيل الخروج؟')) {
+                fetch('?ajax=logout', { method: 'POST' }).catch(() => {});
+                if (slideInterval) clearInterval(slideInterval);
+                document.getElementById('appContainer').classList.add('hidden');
+                loginScreen.classList.remove('hidden');
+                document.getElementById('sideMenu').style.display = 'none';
+                showToast('👋 تم تسجيل الخروج', 'نتمنى رؤيتك قريباً', 'info');
+            }
+        }
+
+        function markAllRead() {
+            fetch('?ajax=notifications_mark_all_read', { method: 'POST' }).then(() => {
+                loadNotifications();
+                showToast('✅ تم التحديد', 'تم تحديد جميع الإشعارات كمقروءة', 'success');
+            });
+        }
+
+        // ============================================================
+        // تحديث الوقت
+        // ============================================================
+        function updateTime() {
+            const now = new Date();
+            const timeStr = now.toLocaleTimeString('ar-SA', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+            const dateStr = now.toLocaleDateString('ar-SA', { weekday: 'long', year: 'numeric', month: 'long',
+                day: 'numeric' });
+            const timeEl = document.getElementById('currentTime');
+            const dateEl = document.getElementById('currentDate');
+            if (timeEl) timeEl.textContent = timeStr;
+            if (dateEl) dateEl.textContent = dateStr;
+            updateWorkSchedule();
+        }
+
+        // ============================================================
+        // Toast Notifications
+        // ============================================================
+        let toastId = 0;
+
+        function showToast(title, message, type = 'info', duration = 3000) {
+            const container = document.getElementById('toastContainer');
+            const id = ++toastId;
+            const icons = {
+                'success': 'fas fa-check-circle',
+                'info': 'fas fa-info-circle',
+                'warning': 'fas fa-exclamation-triangle',
+                'error': 'fas fa-times-circle'
+            };
+
+            const toast = document.createElement('div');
+            toast.className = `toast ${type}`;
+            toast.id = `toast-${id}`;
+            toast.innerHTML = `
+                <div class="toast-icon ${type}"><i class="${icons[type] || icons.info}"></i></div>
+                <div class="toast-content">
+                    <div class="toast-title">${title}</div>
+                    <div class="toast-message">${message}</div>
                 </div>
-            </div>
-            <div class="card">
-                <div class="card-header"><h2>الراتب والخصومات — الشهر الحالي</h2></div>
-                <?php if (!$payrollRow): ?>
-                    <div class="empty-state"><div class="icon">💰</div>لم يتم إعداد راتب هذا الشهر بعد</div>
-                <?php else: ?>
-                <div class="table-wrap"><table class="data-table">
-                    <tbody>
-                        <tr><td>الراتب الأساسي</td><td><?= money((float)$payrollRow['base_salary']) ?></td></tr>
-                        <tr><td>المكافآت</td><td>+ <?= money((float)$payrollRow['bonus']) ?></td></tr>
-                        <tr><td>الخصومات</td><td>- <?= money((float)$payrollRow['deduction']) ?></td></tr>
-                        <tr><td><strong>الصافي</strong></td><td><strong><?= money((float)$payrollRow['base_salary'] + (float)$payrollRow['bonus'] - (float)$payrollRow['deduction']) ?></strong></td></tr>
-                        <tr><td>حالة التسليم</td><td><span class="badge <?= $payrollRow['status']==='delivered'?'badge-success':'badge-warning' ?>"><?= $payrollRow['status']==='delivered'?'تم التسليم':'قيد الانتظار' ?></span></td></tr>
-                    </tbody>
-                </table></div>
-                <?php endif; ?>
-            </div>
-        <?php endif; ?>
-    </main>
-</div>
-<script>
-document.addEventListener('DOMContentLoaded', function () {
-    var toggle = document.querySelector('.menu-toggle');
-    var sidebar = document.querySelector('.sidebar');
-    if (toggle && sidebar) toggle.addEventListener('click', function () { sidebar.classList.toggle('open'); });
-});
-</script>
+            `;
+            container.appendChild(toast);
+            requestAnimationFrame(() => { toast.classList.add('show'); });
+            const timer = setTimeout(() => { closeToast(id); }, duration);
+            toast._timer = timer;
+            toast.addEventListener('click', () => { closeToast(id); });
+            return id;
+        }
+
+        function closeToast(id) {
+            const toast = document.getElementById(`toast-${id}`);
+            if (!toast) return;
+            if (toast._timer) clearTimeout(toast._timer);
+            toast.classList.add('swipe-up');
+            setTimeout(() => { if (toast.parentElement) toast.remove(); }, 400);
+        }
+
+        // ============================================================
+        // عند تحميل الصفحة
+        // ============================================================
+        document.addEventListener('DOMContentLoaded', function() {
+            welcomeScreen.style.display = 'flex';
+            loginScreen.classList.add('hidden');
+            document.getElementById('appContainer').classList.add('hidden');
+
+            setTimeout(animateLoader, 500);
+
+            updateTime();
+            setInterval(updateTime, 1000);
+
+            document.addEventListener('click', function(e) {
+                const menu = document.getElementById('sideMenu');
+                const moreBtn = document.getElementById('nav-more');
+                if (menu.style.display === 'block' && !menu.contains(e.target) && !moreBtn.contains(e.target)) {
+                    menu.style.display = 'none';
+                }
+            });
+
+            document.addEventListener('keydown', function(e) {
+                if (e.key === 'Escape') {
+                    document.getElementById('sideMenu').style.display = 'none';
+                    closeRequestModal();
+                }
+            });
+
+            document.getElementById('requestModal').addEventListener('click', function(e) {
+                if (e.target === this) closeRequestModal();
+            });
+
+            console.log('🏢 شركة الصوى للصرافة - نافذة الموظف');
+            console.log('📍 يتم طلب تفعيل الموقع فقط عند الضغط على أزرار الحضور/الانصراف');
+        });
+    </script>
+
 </body>
 </html>
