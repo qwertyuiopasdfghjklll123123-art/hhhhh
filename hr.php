@@ -483,7 +483,7 @@ if (isset($_GET['ajax'])) {
                 LEFT JOIN payroll p ON p.employee_id = e.id AND p.period_month=? AND p.period_year=?
                 LEFT JOIN requests adv ON adv.employee_id = e.id AND adv.type='advance' AND adv.status='approved' AND adv.remaining_balance > 0
                 WHERE e.status='active'
-                ORDER BY e.full_name
+                ORDER BY (COALESCE(p.status, 'pending') = 'delivered') ASC, e.full_name
             ");
             $stmt->execute([$month, $year]);
             $rows = array_map(function ($r) {
@@ -499,65 +499,6 @@ if (isset($_GET['ajax'])) {
                 return $r;
             }, $stmt->fetchAll());
             echo json_encode(['ok' => true, 'salaries' => $rows], JSON_UNESCAPED_UNICODE);
-            exit;
-        }
-
-        case 'payroll_adjustment_add': {
-            $employeeId = (int) ($_POST['employeeId'] ?? 0);
-            $type = $_POST['type'] ?? '';
-            $amount = (float) ($_POST['amount'] ?? 0);
-            $note = trim($_POST['note'] ?? '');
-            if (!in_array($type, ['salary', 'bonus', 'deduction'], true) || $amount <= 0 || $employeeId <= 0) {
-                echo json_encode(['ok' => false, 'error' => 'الرجاء اختيار الموظف ونوع التعديل وإدخال مبلغ صحيح']);
-                exit;
-            }
-            $empStmt = $pdo->prepare("SELECT branch_id, full_name, is_branch_manager FROM employees WHERE id=?");
-            $empStmt->execute([$employeeId]);
-            $emp = $empStmt->fetch();
-            if (!$emp) {
-                echo json_encode(['ok' => false, 'error' => 'الموظف غير موجود']);
-                exit;
-            }
-            $month = (int) date('n');
-            $year = (int) date('Y');
-            $branchId = (int) $emp['branch_id'];
-
-            $existing = $pdo->prepare("SELECT id, status FROM payroll WHERE employee_id=? AND period_month=? AND period_year=?");
-            $existing->execute([$employeeId, $month, $year]);
-            $existing = $existing->fetch();
-            if ($existing && $existing['status'] === 'delivered') {
-                echo json_encode(['ok' => false, 'error' => 'تم تسليم راتب هذا الشهر مسبقاً، لا يمكن تعديله']);
-                exit;
-            }
-
-            if ($type === 'salary') {
-                $pdo->prepare("INSERT INTO payroll (employee_id, branch_id, period_month, period_year, base_salary, status)
-                    VALUES (?, ?, ?, ?, ?, 'pending') ON DUPLICATE KEY UPDATE base_salary=?")
-                    ->execute([$employeeId, $branchId, $month, $year, $amount, $amount]);
-            } elseif ($type === 'bonus') {
-                $pdo->prepare("INSERT INTO payroll (employee_id, branch_id, period_month, period_year, base_salary, bonus, status)
-                    VALUES (?, ?, ?, ?, (SELECT base_salary FROM employees WHERE id=?), ?, 'pending')
-                    ON DUPLICATE KEY UPDATE bonus = bonus + VALUES(bonus)")
-                    ->execute([$employeeId, $branchId, $month, $year, $employeeId, $amount]);
-            } else {
-                $pdo->prepare("INSERT INTO payroll (employee_id, branch_id, period_month, period_year, base_salary, deduction, status)
-                    VALUES (?, ?, ?, ?, (SELECT base_salary FROM employees WHERE id=?), ?, 'pending')
-                    ON DUPLICATE KEY UPDATE deduction = deduction + VALUES(deduction)")
-                    ->execute([$employeeId, $branchId, $month, $year, $employeeId, $amount]);
-            }
-
-            $pdo->prepare("INSERT INTO payroll_adjustments (employee_id, branch_id, period_month, period_year, type, amount, note, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
-                ->execute([$employeeId, $branchId, $month, $year, $type, $amount, $note ?: null, $hrUser['id']]);
-
-            $typeLabel = ['salary' => 'تحديث الراتب الأساسي', 'bonus' => 'مكافأة', 'deduction' => 'خصم'];
-            $msg = $typeLabel[$type] . ' بقيمة ' . number_format($amount) . ' للموظف ' . $emp['full_name'];
-            $notifyUsers = $pdo->prepare("SELECT id FROM users WHERE employee_id=? UNION SELECT id FROM users WHERE branch_id=? AND role='branch_manager'");
-            $notifyUsers->execute([$employeeId, $branchId]);
-            foreach ($notifyUsers->fetchAll(PDO::FETCH_COLUMN) as $uid) {
-                $pdo->prepare("INSERT INTO notifications (user_id, title, message) VALUES (?, 'تحديث في الراتب', ?)")->execute([$uid, $msg]);
-            }
-
-            echo json_encode(['ok' => true]);
             exit;
         }
 
@@ -632,25 +573,13 @@ if (isset($_GET['ajax'])) {
 
             $net = $baseSalary + $bonus - $deduction;
             $msg = 'تم تسليم راتب شهر ' . $month . '/' . $year . ' بصافي ' . number_format($net) . ' دينار للموظف ' . $emp['full_name'];
-            $notifyUsers = $pdo->prepare("SELECT id FROM users WHERE employee_id=? UNION SELECT id FROM users WHERE branch_id=? AND role='branch_manager'");
+            $notifyUsers = $pdo->prepare("SELECT id FROM users WHERE employee_id=? UNION SELECT id FROM users WHERE branch_id=? AND role='branch_manager' UNION SELECT id FROM users WHERE role='hr'");
             $notifyUsers->execute([$employeeId, $branchId]);
             foreach ($notifyUsers->fetchAll(PDO::FETCH_COLUMN) as $uid) {
                 $pdo->prepare("INSERT INTO notifications (user_id, title, message) VALUES (?, 'تم تسليم الراتب', ?)")->execute([$uid, $msg]);
             }
 
             echo json_encode(['ok' => true, 'net' => $net]);
-            exit;
-        }
-
-        case 'salary_delete': {
-            $id = (int) ($_POST['id'] ?? 0);
-            $stmt = $pdo->prepare("DELETE FROM payroll WHERE id=? AND status != 'delivered'");
-            $stmt->execute([$id]);
-            if ($stmt->rowCount() === 0) {
-                echo json_encode(['ok' => false, 'error' => 'لا يمكن حذف راتب تم تسليمه بالفعل']);
-                exit;
-            }
-            echo json_encode(['ok' => true]);
             exit;
         }
 
@@ -2654,49 +2583,19 @@ function report_data(PDO $pdo, string $type, string $from, string $to, int $bran
                 ========================================================== -->
                 <div id="page-salaries" class="page-section" style="display:none;">
                     <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px;margin-bottom:16px;">
-                        <h4 style="font-size:16px;font-weight:800;"><i class="fas fa-wallet" style="color:var(--primary);"></i> إدارة الرواتب</h4>
-                        <button class="btn-primary" onclick="showAddSalaryForm()">
-                            <i class="fas fa-plus"></i> إضافة راتب
-                        </button>
+                        <h4 style="font-size:16px;font-weight:800;"><i class="fas fa-wallet" style="color:var(--primary);"></i> تسليم الرواتب</h4>
+                    </div>
+
+                    <div style="padding:10px 16px;border-radius:var(--radius-md);margin-bottom:16px;font-size:12px;background:rgba(0,107,115,0.05);color:var(--primary-dark);">
+                        <i class="fas fa-info-circle"></i> تحديد الرواتب الأساسية والمكافآت والخصومات أصبح من صلاحية المسؤول العام. دور HR هنا هو تسليم الرواتب فقط بعد فتح الصلاحية الشهرية.
                     </div>
 
                     <div id="payrollWindowBanner" style="padding:10px 16px;border-radius:var(--radius-md);margin-bottom:16px;font-size:13px;font-weight:700;"></div>
 
-                    <div id="addSalaryForm" style="display:none;background:var(--bg-card);border-radius:var(--radius-lg);padding:20px;margin-bottom:16px;border:1px solid rgba(0,107,115,0.04);box-shadow:var(--shadow-sm);">
-                        <h5 style="font-size:15px;font-weight:800;margin-bottom:12px;"><i class="fas fa-plus-circle" style="color:var(--primary);"></i> إضافة تعديل على راتب موظف</h5>
-                        <div class="salary-form" style="display:grid;grid-template-columns:1.5fr 1fr 1fr 1.5fr 1fr;gap:12px;">
-                            <div class="form-group">
-                                <label style="font-size:12px;font-weight:600;color:var(--text-muted);">الموظف</label>
-                                <select id="salaryEmployee" style="padding:8px 12px;border:2px solid rgba(0,107,115,0.06);border-radius:var(--radius-sm);font-size:13px;font-family:var(--font-family);background:var(--bg);color:var(--text-primary);outline:none;"></select>
-                            </div>
-                            <div class="form-group">
-                                <label style="font-size:12px;font-weight:600;color:var(--text-muted);">النوع</label>
-                                <select id="salaryType" style="padding:8px 12px;border:2px solid rgba(0,107,115,0.06);border-radius:var(--radius-sm);font-size:13px;font-family:var(--font-family);background:var(--bg);color:var(--text-primary);outline:none;">
-                                    <option value="salary">راتب أساسي</option>
-                                    <option value="bonus">مكافأة</option>
-                                    <option value="deduction">خصم</option>
-                                </select>
-                            </div>
-                            <div class="form-group">
-                                <label style="font-size:12px;font-weight:600;color:var(--text-muted);">المبلغ</label>
-                                <input type="number" id="salaryAmount" placeholder="المبلغ" style="padding:8px 12px;border:2px solid rgba(0,107,115,0.06);border-radius:var(--radius-sm);font-size:13px;font-family:var(--font-family);background:var(--bg);color:var(--text-primary);outline:none;">
-                            </div>
-                            <div class="form-group">
-                                <label style="font-size:12px;font-weight:600;color:var(--text-muted);">ملاحظة</label>
-                                <input type="text" id="salaryNote" placeholder="سبب التعديل (اختياري)" style="padding:8px 12px;border:2px solid rgba(0,107,115,0.06);border-radius:var(--radius-sm);font-size:13px;font-family:var(--font-family);background:var(--bg);color:var(--text-primary);outline:none;">
-                            </div>
-                            <div class="form-group" style="display:flex;align-items:flex-end;">
-                                <button class="btn-primary" onclick="addSalary()" style="width:100%;">
-                                    <i class="fas fa-save"></i> حفظ
-                                </button>
-                            </div>
-                        </div>
-                    </div>
-
                     <div class="content-card">
                         <div class="card-header">
-                            <h4><i class="fas fa-list"></i> قائمة الرواتب</h4>
-                            <span style="font-size:12px;color:var(--text-muted);">أغسطس 2026</span>
+                            <h4><i class="fas fa-list"></i> قائمة الرواتب (من لم يستلم راتبه يظهر أولاً)</h4>
+                            <span style="font-size:12px;color:var(--text-muted);" id="salaryPeriodLabel"></span>
                         </div>
                         <div class="card-body">
                             <div class="table-wrap">
@@ -2944,6 +2843,18 @@ function report_data(PDO $pdo, string $type, string $from, string $to, int $bran
     ============================================================ -->
     <script>
         // ============================================================
+        // شبكة أمان: التقاط أي طلب فشل بصمت (مثال: قاعدة بيانات غير محدّثة)
+        // بدل أن يظهر وكأن الزر لا يستجيب
+        // ============================================================
+        window.addEventListener('unhandledrejection', function(e) {
+            console.error('Unhandled request failure:', e.reason);
+            if (typeof showToast === 'function') {
+                showToast('❌ خطأ في الاتصال', 'تعذر تنفيذ العملية — تأكد من تشغيل migrate.php على قاعدة البيانات ثم أعد المحاولة', 'error');
+            }
+            e.preventDefault();
+        });
+
+        // ============================================================
         // المتغيرات العامة
         // ============================================================
         let toastId = 0;
@@ -3037,10 +2948,6 @@ function report_data(PDO $pdo, string $type, string $from, string $to, int $bran
 
             fetch('?ajax=employees_list').then(r => r.json()).then(data => {
                 if (!data.ok) return;
-                const select = document.getElementById('salaryEmployee');
-                if (select) {
-                    select.innerHTML = data.employees.map(e => `<option value="${e.id}">${e.name} — ${e.branch}</option>`).join('') || '<option value="">لا يوجد موظفون</option>';
-                }
                 const manualSelect = document.getElementById('manualEmployeeSelect');
                 if (manualSelect) {
                     manualSelect.innerHTML = data.employees.map(e => `<option value="${e.id}">${e.name}</option>`).join('');
@@ -3615,6 +3522,8 @@ function report_data(PDO $pdo, string $type, string $from, string $to, int $bran
         // تحميل بيانات الرواتب
         // ============================================================
         function loadSalaries() {
+            const label = document.getElementById('salaryPeriodLabel');
+            if (label) label.textContent = new Date().toLocaleDateString('ar-SA', { month: 'long', year: 'numeric' });
             fetch('?ajax=salaries').then(r => r.json()).then(data => {
                 if (!data.ok) return;
                 salaryData = data.salaries;
@@ -3633,16 +3542,6 @@ function report_data(PDO $pdo, string $type, string $from, string $to, int $bran
                     banner.style.color = '#df4b4b';
                     banner.innerHTML = '<i class="fas fa-lock"></i> صلاحية تسليم الرواتب مغلقة لهذا الشهر — يجب أن يفتحها المسؤول العام أولاً';
                 }
-            });
-        }
-
-        function deleteSalary(id) {
-            if (!id) return;
-            if (!confirm('هل أنت متأكد من حذف هذا الراتب؟')) return;
-            const body = new URLSearchParams({ id });
-            fetch('?ajax=salary_delete', { method: 'POST', body }).then(r => r.json()).then(data => {
-                if (data.ok) { loadSalaries(); showToast('🗑️ حذف', 'تم حذف الراتب', 'warning'); }
-                else showToast('⚠️ خطأ', data.error || 'تعذر الحذف', 'error');
             });
         }
 
@@ -3675,48 +3574,14 @@ function report_data(PDO $pdo, string $type, string $from, string $to, int $bran
                         <td>
                             ${item.statusRaw !== 'delivered' ? `
                                 <button class="action-btn approve" onclick="deliverSalary(${item.employeeId}, '${item.name}')" title="تسليم">
-                                    <i class="fas fa-check"></i>
+                                    <i class="fas fa-check"></i> تسليم
                                 </button>
-                            ` : ''}
-                            ${item.payrollId && item.statusRaw !== 'delivered' ? `
-                                <button class="action-btn reject" onclick="deleteSalary(${item.payrollId})" title="حذف">
-                                    <i class="fas fa-trash"></i>
-                                </button>
-                            ` : ''}
+                            ` : '<span style="font-size:11px;color:var(--text-muted);">تم التسليم</span>'}
                         </td>
                     </tr>
                 `;
             });
             tbody.innerHTML = html;
-        }
-
-        function showAddSalaryForm() {
-            const form = document.getElementById('addSalaryForm');
-            form.style.display = form.style.display === 'none' ? 'block' : 'none';
-        }
-
-        function addSalary() {
-            const select = document.getElementById('salaryEmployee');
-            const name = select.options[select.selectedIndex] ? select.options[select.selectedIndex].text : '';
-            const employeeId = select.value;
-            const type = document.getElementById('salaryType').value;
-            const amount = parseFloat(document.getElementById('salaryAmount').value) || 0;
-            const note = document.getElementById('salaryNote').value;
-
-            if (amount <= 0 || !employeeId) {
-                showToast('⚠️ تنبيه', 'الرجاء إدخال مبلغ صحيح واختيار الموظف', 'warning');
-                return;
-            }
-
-            const body = new URLSearchParams({ employeeId, type, amount, note });
-            fetch('?ajax=payroll_adjustment_add', { method: 'POST', body }).then(r => r.json()).then(data => {
-                if (!data.ok) { showToast('⚠️ خطأ', data.error || 'تعذر الحفظ', 'error'); return; }
-                loadSalaries();
-                document.getElementById('addSalaryForm').style.display = 'none';
-                document.getElementById('salaryAmount').value = '';
-                document.getElementById('salaryNote').value = '';
-                showToast('✅ تم الحفظ', `تم تحديث راتب ${name} وإرسال إشعار له ولمسؤول الفرع`, 'success');
-            });
         }
 
         // ============================================================
@@ -3971,6 +3836,8 @@ function report_data(PDO $pdo, string $type, string $from, string $to, int $bran
                 loadBriefingRequests();
                 if (decision === 'approved') showToast('✅ تمت الموافقة', `تمت موافقتك على إيجاز ${item.sender} - ${item.branch}، بانتظار الاعتماد النهائي من المسؤول العام`, 'success');
                 else showToast('❌ تم الرفض', `تم رفض إيجاز ${item.sender} - ${item.branch}`, 'error');
+            }).catch(() => {
+                showToast('❌ خطأ', 'تعذر الاتصال بالخادم — تأكد من تشغيل migrate.php على قاعدة البيانات', 'error');
             });
         }
 

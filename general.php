@@ -144,7 +144,7 @@ if (isset($_GET['ajax'])) {
     }
     $gmUser = $_SESSION['gm_user'];
     $isShareholder = $gmUser['role'] === 'shareholder';
-    $gmOnlyActions = ['brief_final_review', 'payroll_window_open', 'shareholders_list', 'shareholder_create', 'shareholder_toggle'];
+    $gmOnlyActions = ['brief_final_review', 'payroll_window_open', 'shareholders_list', 'shareholder_create', 'shareholder_toggle', 'payroll_adjustment_add'];
     if ($isShareholder && in_array($action, $gmOnlyActions, true)) {
         http_response_code(403);
         echo json_encode(['ok' => false, 'error' => 'هذه الصلاحية متاحة للمسؤول العام فقط']);
@@ -189,6 +189,13 @@ if (isset($_GET['ajax'])) {
             $pdo->prepare("INSERT INTO payroll_windows (period_month, period_year, opened_by, expires_at) VALUES (?, ?, ?, ?)
                 ON DUPLICATE KEY UPDATE opened_by=VALUES(opened_by), opened_at=NOW(), expires_at=VALUES(expires_at)")
                 ->execute([$month, $year, $gmUser['id'], $expiresAt]);
+
+            $everyone = $pdo->query("SELECT id FROM users WHERE role IN ('hr','branch_manager')")->fetchAll(PDO::FETCH_COLUMN);
+            $msg = 'فتح المسؤول العام صلاحية تسليم الرواتب لشهر ' . $month . '/' . $year . ' لمدة 3 أيام';
+            foreach ($everyone as $uid) {
+                $pdo->prepare("INSERT INTO notifications (user_id, title, message) VALUES (?, 'صلاحية تسليم الرواتب مفتوحة', ?)")->execute([$uid, $msg]);
+            }
+
             echo json_encode(['ok' => true, 'expiresAt' => $expiresAt]);
             exit;
         }
@@ -286,6 +293,107 @@ if (isset($_GET['ajax'])) {
             $notifyUids->execute([$briefBranchId]);
             foreach ($notifyUids->fetchAll(PDO::FETCH_COLUMN) as $uid) {
                 $pdo->prepare("INSERT INTO notifications (user_id, title, message) VALUES (?, 'اعتماد نهائي للإيجاز', ?)")->execute([$uid, $msg]);
+            }
+
+            echo json_encode(['ok' => true]);
+            exit;
+        }
+
+        case 'employees_list': {
+            $rows = $pdo->query("
+                SELECT e.id, e.full_name AS name, b.name AS branch
+                FROM employees e JOIN branches b ON b.id = e.branch_id
+                WHERE e.status='active' ORDER BY e.full_name
+            ")->fetchAll();
+            echo json_encode(['ok' => true, 'employees' => $rows], JSON_UNESCAPED_UNICODE);
+            exit;
+        }
+
+        case 'payroll_overview': {
+            $month = (int) date('n');
+            $year = (int) date('Y');
+            $stmt = $pdo->prepare("
+                SELECT e.id AS employeeId, e.full_name AS name, b.name AS branch, e.is_branch_manager AS isManager,
+                       COALESCE(p.base_salary, e.base_salary) AS base, COALESCE(p.bonus,0) AS bonus, COALESCE(p.deduction,0) AS deduction,
+                       (COALESCE(p.base_salary, e.base_salary) + COALESCE(p.bonus,0) - COALESCE(p.deduction,0)) AS net,
+                       COALESCE(p.status, 'pending') AS status,
+                       adv.approved_monthly_deduction AS advanceMonthly, adv.remaining_balance AS advanceRemaining
+                FROM employees e
+                JOIN branches b ON b.id = e.branch_id
+                LEFT JOIN payroll p ON p.employee_id = e.id AND p.period_month=? AND p.period_year=?
+                LEFT JOIN requests adv ON adv.employee_id = e.id AND adv.type='advance' AND adv.status='approved' AND adv.remaining_balance > 0
+                WHERE e.status='active'
+                ORDER BY (COALESCE(p.status, 'pending') = 'delivered') ASC, e.full_name
+            ");
+            $stmt->execute([$month, $year]);
+            $rows = array_map(function ($r) {
+                $r['base'] = (float) $r['base'];
+                $r['bonus'] = (float) $r['bonus'];
+                $r['deduction'] = (float) $r['deduction'];
+                $r['net'] = (float) $r['net'];
+                $r['hasAdvance'] = $r['advanceMonthly'] !== null;
+                $r['advanceMonthly'] = $r['advanceMonthly'] !== null ? (float) $r['advanceMonthly'] : null;
+                $r['statusRaw'] = $r['status'];
+                $r['status'] = $r['status'] === 'delivered' ? 'مدفوع' : 'قيد المعالجة';
+                return $r;
+            }, $stmt->fetchAll());
+            echo json_encode(['ok' => true, 'salaries' => $rows], JSON_UNESCAPED_UNICODE);
+            exit;
+        }
+
+        case 'payroll_adjustment_add': {
+            $employeeId = (int) ($_POST['employeeId'] ?? 0);
+            $type = $_POST['type'] ?? '';
+            $amount = (float) ($_POST['amount'] ?? 0);
+            $note = trim($_POST['note'] ?? '');
+            if (!in_array($type, ['salary', 'bonus', 'deduction'], true) || $amount <= 0 || $employeeId <= 0) {
+                echo json_encode(['ok' => false, 'error' => 'الرجاء اختيار الموظف ونوع التعديل وإدخال مبلغ صحيح']);
+                exit;
+            }
+            $empStmt = $pdo->prepare("SELECT branch_id, full_name FROM employees WHERE id=?");
+            $empStmt->execute([$employeeId]);
+            $emp = $empStmt->fetch();
+            if (!$emp) {
+                echo json_encode(['ok' => false, 'error' => 'الموظف غير موجود']);
+                exit;
+            }
+            $month = (int) date('n');
+            $year = (int) date('Y');
+            $branchId = (int) $emp['branch_id'];
+
+            $existing = $pdo->prepare("SELECT id, status FROM payroll WHERE employee_id=? AND period_month=? AND period_year=?");
+            $existing->execute([$employeeId, $month, $year]);
+            $existing = $existing->fetch();
+            if ($existing && $existing['status'] === 'delivered') {
+                echo json_encode(['ok' => false, 'error' => 'تم تسليم راتب هذا الشهر مسبقاً، لا يمكن تعديله']);
+                exit;
+            }
+
+            if ($type === 'salary') {
+                $pdo->prepare("INSERT INTO payroll (employee_id, branch_id, period_month, period_year, base_salary, status)
+                    VALUES (?, ?, ?, ?, ?, 'pending') ON DUPLICATE KEY UPDATE base_salary=?")
+                    ->execute([$employeeId, $branchId, $month, $year, $amount, $amount]);
+            } elseif ($type === 'bonus') {
+                $pdo->prepare("INSERT INTO payroll (employee_id, branch_id, period_month, period_year, base_salary, bonus, status)
+                    VALUES (?, ?, ?, ?, (SELECT base_salary FROM employees WHERE id=?), ?, 'pending')
+                    ON DUPLICATE KEY UPDATE bonus = bonus + VALUES(bonus)")
+                    ->execute([$employeeId, $branchId, $month, $year, $employeeId, $amount]);
+            } else {
+                $pdo->prepare("INSERT INTO payroll (employee_id, branch_id, period_month, period_year, base_salary, deduction, status)
+                    VALUES (?, ?, ?, ?, (SELECT base_salary FROM employees WHERE id=?), ?, 'pending')
+                    ON DUPLICATE KEY UPDATE deduction = deduction + VALUES(deduction)")
+                    ->execute([$employeeId, $branchId, $month, $year, $employeeId, $amount]);
+            }
+
+            $pdo->prepare("INSERT INTO payroll_adjustments (employee_id, branch_id, period_month, period_year, type, amount, note, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
+                ->execute([$employeeId, $branchId, $month, $year, $type, $amount, $note ?: null, $gmUser['id']]);
+
+            $typeLabel = ['salary' => 'تحديث الراتب الأساسي', 'bonus' => 'مكافأة', 'deduction' => 'خصم'];
+            $msg = $typeLabel[$type] . ' بقيمة ' . number_format($amount) . ' للموظف ' . $emp['full_name'] . ' من المسؤول العام';
+            $notifyUsers = $pdo->prepare("SELECT id FROM users WHERE employee_id=? UNION SELECT id FROM users WHERE branch_id=? AND role='branch_manager' UNION SELECT id FROM users WHERE role='hr'");
+            $notifyUsers->execute([$employeeId, $branchId]);
+            foreach ($notifyUsers->fetchAll(PDO::FETCH_COLUMN) as $uid) {
+                $pdo->prepare("INSERT INTO notifications (user_id, title, message) VALUES (?, 'تحديث في الراتب', ?)")->execute([$uid, $msg]);
             }
 
             echo json_encode(['ok' => true]);
@@ -422,6 +530,7 @@ if (isset($_GET['ajax'])) {
     .status-pill { padding: 4px 12px; border-radius: 20px; font-size: 11px; font-weight: 700; }
     .status-pill.approved { background: rgba(21,148,71,0.12); color: var(--green); }
     .status-pill.rejected { background: rgba(223,75,75,0.12); color: var(--red); }
+    .status-pill.pending { background: rgba(217,140,26,0.12); color: var(--orange); }
 
     .empty-state { text-align: center; padding: 40px 20px; color: var(--text-muted); }
     .empty-state i { font-size: 48px; opacity: 0.3; display: block; margin-bottom: 12px; }
@@ -498,6 +607,7 @@ if (isset($_GET['ajax'])) {
                 <button class="active" id="tab-pending" onclick="switchTab('pending')"><i class="fas fa-inbox"></i> بانتظار الاعتماد</button>
                 <button id="tab-history" onclick="switchTab('history')"><i class="fas fa-history"></i> سجل الاعتمادات</button>
                 <button id="tab-branches" onclick="switchTab('branches')"><i class="fas fa-building"></i> الفروع</button>
+                <button id="tab-payroll" onclick="switchTab('payroll')"><i class="fas fa-money-check-dollar"></i> الرواتب والمكافآت</button>
                 <button id="tab-reports" onclick="switchTab('reports')"><i class="fas fa-chart-bar"></i> التقارير</button>
                 <button id="tab-shareholders" onclick="switchTab('shareholders')"><i class="fas fa-user-tie"></i> المساهمون</button>
             </div>
@@ -505,6 +615,31 @@ if (isset($_GET['ajax'])) {
             <div id="view-pending"></div>
             <div id="view-history" class="hidden"></div>
             <div id="view-branches" class="hidden"></div>
+            <div id="view-payroll" class="hidden">
+                <div class="brief-card">
+                    <h4 style="margin-bottom:10px;"><i class="fas fa-plus-circle"></i> إضافة راتب / مكافأة / خصم لموظف</h4>
+                    <div style="display:grid;grid-template-columns:1.5fr 1fr 1fr 1.5fr auto;gap:10px;">
+                        <select id="payrollEmployee" style="height:38px;padding:0 10px;border:1.5px solid #e2ebeb;border-radius:8px;font-family:var(--font-family);"></select>
+                        <select id="payrollType" style="height:38px;padding:0 10px;border:1.5px solid #e2ebeb;border-radius:8px;font-family:var(--font-family);">
+                            <option value="salary">راتب أساسي</option>
+                            <option value="bonus">مكافأة</option>
+                            <option value="deduction">خصم</option>
+                        </select>
+                        <input type="number" id="payrollAmount" placeholder="المبلغ" style="height:38px;padding:0 10px;border:1.5px solid #e2ebeb;border-radius:8px;font-family:var(--font-family);">
+                        <input type="text" id="payrollNote" placeholder="ملاحظة (اختياري)" style="height:38px;padding:0 10px;border:1.5px solid #e2ebeb;border-radius:8px;font-family:var(--font-family);">
+                        <button class="btn small" onclick="addPayrollAdjustment()"><i class="fas fa-save"></i> حفظ</button>
+                    </div>
+                </div>
+                <div class="brief-card">
+                    <h4 style="margin-bottom:10px;"><i class="fas fa-list"></i> قائمة رواتب هذا الشهر (من لم يستلم راتبه يظهر أولاً)</h4>
+                    <div style="overflow-x:auto;">
+                        <table style="width:100%;border-collapse:collapse;font-size:12px;">
+                            <thead><tr style="background:var(--bg);"><th style="padding:6px;text-align:right;">الموظف</th><th style="padding:6px;">الفرع</th><th style="padding:6px;">الأساسي</th><th style="padding:6px;">المكافأة</th><th style="padding:6px;">الخصم</th><th style="padding:6px;">الصافي</th><th style="padding:6px;">الحالة</th></tr></thead>
+                            <tbody id="payrollOverviewBody"></tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
             <div id="view-reports" class="hidden">
                 <div class="brief-card">
                     <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:10px;margin-bottom:12px;">
@@ -545,6 +680,15 @@ if (isset($_GET['ajax'])) {
     <div class="toast-container" id="toastContainer"></div>
 
 <script>
+    // شبكة أمان: التقاط أي طلب فشل بصمت بدل أن يظهر وكأن الزر لا يستجيب
+    window.addEventListener('unhandledrejection', function(e) {
+        console.error('Unhandled request failure:', e.reason);
+        if (typeof showToast === 'function') {
+            showToast('❌ خطأ في الاتصال', 'تعذر تنفيذ العملية — تأكد من تشغيل migrate.php على قاعدة البيانات ثم أعد المحاولة', 'error');
+        }
+        e.preventDefault();
+    });
+
     const loginScreen = document.getElementById('loginScreen');
     const appContainer = document.getElementById('appContainer');
     const alreadyLoggedIn = <?= $isLoggedIn ? 'true' : 'false' ?>;
@@ -600,12 +744,62 @@ if (isset($_GET['ajax'])) {
             const select = document.getElementById('reportBranch');
             select.innerHTML = '<option value="0">جميع الفروع</option>' + data.branches.map(b => `<option value="${b.id}">${b.name}</option>`).join('');
         });
+        if (currentRole !== 'shareholder') {
+            fetch('?ajax=employees_list').then(r => r.json()).then(data => {
+                if (!data.ok) return;
+                const select = document.getElementById('payrollEmployee');
+                if (select) select.innerHTML = data.employees.map(e => `<option value="${e.id}">${e.name} — ${e.branch}</option>`).join('');
+            });
+        }
+    }
+
+    // ============================================================
+    // الرواتب والمكافآت (المسؤول العام فقط)
+    // ============================================================
+    function loadPayrollOverview() {
+        fetch('?ajax=payroll_overview').then(r => r.json()).then(data => {
+            if (!data.ok) return;
+            const tbody = document.getElementById('payrollOverviewBody');
+            tbody.innerHTML = data.salaries.map(r => `
+                <tr style="border-bottom:1px solid #eee;">
+                    <td style="padding:6px;">${r.name}${r.isManager ? ' <span style="color:var(--accent);font-size:10px;">(مدير فرع)</span>' : ''}${r.hasAdvance ? `<br><span style="font-size:10px;color:var(--red);">سلفة نشطة (${Number(r.advanceMonthly).toLocaleString()}/شهر)</span>` : ''}</td>
+                    <td style="padding:6px;">${r.branch}</td>
+                    <td style="padding:6px;">${r.base.toLocaleString()}</td>
+                    <td style="padding:6px;color:var(--green);">+${r.bonus.toLocaleString()}</td>
+                    <td style="padding:6px;color:var(--red);">-${r.deduction.toLocaleString()}</td>
+                    <td style="padding:6px;font-weight:800;">${r.net.toLocaleString()}</td>
+                    <td style="padding:6px;"><span class="status-pill ${r.statusRaw === 'delivered' ? 'approved' : 'pending'}">${r.status}</span></td>
+                </tr>
+            `).join('');
+        });
+    }
+
+    function addPayrollAdjustment() {
+        const select = document.getElementById('payrollEmployee');
+        const name = select.options[select.selectedIndex] ? select.options[select.selectedIndex].text : '';
+        const employeeId = select.value;
+        const type = document.getElementById('payrollType').value;
+        const amount = parseFloat(document.getElementById('payrollAmount').value) || 0;
+        const note = document.getElementById('payrollNote').value;
+        if (!employeeId || amount <= 0) {
+            showToast('⚠️ تنبيه', 'الرجاء اختيار الموظف وإدخال مبلغ صحيح', 'warning');
+            return;
+        }
+        fetch('?ajax=payroll_adjustment_add', { method: 'POST', body: new URLSearchParams({ employeeId, type, amount, note }) })
+            .then(r => r.json()).then(data => {
+                if (!data.ok) { showToast('⚠️ خطأ', data.error || 'تعذر الحفظ', 'error'); return; }
+                showToast('✅ تم الحفظ', `تم تحديث راتب ${name} وإرسال إشعار له ولمسؤول فرعه و HR`, 'success');
+                document.getElementById('payrollAmount').value = '';
+                document.getElementById('payrollNote').value = '';
+                loadPayrollOverview();
+            });
     }
 
     function applyRoleUI() {
         const isShareholder = currentRole === 'shareholder';
         document.getElementById('roleBadge').textContent = isShareholder ? 'مساهم' : 'المسؤول العام';
         document.getElementById('tab-shareholders').style.display = isShareholder ? 'none' : '';
+        document.getElementById('tab-payroll').style.display = isShareholder ? 'none' : '';
         document.getElementById('pendingCard').style.display = isShareholder ? 'none' : '';
         document.getElementById('tab-pending').style.display = isShareholder ? 'none' : '';
         if (isShareholder) switchTab('history');
@@ -629,12 +823,12 @@ if (isset($_GET['ajax'])) {
                     statusEl.textContent = 'مفتوحة';
                     statusEl.className = 'status-pill approved';
                     const expires = new Date(data.payrollWindow.expiresAt.replace(' ', 'T'));
-                    detailEl.textContent = 'صلاحية تسليم الرواتب مفتوحة لـ HR حتى ' + expires.toLocaleString('ar-SA');
+                    detailEl.textContent = 'صلاحية تسليم الرواتب مفتوحة لـ HR ومديري الفروع حتى ' + expires.toLocaleString('ar-SA');
                     btn.textContent = 'تجديد الفتح 3 أيام إضافية';
                 } else {
                     statusEl.textContent = 'مغلقة';
                     statusEl.className = 'status-pill rejected';
-                    detailEl.textContent = 'لا يمكن لـ HR تسليم أي راتب حتى تفتح الصلاحية لهذا الشهر';
+                    detailEl.textContent = 'لا يمكن لـ HR أو مديري الفروع تسليم أي راتب حتى تفتح الصلاحية لهذا الشهر';
                     btn.innerHTML = '<i class="fas fa-unlock"></i> فتح صلاحية تسليم الرواتب لهذا الشهر (3 أيام)';
                 }
             }
@@ -651,13 +845,14 @@ if (isset($_GET['ajax'])) {
     }
 
     function switchTab(tab) {
-        ['pending', 'history', 'branches', 'reports', 'shareholders'].forEach(t => {
+        ['pending', 'history', 'branches', 'payroll', 'reports', 'shareholders'].forEach(t => {
             document.getElementById('tab-' + t).classList.toggle('active', t === tab);
             document.getElementById('view-' + t).classList.toggle('hidden', t !== tab);
         });
         if (tab === 'pending') loadPending();
         else if (tab === 'history') loadHistory();
         else if (tab === 'branches') loadBranches();
+        else if (tab === 'payroll') loadPayrollOverview();
         else if (tab === 'shareholders') loadShareholders();
     }
 

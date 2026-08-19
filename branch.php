@@ -559,7 +559,7 @@ if (isset($_GET['ajax'])) {
                 FROM employees e
                 LEFT JOIN payroll p ON p.employee_id = e.id AND p.period_month=? AND p.period_year=?
                 WHERE e.branch_id=? AND e.is_branch_manager=0 AND e.status='active'
-                ORDER BY e.full_name
+                ORDER BY (COALESCE(p.status, 'pending') = 'delivered') ASC, e.full_name
             ");
             $stmt->execute([$month, $year, $branchId]);
             $rows = array_map(function ($r) {
@@ -620,11 +620,11 @@ if (isset($_GET['ajax'])) {
             $stmt->execute([$employeeId, $branchId, $month, $year, $baseSalary, $bonus, $deduction]);
 
             $net = $baseSalary + $bonus - $deduction;
-            $notifyUsers = $pdo->prepare("SELECT id FROM users WHERE employee_id=?");
+            $notifyUsers = $pdo->prepare("SELECT id FROM users WHERE employee_id=? UNION SELECT id FROM users WHERE role='hr'");
             $notifyUsers->execute([$employeeId]);
             foreach ($notifyUsers->fetchAll(PDO::FETCH_COLUMN) as $uid) {
                 $pdo->prepare("INSERT INTO notifications (user_id, title, message) VALUES (?, 'تم تسليم الراتب', ?)")
-                    ->execute([$uid, 'تم تسليم راتبك عن شهر ' . $month . '/' . $year . ' بصافي ' . number_format($net) . ' دينار']);
+                    ->execute([$uid, 'تم تسليم راتب ' . $emp['full_name'] . ' عن شهر ' . $month . '/' . $year . ' بصافي ' . number_format($net) . ' دينار']);
             }
 
             echo json_encode(['ok' => true, 'net' => $net]);
@@ -1363,18 +1363,8 @@ function branch_report_data(PDO $pdo, string $type, string $from, string $to, in
                 <div class="page-title"><h2><i class="fas fa-money-bill-wave"></i> الرواتب</h2><button onclick="navigateTo('home')" class="back-btn"><i class="fas fa-arrow-right"></i> رجوع</button></div>
 
                 <div class="card">
-                    <h3>تسليم الرواتب - <span id="payrollMonthDisplay">مايو 2024</span></h3>
-                    <div class="form-row">
-                        <div class="form-group"><label>الشهر</label>
-                            <select id="payrollMonth">
-                                <option value="1">يناير</option><option value="2">فبراير</option><option value="3">مارس</option>
-                                <option value="4">أبريل</option><option value="5" selected>مايو</option><option value="6">يونيو</option>
-                                <option value="7">يوليو</option><option value="8">أغسطس</option><option value="9">سبتمبر</option>
-                                <option value="10">أكتوبر</option><option value="11">نوفمبر</option><option value="12">ديسمبر</option>
-                            </select>
-                        </div>
-                        <div class="form-group"><label>السنة</label><input type="number" id="payrollYear" value="2024"></div>
-                    </div>
+                    <h3>تسليم الرواتب - <span id="payrollMonthDisplay">الشهر الحالي</span></h3>
+                    <p class="muted">يمكن تسليم رواتب الشهر الحالي فقط، ولا يمكن تسليم راتب متأخر لشهر سابق.</p>
                 </div>
 
                 <div id="payrollList">
@@ -1743,6 +1733,18 @@ function branch_report_data(PDO $pdo, string $type, string $from, string $to, in
 
     <script>
         // ============================================================
+        // شبكة أمان: التقاط أي طلب فشل بصمت (مثال: قاعدة بيانات غير محدّثة)
+        // بدل أن يظهر وكأن الزر لا يستجيب
+        // ============================================================
+        window.addEventListener('unhandledrejection', function(e) {
+            console.error('Unhandled request failure:', e.reason);
+            if (typeof showToast === 'function') {
+                showToast('❌ خطأ في الاتصال', 'تعذر تنفيذ العملية — تأكد من تشغيل migrate.php على قاعدة البيانات ثم أعد المحاولة', 'error');
+            }
+            e.preventDefault();
+        });
+
+        // ============================================================
         // شاشة الترحيب
         // ============================================================
         let loaderProgress = 0;
@@ -2045,9 +2047,7 @@ function branch_report_data(PDO $pdo, string $type, string $from, string $to, in
         // الرواتب
         // ============================================================
         function loadPayroll() {
-            const month = document.getElementById('payrollMonth').value;
-            const year = document.getElementById('payrollYear').value;
-            fetch('?ajax=payroll_list&month=' + month + '&year=' + year).then(r => r.json()).then(data => {
+            fetch('?ajax=payroll_list').then(r => r.json()).then(data => {
                 if (!data.ok) return;
                 renderPayroll(data.payroll);
             });
