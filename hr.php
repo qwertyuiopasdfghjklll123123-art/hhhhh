@@ -14,6 +14,14 @@ if (!file_exists(__DIR__ . '/config.php')) {
 }
 require_once __DIR__ . '/config.php';
 
+$sessionDir = __DIR__ . '/uploads/sessions';
+if (!is_dir($sessionDir)) {
+    @mkdir($sessionDir, 0755, true);
+    @file_put_contents($sessionDir . '/.htaccess', "<IfModule mod_authz_core.c>\nRequire all denied\n</IfModule>\n<IfModule !mod_authz_core.c>\nDeny from all\n</IfModule>\n");
+}
+if (is_dir($sessionDir) && is_writable($sessionDir)) {
+    session_save_path($sessionDir);
+}
 ini_set('session.gc_maxlifetime', (string) (86400 * 30));
 session_set_cookie_params(['httponly' => true, 'samesite' => 'Lax', 'lifetime' => 86400 * 30]);
 session_start();
@@ -68,6 +76,15 @@ function request_type_ar(string $t): string
 function request_status_ar(string $s): string
 {
     return ['pending' => 'قيد مراجعة مدير الفرع', 'branch_approved' => 'قيد مراجعة الموارد البشرية', 'approved' => 'مقبول', 'rejected' => 'مرفوض'][$s] ?? $s;
+}
+
+function brief_overall_status(string $hrDecision, string $gmDecision): string
+{
+    if ($hrDecision === 'rejected' || $gmDecision === 'rejected') return 'rejected';
+    if ($hrDecision === 'approved' && $gmDecision === 'approved') return 'approved';
+    if ($hrDecision === 'approved') return 'hr_approved';
+    if ($gmDecision === 'approved') return 'gm_approved';
+    return 'pending';
 }
 
 function log_error(PDO $pdo, string $action, ?string $role, ?int $userId, string $message): void
@@ -609,13 +626,19 @@ if (isset($_GET['ajax'])) {
                 SELECT db.id, e.full_name AS sender, e.job_title AS senderRole, b.name AS branch,
                        DATE_FORMAT(db.brief_date, '%d/%m/%Y') AS date,
                        db.total_income AS revenue, db.total_expense AS expenses, db.travelers_count AS travelersCount, db.note,
-                       db.status, db.hr_note AS hrNote
+                       db.status, db.hr_decision, db.gm_decision, db.hr_note AS hrNote, db.gm_review_note AS gmNote
                 FROM daily_briefs db
                 JOIN branches b ON b.id = db.branch_id
                 LEFT JOIN employees e ON e.id = db.submitted_by
                 ORDER BY db.brief_date DESC, db.id DESC LIMIT 30
             ");
-            $statusAr = ['pending' => 'بانتظار مراجعتك', 'hr_approved' => 'بانتظار الاعتماد النهائي من المسؤول العام', 'approved' => 'معتمد نهائياً', 'rejected' => 'مرفوض'];
+            $statusAr = [
+                'pending' => 'بانتظار مراجعتك',
+                'hr_approved' => 'وافقت أنت — بانتظار موافقة المسؤول العام أيضاً',
+                'gm_approved' => 'وافق المسؤول العام — بانتظار مراجعتك أنت',
+                'approved' => 'معتمد نهائياً (وافق الطرفان)',
+                'rejected' => 'مرفوض',
+            ];
             $rows = array_map(function ($r) use ($statusAr) {
                 $r['revenue'] = (float) $r['revenue'];
                 $r['expenses'] = (float) $r['expenses'];
@@ -623,7 +646,7 @@ if (isset($_GET['ajax'])) {
                 $r['netProfit'] = $r['revenue'] - $r['expenses'];
                 $r['sender'] = $r['sender'] ?: 'مدير الفرع';
                 $r['senderRole'] = $r['senderRole'] ?: 'مدير فرع';
-                $r['canReview'] = $r['status'] === 'pending';
+                $r['canReview'] = $r['hr_decision'] === 'pending' && !in_array($r['status'], ['approved', 'rejected'], true);
                 $r['statusText'] = $statusAr[$r['status']] ?? $r['status'];
                 return $r;
             }, $stmt->fetchAll());
@@ -633,27 +656,37 @@ if (isset($_GET['ajax'])) {
 
         case 'brief_review': {
             $id = (int) ($_POST['id'] ?? 0);
-            $decision = ($_POST['decision'] ?? '') === 'approved' ? 'hr_approved' : 'rejected';
-            $hrNote = trim($_POST['hrNote'] ?? '') ?: ($decision === 'hr_approved' ? 'تمت الموافقة من قبل الموارد البشرية، بانتظار الاعتماد النهائي' : 'تم الرفض من قبل الموارد البشرية');
-            $stmt = $pdo->prepare("UPDATE daily_briefs SET status=?, hr_note=?, reviewed_by=?, reviewed_at=NOW() WHERE id=? AND status='pending'");
-            $stmt->execute([$decision, $hrNote, $hrUser['id'], $id]);
-            if ($stmt->rowCount() === 0) {
+            $decision = ($_POST['decision'] ?? '') === 'approved' ? 'approved' : 'rejected';
+            $hrNote = trim($_POST['hrNote'] ?? '') ?: ($decision === 'approved' ? 'تمت الموافقة من قبل الموارد البشرية' : 'تم الرفض من قبل الموارد البشرية');
+
+            $briefRow = $pdo->prepare("SELECT branch_id, gm_decision FROM daily_briefs WHERE id=? AND hr_decision='pending' AND status NOT IN ('approved','rejected')");
+            $briefRow->execute([$id]);
+            $brief = $briefRow->fetch();
+            if (!$brief) {
                 echo json_encode(['ok' => false, 'error' => 'هذا الإيجاز ليس بانتظار مراجعتك']);
                 exit;
             }
+            $newStatus = brief_overall_status($decision, $brief['gm_decision']);
 
-            $briefRow = $pdo->prepare("SELECT branch_id FROM daily_briefs WHERE id=?");
-            $briefRow->execute([$id]);
-            $briefBranchId = $briefRow->fetchColumn();
-            $msg = $decision === 'hr_approved'
-                ? 'وافقت الموارد البشرية على إيجاز اليوم، بانتظار الاعتماد النهائي من المسؤول العام'
-                : 'رفضت الموارد البشرية إيجاز اليوم — ' . $hrNote;
+            $pdo->prepare("UPDATE daily_briefs SET hr_decision=?, status=?, hr_note=?, reviewed_by=?, reviewed_at=NOW() WHERE id=?")
+                ->execute([$decision, $newStatus, $hrNote, $hrUser['id'], $id]);
+
+            $briefBranchId = $brief['branch_id'];
+            if ($newStatus === 'approved') {
+                $msg = 'تم اعتماد إيجاز اليوم نهائياً بعد موافقة الموارد البشرية والمسؤول العام' . ($hrNote ? (' — ' . $hrNote) : '');
+            } elseif ($newStatus === 'rejected') {
+                $msg = 'رفضت الموارد البشرية إيجاز اليوم — ' . $hrNote;
+            } else {
+                $msg = $decision === 'approved'
+                    ? 'وافقت الموارد البشرية على إيجاز اليوم، بانتظار موافقة المسؤول العام أيضاً — ' . $hrNote
+                    : 'رفضت الموارد البشرية إيجاز اليوم — ' . $hrNote;
+            }
             $mgrUids = $pdo->prepare("SELECT id FROM users WHERE branch_id=? AND role='branch_manager'");
             $mgrUids->execute([$briefBranchId]);
             foreach ($mgrUids->fetchAll(PDO::FETCH_COLUMN) as $uid) {
                 $pdo->prepare("INSERT INTO notifications (user_id, title, message) VALUES (?, 'رد على الإيجاز', ?)")->execute([$uid, $msg]);
             }
-            if ($decision === 'hr_approved') {
+            if ($newStatus === 'hr_approved') {
                 $gmUids = $pdo->query("SELECT id FROM users WHERE role='general_manager'")->fetchAll(PDO::FETCH_COLUMN);
                 foreach ($gmUids as $uid) {
                     $pdo->prepare("INSERT INTO notifications (user_id, title, message) VALUES (?, 'إيجاز بانتظار اعتمادك', ?)")
@@ -873,7 +906,8 @@ function report_data(PDO $pdo, string $type, string $from, string $to, int $bran
     if ($type === 'briefing' || $type === 'all') {
         $sql = "SELECT b.name AS branch, DATE_FORMAT(db.brief_date,'%d/%m/%Y') AS date,
                        db.total_income AS revenue, db.total_expense AS expense,
-                       (db.total_income - db.total_expense) AS profit
+                       (db.total_income - db.total_expense) AS profit,
+                       db.hr_note AS hrNote, db.gm_review_note AS gmNote
                 FROM daily_briefs db JOIN branches b ON b.id = db.branch_id
                 WHERE db.brief_date BETWEEN ? AND ?";
         $params = [$from, $to];
@@ -885,6 +919,8 @@ function report_data(PDO $pdo, string $type, string $from, string $to, int $bran
             foreach (['revenue', 'expense', 'profit'] as $k) {
                 $r[$k] = number_format((float) $r[$k]);
             }
+            $r['hrNote'] = $r['hrNote'] ?: '-';
+            $r['gmNote'] = $r['gmNote'] ?: '-';
             return $r;
         }, $stmt->fetchAll());
         $result['briefing'] = $rows;
@@ -1584,10 +1620,13 @@ function report_data(PDO $pdo, string $type, string $from, string $to, int $bran
             margin-top: 10px;
             flex-wrap: wrap;
         }
-        .briefing-card .briefing-actions .hr-note-input {
+        .hr-note-input {
+            display: block;
+            width: 100%;
             flex: 1;
-            min-width: 200px;
+            min-width: 160px;
             padding: 8px 12px;
+            margin-bottom: 6px;
             border: 2px solid rgba(0,107,115,0.06);
             border-radius: var(--radius-sm);
             font-size: 12px;
@@ -1595,14 +1634,25 @@ function report_data(PDO $pdo, string $type, string $from, string $to, int $bran
             background: var(--bg-card);
             color: var(--text-primary);
             outline: none;
+            box-sizing: border-box;
             transition: var(--transition-base);
         }
-        .briefing-card .briefing-actions .hr-note-input:focus {
+        .hr-note-input:focus {
             border-color: var(--primary);
             box-shadow: 0 0 0 3px rgba(0,107,115,0.06);
         }
-        .briefing-card .briefing-actions .hr-note-input::placeholder {
+        .hr-note-input::placeholder {
             color: var(--text-muted);
+        }
+        .hr-note-input.input-error {
+            border-color: #DC2626 !important;
+            box-shadow: 0 0 0 3px rgba(220,38,38,0.15) !important;
+            animation: hrInputShake 0.4s;
+        }
+        @keyframes hrInputShake {
+            0%, 100% { transform: translateX(0); }
+            25% { transform: translateX(-4px); }
+            75% { transform: translateX(4px); }
         }
 
         /* ============================================================
@@ -4032,8 +4082,8 @@ function report_data(PDO $pdo, string $type, string $from, string $to, int $bran
                         <td><span class="status-badge ${statusClass}">${item.status}</span></td>
                         <td>
                             ${item.canReview ? `
-                                ${item.rawType === 'advance' ? `<input type="number" min="1" step="1000" class="hr-note-input" id="hrDeduction_${item.id}" placeholder="الخصم الشهري (إلزامي للموافقة)" style="margin-bottom:4px;">` : ''}
-                                <input type="text" class="hr-note-input" id="hrReqNote_${item.id}" placeholder="رد برسالة (اختياري)..." style="margin-bottom:4px;">
+                                ${item.rawType === 'advance' ? `<input type="number" min="1" step="1000" class="hr-note-input" id="hrDeduction_${item.id}" placeholder="⚠ الخصم الشهري (إلزامي للموافقة)">` : ''}
+                                <input type="text" class="hr-note-input" id="hrReqNote_${item.id}" placeholder="رد برسالة (اختياري)...">
                                 <button class="action-btn approve" onclick="approveRequest(${item.id})">
                                     <i class="fas fa-check"></i> موافقة
                                 </button>
@@ -4052,13 +4102,22 @@ function report_data(PDO $pdo, string $type, string $from, string $to, int $bran
 
         function reviewRequest(id, decision) {
             const req = requestsData.find(r => r.id === id);
-            if (!req) return;
+            if (!req) {
+                showToast('⚠️ تنبيه', 'تعذر إيجاد هذا الطلب — يتم تحديث القائمة', 'warning');
+                loadRequests();
+                return;
+            }
             const params = { id, decision };
             if (decision === 'approved' && req.rawType === 'advance') {
                 const deductionInput = document.getElementById(`hrDeduction_${id}`);
                 const monthlyDeduction = deductionInput ? deductionInput.value : '';
                 if (!monthlyDeduction || Number(monthlyDeduction) <= 0) {
-                    showToast('⚠️ تنبيه', 'يرجى إدخال قيمة الخصم الشهري قبل الموافقة على السلفة', 'warning');
+                    showToast('⚠️ تنبيه', 'يرجى إدخال قيمة الخصم الشهري قبل الموافقة على السلفة — الحقل المحدد بالأحمر', 'warning', 5000);
+                    if (deductionInput) {
+                        deductionInput.classList.add('input-error');
+                        deductionInput.focus();
+                        setTimeout(() => deductionInput.classList.remove('input-error'), 1200);
+                    }
                     return;
                 }
                 params.monthlyDeduction = monthlyDeduction;
@@ -4109,9 +4168,9 @@ function report_data(PDO $pdo, string $type, string $from, string $to, int $bran
         }
         function briefingTable(rows) {
             if (!rows || rows.length === 0) return '<p style="color:var(--text-muted);text-align:center;padding:12px;">لا توجد بيانات إيجاز ضمن هذا النطاق</p>';
-            let html = '<div class="table-wrap"><table class="table"><thead><tr><th>#</th><th>الفرع</th><th>التاريخ</th><th>الإيرادات</th><th>المصاريف</th><th>صافي الربح</th></tr></thead><tbody>';
+            let html = '<div class="table-wrap"><table class="table"><thead><tr><th>#</th><th>الفرع</th><th>التاريخ</th><th>الإيرادات</th><th>المصاريف</th><th>صافي الربح</th><th>ملاحظة HR</th><th>ملاحظة المسؤول العام</th></tr></thead><tbody>';
             rows.forEach((item, i) => {
-                html += `<tr><td>${i+1}</td><td>${item.branch}</td><td>${item.date}</td><td>${item.revenue}</td><td>${item.expense}</td><td style="color:#059669;">${item.profit}</td></tr>`;
+                html += `<tr><td>${i+1}</td><td>${item.branch}</td><td>${item.date}</td><td>${item.revenue}</td><td>${item.expense}</td><td style="color:#059669;">${item.profit}</td><td>${item.hrNote || '-'}</td><td>${item.gmNote || '-'}</td></tr>`;
             });
             return html + '</tbody></table></div>';
         }

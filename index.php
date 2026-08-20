@@ -14,6 +14,14 @@ if (!file_exists(__DIR__ . '/config.php')) {
 }
 require_once __DIR__ . '/config.php';
 
+$sessionDir = __DIR__ . '/uploads/sessions';
+if (!is_dir($sessionDir)) {
+    @mkdir($sessionDir, 0755, true);
+    @file_put_contents($sessionDir . '/.htaccess', "<IfModule mod_authz_core.c>\nRequire all denied\n</IfModule>\n<IfModule !mod_authz_core.c>\nDeny from all\n</IfModule>\n");
+}
+if (is_dir($sessionDir) && is_writable($sessionDir)) {
+    session_save_path($sessionDir);
+}
 ini_set('session.gc_maxlifetime', (string) (86400 * 30));
 session_set_cookie_params(['httponly' => true, 'samesite' => 'Lax', 'lifetime' => 86400 * 30]);
 session_start();
@@ -712,6 +720,18 @@ if (isset($_GET['ajax'])) {
         exit;
     }
 }
+
+$welcomeCompanyName = 'شركة الصوى للصرافة';
+$welcomeCompanyLogo = null;
+try {
+    $wcRow = db()->query("SELECT company_name, company_logo FROM settings ORDER BY id DESC LIMIT 1")->fetch();
+    if ($wcRow) {
+        $welcomeCompanyName = $wcRow['company_name'] ?: $welcomeCompanyName;
+        $welcomeCompanyLogo = $wcRow['company_logo'] ?: null;
+    }
+} catch (Throwable $e) {
+    // إعدادات غير متوفرة بعد (قبل تشغيل migrate.php) — استخدم الاسم الافتراضي
+}
 ?>
 <!DOCTYPE html>
 <html lang="ar" dir="rtl">
@@ -787,12 +807,12 @@ if (isset($_GET['ajax'])) {
         }
         .welcome-screen.fade-out {
             opacity: 0;
-            transform: scale(1.05);
+            transform: translateX(-50%) scale(1.05);
             pointer-events: none;
         }
         @keyframes fadeIn {
-            0% { opacity: 0; transform: scale(1.02); }
-            100% { opacity: 1; transform: scale(1); }
+            0% { opacity: 0; transform: translateX(-50%) scale(1.02); }
+            100% { opacity: 1; transform: translateX(-50%) scale(1); }
         }
 
         .welcome-logo {
@@ -1876,6 +1896,12 @@ if (isset($_GET['ajax'])) {
             0% { opacity: 0; transform: translateY(40px) scale(0.96); }
             100% { opacity: 1; transform: translateY(0) scale(1); }
         }
+        /* نسخة خاصة بالبطاقات المثبّتة أفقياً في منتصف الشاشة (left:50%+translateX(-50%))
+           حتى لا يفقد العنصر توسيطه الأفقي أثناء الحركة ويبدو وكأنه يخرج من اليمين */
+        @keyframes slideUpCentered {
+            0% { opacity: 0; transform: translateX(-50%) translateY(40px) scale(0.96); }
+            100% { opacity: 1; transform: translateX(-50%) translateY(0) scale(1); }
+        }
 
         .request-modal .modal-header {
             padding: 18px 22px;
@@ -2235,8 +2261,7 @@ if (isset($_GET['ajax'])) {
             background: var(--primary-dark);
         }
         .welcome-screen,
-        .login-page,
-        #appContainer {
+        .login-page {
             left: 50% !important;
             right: auto !important;
             width: 480px !important;
@@ -2249,7 +2274,13 @@ if (isset($_GET['ajax'])) {
             top: 0;
             bottom: 0;
         }
+        /* بدون transform هنا عمداً: أي transform على #appContainer يجعله containing block
+           لعناصر position:fixed بداخله (شريط التنقل السفلي، القائمة الجانبية...)
+           فتصبح "ثابتة" بالنسبة له بدل نافذة العرض، فتحتاج تمرير الصفحة لأسفل لرؤيتها. */
         #appContainer {
+            width: 480px !important;
+            max-width: 100% !important;
+            box-shadow: 0 0 0 1px rgba(255,255,255,0.08), 0 30px 80px rgba(0,0,0,0.45);
             position: relative;
             margin: 0 auto;
             min-height: 100vh;
@@ -2273,8 +2304,8 @@ if (isset($_GET['ajax'])) {
     ============================================================ -->
     <div class="welcome-screen" id="welcomeScreen">
         <div class="welcome-logo" id="welcomeLogo">
-            <div class="logo-icon">✥</div>
-            <h1>شركة <span>الصوى للصرافة</span></h1>
+            <div class="logo-icon"><?= $welcomeCompanyLogo ? '<img src="' . htmlspecialchars($welcomeCompanyLogo, ENT_QUOTES, 'UTF-8') . '" alt="">' : '✥' ?></div>
+            <h1><?= htmlspecialchars($welcomeCompanyName, ENT_QUOTES, 'UTF-8') ?></h1>
         </div>
         <div class="welcome-loader">
             <div class="loader-label">جاري التحميل...</div>
@@ -2910,7 +2941,7 @@ if (isset($_GET['ajax'])) {
     بطاقة تأكيد منبثقة من الأسفل (بديل عن confirm() الأصلية بالمتصفح)
     ============================================================ -->
     <div id="confirmSheetOverlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.5);backdrop-filter:blur(4px);z-index:600;" onclick="if(event.target===this) closeConfirmSheet()">
-        <div id="confirmSheet" style="position:fixed;bottom:0;left:50%;transform:translateX(-50%);width:100%;max-width:480px;background:var(--bg-card);border-radius:var(--radius-lg) var(--radius-lg) 0 0;box-shadow:var(--shadow-xl);padding:24px 20px calc(24px + env(safe-area-inset-bottom));animation:slideUp 0.35s cubic-bezier(0.34,1.56,0.64,1);">
+        <div id="confirmSheet" style="position:fixed;bottom:0;left:50%;transform:translateX(-50%);width:100%;max-width:480px;background:var(--bg-card);border-radius:var(--radius-lg) var(--radius-lg) 0 0;box-shadow:var(--shadow-xl);padding:24px 20px calc(24px + env(safe-area-inset-bottom));animation:slideUpCentered 0.35s cubic-bezier(0.34,1.56,0.64,1);">
             <div style="width:40px;height:4px;background:rgba(0,0,0,0.15);border-radius:4px;margin:0 auto 16px;"></div>
             <h3 id="confirmSheetTitle" style="font-size:16px;font-weight:800;color:var(--text-primary);text-align:center;margin-bottom:6px;">تأكيد</h3>
             <p id="confirmSheetMessage" style="font-size:13px;color:var(--text-muted);text-align:center;margin-bottom:20px;">هل أنت متأكد؟</p>

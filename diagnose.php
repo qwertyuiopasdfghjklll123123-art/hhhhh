@@ -145,7 +145,7 @@ if ($pdo) {
 }
 
 /* ---------------------- 6) مجلدات الرفع ---------------------- */
-$uploadDirs = ['uploads', 'uploads/photos', 'uploads/documents', 'uploads/ledger', 'uploads/branding'];
+$uploadDirs = ['uploads', 'uploads/photos', 'uploads/documents', 'uploads/ledger', 'uploads/branding', 'uploads/sessions'];
 foreach ($uploadDirs as $dir) {
     $path = __DIR__ . '/' . $dir;
     if (!is_dir($path)) {

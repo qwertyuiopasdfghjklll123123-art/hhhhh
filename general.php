@@ -13,6 +13,14 @@ if (!file_exists(__DIR__ . '/config.php')) {
 }
 require_once __DIR__ . '/config.php';
 
+$sessionDir = __DIR__ . '/uploads/sessions';
+if (!is_dir($sessionDir)) {
+    @mkdir($sessionDir, 0755, true);
+    @file_put_contents($sessionDir . '/.htaccess', "<IfModule mod_authz_core.c>\nRequire all denied\n</IfModule>\n<IfModule !mod_authz_core.c>\nDeny from all\n</IfModule>\n");
+}
+if (is_dir($sessionDir) && is_writable($sessionDir)) {
+    session_save_path($sessionDir);
+}
 ini_set('session.gc_maxlifetime', (string) (86400 * 30));
 session_set_cookie_params(['httponly' => true, 'samesite' => 'Lax', 'lifetime' => 86400 * 30]);
 session_start();
@@ -35,6 +43,15 @@ function db(): PDO
 function attendance_status_ar(string $s): string
 {
     return ['present' => 'حاضر', 'late' => 'متأخر', 'absent' => 'غائب'][$s] ?? $s;
+}
+
+function brief_overall_status(string $hrDecision, string $gmDecision): string
+{
+    if ($hrDecision === 'rejected' || $gmDecision === 'rejected') return 'rejected';
+    if ($hrDecision === 'approved' && $gmDecision === 'approved') return 'approved';
+    if ($hrDecision === 'approved') return 'hr_approved';
+    if ($gmDecision === 'approved') return 'gm_approved';
+    return 'pending';
 }
 
 function log_error(PDO $pdo, string $action, ?string $role, ?int $userId, string $message): void
@@ -87,7 +104,8 @@ function gm_report_data(PDO $pdo, string $type, string $from, string $to, int $b
     if ($type === 'briefing' || $type === 'all') {
         $sql = "SELECT b.name AS branch, DATE_FORMAT(db.brief_date,'%d/%m/%Y') AS date,
                        db.total_income AS revenue, db.total_expense AS expense, db.travelers_count AS travelers,
-                       (db.total_income - db.total_expense) AS profit, db.status
+                       (db.total_income - db.total_expense) AS profit, db.status,
+                       db.hr_note AS hrNote, db.gm_review_note AS gmNote
                 FROM daily_briefs db JOIN branches b ON b.id = db.branch_id
                 WHERE db.brief_date BETWEEN ? AND ?";
         $params = [$from, $to];
@@ -97,6 +115,8 @@ function gm_report_data(PDO $pdo, string $type, string $from, string $to, int $b
         $stmt->execute($params);
         $result['briefing'] = array_map(function ($r) {
             foreach (['revenue', 'expense', 'profit'] as $k) $r[$k] = number_format((float) $r[$k]);
+            $r['hrNote'] = $r['hrNote'] ?: '-';
+            $r['gmNote'] = $r['gmNote'] ?: '-';
             return $r;
         }, $stmt->fetchAll());
     }
@@ -266,9 +286,9 @@ if (isset($_GET['ajax'])) {
             $stmt = $pdo->query("
                 SELECT db.id, b.name AS branch, DATE_FORMAT(db.brief_date, '%d/%m/%Y') AS date,
                        db.total_income AS revenue, db.total_expense AS expenses, db.travelers_count AS travelersCount,
-                       db.note, db.hr_note AS hrNote, db.status
+                       db.note, db.hr_note AS hrNote, db.status, db.hr_decision, db.gm_decision
                 FROM daily_briefs db JOIN branches b ON b.id = db.branch_id
-                WHERE db.status IN ('pending', 'hr_approved')
+                WHERE db.gm_decision = 'pending' AND db.status NOT IN ('approved','rejected')
                 ORDER BY db.brief_date DESC, db.id DESC
             ");
             $rows = array_map(function ($r) {
@@ -276,7 +296,7 @@ if (isset($_GET['ajax'])) {
                 $r['expenses'] = (float) $r['expenses'];
                 $r['travelersCount'] = (int) $r['travelersCount'];
                 $r['netProfit'] = $r['revenue'] - $r['expenses'];
-                $r['hrStatusText'] = $r['status'] === 'hr_approved' ? 'وافقت عليه الموارد البشرية' : 'بانتظار مراجعة الموارد البشرية أيضاً';
+                $r['hrStatusText'] = $r['hr_decision'] === 'approved' ? 'وافقت عليه الموارد البشرية' : 'بانتظار مراجعة الموارد البشرية أيضاً';
                 return $r;
             }, $stmt->fetchAll());
             echo json_encode(['ok' => true, 'briefs' => $rows], JSON_UNESCAPED_UNICODE);
@@ -287,7 +307,7 @@ if (isset($_GET['ajax'])) {
             $stmt = $pdo->query("
                 SELECT db.id, b.name AS branch, DATE_FORMAT(db.brief_date, '%d/%m/%Y') AS date,
                        db.total_income AS revenue, db.total_expense AS expenses, db.travelers_count AS travelersCount,
-                       db.status, db.gm_review_note AS gmNote
+                       db.status, db.gm_review_note AS gmNote, db.hr_note AS hrNote
                 FROM daily_briefs db JOIN branches b ON b.id = db.branch_id
                 WHERE db.status IN ('approved','rejected')
                 ORDER BY db.brief_date DESC, db.id DESC LIMIT 50
@@ -307,19 +327,27 @@ if (isset($_GET['ajax'])) {
             $id = (int) ($_POST['id'] ?? 0);
             $decision = ($_POST['decision'] ?? '') === 'approved' ? 'approved' : 'rejected';
             $note = trim($_POST['note'] ?? '');
-            $stmt = $pdo->prepare("UPDATE daily_briefs SET status=?, gm_review_note=?, gm_reviewed_by=?, gm_reviewed_at=NOW() WHERE id=? AND status IN ('pending','hr_approved')");
-            $stmt->execute([$decision, $note, $gmUser['id'], $id]);
-            if ($stmt->rowCount() === 0) {
+
+            $briefRow = $pdo->prepare("SELECT branch_id, hr_decision FROM daily_briefs WHERE id=? AND gm_decision='pending' AND status NOT IN ('approved','rejected')");
+            $briefRow->execute([$id]);
+            $brief = $briefRow->fetch();
+            if (!$brief) {
                 echo json_encode(['ok' => false, 'error' => 'هذا الإيجاز ليس بانتظار اعتمادك']);
                 exit;
             }
+            $newStatus = brief_overall_status($brief['hr_decision'], $decision);
 
-            $briefRow = $pdo->prepare("SELECT branch_id FROM daily_briefs WHERE id=?");
-            $briefRow->execute([$id]);
-            $briefBranchId = $briefRow->fetchColumn();
-            $msg = $decision === 'approved'
-                ? 'اعتمد المسؤول العام إيجاز اليوم نهائياً' . ($note ? (' — ' . $note) : '')
-                : 'رفض المسؤول العام إيجاز اليوم' . ($note ? (' — ' . $note) : '');
+            $pdo->prepare("UPDATE daily_briefs SET gm_decision=?, status=?, gm_review_note=?, gm_reviewed_by=?, gm_reviewed_at=NOW() WHERE id=?")
+                ->execute([$decision, $newStatus, $note, $gmUser['id'], $id]);
+
+            $briefBranchId = $brief['branch_id'];
+            if ($newStatus === 'approved') {
+                $msg = 'تم اعتماد إيجاز اليوم نهائياً بعد موافقة المسؤول العام والموارد البشرية' . ($note ? (' — ' . $note) : '');
+            } elseif ($newStatus === 'rejected') {
+                $msg = 'رفض المسؤول العام إيجاز اليوم' . ($note ? (' — ' . $note) : '');
+            } else {
+                $msg = 'وافق المسؤول العام على إيجاز اليوم، بانتظار موافقة الموارد البشرية أيضاً' . ($note ? (' — ' . $note) : '');
+            }
             $notifyUids = $pdo->prepare("SELECT id FROM users WHERE branch_id=? AND role='branch_manager' UNION SELECT id FROM users WHERE role='hr'");
             $notifyUids->execute([$briefBranchId]);
             foreach ($notifyUids->fetchAll(PDO::FETCH_COLUMN) as $uid) {
@@ -1009,7 +1037,7 @@ if (isset($_GET['ajax'])) {
                         <div class="item"><div class="v" style="color:var(--green);">${b.netProfit.toLocaleString()}</div><div class="l">صافي الربح</div></div>
                     </div>
                     <div class="muted" style="font-size:13px;margin:4px 0;">
-                        <i class="fas ${b.status === 'hr_approved' ? 'fa-circle-check' : 'fa-clock'}" style="color:${b.status === 'hr_approved' ? 'var(--green)' : '#D97706'};"></i>
+                        <i class="fas ${b.hr_decision === 'approved' ? 'fa-circle-check' : 'fa-clock'}" style="color:${b.hr_decision === 'approved' ? 'var(--green)' : '#D97706'};"></i>
                         ${b.hrStatusText}
                     </div>
                     ${b.hrNote ? `<div class="brief-note"><b>ملاحظة HR:</b> ${b.hrNote}</div>` : ''}
@@ -1093,8 +1121,8 @@ if (isset($_GET['ajax'])) {
     }
     function briefingTable(rows) {
         if (!rows || !rows.length) return '<p style="color:var(--text-muted);font-size:13px;">لا توجد بيانات</p>';
-        return '<div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font-size:12px;"><thead><tr style="background:var(--bg);"><th style="padding:6px;text-align:right;">الفرع</th><th style="padding:6px;">التاريخ</th><th style="padding:6px;">الإيراد</th><th style="padding:6px;">المصروف</th><th style="padding:6px;">المسافرون</th><th style="padding:6px;">الربح</th></tr></thead><tbody>' +
-            rows.map(r => `<tr style="border-bottom:1px solid #eee;"><td style="padding:6px;">${r.branch}</td><td style="padding:6px;">${r.date}</td><td style="padding:6px;">${r.revenue}</td><td style="padding:6px;">${r.expense}</td><td style="padding:6px;">${r.travelers}</td><td style="padding:6px;">${r.profit}</td></tr>`).join('') + '</tbody></table></div>';
+        return '<div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font-size:12px;"><thead><tr style="background:var(--bg);"><th style="padding:6px;text-align:right;">الفرع</th><th style="padding:6px;">التاريخ</th><th style="padding:6px;">الإيراد</th><th style="padding:6px;">المصروف</th><th style="padding:6px;">المسافرون</th><th style="padding:6px;">الربح</th><th style="padding:6px;">ملاحظة HR</th><th style="padding:6px;">ملاحظة المسؤول العام</th></tr></thead><tbody>' +
+            rows.map(r => `<tr style="border-bottom:1px solid #eee;"><td style="padding:6px;">${r.branch}</td><td style="padding:6px;">${r.date}</td><td style="padding:6px;">${r.revenue}</td><td style="padding:6px;">${r.expense}</td><td style="padding:6px;">${r.travelers}</td><td style="padding:6px;">${r.profit}</td><td style="padding:6px;">${r.hrNote || '-'}</td><td style="padding:6px;">${r.gmNote || '-'}</td></tr>`).join('') + '</tbody></table></div>';
     }
 
     function generateReport() {

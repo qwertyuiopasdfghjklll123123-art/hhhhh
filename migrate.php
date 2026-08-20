@@ -180,6 +180,28 @@ function migration_steps(): array
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4"),
         ],
+        [
+            'label' => 'اعتماد الإيجاز اليومي يتطلب موافقة كل من HR والمسؤول العام معاً (قرار مستقل لكل منهما)',
+            'needed' => fn(PDO $pdo) => !column_exists($pdo, 'daily_briefs', 'hr_decision'),
+            'run' => function (PDO $pdo) {
+                $pdo->exec("ALTER TABLE daily_briefs MODIFY status ENUM('pending','hr_approved','gm_approved','approved','rejected') NOT NULL DEFAULT 'pending'");
+                $pdo->exec("ALTER TABLE daily_briefs
+                    ADD COLUMN hr_decision ENUM('pending','approved','rejected') NOT NULL DEFAULT 'pending' AFTER status,
+                    ADD COLUMN gm_decision ENUM('pending','approved','rejected') NOT NULL DEFAULT 'pending' AFTER hr_decision");
+                $pdo->exec("UPDATE daily_briefs SET
+                    hr_decision = CASE
+                        WHEN status = 'rejected' AND reviewed_by IS NOT NULL AND gm_reviewed_by IS NULL THEN 'rejected'
+                        WHEN status IN ('hr_approved','approved') THEN 'approved'
+                        WHEN status = 'rejected' AND reviewed_by IS NOT NULL THEN 'rejected'
+                        ELSE 'pending'
+                    END,
+                    gm_decision = CASE
+                        WHEN status = 'approved' THEN 'approved'
+                        WHEN status = 'rejected' AND gm_reviewed_by IS NOT NULL THEN 'rejected'
+                        ELSE 'pending'
+                    END");
+            },
+        ],
     ];
 }
 

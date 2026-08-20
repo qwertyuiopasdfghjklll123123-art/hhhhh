@@ -14,6 +14,14 @@ if (!file_exists(__DIR__ . '/config.php')) {
 }
 require_once __DIR__ . '/config.php';
 
+$sessionDir = __DIR__ . '/uploads/sessions';
+if (!is_dir($sessionDir)) {
+    @mkdir($sessionDir, 0755, true);
+    @file_put_contents($sessionDir . '/.htaccess', "<IfModule mod_authz_core.c>\nRequire all denied\n</IfModule>\n<IfModule !mod_authz_core.c>\nDeny from all\n</IfModule>\n");
+}
+if (is_dir($sessionDir) && is_writable($sessionDir)) {
+    session_save_path($sessionDir);
+}
 ini_set('session.gc_maxlifetime', (string) (86400 * 30));
 session_set_cookie_params(['httponly' => true, 'samesite' => 'Lax', 'lifetime' => 86400 * 30]);
 session_start();
@@ -658,12 +666,14 @@ if (isset($_GET['ajax'])) {
                 exit;
             }
             $map = [
-                'pending' => 'بانتظار مراجعة الموارد البشرية',
-                'hr_approved' => 'تمت الموافقة من HR — بانتظار الاعتماد النهائي من المسؤول العام',
-                'approved' => 'معتمد نهائياً',
+                'pending' => 'بانتظار مراجعة الموارد البشرية والمسؤول العام',
+                'hr_approved' => 'وافقت الموارد البشرية — بانتظار موافقة المسؤول العام أيضاً',
+                'gm_approved' => 'وافق المسؤول العام — بانتظار موافقة الموارد البشرية أيضاً',
+                'approved' => 'معتمد نهائياً (وافق الطرفان)',
                 'rejected' => 'مرفوض',
             ];
-            $note = $brief['status'] === 'rejected' ? ($brief['gm_review_note'] ?: $brief['hr_note']) : null;
+            $notes = array_filter([$brief['hr_note'] ? ('HR: ' . $brief['hr_note']) : null, $brief['gm_review_note'] ? ('المسؤول العام: ' . $brief['gm_review_note']) : null]);
+            $note = $notes ? implode(' | ', $notes) : null;
             echo json_encode(['ok' => true, 'status' => $brief['status'], 'statusText' => $map[$brief['status']] ?? $brief['status'], 'note' => $note, 'travelersCount' => (int) $brief['travelers_count']]);
             exit;
         }
@@ -789,6 +799,18 @@ if (isset($_GET['ajax'])) {
     }
 }
 
+$welcomeCompanyName = 'شركة الصوى للصرافة';
+$welcomeCompanyLogo = null;
+try {
+    $wcRow = db()->query("SELECT company_name, company_logo FROM settings ORDER BY id DESC LIMIT 1")->fetch();
+    if ($wcRow) {
+        $welcomeCompanyName = $wcRow['company_name'] ?: $welcomeCompanyName;
+        $welcomeCompanyLogo = $wcRow['company_logo'] ?: null;
+    }
+} catch (Throwable $e) {
+    // إعدادات غير متوفرة بعد (قبل تشغيل migrate.php) — استخدم الاسم الافتراضي
+}
+
 function branch_report_data(PDO $pdo, string $type, string $from, string $to, int $branchId): array
 {
     $result = [];
@@ -821,11 +843,14 @@ function branch_report_data(PDO $pdo, string $type, string $from, string $to, in
 
     if ($type === 'briefing' || $type === 'all') {
         $stmt = $pdo->prepare("SELECT DATE_FORMAT(brief_date,'%d/%m/%Y') AS date, total_income AS revenue, total_expense AS expense,
-                       travelers_count AS travelers, (total_income - total_expense) AS profit, status
+                       travelers_count AS travelers, (total_income - total_expense) AS profit, status,
+                       hr_note AS hrNote, gm_review_note AS gmNote
                 FROM daily_briefs WHERE branch_id = ? AND brief_date BETWEEN ? AND ? ORDER BY brief_date DESC");
         $stmt->execute([$branchId, $from, $to]);
         $result['briefing'] = array_map(function ($r) {
             foreach (['revenue', 'expense', 'profit'] as $k) $r[$k] = number_format((float) $r[$k]);
+            $r['hrNote'] = $r['hrNote'] ?: '-';
+            $r['gmNote'] = $r['gmNote'] ?: '-';
             return $r;
         }, $stmt->fetchAll());
     }
@@ -890,8 +915,8 @@ function branch_report_data(PDO $pdo, string $type, string $from, string $to, in
             animation: fadeIn 0.8s ease;
             transition: opacity 0.8s ease, transform 0.8s ease;
         }
-        .welcome-screen.fade-out { opacity: 0; transform: scale(1.05); pointer-events: none; }
-        @keyframes fadeIn { 0% { opacity: 0; transform: scale(1.02); } 100% { opacity: 1; transform: scale(1); } }
+        .welcome-screen.fade-out { opacity: 0; transform: translateX(-50%) scale(1.05); pointer-events: none; }
+        @keyframes fadeIn { 0% { opacity: 0; transform: translateX(-50%) scale(1.02); } 100% { opacity: 1; transform: translateX(-50%) scale(1); } }
         .welcome-logo { display: flex; flex-direction: column; align-items: center; justify-content: center; flex: 1; width: 100%; }
         .welcome-logo .logo-icon { width: 130px; height: 130px; background: var(--primary-gradient); border-radius: 32px; display: flex; align-items: center; justify-content: center; color: #fff; font-size: 56px; font-weight: 900; box-shadow: 0 12px 48px rgba(0,0,0,0.3); margin-bottom: 16px; overflow: hidden; }
         .welcome-logo .logo-icon img { width: 100%; height: 100%; object-fit: cover; }
@@ -1245,8 +1270,8 @@ function branch_report_data(PDO $pdo, string $type, string $from, string $to, in
     <!-- شاشة الترحيب -->
     <div class="welcome-screen" id="welcomeScreen">
         <div class="welcome-logo" id="welcomeLogo">
-            <div class="logo-icon">✥</div>
-            <h1>شركة <span>الصوى للصرافة</span></h1>
+            <div class="logo-icon"><?= $welcomeCompanyLogo ? '<img src="' . htmlspecialchars($welcomeCompanyLogo, ENT_QUOTES, 'UTF-8') . '" alt="">' : '✥' ?></div>
+            <h1><?= htmlspecialchars($welcomeCompanyName, ENT_QUOTES, 'UTF-8') ?></h1>
         </div>
         <div class="welcome-loader">
             <div class="loader-label">جاري التحميل...</div>
@@ -2836,8 +2861,8 @@ function branch_report_data(PDO $pdo, string $type, string $from, string $to, in
         }
         function reportBriefingTable(rows) {
             if (!rows || !rows.length) return '<p class="muted">لا توجد بيانات</p>';
-            return '<div class="table-wrap"><table class="table"><tr><th>التاريخ</th><th>الإيراد</th><th>المصروف</th><th>المسافرون</th><th>الربح</th></tr>' +
-                rows.map(r => `<tr><td>${r.date}</td><td>${r.revenue}</td><td>${r.expense}</td><td>${r.travelers}</td><td>${r.profit}</td></tr>`).join('') + '</table></div>';
+            return '<div class="table-wrap"><table class="table"><tr><th>التاريخ</th><th>الإيراد</th><th>المصروف</th><th>المسافرون</th><th>الربح</th><th>ملاحظة HR</th><th>ملاحظة المسؤول العام</th></tr>' +
+                rows.map(r => `<tr><td>${r.date}</td><td>${r.revenue}</td><td>${r.expense}</td><td>${r.travelers}</td><td>${r.profit}</td><td>${r.hrNote || '-'}</td><td>${r.gmNote || '-'}</td></tr>`).join('') + '</table></div>';
         }
 
         function generateReport() {

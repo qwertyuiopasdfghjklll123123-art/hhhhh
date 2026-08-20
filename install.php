@@ -169,7 +169,9 @@ function install_schema(PDO $pdo): void
             previous_profit DECIMAL(14,2) NOT NULL DEFAULT 0,
             travelers_count INT NOT NULL DEFAULT 0,
             note TEXT DEFAULT NULL,
-            status ENUM('pending','hr_approved','approved','rejected') NOT NULL DEFAULT 'pending',
+            status ENUM('pending','hr_approved','gm_approved','approved','rejected') NOT NULL DEFAULT 'pending',
+            hr_decision ENUM('pending','approved','rejected') NOT NULL DEFAULT 'pending',
+            gm_decision ENUM('pending','approved','rejected') NOT NULL DEFAULT 'pending',
             hr_note VARCHAR(255) DEFAULT NULL,
             submitted_by INT DEFAULT NULL,
             reviewed_by INT DEFAULT NULL,
@@ -357,12 +359,13 @@ if (!$alreadyInstalled && $requirementsOk && $_SERVER['REQUEST_METHOD'] === 'POS
                 throw new RuntimeException('تعذر كتابة ملف config.php. تحقق من صلاحيات الكتابة في المجلد.');
             }
 
-            foreach (['uploads', 'uploads/photos', 'uploads/documents', 'uploads/ledger'] as $dir) {
+            foreach (['uploads', 'uploads/photos', 'uploads/documents', 'uploads/ledger', 'uploads/sessions'] as $dir) {
                 $path = __DIR__ . '/' . $dir;
                 if (!is_dir($path)) {
                     @mkdir($path, 0755, true);
                 }
             }
+            @file_put_contents(__DIR__ . '/uploads/sessions/.htaccess', "<IfModule mod_authz_core.c>\nRequire all denied\n</IfModule>\n<IfModule !mod_authz_core.c>\nDeny from all\n</IfModule>\n");
 
             $success = true;
             $step = 4;
