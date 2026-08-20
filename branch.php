@@ -233,7 +233,7 @@ if (isset($_GET['ajax'])) {
                     'employee' => $delegation['full_name'],
                     'start' => $delegation['start_date'],
                     'end' => $delegation['end_date'],
-                    'active' => true,
+                    'active' => date('Y-m-d') >= $delegation['start_date'] && date('Y-m-d') <= $delegation['end_date'],
                 ] : null,
                 'previousDayProfit' => $previousProfit,
                 'shift' => [
@@ -1477,11 +1477,9 @@ function branch_report_data(PDO $pdo, string $type, string $from, string $to, in
                     <button class="btn light small" onclick="navigateTo('files')"><i class="fas fa-folder"></i> الملفات</button>
                 </div>
 
-                <div class="card">
+                <div class="card" onclick="navigateTo('notifications')" style="cursor:pointer;">
                     <div class="section-title" style="margin-top:0;"><i class="fas fa-bell"></i> التنبيهات</div>
-                    <div style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid #edf1f1;"><span>🔴 3 طلبات سلفة جديدة</span><span class="badge danger">عاجل</span></div>
-                    <div style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid #edf1f1;"><span>🟠 طلب إجازة بانتظار موافقتك</span><span class="badge wait">قيد المراجعة</span></div>
-                    <div style="display:flex;justify-content:space-between;padding:8px 0;"><span>🟢 تحديث حضور موظف اليوم</span><span class="badge ok">تم</span></div>
+                    <div id="homeNotificationsSummary" style="display:flex;justify-content:space-between;padding:8px 0;"><span class="muted">جاري التحميل...</span></div>
                 </div>
             </div>
 
@@ -1581,7 +1579,7 @@ function branch_report_data(PDO $pdo, string $type, string $from, string $to, in
 
                 <div class="card">
                     <h3>تسجيل حضور يدوي</h3>
-                    <div class="form-group"><label>اختر الموظف</label><select id="manualEmployeeSelect"><option value="1">أحمد حسن</option><option value="2">سارة حسين</option><option value="3">محمد باسم</option><option value="4">نور أحمد</option></select></div>
+                    <div class="form-group"><label>اختر الموظف</label><select id="manualEmployeeSelect"><option value="">جاري التحميل...</option></select></div>
                     <div class="grid-2"><button class="btn green small" onclick="manualAttendance('in')"><i class="fas fa-sign-in-alt"></i> دخول</button><button class="btn red small" onclick="manualAttendance('out')"><i class="fas fa-sign-out-alt"></i> انصراف</button></div>
                     <div class="form-group mt-2"><label>ملاحظات</label><input type="text" id="manualNote" placeholder="سبب التأخير أو الملاحظة"></div>
                 </div>
@@ -1607,8 +1605,8 @@ function branch_report_data(PDO $pdo, string $type, string $from, string $to, in
                 <div class="card">
                     <div class="flex-between"><b>✍ تفويض كتابة الإيجاز</b><span class="badge ok" id="delegationStatus">فعال</span></div>
                     <p class="muted">تفويض موظف لكتابة الإيجاز نيابة عن المدير</p>
-                    <div class="form-group"><label>الموظف المفوض</label><select id="delegateEmployee"><option value="أحمد حسن">أحمد حسن</option><option value="سارة حسين">سارة حسين</option><option value="محمد باسم">محمد باسم</option></select></div>
-                    <div class="form-row"><div class="form-group"><label>تاريخ البداية</label><input type="date" id="delegateStart" value="2024-05-16"></div><div class="form-group"><label>تاريخ النهاية</label><input type="date" id="delegateEnd" value="2024-05-20"></div></div>
+                    <div class="form-group"><label>الموظف المفوض</label><select id="delegateEmployee"><option value="">جاري التحميل...</option></select></div>
+                    <div class="form-row"><div class="form-group"><label>تاريخ البداية</label><input type="date" id="delegateStart"></div><div class="form-group"><label>تاريخ النهاية</label><input type="date" id="delegateEnd"></div></div>
                     <button class="btn small" onclick="saveDelegation()"><i class="fas fa-save"></i> حفظ التفويض</button>
                     <button class="btn small light mt-2" onclick="cancelDelegation()"><i class="fas fa-times"></i> إلغاء التفويض</button>
                 </div>
@@ -2271,6 +2269,14 @@ function branch_report_data(PDO $pdo, string $type, string $from, string $to, in
                 document.getElementById('ringAttendance').style.setProperty('--pct', attendancePct);
                 document.getElementById('ringCommitment').style.setProperty('--pct', data.stats.commitmentPct);
                 document.getElementById('ringRequests').style.setProperty('--pct', data.stats.pendingRequests > 0 ? 100 : 0);
+                const notifSummary = document.getElementById('homeNotificationsSummary');
+                if (notifSummary) {
+                    if (data.stats.pendingRequests > 0) {
+                        notifSummary.innerHTML = `<span>🔴 ${data.stats.pendingRequests} طلب بانتظار مراجعتك</span><span class="badge danger">عاجل</span>`;
+                    } else {
+                        notifSummary.innerHTML = `<span>🟢 لا توجد طلبات بانتظار المراجعة حالياً</span><span class="badge ok">تم</span>`;
+                    }
+                }
                 if (data.branchLocation && data.branchLocation.lat) {
                     branchLocation = { lat: data.branchLocation.lat, lng: data.branchLocation.lng, radius: data.branchLocation.radius };
                     document.getElementById('branchLat').value = branchLocation.lat;
@@ -2286,6 +2292,10 @@ function branch_report_data(PDO $pdo, string $type, string $from, string $to, in
                 } else {
                     delegationData = { employee: '-', start: '-', end: '-', active: false };
                     updateDelegationUI();
+                    const todayStr = new Date().toISOString().slice(0, 10);
+                    const endStr = new Date(Date.now() + 2 * 86400000).toISOString().slice(0, 10);
+                    document.getElementById('delegateStart').value = todayStr;
+                    document.getElementById('delegateEnd').value = endStr;
                 }
                 previousDayProfit = Number(data.previousDayProfit) || 0;
                 document.getElementById('previousDayProfit').textContent = (previousDayProfit >= 0 ? '+' : '') +
@@ -2565,9 +2575,10 @@ function branch_report_data(PDO $pdo, string $type, string $from, string $to, in
             window.scrollTo(0, 0);
 
             if (page === 'employees') loadEmployees();
-            else if (page === 'attendance') loadAttendanceToday();
+            else if (page === 'attendance') { loadAttendanceToday(); loadEmployees(); }
             else if (page === 'requests') loadRequests();
             else if (page === 'payroll') loadPayroll();
+            else if (page === 'delegation') loadEmployees();
             else if (page === 'home') loadHomeStats();
             else if (page === 'notifications') loadNotifications();
             else if (page === 'myProfile') { loadMyProfile(); loadMyAttendanceMonth(); }
