@@ -2078,6 +2078,24 @@ try {
             align-items: center;
             justify-content: center;
         }
+        .bottom-nav-minimal .nav-item.nav-locked {
+            opacity: 0.45;
+        }
+        .bottom-nav-minimal .nav-item .nav-lock-icon {
+            position: absolute;
+            top: 2px;
+            right: 50%;
+            transform: translateX(14px);
+            font-size: 9px !important;
+            color: var(--text-muted);
+            background: var(--bg-card);
+            border-radius: 50%;
+            width: 14px;
+            height: 14px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
 
         /* ============================================================
            التوست
@@ -2865,8 +2883,9 @@ try {
             <button class="nav-item" id="nav-profile" onclick="navigateTo('profile')">
                 <i class="fas fa-user"></i><span>ملفي</span>
             </button>
-            <button class="nav-item" id="nav-more" onclick="toggleMenu()">
-                <i class="fas fa-bars"></i><span>المزيد</span>
+            <button class="nav-item" id="nav-more" onclick="handleBriefingNavClick()">
+                <i class="fas fa-chart-simple"></i><span>إيجاز</span>
+                <i class="fas fa-lock nav-lock-icon" id="navMoreLock" style="display:none;"></i>
             </button>
         </nav>
 
@@ -3226,6 +3245,8 @@ try {
                 document.getElementById('menuBriefing').style.display = isDelegated ? '' : 'none';
                 document.getElementById('briefDelegatedZone').style.display = isDelegated ? 'block' : 'none';
                 document.getElementById('briefViewOnlyNote').style.display = isDelegated ? 'none' : 'block';
+                document.getElementById('navMoreLock').style.display = isDelegated ? 'none' : 'flex';
+                document.getElementById('nav-more').classList.toggle('nav-locked', !isDelegated);
                 if (isDelegated) {
                     document.getElementById('briefDelegationPeriod').textContent = 'فترة التفويض: ' + data.delegation.start + ' إلى ' + data.delegation.end;
                 }
@@ -4045,7 +4066,8 @@ try {
             if (target) target.classList.remove('hidden');
 
             document.querySelectorAll('.bottom-nav-minimal .nav-item').forEach(el => el.classList.remove('active'));
-            const navItem = document.getElementById('nav-' + page);
+            const navId = (page === 'briefing') ? 'nav-more' : ('nav-' + page);
+            const navItem = document.getElementById(navId);
             if (navItem) navItem.classList.add('active');
 
             currentPage = page;
@@ -4063,6 +4085,14 @@ try {
         function toggleMenu() {
             const menu = document.getElementById('sideMenu');
             menu.style.display = menu.style.display === 'none' ? 'block' : 'none';
+        }
+
+        function handleBriefingNavClick() {
+            if (!isDelegated) {
+                showToast('🔒 مقفل', 'إيجاز الفرع اليومي متاح فقط عند تفويضك من مدير الفرع لكتابته', 'warning');
+                return;
+            }
+            navigateTo('briefing');
         }
 
         function handleLogout() {

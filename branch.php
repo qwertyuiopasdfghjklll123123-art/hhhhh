@@ -847,10 +847,18 @@ function branch_report_data(PDO $pdo, string $type, string $from, string $to, in
                        hr_note AS hrNote, gm_review_note AS gmNote
                 FROM daily_briefs WHERE branch_id = ? AND brief_date BETWEEN ? AND ? ORDER BY brief_date DESC");
         $stmt->execute([$branchId, $from, $to]);
-        $result['briefing'] = array_map(function ($r) {
+        $briefStatusAr = [
+            'pending' => 'بانتظار مراجعة HR والمسؤول العام',
+            'hr_approved' => 'وافقت HR — بانتظار المسؤول العام',
+            'gm_approved' => 'وافق المسؤول العام — بانتظار HR',
+            'approved' => 'معتمد نهائياً (موافق عليه من الاثنين)',
+            'rejected' => 'مرفوض',
+        ];
+        $result['briefing'] = array_map(function ($r) use ($briefStatusAr) {
             foreach (['revenue', 'expense', 'profit'] as $k) $r[$k] = number_format((float) $r[$k]);
             $r['hrNote'] = $r['hrNote'] ?: '-';
             $r['gmNote'] = $r['gmNote'] ?: '-';
+            $r['statusText'] = $briefStatusAr[$r['status']] ?? $r['status'];
             return $r;
         }, $stmt->fetchAll());
     }
@@ -939,6 +947,11 @@ function branch_report_data(PDO $pdo, string $type, string $from, string $to, in
             max-width: 100% !important;
             transform: translateX(-50%);
             box-shadow: 0 0 0 1px rgba(255,255,255,0.08), 0 30px 80px rgba(0,0,0,0.45);
+        }
+        .login-page {
+            position: fixed;
+            top: 0;
+            bottom: 0;
         }
 
         /* تسجيل الدخول */
@@ -2861,8 +2874,8 @@ function branch_report_data(PDO $pdo, string $type, string $from, string $to, in
         }
         function reportBriefingTable(rows) {
             if (!rows || !rows.length) return '<p class="muted">لا توجد بيانات</p>';
-            return '<div class="table-wrap"><table class="table"><tr><th>التاريخ</th><th>الإيراد</th><th>المصروف</th><th>المسافرون</th><th>الربح</th><th>ملاحظة HR</th><th>ملاحظة المسؤول العام</th></tr>' +
-                rows.map(r => `<tr><td>${r.date}</td><td>${r.revenue}</td><td>${r.expense}</td><td>${r.travelers}</td><td>${r.profit}</td><td>${r.hrNote || '-'}</td><td>${r.gmNote || '-'}</td></tr>`).join('') + '</table></div>';
+            return '<div class="table-wrap"><table class="table"><tr><th>التاريخ</th><th>الإيراد</th><th>المصروف</th><th>المسافرون</th><th>الربح</th><th>الحالة</th><th>ملاحظة HR</th><th>ملاحظة المسؤول العام</th></tr>' +
+                rows.map(r => `<tr><td>${r.date}</td><td>${r.revenue}</td><td>${r.expense}</td><td>${r.travelers}</td><td>${r.profit}</td><td>${r.statusText || '-'}</td><td>${r.hrNote || '-'}</td><td>${r.gmNote || '-'}</td></tr>`).join('') + '</table></div>';
         }
 
         function generateReport() {

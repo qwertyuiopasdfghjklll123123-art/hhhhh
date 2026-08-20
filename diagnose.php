@@ -124,7 +124,7 @@ if ($pdo) {
     } catch (Throwable $e) {}
     try {
         $gmCount = (int) $pdo->query("SELECT COUNT(*) FROM users WHERE role='general_manager' AND status='active'")->fetchColumn();
-        $add('سلامة البيانات', 'وجود حساب مسؤول عام فعّال واحد على الأقل', $gmCount > 0 ? 'ok' : 'warn', $gmCount > 0 ? "العدد: $gmCount" : 'لا يوجد حساب مسؤول عام فعّال — لن تعمل صلاحيات اعتماد الإيجاز والرواتب النهائية');
+        $add('سلامة البيانات', 'وجود حساب مسؤول عام فعّال واحد على الأقل', $gmCount > 0 ? 'ok' : 'warn', $gmCount > 0 ? "العدد: $gmCount" : 'لا يوجد حساب مسؤول عام فعّال — لن تعمل صلاحيات اعتماد الإيجاز والرواتب النهائية. افتح migrate.php لإنشاء حساب المسؤول العام');
     } catch (Throwable $e) {}
     try {
         $branchCount = (int) $pdo->query("SELECT COUNT(*) FROM branches WHERE status='active'")->fetchColumn();

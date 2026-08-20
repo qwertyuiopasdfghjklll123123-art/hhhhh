@@ -202,6 +202,11 @@ function migration_steps(): array
                     END");
             },
         ],
+        [
+            'label' => 'إضافة عمود خصم التأخير المنفصل لجدول الرواتب (لإمكانية إلغائه عند تصحيح حضور متأخر)',
+            'needed' => fn(PDO $pdo) => !column_exists($pdo, 'payroll', 'late_deduction'),
+            'run' => fn(PDO $pdo) => $pdo->exec("ALTER TABLE payroll ADD COLUMN late_deduction DECIMAL(12,2) NOT NULL DEFAULT 0 AFTER deduction"),
+        ],
     ];
 }
 
@@ -233,6 +238,48 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['confirm'] ?? '') === '1') 
     foreach ($steps as $i => $step) {
         if ($step['needed']($pdo)) {
             $pending[] = $i;
+        }
+    }
+}
+
+/* ======================================================================
+   إنشاء حساب المسؤول العام إن لم يكن موجوداً — يحدث هذا مع الأنظمة التي
+   ثُبِّتت قبل إضافة دور "المسؤول العام"، حيث لا ينشئ تحديث القاعدة وحده
+   أي حساب، فيبقى النظام بلا حساب مسؤول عام قابل لتسجيل الدخول به.
+   ====================================================================== */
+$gmAccountMissing = false;
+try {
+    $gmAccountMissing = (int) $pdo->query("SELECT COUNT(*) FROM users WHERE role='general_manager'")->fetchColumn() === 0;
+} catch (Throwable $e) {
+    // تجاهل — سيُعاد الفحص بعد تنفيذ تحديثات القاعدة أعلاه
+}
+
+$gmCreateResult = null;
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['create_gm'] ?? '') === '1') {
+    $gmEmail = trim($_POST['gm_email'] ?? '');
+    $gmPassword = (string) ($_POST['gm_password'] ?? '');
+    $gmPasswordConfirm = (string) ($_POST['gm_password_confirm'] ?? '');
+    if ($gmEmail === '' || $gmPassword === '') {
+        $gmCreateResult = ['ok' => false, 'error' => 'الرجاء تعبئة البريد الإلكتروني وكلمة المرور.'];
+    } elseif ($gmPassword !== $gmPasswordConfirm) {
+        $gmCreateResult = ['ok' => false, 'error' => 'كلمتا المرور غير متطابقتين.'];
+    } elseif (strlen($gmPassword) < 6) {
+        $gmCreateResult = ['ok' => false, 'error' => 'كلمة المرور يجب أن تكون 6 أحرف على الأقل.'];
+    } else {
+        try {
+            $existing = $pdo->prepare("SELECT COUNT(*) FROM users WHERE username = ?");
+            $existing->execute([$gmEmail]);
+            if ((int) $existing->fetchColumn() > 0) {
+                $gmCreateResult = ['ok' => false, 'error' => 'هذا البريد الإلكتروني مستخدم من قبل حساب آخر في النظام.'];
+            } else {
+                $hash = password_hash($gmPassword, PASSWORD_DEFAULT);
+                $pdo->prepare("INSERT INTO users (role, username, password_hash, status) VALUES ('general_manager', ?, ?, 'active')")
+                    ->execute([$gmEmail, $hash]);
+                $gmCreateResult = ['ok' => true];
+                $gmAccountMissing = false;
+            }
+        } catch (Throwable $e) {
+            $gmCreateResult = ['ok' => false, 'error' => 'تعذر إنشاء الحساب — تأكد من تنفيذ تحديثات قاعدة البيانات أعلاه أولاً (يجب أن يكون دور "المسؤول العام" مضافاً لقاعدة البيانات).'];
         }
     }
 }
@@ -307,8 +354,39 @@ h1{font-size:20px;font-weight:700;margin:0 0 6px;color:var(--primary-dark);}
         </form>
     <?php endif; ?>
 
+    <?php if ($gmCreateResult && $gmCreateResult['ok']): ?>
+        <div class="card" style="max-width:none;box-shadow:none;border:1.5px solid var(--accent);margin-top:20px;padding:20px;">
+            <h1 style="font-size:16px;">👤 حساب المسؤول العام</h1>
+            <div class="alert alert-success">✅ تم إنشاء حساب المسؤول العام بنجاح. يمكنك الآن <a href="/general">تسجيل الدخول</a>.</div>
+        </div>
+    <?php elseif ($gmAccountMissing || ($gmCreateResult && !$gmCreateResult['ok'])): ?>
+        <div class="card" style="max-width:none;box-shadow:none;border:1.5px solid var(--accent);margin-top:20px;padding:20px;">
+            <h1 style="font-size:16px;">👤 لا يوجد حساب "مسؤول عام" في النظام</h1>
+            <div class="sub">هذا يحدث في الأنظمة التي ثُبِّتت قبل إضافة دور المسؤول العام. أنشئ حساباً الآن لتتمكن من تسجيل الدخول.</div>
+                <?php if ($gmCreateResult && !$gmCreateResult['ok']): ?>
+                    <div class="alert" style="background:#FCEAEA;color:var(--danger);"><?= h($gmCreateResult['error']) ?></div>
+                <?php endif; ?>
+                <form method="post">
+                    <input type="hidden" name="create_gm" value="1">
+                    <div style="margin-bottom:12px;">
+                        <label style="display:block;font-size:12.5px;margin-bottom:5px;color:var(--text-muted);">البريد الإلكتروني لتسجيل الدخول</label>
+                        <input type="email" name="gm_email" required style="width:100%;padding:10px 12px;border:1.5px solid var(--border);border-radius:8px;font-family:inherit;font-size:13.5px;">
+                    </div>
+                    <div style="margin-bottom:12px;">
+                        <label style="display:block;font-size:12.5px;margin-bottom:5px;color:var(--text-muted);">كلمة المرور (6 أحرف على الأقل)</label>
+                        <input type="password" name="gm_password" required minlength="6" style="width:100%;padding:10px 12px;border:1.5px solid var(--border);border-radius:8px;font-family:inherit;font-size:13.5px;">
+                    </div>
+                    <div style="margin-bottom:16px;">
+                        <label style="display:block;font-size:12.5px;margin-bottom:5px;color:var(--text-muted);">تأكيد كلمة المرور</label>
+                        <input type="password" name="gm_password_confirm" required minlength="6" style="width:100%;padding:10px 12px;border:1.5px solid var(--border);border-radius:8px;font-family:inherit;font-size:13.5px;">
+                    </div>
+                    <button type="submit" class="btn">إنشاء حساب المسؤول العام</button>
+                </form>
+        </div>
+    <?php endif; ?>
+
     <p style="font-size:11.5px;color:var(--text-muted);margin-top:24px;">
-        بعد اكتمال كل التحديثات (لا تظهر أي عناصر "معلّق")، يُفضَّل حذف هذا الملف (migrate.php) من السيرفر لأنه لا حاجة له بعد ذلك.
+        بعد اكتمال كل التحديثات (لا تظهر أي عناصر "معلّق") وإنشاء حساب المسؤول العام إن لزم، يُفضَّل حذف هذا الملف (migrate.php) من السيرفر لأنه لا حاجة له بعد ذلك.
     </p>
 </div>
 </body>

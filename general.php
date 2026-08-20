@@ -113,10 +113,18 @@ function gm_report_data(PDO $pdo, string $type, string $from, string $to, int $b
         $sql .= " ORDER BY db.brief_date DESC";
         $stmt = $pdo->prepare($sql);
         $stmt->execute($params);
-        $result['briefing'] = array_map(function ($r) {
+        $briefStatusAr = [
+            'pending' => 'بانتظار مراجعة HR والمسؤول العام',
+            'hr_approved' => 'وافقت HR — بانتظار المسؤول العام',
+            'gm_approved' => 'وافق المسؤول العام — بانتظار HR',
+            'approved' => 'معتمد نهائياً (موافق عليه من الاثنين)',
+            'rejected' => 'مرفوض',
+        ];
+        $result['briefing'] = array_map(function ($r) use ($briefStatusAr) {
             foreach (['revenue', 'expense', 'profit'] as $k) $r[$k] = number_format((float) $r[$k]);
             $r['hrNote'] = $r['hrNote'] ?: '-';
             $r['gmNote'] = $r['gmNote'] ?: '-';
+            $r['statusText'] = $briefStatusAr[$r['status']] ?? $r['status'];
             return $r;
         }, $stmt->fetchAll());
     }
@@ -1121,8 +1129,8 @@ if (isset($_GET['ajax'])) {
     }
     function briefingTable(rows) {
         if (!rows || !rows.length) return '<p style="color:var(--text-muted);font-size:13px;">لا توجد بيانات</p>';
-        return '<div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font-size:12px;"><thead><tr style="background:var(--bg);"><th style="padding:6px;text-align:right;">الفرع</th><th style="padding:6px;">التاريخ</th><th style="padding:6px;">الإيراد</th><th style="padding:6px;">المصروف</th><th style="padding:6px;">المسافرون</th><th style="padding:6px;">الربح</th><th style="padding:6px;">ملاحظة HR</th><th style="padding:6px;">ملاحظة المسؤول العام</th></tr></thead><tbody>' +
-            rows.map(r => `<tr style="border-bottom:1px solid #eee;"><td style="padding:6px;">${r.branch}</td><td style="padding:6px;">${r.date}</td><td style="padding:6px;">${r.revenue}</td><td style="padding:6px;">${r.expense}</td><td style="padding:6px;">${r.travelers}</td><td style="padding:6px;">${r.profit}</td><td style="padding:6px;">${r.hrNote || '-'}</td><td style="padding:6px;">${r.gmNote || '-'}</td></tr>`).join('') + '</tbody></table></div>';
+        return '<div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font-size:12px;"><thead><tr style="background:var(--bg);"><th style="padding:6px;text-align:right;">الفرع</th><th style="padding:6px;">التاريخ</th><th style="padding:6px;">الإيراد</th><th style="padding:6px;">المصروف</th><th style="padding:6px;">المسافرون</th><th style="padding:6px;">الربح</th><th style="padding:6px;">الحالة</th><th style="padding:6px;">ملاحظة HR</th><th style="padding:6px;">ملاحظة المسؤول العام</th></tr></thead><tbody>' +
+            rows.map(r => `<tr style="border-bottom:1px solid #eee;"><td style="padding:6px;">${r.branch}</td><td style="padding:6px;">${r.date}</td><td style="padding:6px;">${r.revenue}</td><td style="padding:6px;">${r.expense}</td><td style="padding:6px;">${r.travelers}</td><td style="padding:6px;">${r.profit}</td><td style="padding:6px;">${r.statusText || '-'}</td><td style="padding:6px;">${r.hrNote || '-'}</td><td style="padding:6px;">${r.gmNote || '-'}</td></tr>`).join('') + '</tbody></table></div>';
     }
 
     function generateReport() {

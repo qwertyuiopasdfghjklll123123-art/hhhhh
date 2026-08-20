@@ -105,6 +105,7 @@ function install_schema(PDO $pdo): void
             base_salary DECIMAL(12,2) NOT NULL DEFAULT 0,
             bonus DECIMAL(12,2) NOT NULL DEFAULT 0,
             deduction DECIMAL(12,2) NOT NULL DEFAULT 0,
+            late_deduction DECIMAL(12,2) NOT NULL DEFAULT 0,
             status ENUM('pending','delivered') NOT NULL DEFAULT 'pending',
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             UNIQUE KEY uniq_emp_period (employee_id, period_month, period_year),

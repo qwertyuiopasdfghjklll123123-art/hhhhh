@@ -477,9 +477,10 @@ if (isset($_GET['ajax'])) {
                 echo json_encode(['ok' => false, 'error' => 'الموظف غير موجود']);
                 exit;
             }
-            $existing = $pdo->prepare("SELECT check_in, check_out FROM attendance WHERE employee_id=? AND attendance_date=?");
+            $existing = $pdo->prepare("SELECT check_in, check_out, status FROM attendance WHERE employee_id=? AND attendance_date=?");
             $existing->execute([$employeeId, $date]);
             $existing = $existing->fetch();
+            $oldStatus = $existing['status'] ?? null;
             $checkIn = $existing['check_in'] ?? null;
             $checkOut = $existing['check_out'] ?? null;
             if ($status === 'absent') {
@@ -492,6 +493,44 @@ if (isset($_GET['ajax'])) {
                 VALUES (?, ?, ?, ?, ?, ?)
                 ON DUPLICATE KEY UPDATE check_in=VALUES(check_in), check_out=VALUES(check_out), status=VALUES(status)")
                 ->execute([$employeeId, $branchIdForEmp, $date, $checkIn, $checkOut, $status]);
+
+            // إلغاء خصم التأخير عند تصحيح الحالة من "متأخر" إلى غير متأخر، إن كان الراتب
+            // قد سُلِّم مسبقاً عن شهر هذا اليوم (نعيد احتساب خصم التأخير للشهر بالكامل من
+            // سجلات الحضور الحالية بدل طرح يوم واحد، لتفادي أخطاء التقريب التراكمي)
+            if ($oldStatus === 'late' && $status !== 'late') {
+                $month = (int) date('n', strtotime($date));
+                $year = (int) date('Y', strtotime($date));
+                $payrollRow = $pdo->prepare("SELECT id, deduction, late_deduction FROM payroll WHERE employee_id=? AND period_month=? AND period_year=? AND status='delivered'");
+                $payrollRow->execute([$employeeId, $month, $year]);
+                $payrollRow = $payrollRow->fetch();
+                if ($payrollRow) {
+                    $newLateDeduction = 0.0;
+                    $settingsRow = $pdo->query("SELECT late_grace_minutes, late_deduction_per_hour, work_start_time FROM settings ORDER BY id DESC LIMIT 1")->fetch();
+                    if ($settingsRow && (float) $settingsRow['late_deduction_per_hour'] > 0 && $settingsRow['work_start_time']) {
+                        $monthStart = sprintf('%04d-%02d-01', $year, $month);
+                        $lateStmt = $pdo->prepare("SELECT check_in FROM attendance WHERE employee_id=? AND status='late' AND attendance_date >= ? AND attendance_date < DATE_ADD(?, INTERVAL 1 MONTH)");
+                        $lateStmt->execute([$employeeId, $monthStart, $monthStart]);
+                        $grace = (int) $settingsRow['late_grace_minutes'];
+                        $deadline = strtotime($settingsRow['work_start_time']) + $grace * 60;
+                        $lateMinutes = 0;
+                        foreach ($lateStmt->fetchAll(PDO::FETCH_COLUMN) as $ci) {
+                            if (!$ci) continue;
+                            $diff = (strtotime($ci) - $deadline) / 60;
+                            if ($diff > 0) $lateMinutes += $diff;
+                        }
+                        if ($lateMinutes > 0) {
+                            $newLateDeduction = ceil($lateMinutes / 60) * (float) $settingsRow['late_deduction_per_hour'];
+                        }
+                    }
+                    $oldLateDeduction = (float) $payrollRow['late_deduction'];
+                    if ($newLateDeduction !== $oldLateDeduction) {
+                        $newDeduction = max(0, (float) $payrollRow['deduction'] - $oldLateDeduction + $newLateDeduction);
+                        $pdo->prepare("UPDATE payroll SET deduction=?, late_deduction=? WHERE id=?")
+                            ->execute([$newDeduction, $newLateDeduction, $payrollRow['id']]);
+                    }
+                }
+            }
+
             echo json_encode(['ok' => true]);
             exit;
         }
@@ -575,6 +614,7 @@ if (isset($_GET['ajax'])) {
             $deduction = $existing ? (float) $existing['deduction'] : 0.0;
 
             // خصم التأخير عن الشهر الحالي
+            $lateDeduction = 0.0;
             $settingsRow = $pdo->query("SELECT late_grace_minutes, late_deduction_per_hour, work_start_time FROM settings ORDER BY id DESC LIMIT 1")->fetch();
             if ($settingsRow && (float) $settingsRow['late_deduction_per_hour'] > 0) {
                 $lateStmt = $pdo->prepare("SELECT check_in FROM attendance WHERE employee_id=? AND status='late' AND attendance_date >= ? AND attendance_date < DATE_ADD(?, INTERVAL 1 MONTH)");
@@ -604,10 +644,10 @@ if (isset($_GET['ajax'])) {
                 $pdo->prepare("UPDATE requests SET remaining_balance = remaining_balance - ? WHERE id=?")->execute([$advanceCut, $adv['id']]);
             }
 
-            $stmt = $pdo->prepare("INSERT INTO payroll (employee_id, branch_id, period_month, period_year, base_salary, bonus, deduction, status)
-                VALUES (?, ?, ?, ?, ?, ?, ?, 'delivered')
-                ON DUPLICATE KEY UPDATE base_salary=VALUES(base_salary), bonus=VALUES(bonus), deduction=VALUES(deduction), status='delivered'");
-            $stmt->execute([$employeeId, $branchId, $month, $year, $baseSalary, $bonus, $deduction]);
+            $stmt = $pdo->prepare("INSERT INTO payroll (employee_id, branch_id, period_month, period_year, base_salary, bonus, deduction, late_deduction, status)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'delivered')
+                ON DUPLICATE KEY UPDATE base_salary=VALUES(base_salary), bonus=VALUES(bonus), deduction=VALUES(deduction), late_deduction=VALUES(late_deduction), status='delivered'");
+            $stmt->execute([$employeeId, $branchId, $month, $year, $baseSalary, $bonus, $deduction, $lateDeduction]);
 
             $net = $baseSalary + $bonus - $deduction;
             $msg = 'تم تسليم راتب شهر ' . $month . '/' . $year . ' بصافي ' . number_format($net) . ' دينار للموظف ' . $emp['full_name'];
@@ -907,7 +947,7 @@ function report_data(PDO $pdo, string $type, string $from, string $to, int $bran
         $sql = "SELECT b.name AS branch, DATE_FORMAT(db.brief_date,'%d/%m/%Y') AS date,
                        db.total_income AS revenue, db.total_expense AS expense,
                        (db.total_income - db.total_expense) AS profit,
-                       db.hr_note AS hrNote, db.gm_review_note AS gmNote
+                       db.hr_note AS hrNote, db.gm_review_note AS gmNote, db.status
                 FROM daily_briefs db JOIN branches b ON b.id = db.branch_id
                 WHERE db.brief_date BETWEEN ? AND ?";
         $params = [$from, $to];
@@ -915,12 +955,20 @@ function report_data(PDO $pdo, string $type, string $from, string $to, int $bran
         $sql .= " ORDER BY db.brief_date DESC";
         $stmt = $pdo->prepare($sql);
         $stmt->execute($params);
-        $rows = array_map(function ($r) {
+        $briefStatusAr = [
+            'pending' => 'بانتظار مراجعة HR والمسؤول العام',
+            'hr_approved' => 'وافقت HR — بانتظار المسؤول العام',
+            'gm_approved' => 'وافق المسؤول العام — بانتظار HR',
+            'approved' => 'معتمد نهائياً (موافق عليه من الاثنين)',
+            'rejected' => 'مرفوض',
+        ];
+        $rows = array_map(function ($r) use ($briefStatusAr) {
             foreach (['revenue', 'expense', 'profit'] as $k) {
                 $r[$k] = number_format((float) $r[$k]);
             }
             $r['hrNote'] = $r['hrNote'] ?: '-';
             $r['gmNote'] = $r['gmNote'] ?: '-';
+            $r['statusText'] = $briefStatusAr[$r['status']] ?? $r['status'];
             return $r;
         }, $stmt->fetchAll());
         $result['briefing'] = $rows;
@@ -4084,10 +4132,10 @@ function report_data(PDO $pdo, string $type, string $from, string $to, int $bran
                             ${item.canReview ? `
                                 ${item.rawType === 'advance' ? `<input type="number" min="1" step="1000" class="hr-note-input" id="hrDeduction_${item.id}" placeholder="⚠ الخصم الشهري (إلزامي للموافقة)">` : ''}
                                 <input type="text" class="hr-note-input" id="hrReqNote_${item.id}" placeholder="رد برسالة (اختياري)...">
-                                <button class="action-btn approve" onclick="approveRequest(${item.id})">
+                                <button class="action-btn approve" onclick="approveRequest(${item.id}, '${item.rawType}', '${item.type}')">
                                     <i class="fas fa-check"></i> موافقة
                                 </button>
-                                <button class="action-btn reject" onclick="rejectRequest(${item.id})">
+                                <button class="action-btn reject" onclick="rejectRequest(${item.id}, '${item.rawType}', '${item.type}')">
                                     <i class="fas fa-times"></i> رفض
                                 </button>
                             ` : `
@@ -4100,15 +4148,9 @@ function report_data(PDO $pdo, string $type, string $from, string $to, int $bran
             tbody.innerHTML = html;
         }
 
-        function reviewRequest(id, decision) {
-            const req = requestsData.find(r => r.id === id);
-            if (!req) {
-                showToast('⚠️ تنبيه', 'تعذر إيجاد هذا الطلب — يتم تحديث القائمة', 'warning');
-                loadRequests();
-                return;
-            }
+        function reviewRequest(id, decision, rawType, typeLabel) {
             const params = { id, decision };
-            if (decision === 'approved' && req.rawType === 'advance') {
+            if (decision === 'approved' && rawType === 'advance') {
                 const deductionInput = document.getElementById(`hrDeduction_${id}`);
                 const monthlyDeduction = deductionInput ? deductionInput.value : '';
                 if (!monthlyDeduction || Number(monthlyDeduction) <= 0) {
@@ -4126,17 +4168,17 @@ function report_data(PDO $pdo, string $type, string $from, string $to, int $bran
             params.hrNote = noteInput ? noteInput.value.trim() : '';
             const body = new URLSearchParams(params);
             fetch('?ajax=request_review', { method: 'POST', body }).then(r => r.json()).then(data => {
-                if (!data.ok) { showToast('⚠️ خطأ', data.error || 'تعذر الحفظ', 'error'); return; }
+                if (!data.ok) { showToast('⚠️ خطأ', data.error || 'تعذر الحفظ — قد يكون الطلب رُوجع بالفعل، يتم تحديث القائمة', 'error'); loadRequests(); return; }
                 loadRequests();
-                if (decision === 'approved') showToast('✅ تمت الموافقة', `تم قبول طلب ${req.type}`, 'success');
-                else showToast('❌ تم الرفض', `تم رفض طلب ${req.type}`, 'error');
+                if (decision === 'approved') showToast('✅ تمت الموافقة', `تم قبول طلب ${typeLabel}`, 'success');
+                else showToast('❌ تم الرفض', `تم رفض طلب ${typeLabel}`, 'error');
             }).catch(() => {
                 showToast('❌ خطأ', 'تعذر الاتصال بالخادم — تأكد من تشغيل migrate.php على قاعدة البيانات', 'error');
             });
         }
 
-        function approveRequest(id) { reviewRequest(id, 'approved'); }
-        function rejectRequest(id) { reviewRequest(id, 'rejected'); }
+        function approveRequest(id, rawType, typeLabel) { reviewRequest(id, 'approved', rawType, typeLabel); }
+        function rejectRequest(id, rawType, typeLabel) { reviewRequest(id, 'rejected', rawType, typeLabel); }
 
         function filterRequests(filter) {
             const rows = document.querySelectorAll('#requestsBody tr');
@@ -4168,9 +4210,9 @@ function report_data(PDO $pdo, string $type, string $from, string $to, int $bran
         }
         function briefingTable(rows) {
             if (!rows || rows.length === 0) return '<p style="color:var(--text-muted);text-align:center;padding:12px;">لا توجد بيانات إيجاز ضمن هذا النطاق</p>';
-            let html = '<div class="table-wrap"><table class="table"><thead><tr><th>#</th><th>الفرع</th><th>التاريخ</th><th>الإيرادات</th><th>المصاريف</th><th>صافي الربح</th><th>ملاحظة HR</th><th>ملاحظة المسؤول العام</th></tr></thead><tbody>';
+            let html = '<div class="table-wrap"><table class="table"><thead><tr><th>#</th><th>الفرع</th><th>التاريخ</th><th>الإيرادات</th><th>المصاريف</th><th>صافي الربح</th><th>الحالة</th><th>ملاحظة HR</th><th>ملاحظة المسؤول العام</th></tr></thead><tbody>';
             rows.forEach((item, i) => {
-                html += `<tr><td>${i+1}</td><td>${item.branch}</td><td>${item.date}</td><td>${item.revenue}</td><td>${item.expense}</td><td style="color:#059669;">${item.profit}</td><td>${item.hrNote || '-'}</td><td>${item.gmNote || '-'}</td></tr>`;
+                html += `<tr><td>${i+1}</td><td>${item.branch}</td><td>${item.date}</td><td>${item.revenue}</td><td>${item.expense}</td><td style="color:#059669;">${item.profit}</td><td>${item.statusText || '-'}</td><td>${item.hrNote || '-'}</td><td>${item.gmNote || '-'}</td></tr>`;
             });
             return html + '</tbody></table></div>';
         }
