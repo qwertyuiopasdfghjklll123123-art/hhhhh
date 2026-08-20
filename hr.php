@@ -4701,16 +4701,16 @@ function report_data(PDO $pdo, string $type, string $from, string $to, int $bran
         }
 
         function reviewBriefing(id, decision) {
-            const item = briefingRequests.find(b => b.id === id);
-            if (!item) return;
+            const item = briefingRequests.find(b => Number(b.id) === Number(id));
             const noteInput = document.getElementById(`hrNote_${id}`);
             const hrNote = noteInput ? noteInput.value.trim() : '';
             const body = new URLSearchParams({ id, decision, hrNote });
             fetch('?ajax=brief_review', { method: 'POST', body }).then(r => r.json()).then(data => {
                 if (!data.ok) { showToast('⚠️ خطأ', data.error || 'تعذر الحفظ', 'error'); return; }
                 loadBriefingRequests();
-                if (decision === 'approved') showToast('✅ تمت الموافقة', `تمت موافقتك على إيجاز ${item.sender} - ${item.branch}، بانتظار الاعتماد النهائي من المسؤول العام`, 'success');
-                else showToast('❌ تم الرفض', `تم رفض إيجاز ${item.sender} - ${item.branch}`, 'error');
+                const who = item ? `${item.sender} - ${item.branch}` : 'الإيجاز';
+                if (decision === 'approved') showToast('✅ تمت الموافقة', `تمت موافقتك على إيجاز ${who}، بانتظار الاعتماد النهائي من المسؤول العام`, 'success');
+                else showToast('❌ تم الرفض', `تم رفض إيجاز ${who}`, 'error');
             }).catch(() => {
                 showToast('❌ خطأ', 'تعذر الاتصال بالخادم — تأكد من تشغيل migrate.php على قاعدة البيانات', 'error');
             });
