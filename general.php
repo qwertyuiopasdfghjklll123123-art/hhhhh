@@ -266,9 +266,9 @@ if (isset($_GET['ajax'])) {
             $stmt = $pdo->query("
                 SELECT db.id, b.name AS branch, DATE_FORMAT(db.brief_date, '%d/%m/%Y') AS date,
                        db.total_income AS revenue, db.total_expense AS expenses, db.travelers_count AS travelersCount,
-                       db.note, db.hr_note AS hrNote
+                       db.note, db.hr_note AS hrNote, db.status
                 FROM daily_briefs db JOIN branches b ON b.id = db.branch_id
-                WHERE db.status = 'hr_approved'
+                WHERE db.status IN ('pending', 'hr_approved')
                 ORDER BY db.brief_date DESC, db.id DESC
             ");
             $rows = array_map(function ($r) {
@@ -276,6 +276,7 @@ if (isset($_GET['ajax'])) {
                 $r['expenses'] = (float) $r['expenses'];
                 $r['travelersCount'] = (int) $r['travelersCount'];
                 $r['netProfit'] = $r['revenue'] - $r['expenses'];
+                $r['hrStatusText'] = $r['status'] === 'hr_approved' ? 'وافقت عليه الموارد البشرية' : 'بانتظار مراجعة الموارد البشرية أيضاً';
                 return $r;
             }, $stmt->fetchAll());
             echo json_encode(['ok' => true, 'briefs' => $rows], JSON_UNESCAPED_UNICODE);
@@ -306,7 +307,7 @@ if (isset($_GET['ajax'])) {
             $id = (int) ($_POST['id'] ?? 0);
             $decision = ($_POST['decision'] ?? '') === 'approved' ? 'approved' : 'rejected';
             $note = trim($_POST['note'] ?? '');
-            $stmt = $pdo->prepare("UPDATE daily_briefs SET status=?, gm_review_note=?, gm_reviewed_by=?, gm_reviewed_at=NOW() WHERE id=? AND status='hr_approved'");
+            $stmt = $pdo->prepare("UPDATE daily_briefs SET status=?, gm_review_note=?, gm_reviewed_by=?, gm_reviewed_at=NOW() WHERE id=? AND status IN ('pending','hr_approved')");
             $stmt->execute([$decision, $note, $gmUser['id'], $id]);
             if ($stmt->rowCount() === 0) {
                 echo json_encode(['ok' => false, 'error' => 'هذا الإيجاز ليس بانتظار اعتمادك']);
@@ -1006,6 +1007,10 @@ if (isset($_GET['ajax'])) {
                         <div class="item"><div class="v">${b.expenses.toLocaleString()}</div><div class="l">المصاريف</div></div>
                         <div class="item"><div class="v">${b.travelersCount}</div><div class="l">المسافرون</div></div>
                         <div class="item"><div class="v" style="color:var(--green);">${b.netProfit.toLocaleString()}</div><div class="l">صافي الربح</div></div>
+                    </div>
+                    <div class="muted" style="font-size:13px;margin:4px 0;">
+                        <i class="fas ${b.status === 'hr_approved' ? 'fa-circle-check' : 'fa-clock'}" style="color:${b.status === 'hr_approved' ? 'var(--green)' : '#D97706'};"></i>
+                        ${b.hrStatusText}
                     </div>
                     ${b.hrNote ? `<div class="brief-note"><b>ملاحظة HR:</b> ${b.hrNote}</div>` : ''}
                     ${currentRole !== 'shareholder' ? `

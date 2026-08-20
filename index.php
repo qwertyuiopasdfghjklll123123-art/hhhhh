@@ -216,6 +216,13 @@ if (isset($_GET['ajax'])) {
             if ($todayAtt) {
                 if ($todayAtt['check_in'] && $todayAtt['check_out']) $todayStatusText = '✓ حضور وانصراف';
                 elseif ($todayAtt['check_in']) $todayStatusText = ($todayAtt['status'] === 'late') ? '⏰ تأخير' : '✓ حضور';
+            } else {
+                $nowMinutes = (int) date('H') * 60 + (int) date('i');
+                [$shH, $shM] = array_map('intval', explode(':', $shiftStart));
+                $checkinDeadline = $shH * 60 + $shM + $graceMinutes;
+                if ($nowMinutes > $checkinDeadline) {
+                    $todayStatusText = '✕ غياب';
+                }
             }
 
             $recentStmt = $pdo->prepare("SELECT attendance_date, check_in, check_out, status FROM attendance WHERE employee_id=? ORDER BY attendance_date DESC LIMIT 5");
@@ -788,47 +795,57 @@ if (isset($_GET['ajax'])) {
             100% { opacity: 1; transform: scale(1); }
         }
 
-        .welcome-screen .welcome-image {
-            width: 100%;
-            height: calc(100% - 80px);
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            overflow: hidden;
-        }
-        .welcome-screen .welcome-image img {
-            width: 100%;
-            height: 100%;
-            object-fit: cover;
-        }
-
-        .welcome-loader {
-            width: 100%;
-            height: 80px;
-            background: rgba(0, 0, 0, 0.4);
-            backdrop-filter: blur(10px);
-            -webkit-backdrop-filter: blur(10px);
+        .welcome-logo {
             display: flex;
             flex-direction: column;
             align-items: center;
             justify-content: center;
-            padding: 12px 24px;
-            gap: 6px;
-            border-top: 1px solid rgba(255,255,255,0.06);
+            flex: 1;
+            width: 100%;
         }
-        .welcome-loader .loader-label {
-            color: rgba(255,255,255,0.8);
-            font-size: 13px;
-            font-weight: 500;
+        .welcome-logo .logo-icon {
+            width: 130px;
+            height: 130px;
+            background: linear-gradient(135deg, var(--primary-light), var(--primary));
+            border-radius: 32px;
             display: flex;
             align-items: center;
-            gap: 10px;
+            justify-content: center;
+            color: #fff;
+            font-size: 56px;
+            font-weight: 900;
+            box-shadow: 0 12px 48px rgba(0,0,0,0.3);
+            margin-bottom: 16px;
+            overflow: hidden;
         }
-        .welcome-loader .loader-label i { color: var(--accent); }
+        .welcome-logo .logo-icon img { width: 100%; height: 100%; object-fit: cover; }
+        .welcome-logo h1 {
+            color: #fff;
+            font-size: 26px;
+            font-weight: 900;
+            letter-spacing: -0.5px;
+            text-align: center;
+        }
+        .welcome-logo h1 span { color: var(--accent); }
+
+        .welcome-loader {
+            width: 200px;
+            max-width: 60%;
+            margin-top: 12px;
+            padding: 8px 0;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 6px;
+        }
+        .welcome-loader .loader-label {
+            color: rgba(255,255,255,0.5);
+            font-size: 11px;
+            font-weight: 400;
+        }
         .welcome-loader .loader-bar-wrapper {
             width: 100%;
-            max-width: 400px;
-            height: 5px;
+            height: 3px;
             background: rgba(255,255,255,0.1);
             border-radius: 10px;
             overflow: hidden;
@@ -856,119 +873,7 @@ if (isset($_GET['ajax'])) {
             0% { transform: translateX(-100%); }
             100% { transform: translateX(100%); }
         }
-        .welcome-loader .loader-bottom {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            width: 100%;
-            max-width: 400px;
-        }
-        .welcome-loader .loader-status {
-            color: rgba(255,255,255,0.5);
-            font-size: 11px;
-            font-weight: 400;
-        }
-        .welcome-loader .loader-percent {
-            color: rgba(255,255,255,0.8);
-            font-size: 14px;
-            font-weight: 700;
-            min-width: 44px;
-            text-align: center;
-        }
 
-        /* ============================================================
-           الشاشة التعريفية (Onboarding) — تظهر مرة واحدة فقط عند أول استخدام
-           ============================================================ */
-        .onboarding-screen {
-            position: fixed;
-            inset: 0;
-            z-index: 9998;
-            background: linear-gradient(160deg, #004b52 0%, #006b73 60%, #0A8A94 100%);
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-            padding: 40px 24px;
-            text-align: center;
-        }
-        .onboarding-screen.hidden { display: none; }
-        .onboarding-skip {
-            position: absolute;
-            top: max(20px, env(safe-area-inset-top));
-            left: 20px;
-            background: rgba(255,255,255,0.12);
-            border: none;
-            color: #fff;
-            font-size: 13px;
-            font-weight: 700;
-            padding: 8px 18px;
-            border-radius: var(--radius-full);
-            cursor: pointer;
-        }
-        .onboarding-slides {
-            width: 100%;
-            max-width: 340px;
-            display: flex;
-            overflow: hidden;
-            transition: transform 0.4s cubic-bezier(0.4, 0, 0.2, 1);
-        }
-        .onboarding-slide {
-            min-width: 100%;
-            flex-shrink: 0;
-        }
-        .onboarding-icon {
-            width: 96px;
-            height: 96px;
-            border-radius: 50%;
-            background: rgba(255,255,255,0.12);
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 40px;
-            color: var(--accent);
-            margin: 0 auto 28px;
-        }
-        .onboarding-slide h2 {
-            color: #fff;
-            font-size: 20px;
-            font-weight: 800;
-            margin-bottom: 12px;
-        }
-        .onboarding-slide p {
-            color: rgba(255,255,255,0.75);
-            font-size: 13.5px;
-            line-height: 1.8;
-        }
-        .onboarding-dots {
-            display: flex;
-            gap: 8px;
-            margin: 32px 0 24px;
-        }
-        .onboarding-dots .dot {
-            width: 8px;
-            height: 8px;
-            border-radius: 50%;
-            background: rgba(255,255,255,0.25);
-            border: none;
-            cursor: pointer;
-            transition: var(--transition-base);
-        }
-        .onboarding-dots .dot.active {
-            width: 24px;
-            border-radius: 4px;
-            background: var(--accent);
-        }
-        .onboarding-next {
-            background: var(--accent);
-            color: #fff;
-            border: none;
-            padding: 14px 48px;
-            border-radius: var(--radius-full);
-            font-size: 14px;
-            font-weight: 800;
-            font-family: var(--font-family);
-            cursor: pointer;
-        }
 
         /* ============================================================
            شاشة تسجيل الدخول
@@ -2307,9 +2212,7 @@ if (isset($_GET['ajax'])) {
             .honor-slide .honor-item .medal { font-size: 22px; width: 30px; }
             .honor-slide .honor-item .avatar { width: 36px; height: 36px; }
             .honor-slide .honor-item .percent { font-size: 15px; }
-            .welcome-loader { height: 70px; padding: 12px 16px; }
             .welcome-loader .loader-label { font-size: 11px; }
-            .welcome-loader .loader-percent { font-size: 12px; }
         }
 
         @media (max-width: 380px) {
@@ -2320,8 +2223,6 @@ if (isset($_GET['ajax'])) {
             .quick-actions-grid { grid-template-columns: 1fr 1fr; gap: 6px; }
             .stat-item .num { font-size: 18px; }
             .work-days .day { font-size: 10px; padding: 3px 8px; }
-            .welcome-loader { height: 60px; padding: 10px 12px; }
-            .welcome-loader .loader-status { display: none; }
         }
 
         /* ============================================================
@@ -2334,7 +2235,6 @@ if (isset($_GET['ajax'])) {
             background: var(--primary-dark);
         }
         .welcome-screen,
-        .onboarding-screen,
         .login-page,
         #appContainer {
             left: 50% !important;
@@ -2344,7 +2244,7 @@ if (isset($_GET['ajax'])) {
             transform: translateX(-50%);
             box-shadow: 0 0 0 1px rgba(255,255,255,0.08), 0 30px 80px rgba(0,0,0,0.45);
         }
-        .welcome-screen, .onboarding-screen, .login-page {
+        .welcome-screen, .login-page {
             position: fixed;
             top: 0;
             bottom: 0;
@@ -2372,52 +2272,16 @@ if (isset($_GET['ajax'])) {
     شاشة الترحيب
     ============================================================ -->
     <div class="welcome-screen" id="welcomeScreen">
-        <div class="welcome-image">
-            <img src="https://i.ibb.co/rGZZhSDz/file-000000002ac481f49837b1aca8bc5b1b.png" alt="شعار الشركة - ترحيب" loading="lazy">
+        <div class="welcome-logo" id="welcomeLogo">
+            <div class="logo-icon">✥</div>
+            <h1>شركة <span>الصوى للصرافة</span></h1>
         </div>
         <div class="welcome-loader">
-            <div class="loader-label">
-                <i class="fas fa-spinner fa-spin"></i>
-                <span id="loaderLabel">جاري تحميل النظام...</span>
-            </div>
+            <div class="loader-label">جاري التحميل...</div>
             <div class="loader-bar-wrapper">
                 <div class="loader-bar" id="loaderBar"></div>
             </div>
-            <div class="loader-bottom">
-                <span class="loader-status" id="loaderStatus">تهيئة البيئة...</span>
-                <span class="loader-percent" id="loaderPercent">0%</span>
-            </div>
         </div>
-    </div>
-
-    <!-- ============================================================
-    شاشة تعريفية (تظهر فقط عند أول استخدام)
-    ============================================================ -->
-    <div class="onboarding-screen hidden" id="onboardingScreen">
-        <button class="onboarding-skip" id="onboardingSkipBtn" onclick="finishOnboarding()">تخطي</button>
-        <div class="onboarding-slides" id="onboardingSlides">
-            <div class="onboarding-slide">
-                <div class="onboarding-icon"><i class="fas fa-fingerprint"></i></div>
-                <h2>سجّل حضورك بضغطة واحدة</h2>
-                <p>بصمة دخول وانصراف حقيقية بتحديد موقعك، تعمل فقط ضمن نطاق فرعك وخلال وقت الدوام.</p>
-            </div>
-            <div class="onboarding-slide">
-                <div class="onboarding-icon"><i class="fas fa-file-pen"></i></div>
-                <h2>قدّم طلباتك ببضع نقرات</h2>
-                <p>إجازة، سلفة، شكوى أو استقالة — تابع حالة كل طلب لحظة بلحظة حتى الموافقة النهائية.</p>
-            </div>
-            <div class="onboarding-slide">
-                <div class="onboarding-icon"><i class="fas fa-trophy"></i></div>
-                <h2>راقب راتبك والتزامك</h2>
-                <p>راتبك الشهري، نسبة التزامك، ولائحة شرف أفضل الموظفين — كلها بمكان واحد.</p>
-            </div>
-        </div>
-        <div class="onboarding-dots" id="onboardingDots">
-            <button class="dot active" onclick="onboardingGoTo(0)"></button>
-            <button class="dot" onclick="onboardingGoTo(1)"></button>
-            <button class="dot" onclick="onboardingGoTo(2)"></button>
-        </div>
-        <button class="onboarding-next" id="onboardingNextBtn" onclick="onboardingNext()">التالي</button>
     </div>
 
     <!-- ============================================================
@@ -2970,8 +2834,8 @@ if (isset($_GET['ajax'])) {
             <button class="nav-item" id="nav-profile" onclick="navigateTo('profile')">
                 <i class="fas fa-user"></i><span>ملفي</span>
             </button>
-            <button class="nav-item" id="nav-more" onclick="navigateTo('briefing')" style="display:none;">
-                <i class="fas fa-chart-simple"></i><span>إيجاز</span>
+            <button class="nav-item" id="nav-more" onclick="toggleMenu()">
+                <i class="fas fa-bars"></i><span>المزيد</span>
             </button>
         </nav>
 
@@ -3120,43 +2984,13 @@ if (isset($_GET['ajax'])) {
         // ============================================================
         let loaderProgress = 0;
         const loaderBar = document.getElementById('loaderBar');
-        const loaderPercent = document.getElementById('loaderPercent');
-        const loaderStatus = document.getElementById('loaderStatus');
-        const loaderLabel = document.getElementById('loaderLabel');
         const welcomeScreen = document.getElementById('welcomeScreen');
         const loginScreen = document.getElementById('loginScreen');
         const alreadyLoggedIn = <?= $isLoggedIn ? 'true' : 'false' ?>;
 
-        const statusMessages = [
-            { at: 0, text: 'تهيئة البيئة...' },
-            { at: 15, text: 'تحميل الملفات الأساسية...' },
-            { at: 30, text: 'تجهيز قاعدة البيانات...' },
-            { at: 45, text: 'تحميل بيانات المستخدم...' },
-            { at: 60, text: 'تهيئة النظام...' },
-            { at: 75, text: 'تحميل الإعدادات...' },
-            { at: 85, text: 'تجهيز الواجهة...' },
-            { at: 95, text: 'اكتمال التحميل...' }
-        ];
-
-        function updateLoaderStatus(progress) {
-            let currentText = statusMessages[0].text;
-            for (const msg of statusMessages) {
-                if (progress >= msg.at) {
-                    currentText = msg.text;
-                }
-            }
-            loaderStatus.textContent = currentText;
-            if (progress >= 100) {
-                loaderStatus.textContent = '✅ جاهز!';
-                loaderLabel.innerHTML = '<i class="fas fa-check-circle" style="color:#10B981;"></i> تم التحميل بنجاح';
-            }
-        }
-
         function animateLoader() {
             if (loaderProgress >= 100) {
                 loaderBar.style.width = '100%';
-                loaderPercent.textContent = '100%';
-                updateLoaderStatus(100);
                 setTimeout(() => {
                     welcomeScreen.classList.add('fade-out');
                     setTimeout(() => {
@@ -3165,8 +2999,6 @@ if (isset($_GET['ajax'])) {
                             document.getElementById('appContainer').classList.remove('hidden');
                             startAutoSlide();
                             initApp();
-                        } else if (!localStorage.getItem('onboardingSeen')) {
-                            document.getElementById('onboardingScreen').classList.remove('hidden');
                         } else {
                             loginScreen.classList.remove('hidden');
                         }
@@ -3179,8 +3011,6 @@ if (isset($_GET['ajax'])) {
             const increment = Math.random() * 2.5 + 0.8;
             loaderProgress = Math.min(loaderProgress + increment, 100);
             loaderBar.style.width = loaderProgress + '%';
-            loaderPercent.textContent = Math.floor(loaderProgress) + '%';
-            updateLoaderStatus(loaderProgress);
 
             let delay = 60 + Math.random() * 70;
             if (loaderProgress > 80) delay = 100 + Math.random() * 80;
@@ -3363,7 +3193,6 @@ if (isset($_GET['ajax'])) {
                 isDelegated = data.delegation && data.delegation.active;
                 document.getElementById('qaBriefing').style.display = isDelegated ? '' : 'none';
                 document.getElementById('menuBriefing').style.display = isDelegated ? '' : 'none';
-                document.getElementById('nav-more').style.display = isDelegated ? '' : 'none';
                 document.getElementById('briefDelegatedZone').style.display = isDelegated ? 'block' : 'none';
                 document.getElementById('briefViewOnlyNote').style.display = isDelegated ? 'none' : 'block';
                 if (isDelegated) {
@@ -3978,6 +3807,10 @@ if (isset($_GET['ajax'])) {
                     statusDiv.style.display = 'block';
                     statusDiv.style.color = 'var(--green)';
                     statusDiv.textContent = '✅ تم تسجيل حضورك وانصرافك اليوم';
+                } else if (!showIn && !todayAttendance.checkedIn && nowMinutes > shiftStartMin + grace) {
+                    statusDiv.style.display = 'block';
+                    statusDiv.style.color = '#DC2626';
+                    statusDiv.textContent = '✕ غياب — انتهت فترة تسجيل الحضور دون تسجيلك';
                 } else if (!showIn && !showOut && !todayAttendance.checkedIn) {
                     statusDiv.style.display = 'block';
                     statusDiv.style.color = 'var(--text-muted)';
@@ -4199,33 +4032,6 @@ if (isset($_GET['ajax'])) {
         function toggleMenu() {
             const menu = document.getElementById('sideMenu');
             menu.style.display = menu.style.display === 'none' ? 'block' : 'none';
-        }
-
-        // ============================================================
-        // الشاشة التعريفية (Onboarding)
-        // ============================================================
-        let onboardingSlideIndex = 0;
-        const onboardingSlideCount = 3;
-
-        function onboardingGoTo(index) {
-            onboardingSlideIndex = index;
-            document.getElementById('onboardingSlides').style.transform = `translateX(-${index * 100}%)`;
-            document.querySelectorAll('#onboardingDots .dot').forEach((dot, i) => dot.classList.toggle('active', i === index));
-            document.getElementById('onboardingNextBtn').textContent = index === onboardingSlideCount - 1 ? 'ابدأ الآن' : 'التالي';
-        }
-
-        function onboardingNext() {
-            if (onboardingSlideIndex < onboardingSlideCount - 1) {
-                onboardingGoTo(onboardingSlideIndex + 1);
-            } else {
-                finishOnboarding();
-            }
-        }
-
-        function finishOnboarding() {
-            localStorage.setItem('onboardingSeen', '1');
-            document.getElementById('onboardingScreen').classList.add('hidden');
-            loginScreen.classList.remove('hidden');
         }
 
         function handleLogout() {

@@ -427,6 +427,85 @@ if (isset($_GET['ajax'])) {
             exit;
         }
 
+        case 'my_profile': {
+            $meRow = $pdo->prepare("SELECT e.full_name, e.employee_number, e.base_salary, b.name AS branch_name
+                FROM employees e JOIN branches b ON b.id = e.branch_id WHERE e.id = ?");
+            $meRow->execute([$mgr['employee_id']]);
+            $meRow = $meRow->fetch();
+
+            $month = (int) date('n');
+            $year = (int) date('Y');
+            $payStmt = $pdo->prepare("SELECT * FROM payroll WHERE employee_id=? AND period_month=? AND period_year=?");
+            $payStmt->execute([$mgr['employee_id'], $month, $year]);
+            $pay = $payStmt->fetch();
+
+            $base = $pay ? (float) $pay['base_salary'] : (float) $meRow['base_salary'];
+            $bonus = $pay ? (float) $pay['bonus'] : 0.0;
+            $deduction = $pay ? (float) $pay['deduction'] : 0.0;
+            $net = $base + $bonus - $deduction;
+            $statusText = !$pay ? 'لم يُحتسب بعد' : ($pay['status'] === 'delivered' ? 'تم التسليم' : 'قيد المعالجة');
+
+            echo json_encode([
+                'ok' => true,
+                'name' => $meRow['full_name'],
+                'code' => $meRow['employee_number'],
+                'branch' => $meRow['branch_name'],
+                'baseSalary' => (float) $meRow['base_salary'],
+                'salary' => ['base' => $base, 'bonus' => $bonus, 'deduction' => $deduction, 'net' => $net, 'statusText' => $statusText],
+            ], JSON_UNESCAPED_UNICODE);
+            exit;
+        }
+
+        case 'my_attendance_month': {
+            $month = max(1, min(12, (int) ($_GET['month'] ?? date('n'))));
+            $year = (int) ($_GET['year'] ?? date('Y'));
+            $from = sprintf('%04d-%02d-01', $year, $month);
+            $daysInMonth = (int) date('t', strtotime($from));
+            $to = date('Y-m-t', strtotime($from));
+
+            $rows = $pdo->prepare("SELECT attendance_date, check_in, check_out, status FROM attendance WHERE employee_id=? AND attendance_date BETWEEN ? AND ?");
+            $rows->execute([$mgr['employee_id'], $from, $to]);
+            $byDate = [];
+            foreach ($rows->fetchAll() as $r) { $byDate[$r['attendance_date']] = $r; }
+
+            $today = date('Y-m-d');
+            $present = 0; $late = 0; $absent = 0;
+            $days = [];
+            for ($d = 1; $d <= $daysInMonth; $d++) {
+                $date = sprintf('%04d-%02d-%02d', $year, $month, $d);
+                $dow = (int) date('w', strtotime($date));
+                $isOff = ($dow === 5 || $dow === 6);
+                $rec = $byDate[$date] ?? null;
+                if ($isOff) {
+                    $status = 'off';
+                } elseif ($rec && $rec['check_in']) {
+                    $status = $rec['status'] === 'late' ? 'late' : 'present';
+                } elseif ($date < $today) {
+                    $status = 'absent';
+                } else {
+                    $status = 'future';
+                }
+                if ($status === 'present') $present++;
+                elseif ($status === 'late') $late++;
+                elseif ($status === 'absent') $absent++;
+                $days[] = [
+                    'day' => $d,
+                    'status' => $status,
+                    'checkIn' => $rec && $rec['check_in'] ? substr($rec['check_in'], 0, 5) : null,
+                    'checkOut' => $rec && $rec['check_out'] ? substr($rec['check_out'], 0, 5) : null,
+                ];
+            }
+
+            echo json_encode([
+                'ok' => true,
+                'month' => $month,
+                'year' => $year,
+                'days' => $days,
+                'summary' => ['present' => $present, 'late' => $late, 'absent' => $absent],
+            ], JSON_UNESCAPED_UNICODE);
+            exit;
+        }
+
         case 'requests': {
             $stmt = $pdo->prepare("
                 SELECT r.id, e.full_name AS name, r.type, r.details, r.amount, r.date_from, r.date_to, r.status
@@ -560,8 +639,8 @@ if (isset($_GET['ajax'])) {
             $branchName = $pdo->prepare("SELECT name FROM branches WHERE id=?");
             $branchName->execute([$branchId]);
             $branchName = $branchName->fetchColumn();
-            $hrUids = $pdo->query("SELECT id FROM users WHERE role='hr'")->fetchAll(PDO::FETCH_COLUMN);
-            foreach ($hrUids as $uid) {
+            $reviewerUids = $pdo->query("SELECT id FROM users WHERE role IN ('hr','general_manager')")->fetchAll(PDO::FETCH_COLUMN);
+            foreach ($reviewerUids as $uid) {
                 $pdo->prepare("INSERT INTO notifications (user_id, title, message) VALUES (?, 'إيجاز جديد بانتظار المراجعة', ?)")
                     ->execute([$uid, 'نشر مدير فرع ' . $branchName . ' إيجاز اليوم بانتظار مراجعتك']);
             }
@@ -813,28 +892,22 @@ function branch_report_data(PDO $pdo, string $type, string $from, string $to, in
         }
         .welcome-screen.fade-out { opacity: 0; transform: scale(1.05); pointer-events: none; }
         @keyframes fadeIn { 0% { opacity: 0; transform: scale(1.02); } 100% { opacity: 1; transform: scale(1); } }
-        .welcome-screen .welcome-image { width: 100%; height: calc(100% - 80px); display: flex; align-items: center; justify-content: center; overflow: hidden; }
-        .welcome-screen .welcome-image img { width: 100%; height: 100%; object-fit: cover; }
-        .welcome-loader {
-            width: 100%; height: 80px; background: rgba(0,0,0,0.4);
-            backdrop-filter: blur(10px); display: flex; flex-direction: column;
-            align-items: center; justify-content: center; padding: 12px 24px; gap: 6px;
-            border-top: 1px solid rgba(255,255,255,0.06);
-        }
-        .welcome-loader .loader-label { color: rgba(255,255,255,0.8); font-size: 13px; font-weight: 500; display: flex; align-items: center; gap: 10px; }
-        .welcome-loader .loader-label i { color: var(--accent); }
-        .welcome-loader .loader-bar-wrapper { width: 100%; max-width: 400px; height: 5px; background: rgba(255,255,255,0.1); border-radius: 10px; overflow: hidden; }
-        .welcome-loader .loader-bar { height: 100%; width: 0%; background: linear-gradient(90deg, var(--accent), var(--primary-light)); border-radius: 10px; transition: width 0.3s ease; }
+        .welcome-logo { display: flex; flex-direction: column; align-items: center; justify-content: center; flex: 1; width: 100%; }
+        .welcome-logo .logo-icon { width: 130px; height: 130px; background: var(--primary-gradient); border-radius: 32px; display: flex; align-items: center; justify-content: center; color: #fff; font-size: 56px; font-weight: 900; box-shadow: 0 12px 48px rgba(0,0,0,0.3); margin-bottom: 16px; overflow: hidden; }
+        .welcome-logo .logo-icon img { width: 100%; height: 100%; object-fit: cover; }
+        .welcome-logo h1 { color: #fff; font-size: 26px; font-weight: 900; text-align: center; }
+        .welcome-logo h1 span { color: var(--accent); }
+        .welcome-loader { width: 200px; max-width: 60%; margin-top: 12px; padding: 8px 0; display: flex; flex-direction: column; align-items: center; gap: 6px; }
+        .welcome-loader .loader-label { color: rgba(255,255,255,0.5); font-size: 11px; font-weight: 400; }
+        .welcome-loader .loader-bar-wrapper { width: 100%; height: 3px; background: rgba(255,255,255,0.1); border-radius: 10px; overflow: hidden; }
+        .welcome-loader .loader-bar { height: 100%; width: 0%; background: linear-gradient(90deg, var(--accent), var(--primary-light)); border-radius: 10px; transition: width 0.3s ease; position: relative; }
         .welcome-loader .loader-bar::after { content: ''; position: absolute; top: 0; left: 0; right: 0; bottom: 0; background: linear-gradient(90deg, transparent, rgba(255,255,255,0.3), transparent); animation: shimmer 1.8s infinite; }
         @keyframes shimmer { 0% { transform: translateX(-100%); } 100% { transform: translateX(100%); } }
-        .welcome-loader .loader-bottom { display: flex; align-items: center; justify-content: space-between; width: 100%; max-width: 400px; }
-        .welcome-loader .loader-status { color: rgba(255,255,255,0.5); font-size: 11px; font-weight: 400; }
-        .welcome-loader .loader-percent { color: rgba(255,255,255,0.8); font-size: 14px; font-weight: 700; min-width: 44px; text-align: center; }
 
-        /* إطار تطبيق ثابت العرض لشاشات ما قبل الدخول فقط (الترحيب/التعريف/الدخول) —
+        /* إطار تطبيق ثابت العرض لشاشات ما قبل الدخول فقط (الترحيب/الدخول) —
            لا يُطبَّق على لوحة التحكم بعد الدخول حتى لا يتعارض مع تخطيط سطح المكتب */
         body { background: #003f46; }
-        .welcome-screen, .onboarding-screen, .login-page {
+        .welcome-screen, .login-page {
             left: 50% !important;
             right: auto !important;
             width: 480px !important;
@@ -842,27 +915,6 @@ function branch_report_data(PDO $pdo, string $type, string $from, string $to, in
             transform: translateX(-50%);
             box-shadow: 0 0 0 1px rgba(255,255,255,0.08), 0 30px 80px rgba(0,0,0,0.45);
         }
-
-        /* الشاشة التعريفية (Onboarding) لمدير الفرع */
-        .onboarding-screen {
-            position: fixed;
-            top: 0; bottom: 0;
-            z-index: 9998;
-            background: linear-gradient(160deg, #003f46 0%, #006b73 60%, #0A8A94 100%);
-            display: flex; flex-direction: column; align-items: center; justify-content: center;
-            padding: 40px 24px; text-align: center;
-        }
-        .onboarding-screen.hidden { display: none; }
-        .onboarding-skip { position: absolute; top: max(20px, env(safe-area-inset-top)); left: 20px; background: rgba(255,255,255,0.12); border: none; color: #fff; font-size: 13px; font-weight: 700; padding: 8px 18px; border-radius: 999px; cursor: pointer; }
-        .onboarding-slides { width: 100%; max-width: 340px; display: flex; overflow: hidden; transition: transform 0.4s cubic-bezier(0.4,0,0.2,1); }
-        .onboarding-slide { min-width: 100%; flex-shrink: 0; }
-        .onboarding-icon { width: 96px; height: 96px; border-radius: 50%; background: rgba(255,255,255,0.12); display: flex; align-items: center; justify-content: center; font-size: 40px; color: var(--accent); margin: 0 auto 28px; }
-        .onboarding-slide h2 { color: #fff; font-size: 20px; font-weight: 800; margin-bottom: 12px; }
-        .onboarding-slide p { color: rgba(255,255,255,0.75); font-size: 13.5px; line-height: 1.8; }
-        .onboarding-dots { display: flex; gap: 8px; margin: 32px 0 24px; }
-        .onboarding-dots .dot { width: 8px; height: 8px; border-radius: 50%; background: rgba(255,255,255,0.25); border: none; cursor: pointer; }
-        .onboarding-dots .dot.active { width: 24px; border-radius: 4px; background: var(--accent); }
-        .onboarding-next { background: var(--accent); color: #fff; border: none; padding: 14px 48px; border-radius: 999px; font-size: 14px; font-weight: 800; font-family: var(--font-family); cursor: pointer; }
 
         /* تسجيل الدخول */
         .login-page { min-height: 100vh; background: linear-gradient(135deg, #003f46 0%, #006b73 100%); display: flex; align-items: center; justify-content: center; padding: 20px; }
@@ -1192,45 +1244,14 @@ function branch_report_data(PDO $pdo, string $type, string $from, string $to, in
 
     <!-- شاشة الترحيب -->
     <div class="welcome-screen" id="welcomeScreen">
-        <div class="welcome-image">
-            <img src="https://i.ibb.co/rGZZhSDz/file-000000002ac481f49837b1aca8bc5b1b.png" alt="شعار الشركة">
+        <div class="welcome-logo" id="welcomeLogo">
+            <div class="logo-icon">✥</div>
+            <h1>شركة <span>الصوى للصرافة</span></h1>
         </div>
         <div class="welcome-loader">
-            <div class="loader-label"><i class="fas fa-spinner fa-spin"></i> <span id="loaderLabel">جاري تحميل النظام...</span></div>
+            <div class="loader-label">جاري التحميل...</div>
             <div class="loader-bar-wrapper"><div class="loader-bar" id="loaderBar"></div></div>
-            <div class="loader-bottom">
-                <span class="loader-status" id="loaderStatus">تهيئة البيئة...</span>
-                <span class="loader-percent" id="loaderPercent">0%</span>
-            </div>
         </div>
-    </div>
-
-    <!-- الشاشة التعريفية (تظهر مرة واحدة فقط عند أول استخدام) -->
-    <div class="onboarding-screen hidden" id="onboardingScreen">
-        <button class="onboarding-skip" onclick="finishOnboarding()">تخطي</button>
-        <div class="onboarding-slides" id="onboardingSlides">
-            <div class="onboarding-slide">
-                <div class="onboarding-icon"><i class="fas fa-fingerprint"></i></div>
-                <h2>حضورك وحضور فريقك بلمسة</h2>
-                <p>سجّل حضورك وانصرافك، وتابع حضور موظفي فرعك يومياً من مكان واحد.</p>
-            </div>
-            <div class="onboarding-slide">
-                <div class="onboarding-icon"><i class="fas fa-file-pen"></i></div>
-                <h2>راجع طلبات فريقك بسرعة</h2>
-                <p>إجازات، سلف، شكاوى واستقالات موظفيك — وافق أو ارفض مع رد مباشر، وتابع حالتها حتى الموارد البشرية.</p>
-            </div>
-            <div class="onboarding-slide">
-                <div class="onboarding-icon"><i class="fas fa-chart-simple"></i></div>
-                <h2>انشر إيجاز فرعك اليومي</h2>
-                <p>سجّل قيود الدخل والمصروف وانشر إيجاز اليوم بضغطة، وتابع مسار اعتماده حتى المسؤول العام.</p>
-            </div>
-        </div>
-        <div class="onboarding-dots" id="onboardingDots">
-            <button class="dot active" onclick="onboardingGoTo(0)"></button>
-            <button class="dot" onclick="onboardingGoTo(1)"></button>
-            <button class="dot" onclick="onboardingGoTo(2)"></button>
-        </div>
-        <button class="onboarding-next" id="onboardingNextBtn" onclick="onboardingNext()">التالي</button>
     </div>
 
     <!-- شاشة تسجيل الدخول -->
@@ -1710,6 +1731,53 @@ function branch_report_data(PDO $pdo, string $type, string $from, string $to, in
             </div>
 
             <!-- ==========================================================
+            ملفي — بيانات مدير الفرع الشخصية: حضوره وراتبه وخصوماته
+            ========================================================== -->
+            <div id="page-myProfile" class="page-screen hidden">
+                <div class="page-title"><h2><i class="fas fa-user-circle"></i> ملفي الوظيفي</h2><button onclick="navigateTo('home')" class="back-btn"><i class="fas fa-arrow-right"></i> رجوع</button></div>
+
+                <div class="card">
+                    <div class="table-wrap">
+                        <table class="table">
+                            <tr><th>الاسم</th><td id="mpName">...</td></tr>
+                            <tr><th>المنصب</th><td>مدير فرع</td></tr>
+                            <tr><th>الفرع</th><td id="mpBranch">...</td></tr>
+                            <tr><th>رقم التوظيف</th><td id="mpCode">...</td></tr>
+                            <tr><th>الراتب الاسمي</th><td id="mpSalary">...</td></tr>
+                        </table>
+                    </div>
+                </div>
+
+                <div class="section-title"><i class="fas fa-money-bill-wave"></i> راتب الشهر الحالي</div>
+                <div class="card">
+                    <div class="table-wrap">
+                        <table class="table">
+                            <tr><th>البيان</th><th>المبلغ</th></tr>
+                            <tr><td>الراتب الأساسي</td><td id="mpBase">0</td></tr>
+                            <tr><td>الخصومات</td><td id="mpDeduction" style="color:var(--red);">- 0</td></tr>
+                            <tr><td>المكافآت</td><td id="mpBonus" style="color:var(--green);">+ 0</td></tr>
+                            <tr style="border-top:2px solid var(--primary);"><td><b>الصافي</b></td><td><b id="mpNet" style="color:var(--green);">0</b></td></tr>
+                        </table>
+                    </div>
+                    <div class="muted" id="mpStatus" style="margin-top:6px;"></div>
+                </div>
+
+                <div class="section-title"><i class="fas fa-calendar-days"></i> سجل حضوري الشهري</div>
+                <div class="card" style="display:flex;align-items:center;justify-content:space-between;padding:10px 14px;">
+                    <button onclick="mpAttendanceNav(-1)" style="background:none;border:none;font-size:18px;color:var(--primary-light);cursor:pointer;padding:6px 10px;"><i class="fas fa-chevron-right"></i></button>
+                    <b id="mpMonthLabel" style="font-size:14px;">...</b>
+                    <button onclick="mpAttendanceNav(1)" id="mpNextBtn" style="background:none;border:none;font-size:18px;color:var(--primary-light);cursor:pointer;padding:6px 10px;"><i class="fas fa-chevron-left"></i></button>
+                </div>
+                <div class="card" id="mpMonthSummary" style="display:flex;justify-content:space-around;text-align:center;padding:14px;"></div>
+                <div class="card">
+                    <div style="display:grid;grid-template-columns:repeat(7,1fr);gap:6px;margin-bottom:8px;font-size:10.5px;color:var(--text-muted);font-weight:700;text-align:center;">
+                        <span>أحد</span><span>إثنين</span><span>ثلاثاء</span><span>أربعاء</span><span>خميس</span><span>جمعة</span><span>سبت</span>
+                    </div>
+                    <div id="mpCalendarGrid" style="display:grid;grid-template-columns:repeat(7,1fr);gap:6px;"></div>
+                </div>
+            </div>
+
+            <!-- ==========================================================
             الملفات
             ========================================================== -->
             <div id="page-files" class="page-screen hidden">
@@ -1778,6 +1846,7 @@ function branch_report_data(PDO $pdo, string $type, string $from, string $to, in
             <button class="close-btn" onclick="toggleSideMenu()"><i class="fas fa-times"></i></button>
             <div class="profile"><div class="avatar" id="sideMenuAvatar">👤</div><div class="info"><div class="name" id="sideMenuName">مدير الفرع</div><div class="title" id="sideMenuTitle">مدير فرع</div></div></div>
             <div class="menu-item" onclick="navigateTo('home');toggleSideMenu();"><i class="fas fa-home"></i> الرئيسية</div>
+            <div class="menu-item" onclick="navigateTo('myProfile');toggleSideMenu();"><i class="fas fa-user-circle"></i> ملفي</div>
             <div class="menu-item" onclick="navigateTo('employees');toggleSideMenu();"><i class="fas fa-users"></i> الموظفون</div>
             <div class="menu-item" onclick="navigateTo('attendance');toggleSideMenu();"><i class="fas fa-fingerprint"></i> البصمة والحضور</div>
             <div class="menu-item" onclick="navigateTo('requests');toggleSideMenu();"><i class="fas fa-file-pen"></i> طلبات الموظفين</div>
@@ -1907,64 +1976,12 @@ function branch_report_data(PDO $pdo, string $type, string $from, string $to, in
         // ============================================================
         let loaderProgress = 0;
         const loaderBar = document.getElementById('loaderBar');
-        const loaderPercent = document.getElementById('loaderPercent');
-        const loaderStatus = document.getElementById('loaderStatus');
-        const loaderLabel = document.getElementById('loaderLabel');
         const welcomeScreen = document.getElementById('welcomeScreen');
         const loginScreen = document.getElementById('loginScreen');
-        const onboardingScreen = document.getElementById('onboardingScreen');
-
-        let onboardingSlideIndex = 0;
-        const onboardingSlideCount = 3;
-
-        function onboardingGoTo(index) {
-            onboardingSlideIndex = index;
-            document.getElementById('onboardingSlides').style.transform = `translateX(-${index * 100}%)`;
-            document.querySelectorAll('#onboardingDots .dot').forEach((dot, i) => dot.classList.toggle('active', i === index));
-            document.getElementById('onboardingNextBtn').textContent = index === onboardingSlideCount - 1 ? 'ابدأ الآن' : 'التالي';
-        }
-
-        function onboardingNext() {
-            if (onboardingSlideIndex < onboardingSlideCount - 1) onboardingGoTo(onboardingSlideIndex + 1);
-            else finishOnboarding();
-        }
-
-        function finishOnboarding() {
-            localStorage.setItem('onboardingSeenBranch', '1');
-            onboardingScreen.classList.add('hidden');
-            loginScreen.classList.remove('hidden');
-        }
-
-        const statusMessages = [
-            { at: 0, text: 'تهيئة البيئة...' },
-            { at: 15, text: 'تحميل الملفات الأساسية...' },
-            { at: 30, text: 'تجهيز قاعدة البيانات...' },
-            { at: 45, text: 'تحميل بيانات المستخدم...' },
-            { at: 60, text: 'تهيئة النظام...' },
-            { at: 75, text: 'تحميل الإعدادات...' },
-            { at: 85, text: 'تجهيز الواجهة...' },
-            { at: 95, text: 'اكتمال التحميل...' }
-        ];
-
-        function updateLoaderStatus(progress) {
-            let currentText = statusMessages[0].text;
-            for (const msg of statusMessages) {
-                if (progress >= msg.at) {
-                    currentText = msg.text;
-                }
-            }
-            loaderStatus.textContent = currentText;
-            if (progress >= 100) {
-                loaderStatus.textContent = '✅ جاهز!';
-                loaderLabel.innerHTML = '<i class="fas fa-check-circle" style="color:#10B981;"></i> تم التحميل بنجاح';
-            }
-        }
 
         function animateLoader() {
             if (loaderProgress >= 100) {
                 loaderBar.style.width = '100%';
-                loaderPercent.textContent = '100%';
-                updateLoaderStatus(100);
                 setTimeout(() => {
                     welcomeScreen.classList.add('fade-out');
                     setTimeout(() => {
@@ -1972,8 +1989,6 @@ function branch_report_data(PDO $pdo, string $type, string $from, string $to, in
                         if (alreadyLoggedIn) {
                             document.getElementById('appContainer').classList.remove('hidden');
                             initApp();
-                        } else if (!localStorage.getItem('onboardingSeenBranch')) {
-                            document.getElementById('onboardingScreen').classList.remove('hidden');
                         } else {
                             loginScreen.classList.remove('hidden');
                         }
@@ -1985,8 +2000,6 @@ function branch_report_data(PDO $pdo, string $type, string $from, string $to, in
             const increment = Math.random() * 2.5 + 0.8;
             loaderProgress = Math.min(loaderProgress + increment, 100);
             loaderBar.style.width = loaderProgress + '%';
-            loaderPercent.textContent = Math.floor(loaderProgress) + '%';
-            updateLoaderStatus(loaderProgress);
             let delay = 60 + Math.random() * 70;
             if (loaderProgress > 80) delay = 100 + Math.random() * 80;
             if (loaderProgress > 95) delay = 150 + Math.random() * 120;
@@ -2240,6 +2253,77 @@ function branch_report_data(PDO $pdo, string $type, string $from, string $to, in
             });
         }
 
+        // ============================================================
+        // ملفي — بيانات مدير الفرع الشخصية
+        // ============================================================
+        function loadMyProfile() {
+            fetch('?ajax=my_profile').then(r => r.json()).then(data => {
+                if (!data.ok) return;
+                document.getElementById('mpName').textContent = data.name;
+                document.getElementById('mpBranch').textContent = data.branch;
+                document.getElementById('mpCode').textContent = data.code;
+                document.getElementById('mpSalary').textContent = Number(data.baseSalary).toLocaleString() + ' د.ع';
+                document.getElementById('mpBase').textContent = Number(data.salary.base).toLocaleString();
+                document.getElementById('mpDeduction').textContent = '- ' + Number(data.salary.deduction).toLocaleString();
+                document.getElementById('mpBonus').textContent = '+ ' + Number(data.salary.bonus).toLocaleString();
+                document.getElementById('mpNet').textContent = Number(data.salary.net).toLocaleString() + ' د.ع';
+                document.getElementById('mpStatus').textContent = 'حالة راتب الشهر الحالي: ' + data.salary.statusText;
+            });
+        }
+
+        let mpMonth = new Date().getMonth() + 1;
+        let mpYear = new Date().getFullYear();
+        const mpMonthNames = ['يناير','فبراير','مارس','أبريل','مايو','يونيو','يوليو','أغسطس','سبتمبر','أكتوبر','نوفمبر','ديسمبر'];
+
+        function loadMyAttendanceMonth() {
+            fetch(`?ajax=my_attendance_month&month=${mpMonth}&year=${mpYear}`).then(r => r.json()).then(data => {
+                if (!data.ok) return;
+                renderMpCalendar(data);
+            });
+        }
+
+        function mpAttendanceNav(delta) {
+            const now = new Date();
+            let m = mpMonth + delta;
+            let y = mpYear;
+            if (m > 12) { m = 1; y++; }
+            if (m < 1) { m = 12; y--; }
+            if (y > now.getFullYear() || (y === now.getFullYear() && m > now.getMonth() + 1)) return;
+            mpMonth = m;
+            mpYear = y;
+            loadMyAttendanceMonth();
+        }
+
+        function renderMpCalendar(data) {
+            document.getElementById('mpMonthLabel').textContent = mpMonthNames[data.month - 1] + ' ' + data.year;
+            const now = new Date();
+            const isCurrentMonth = data.year === now.getFullYear() && data.month === now.getMonth() + 1;
+            document.getElementById('mpNextBtn').style.visibility = isCurrentMonth ? 'hidden' : 'visible';
+
+            document.getElementById('mpMonthSummary').innerHTML = `
+                <div><div style="font-size:20px;font-weight:800;color:var(--green);">${data.summary.present}</div><div style="font-size:11px;color:var(--text-muted);">حضور</div></div>
+                <div><div style="font-size:20px;font-weight:800;color:#D97706;">${data.summary.late}</div><div style="font-size:11px;color:var(--text-muted);">تأخير</div></div>
+                <div><div style="font-size:20px;font-weight:800;color:var(--red);">${data.summary.absent}</div><div style="font-size:11px;color:var(--text-muted);">غياب</div></div>
+            `;
+
+            const firstDow = new Date(data.year, data.month - 1, 1).getDay();
+            const colors = {
+                present: ['#059669', 'rgba(16,185,129,0.12)'],
+                late: ['#D97706', 'rgba(217,119,6,0.12)'],
+                absent: ['#DC2626', 'rgba(239,68,68,0.12)'],
+                off: ['var(--text-muted)', 'rgba(0,107,115,0.05)'],
+                future: ['var(--text-muted)', 'transparent'],
+            };
+            let html = '';
+            for (let i = 0; i < firstDow; i++) html += '<div></div>';
+            data.days.forEach(d => {
+                const [fg, bg] = colors[d.status] || colors.future;
+                const title = d.checkIn ? `دخول ${d.checkIn}${d.checkOut ? ' - خروج ' + d.checkOut : ''}` : '';
+                html += `<div title="${title}" style="aspect-ratio:1;border-radius:8px;background:${bg};color:${fg};display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;">${d.day}</div>`;
+            });
+            document.getElementById('mpCalendarGrid').innerHTML = html;
+        }
+
         function renderPayroll(rows) {
             const container = document.getElementById('payrollList');
             if (!rows.length) {
@@ -2286,6 +2370,7 @@ function branch_report_data(PDO $pdo, string $type, string $from, string $to, in
             else if (page === 'payroll') loadPayroll();
             else if (page === 'home') loadHomeStats();
             else if (page === 'notifications') loadNotifications();
+            else if (page === 'myProfile') { loadMyProfile(); loadMyAttendanceMonth(); }
             else if (page === 'reports') {
                 const fromEl = document.getElementById('reportFrom');
                 const toEl = document.getElementById('reportTo');
@@ -2337,12 +2422,19 @@ function branch_report_data(PDO $pdo, string $type, string $from, string $to, in
 
             if (note) {
                 if (showIn || showOut) {
+                    note.style.color = '';
                     note.textContent = '';
                 } else if (todayAttendance.checkedIn && todayAttendance.checkedOut) {
+                    note.style.color = '';
                     note.textContent = 'تم تسجيل حضورك وانصرافك اليوم';
+                } else if (!todayAttendance.checkedIn && nowMinutes > shiftStartMin + grace) {
+                    note.style.color = '#DC2626';
+                    note.textContent = '✕ غياب — انتهت فترة تسجيل الحضور دون تسجيلك';
                 } else if (!todayAttendance.checkedIn) {
+                    note.style.color = '';
                     note.textContent = 'يظهر زر تسجيل الدخول من ' + shiftInfo.start + ' حتى مضي ' + grace + ' دقيقة من بداية الدوام';
                 } else {
+                    note.style.color = '';
                     note.textContent = 'يظهر زر تسجيل الانصراف عند نهاية الدوام (' + shiftInfo.end + ') لمدة 15 دقيقة فقط';
                 }
             }
