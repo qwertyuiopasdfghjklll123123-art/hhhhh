@@ -236,6 +236,22 @@ if (isset($_GET['ajax'])) {
             exit;
         }
 
+        case 'notifications_list': {
+            $stmt = $pdo->prepare("SELECT id, title, message, is_read, DATE_FORMAT(created_at,'%d/%m/%Y %H:%i') AS date FROM notifications WHERE user_id=? ORDER BY created_at DESC LIMIT 30");
+            $stmt->execute([$gmUser['id']]);
+            $rows = $stmt->fetchAll();
+            $unread = $pdo->prepare("SELECT COUNT(*) FROM notifications WHERE user_id=? AND is_read=0");
+            $unread->execute([$gmUser['id']]);
+            echo json_encode(['ok' => true, 'notifications' => $rows, 'unread' => (int) $unread->fetchColumn()], JSON_UNESCAPED_UNICODE);
+            exit;
+        }
+
+        case 'notifications_mark_all_read': {
+            $pdo->prepare("UPDATE notifications SET is_read=1 WHERE user_id=?")->execute([$gmUser['id']]);
+            echo json_encode(['ok' => true]);
+            exit;
+        }
+
         case 'payroll_window_open': {
             $month = (int) date('n');
             $year = (int) date('Y');
@@ -634,6 +650,19 @@ if (isset($_GET['ajax'])) {
         .stats-grid { grid-template-columns: repeat(2, 1fr); }
         .brief-details { grid-template-columns: repeat(2, 1fr); }
     }
+
+    /* طباعة التقرير كـ PDF */
+    #reportPrintHeader { display: none; }
+    @media print {
+        body { background: #fff !important; }
+        body * { visibility: hidden; }
+        #reportResult, #reportResult * { visibility: visible; }
+        #reportResult { width: 100%; box-shadow: none; border: none; }
+        #reportPrintHeader, #reportPrintHeader * { visibility: visible; }
+        #reportPrintHeader { display: block; text-align: center; margin-bottom: 16px; background: #fff; }
+        #reportPrintHeader h2 { font-size: 20px; margin-bottom: 4px; color: #173437; }
+        #reportPrintHeader span { font-size: 12px; color: #555; }
+    }
 </style>
 </head>
 <body>
@@ -659,7 +688,20 @@ if (isset($_GET['ajax'])) {
     <div id="appContainer" class="hidden">
         <header class="topbar">
             <div class="brand"><div class="logo" id="headerLogo">✥</div> <span id="headerCompanyName">شركة الصوى</span> <span class="role-badge" id="roleBadge">المسؤول العام</span></div>
-            <button class="btn small red" onclick="handleLogout()"><i class="fas fa-sign-out-alt"></i> تسجيل الخروج</button>
+            <div style="display:flex;align-items:center;gap:10px;position:relative;">
+                <button onclick="toggleNotifPanel()" style="position:relative;width:38px;height:38px;border:none;border-radius:50%;background:rgba(0,107,115,0.06);color:var(--primary);cursor:pointer;font-size:16px;">
+                    <i class="fas fa-bell"></i>
+                    <span id="notifBadge" style="display:none;position:absolute;top:-2px;left:-2px;background:#DC2626;color:#fff;font-size:10px;font-weight:800;min-width:16px;height:16px;border-radius:50%;align-items:center;justify-content:center;">0</span>
+                </button>
+                <div id="notifPanel" style="display:none;position:absolute;left:0;top:48px;width:320px;max-height:420px;overflow-y:auto;background:#fff;border-radius:14px;box-shadow:0 12px 40px rgba(0,0,0,0.15);z-index:500;">
+                    <div style="padding:12px 16px;border-bottom:1px solid #eee;display:flex;justify-content:space-between;align-items:center;">
+                        <b style="font-size:13px;">الإشعارات</b>
+                        <button onclick="markAllNotifsRead()" style="background:none;border:none;color:var(--primary);font-size:11px;cursor:pointer;">تعليم الكل كمقروء</button>
+                    </div>
+                    <div id="notifList" style="padding:6px;"></div>
+                </div>
+                <button class="btn small red" onclick="handleLogout()"><i class="fas fa-sign-out-alt"></i> تسجيل الخروج</button>
+            </div>
         </header>
 
         <div class="container">
@@ -734,7 +776,12 @@ if (isset($_GET['ajax'])) {
                     <div style="display:flex;gap:8px;">
                         <button class="btn small" onclick="generateReport()"><i class="fas fa-file-lines"></i> إنشاء التقرير</button>
                         <button class="btn small green" onclick="downloadReport()"><i class="fas fa-download"></i> تحميل CSV</button>
+                        <button class="btn small" onclick="printReportPDF()"><i class="fas fa-file-pdf"></i> تصدير PDF</button>
                     </div>
+                </div>
+                <div id="reportPrintHeader">
+                    <h2 id="reportPrintCompany">شركة الصوى للصرافة</h2>
+                    <span id="reportPrintMeta"></span>
                 </div>
                 <div id="reportResult"></div>
             </div>
@@ -828,6 +875,58 @@ if (isset($_GET['ajax'])) {
         }
     }
 
+    function checkNewBrowserNotifications(list, storageKey) {
+        if (!('Notification' in window) || Notification.permission !== 'granted' || !list.length) return;
+        const lastId = parseInt(localStorage.getItem(storageKey) || '0', 10);
+        const maxId = list.reduce((m, n) => Math.max(m, n.id || 0), 0);
+        if (lastId > 0) {
+            list.filter(n => (n.id || 0) > lastId).slice(0, 3).forEach(n => {
+                try {
+                    const notif = new Notification(n.title, { body: n.message || '', icon: 'icons/icon-192.png', tag: storageKey + '_' + n.id });
+                    notif.onclick = () => { window.focus(); notif.close(); };
+                } catch (e) {}
+            });
+        }
+        if (maxId > lastId) localStorage.setItem(storageKey, maxId);
+    }
+
+    function loadNotifications() {
+        fetch('?ajax=notifications_list').then(r => r.json()).then(data => {
+            if (!data.ok) return;
+            checkNewBrowserNotifications(data.notifications, 'lastNotifId_gm');
+            const badge = document.getElementById('notifBadge');
+            if (data.unread > 0) {
+                badge.style.display = 'flex';
+                badge.textContent = data.unread;
+            } else {
+                badge.style.display = 'none';
+            }
+            const list = document.getElementById('notifList');
+            if (!data.notifications.length) {
+                list.innerHTML = '<div style="padding:20px;text-align:center;color:var(--text-muted);font-size:12px;">لا توجد إشعارات</div>';
+                return;
+            }
+            list.innerHTML = data.notifications.map(n => `
+                <div style="padding:10px 12px;border-radius:8px;margin-bottom:4px;background:${n.is_read ? 'transparent' : 'rgba(0,107,115,0.05)'};">
+                    <div style="font-size:12px;font-weight:800;">${n.title}</div>
+                    <div style="font-size:11.5px;color:var(--text-secondary);margin-top:2px;">${n.message}</div>
+                    <div style="font-size:10px;color:var(--text-muted);margin-top:4px;">${n.date}</div>
+                </div>
+            `).join('');
+        }).catch(() => {});
+    }
+
+    function toggleNotifPanel() {
+        const panel = document.getElementById('notifPanel');
+        const show = panel.style.display === 'none';
+        panel.style.display = show ? 'block' : 'none';
+        if (show) loadNotifications();
+    }
+
+    function markAllNotifsRead() {
+        fetch('?ajax=notifications_mark_all_read', { method: 'POST' }).then(() => loadNotifications());
+    }
+
     // بطاقة تأكيد منبثقة (بديل عن confirm() الأصلية بالمتصفح)
     let confirmSheetCallback = null;
     function showConfirmSheet(title, message, onConfirm) {
@@ -895,6 +994,8 @@ if (isset($_GET['ajax'])) {
     function initApp() {
         loadBootstrap();
         requestNotifPermission();
+        loadNotifications();
+        setInterval(loadNotifications, 60000);
         if (currentRole !== 'shareholder') loadPending();
         const today = new Date().toISOString().split('T')[0];
         const monthStart = today.slice(0, 8) + '01';
@@ -1133,6 +1234,8 @@ if (isset($_GET['ajax'])) {
             rows.map(r => `<tr style="border-bottom:1px solid #eee;"><td style="padding:6px;">${r.branch}</td><td style="padding:6px;">${r.date}</td><td style="padding:6px;">${r.revenue}</td><td style="padding:6px;">${r.expense}</td><td style="padding:6px;">${r.travelers}</td><td style="padding:6px;">${r.profit}</td><td style="padding:6px;">${r.statusText || '-'}</td><td style="padding:6px;">${r.hrNote || '-'}</td><td style="padding:6px;">${r.gmNote || '-'}</td></tr>`).join('') + '</tbody></table></div>';
     }
 
+    const reportTypeNamesGm = { 'attendance': 'الحضور', 'salaries': 'الرواتب', 'briefing': 'الإيجاز', 'all': 'تقرير شامل' };
+
     function generateReport() {
         const type = document.getElementById('reportType').value;
         const from = document.getElementById('reportFrom').value;
@@ -1147,6 +1250,7 @@ if (isset($_GET['ajax'])) {
             if (type === 'briefing' || type === 'all') html += '<h4 style="margin:14px 0 8px;"><i class="fas fa-chart-simple"></i> الإيجاز</h4>' + briefingTable(data.briefing);
             html += '</div>';
             document.getElementById('reportResult').innerHTML = html;
+            document.getElementById('reportPrintMeta').textContent = `${reportTypeNamesGm[type] || type} — من ${from} إلى ${to}`;
             showToast('📊 تم الإنشاء', 'تم إنشاء التقرير بنجاح', 'success');
         });
     }
@@ -1158,6 +1262,15 @@ if (isset($_GET['ajax'])) {
         const branch = document.getElementById('reportBranch').value || '0';
         const qs = new URLSearchParams({ type, from, to, branch });
         window.location.href = '?ajax=report_download&' + qs.toString();
+    }
+
+    function printReportPDF() {
+        if (!document.getElementById('reportResult').innerHTML.trim()) {
+            showToast('⚠️ تنبيه', 'الرجاء إنشاء التقرير أولاً', 'warning');
+            return;
+        }
+        showToast('🖨️ جاري التجهيز', 'اختر "حفظ كـ PDF" من نافذة الطباعة', 'info');
+        setTimeout(() => window.print(), 300);
     }
 
     // ============================================================

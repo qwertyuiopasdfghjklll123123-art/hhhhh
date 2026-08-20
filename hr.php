@@ -159,7 +159,7 @@ if (isset($_GET['ajax'])) {
             $branches = $pdo->query("
                 SELECT b.id, b.name, b.location, b.status, b.notes,
                        e.id AS managerId, e.full_name AS manager, e.national_id AS nationalId, e.phone_number AS phone, e.birth_date AS birthDate,
-                       e.hire_date AS hireDate, e.duty_start_date AS startDate, e.duty_end_date AS endDate,
+                       e.hire_date AS hireDate,
                        e.shift_start AS shiftStart, e.shift_end AS shiftEnd,
                        e.photo, e.documents AS docs
                 FROM branches b
@@ -267,7 +267,7 @@ if (isset($_GET['ajax'])) {
             $rows = $pdo->query("
                 SELECT b.id, b.name, b.location, b.status, b.notes,
                        e.id AS managerId, e.full_name AS manager, e.national_id AS nationalId, e.phone_number AS phone, e.birth_date AS birthDate,
-                       e.hire_date AS hireDate, e.duty_start_date AS startDate, e.duty_end_date AS endDate,
+                       e.hire_date AS hireDate,
                        e.shift_start AS shiftStart, e.shift_end AS shiftEnd,
                        e.photo, e.documents AS docs
                 FROM branches b
@@ -355,8 +355,6 @@ if (isset($_GET['ajax'])) {
             $phone = trim($_POST['phone'] ?? '');
             $birthDate = $_POST['birthDate'] ?: null;
             $hireDate = $_POST['hireDate'] ?: null;
-            $startDate = $_POST['startDate'] ?: null;
-            $endDate = $_POST['endDate'] ?: null;
             $shiftStart = $_POST['shiftStart'] ?: null;
             $shiftEnd = $_POST['shiftEnd'] ?: null;
             $notes = trim($_POST['notes'] ?? '');
@@ -397,8 +395,8 @@ if (isset($_GET['ajax'])) {
                 $existingManagerId = $mgrStmt->fetchColumn();
 
                 if ($existingManagerId) {
-                    $sql = "UPDATE employees SET full_name=?, national_id=?, phone_number=?, birth_date=?, hire_date=?, duty_start_date=?, duty_end_date=?, shift_start=?, shift_end=?";
-                    $params = [$manager, $nationalId, $phone, $birthDate, $hireDate, $startDate, $endDate, $shiftStart, $shiftEnd];
+                    $sql = "UPDATE employees SET full_name=?, national_id=?, phone_number=?, birth_date=?, hire_date=?, shift_start=?, shift_end=?";
+                    $params = [$manager, $nationalId, $phone, $birthDate, $hireDate, $shiftStart, $shiftEnd];
                     if ($photoPath) { $sql .= ", photo=?"; $params[] = $photoPath; }
                     if ($docsPath) { $sql .= ", documents=?"; $params[] = $docsPath; }
                     $sql .= " WHERE id=?";
@@ -408,8 +406,8 @@ if (isset($_GET['ajax'])) {
                 } else {
                     $numStmt = $pdo->query("SELECT MAX(CAST(employee_number AS UNSIGNED)) FROM employees WHERE employee_number REGEXP '^[0-9]+$'");
                     $empNumber = (string) max(1001, (int) $numStmt->fetchColumn() + 1);
-                    $stmt = $pdo->prepare("INSERT INTO employees (branch_id, employee_number, full_name, national_id, phone_number, birth_date, hire_date, duty_start_date, duty_end_date, shift_start, shift_end, job_title, photo, documents, is_branch_manager, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'مدير فرع', ?, ?, 1, 'active')");
-                    $stmt->execute([$branchId, $empNumber, $manager, $nationalId, $phone, $birthDate, $hireDate, $startDate, $endDate, $shiftStart, $shiftEnd, $photoPath, $docsPath]);
+                    $stmt = $pdo->prepare("INSERT INTO employees (branch_id, employee_number, full_name, national_id, phone_number, birth_date, hire_date, shift_start, shift_end, job_title, photo, documents, is_branch_manager, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'مدير فرع', ?, ?, 1, 'active')");
+                    $stmt->execute([$branchId, $empNumber, $manager, $nationalId, $phone, $birthDate, $hireDate, $shiftStart, $shiftEnd, $photoPath, $docsPath]);
                     $managerEmployeeId = (int) $pdo->lastInsertId();
 
                     if ($managerPassword !== '' && strlen($managerPassword) >= 4) {
@@ -2702,12 +2700,14 @@ function report_data(PDO $pdo, string $type, string $from, string $to, int $bran
         /* طباعة التقرير كـ PDF */
         #reportPrintHeader { display: none; }
         @media print {
+            body { background: #fff !important; }
             body * { visibility: hidden; }
             #reportResult, #reportResult * { visibility: visible; }
-            #reportResult { position: absolute; inset: 0; width: 100%; box-shadow: none; border: none; }
+            #reportResult { width: 100%; box-shadow: none; border: none; }
             #reportResult .card-header button { display: none !important; }
-            #reportPrintHeader { display: block; visibility: visible; text-align: center; margin-bottom: 16px; }
-            #reportPrintHeader h2 { font-size: 20px; margin-bottom: 4px; }
+            #reportPrintHeader, #reportPrintHeader * { visibility: visible; }
+            #reportPrintHeader { display: block; text-align: center; margin-bottom: 16px; background: #fff; }
+            #reportPrintHeader h2 { font-size: 20px; margin-bottom: 4px; color: #173437; }
             #reportPrintHeader span { font-size: 12px; color: #555; }
             .table th, .table td { color: #000 !important; }
         }
@@ -2964,19 +2964,11 @@ function report_data(PDO $pdo, string $type, string $from, string $to, int $bran
                                 <input type="date" id="branchHireDate">
                             </div>
                             <div class="form-group">
-                                <label>تاريخ بداية فترة العمل</label>
-                                <input type="date" id="branchStartDate">
-                            </div>
-                            <div class="form-group">
-                                <label>تاريخ نهاية فترة العمل</label>
-                                <input type="date" id="branchEndDate">
-                            </div>
-                            <div class="form-group">
-                                <label>⏰ بداية دوام الفرع (وقت)</label>
+                                <label>⏰ وقت بداية الدوام</label>
                                 <input type="time" id="branchShiftStart">
                             </div>
                             <div class="form-group">
-                                <label>⏰ نهاية دوام الفرع (وقت)</label>
+                                <label>⏰ وقت نهاية الدوام (الانصراف)</label>
                                 <input type="time" id="branchShiftEnd">
                             </div>
                             <div class="form-group">
@@ -3719,9 +3711,25 @@ function report_data(PDO $pdo, string $type, string $from, string $to, int $bran
         // ============================================================
         // الإشعارات
         // ============================================================
+        function checkNewBrowserNotifications(list, storageKey) {
+            if (!('Notification' in window) || Notification.permission !== 'granted' || !list.length) return;
+            const lastId = parseInt(localStorage.getItem(storageKey) || '0', 10);
+            const maxId = list.reduce((m, n) => Math.max(m, n.id || 0), 0);
+            if (lastId > 0) {
+                list.filter(n => (n.id || 0) > lastId).slice(0, 3).forEach(n => {
+                    try {
+                        const notif = new Notification(n.title, { body: n.message || '', icon: 'icons/icon-192.png', tag: storageKey + '_' + n.id });
+                        notif.onclick = () => { window.focus(); notif.close(); };
+                    } catch (e) {}
+                });
+            }
+            if (maxId > lastId) localStorage.setItem(storageKey, maxId);
+        }
+
         function loadNotifications() {
             fetch('?ajax=notifications_list').then(r => r.json()).then(data => {
                 if (!data.ok) return;
+                checkNewBrowserNotifications(data.notifications, 'lastNotifId_hr');
                 const badge = document.getElementById('notifBadge');
                 if (data.unread > 0) {
                     badge.style.display = 'flex';
@@ -4021,8 +4029,6 @@ function report_data(PDO $pdo, string $type, string $from, string $to, int $bran
             document.getElementById('branchPhone').value = '';
             document.getElementById('branchBirthDate').value = '';
             document.getElementById('branchHireDate').value = '';
-            document.getElementById('branchStartDate').value = '';
-            document.getElementById('branchEndDate').value = '';
             document.getElementById('branchShiftStart').value = '';
             document.getElementById('branchShiftEnd').value = '';
             document.getElementById('branchNotes').value = '';
@@ -4070,8 +4076,6 @@ function report_data(PDO $pdo, string $type, string $from, string $to, int $bran
             fd.append('phone', phone);
             fd.append('birthDate', document.getElementById('branchBirthDate').value);
             fd.append('hireDate', document.getElementById('branchHireDate').value);
-            fd.append('startDate', document.getElementById('branchStartDate').value);
-            fd.append('endDate', document.getElementById('branchEndDate').value);
             fd.append('shiftStart', document.getElementById('branchShiftStart').value);
             fd.append('shiftEnd', document.getElementById('branchShiftEnd').value);
             fd.append('notes', document.getElementById('branchNotes').value.trim());
@@ -4107,8 +4111,6 @@ function report_data(PDO $pdo, string $type, string $from, string $to, int $bran
             document.getElementById('branchPhone').value = branch.phone || '';
             document.getElementById('branchBirthDate').value = branch.birthDate || '';
             document.getElementById('branchHireDate').value = branch.hireDate || '';
-            document.getElementById('branchStartDate').value = branch.startDate || '';
-            document.getElementById('branchEndDate').value = branch.endDate || '';
             document.getElementById('branchShiftStart').value = branch.shiftStart || '';
             document.getElementById('branchShiftEnd').value = branch.shiftEnd || '';
             document.getElementById('branchNotes').value = branch.notes || '';

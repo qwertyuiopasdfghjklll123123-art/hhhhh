@@ -216,9 +216,13 @@ if (isset($_GET['ajax'])) {
 
             $month = (int) date('n');
             $year = (int) date('Y');
-            $payStmt = $pdo->prepare("SELECT bonus, deduction FROM payroll WHERE employee_id=? AND period_month=? AND period_year=?");
+            $payStmt = $pdo->prepare("SELECT bonus, deduction, status FROM payroll WHERE employee_id=? AND period_month=? AND period_year=?");
             $payStmt->execute([$employeeId, $month, $year]);
             $pay = $payStmt->fetch();
+
+            $advStmt = $pdo->prepare("SELECT amount, approved_monthly_deduction, remaining_balance FROM requests WHERE employee_id=? AND type='advance' AND status='approved' AND remaining_balance > 0 ORDER BY id ASC LIMIT 1");
+            $advStmt->execute([$employeeId]);
+            $activeAdvance = $advStmt->fetch();
 
             $todayStatusText = 'لم يسجل بعد';
             if ($todayAtt) {
@@ -257,6 +261,12 @@ if (isset($_GET['ajax'])) {
                     'shiftTypeText' => $empRow['shift_type'] === 'evening' ? 'مطبق' : 'غير مطبق',
                     'adminDeduction' => (float) ($pay['deduction'] ?? 0),
                     'adminBonus' => (float) ($pay['bonus'] ?? 0),
+                    'netSalary' => (float) $empRow['base_salary'] + (float) ($pay['bonus'] ?? 0) - (float) ($pay['deduction'] ?? 0),
+                    'salaryDelivered' => ($pay['status'] ?? null) === 'delivered',
+                    'hasAdvance' => (bool) $activeAdvance,
+                    'advanceAmount' => $activeAdvance ? (float) $activeAdvance['amount'] : null,
+                    'advanceMonthlyDeduction' => $activeAdvance ? (float) $activeAdvance['approved_monthly_deduction'] : null,
+                    'advanceRemaining' => $activeAdvance ? (float) $activeAdvance['remaining_balance'] : null,
                 ],
                 'stats' => [
                     'commitmentPct' => $commitmentPct,
@@ -404,6 +414,7 @@ if (isset($_GET['ajax'])) {
                 } else {
                     $responseText = 'بانتظار مراجعة مدير الفرع';
                 }
+                $isAdvanceApproved = $r['type'] === 'advance' && $r['status'] === 'approved';
                 return [
                     'id' => (int) $r['id'],
                     'type' => request_type_ar_emp($r['type']),
@@ -411,6 +422,10 @@ if (isset($_GET['ajax'])) {
                     'status' => $r['status'],
                     'statusText' => request_status_ar_emp($r['status']),
                     'responseText' => $responseText,
+                    'isAdvanceApproved' => $isAdvanceApproved,
+                    'amount' => $isAdvanceApproved ? (float) $r['amount'] : null,
+                    'monthlyDeduction' => $isAdvanceApproved ? (float) $r['approved_monthly_deduction'] : null,
+                    'remainingBalance' => $isAdvanceApproved ? (float) $r['remaining_balance'] : null,
                 ];
             }, $stmt->fetchAll());
             echo json_encode(['ok' => true, 'requests' => $rows], JSON_UNESCAPED_UNICODE);
@@ -2556,6 +2571,31 @@ try {
                         </table>
                     </div>
                 </div>
+
+                <div class="section-title"><i class="fas fa-money-bill-wave"></i> راتب الشهر الحالي</div>
+                <div class="card">
+                    <div class="table-wrap">
+                        <table class="table">
+                            <tr><td>الراتب الأساسي + المكافآت - الخصومات</td><td></td></tr>
+                            <tr style="border-top:2px solid var(--primary);"><th><b>الصافي المتوقع استلامه</b></th><td><b id="profileNetSalary" style="color:var(--green,#059669);">0</b></td></tr>
+                        </table>
+                    </div>
+                    <div class="muted" id="profileSalaryStatus" style="margin-top:6px;font-size:12px;"></div>
+                </div>
+
+                <div id="profileAdvanceCard" style="display:none;">
+                    <div class="section-title"><i class="fas fa-hand-holding-dollar"></i> السلفة الحالية</div>
+                    <div class="card">
+                        <div class="table-wrap">
+                            <table class="table">
+                                <tr><th>مبلغ السلفة</th><td id="profileAdvanceAmount">0</td></tr>
+                                <tr><th>الخصم الشهري</th><td id="profileAdvanceMonthly">0</td></tr>
+                                <tr style="border-top:2px solid var(--primary);"><th><b>المتبقي</b></th><td><b id="profileAdvanceRemaining" style="color:var(--red,#DC2626);">0</b></td></tr>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+
                 <div class="quick-actions-grid" style="grid-template-columns:1fr 1fr;">
                     <button class="quick-action-btn" onclick="showToast('📄 عقد العمل', 'تم عرض عقد العمل', 'info')">
                         <i class="fas fa-file-contract"></i> عقد العمل
@@ -3201,6 +3241,17 @@ try {
                 document.getElementById('profileTableShift').textContent = p.shiftTypeText;
                 document.getElementById('profileTableDeduction').textContent = Number(p.adminDeduction).toLocaleString() + ' د.ع';
                 document.getElementById('profileTableBonus').textContent = Number(p.adminBonus).toLocaleString() + ' د.ع';
+                document.getElementById('profileNetSalary').textContent = Number(p.netSalary).toLocaleString() + ' د.ع';
+                document.getElementById('profileSalaryStatus').textContent = p.salaryDelivered ? '✅ تم تسليم راتب هذا الشهر' : '⏳ لم يتم تسليم راتب هذا الشهر بعد';
+                const advCard = document.getElementById('profileAdvanceCard');
+                if (p.hasAdvance) {
+                    advCard.style.display = 'block';
+                    document.getElementById('profileAdvanceAmount').textContent = Number(p.advanceAmount).toLocaleString() + ' د.ع';
+                    document.getElementById('profileAdvanceMonthly').textContent = Number(p.advanceMonthlyDeduction).toLocaleString() + ' د.ع';
+                    document.getElementById('profileAdvanceRemaining').textContent = Number(p.advanceRemaining).toLocaleString() + ' د.ع';
+                } else {
+                    advCard.style.display = 'none';
+                }
 
                 document.getElementById('statCommitment').textContent = data.stats.commitmentPct + '%';
                 document.getElementById('statTodayStatus').textContent = data.stats.todayStatus;
@@ -3256,9 +3307,25 @@ try {
         // ============================================================
         // الإشعارات
         // ============================================================
+        function checkNewBrowserNotifications(list, storageKey) {
+            if (!('Notification' in window) || Notification.permission !== 'granted' || !list.length) return;
+            const lastId = parseInt(localStorage.getItem(storageKey) || '0', 10);
+            const maxId = list.reduce((m, n) => Math.max(m, n.id || 0), 0);
+            if (lastId > 0) {
+                list.filter(n => (n.id || 0) > lastId).slice(0, 3).forEach(n => {
+                    try {
+                        const notif = new Notification(n.title, { body: n.message || '', icon: 'icons/icon-192.png', tag: storageKey + '_' + n.id });
+                        notif.onclick = () => { window.focus(); notif.close(); };
+                    } catch (e) {}
+                });
+            }
+            if (maxId > lastId) localStorage.setItem(storageKey, maxId);
+        }
+
         function loadNotifications() {
             fetch('?ajax=notifications_list').then(r => r.json()).then(data => {
                 if (!data.ok) return;
+                checkNewBrowserNotifications(data.notifications, 'lastNotifId_employee');
                 const miniWrap = document.getElementById('miniNotifItems');
                 const fullWrap = document.getElementById('notifFullList');
                 if (!data.notifications.length) {
@@ -3334,17 +3401,29 @@ try {
             }
             listWrap.innerHTML = requests.map(r => `
                 <div class="card request-item" data-status="${r.status === 'pending' || r.status === 'branch_approved' ? 'pending' : 'done'}">
-                    <div class="list-item" style="border-bottom:1px solid rgba(0,107,115,0.04);padding-bottom:10px;margin-bottom:6px;">
+                    <div class="list-item" style="border-bottom:1px solid rgba(0,107,115,0.04);padding-bottom:10px;margin-bottom:6px;${r.isAdvanceApproved ? 'cursor:pointer;' : ''}" ${r.isAdvanceApproved ? `onclick="toggleAdvanceDetail(${r.id})"` : ''}>
                         <div class="item-icon">${requestTypeIcons[r.type] || '📄'}</div>
                         <div class="item-content">
-                            <div class="item-title">طلب ${r.type}</div>
+                            <div class="item-title">طلب ${r.type} ${r.isAdvanceApproved ? '<i class="fas fa-chevron-down" style="font-size:10px;color:var(--text-muted);"></i>' : ''}</div>
                             <div class="item-desc">${r.details}</div>
                         </div>
                         <span class="item-badge ${requestStatusBadgeClass[r.status] || 'wait'}">${r.statusText}</span>
                     </div>
                     <div style="font-size:12px;color:var(--text-muted);">${r.responseText || ''}</div>
+                    ${r.isAdvanceApproved ? `
+                        <div id="advanceDetail_${r.id}" style="display:none;margin-top:8px;padding:10px 12px;background:var(--bg);border-radius:var(--radius-sm,8px);font-size:12px;">
+                            <div style="display:flex;justify-content:space-between;padding:3px 0;"><span style="color:var(--text-muted);">💰 مبلغ السلفة</span><b>${Number(r.amount).toLocaleString()} د.ع</b></div>
+                            <div style="display:flex;justify-content:space-between;padding:3px 0;"><span style="color:var(--text-muted);">📉 الخصم الشهري</span><b>${Number(r.monthlyDeduction).toLocaleString()} د.ع</b></div>
+                            <div style="display:flex;justify-content:space-between;padding:3px 0;border-top:1px solid rgba(0,107,115,0.06);margin-top:4px;padding-top:6px;"><span style="color:var(--text-muted);">المتبقي</span><b style="color:${r.remainingBalance > 0 ? 'var(--red,#DC2626)' : 'var(--green,#059669)'};">${Number(r.remainingBalance).toLocaleString()} د.ع</b></div>
+                        </div>
+                    ` : ''}
                 </div>
             `).join('');
+        }
+
+        function toggleAdvanceDetail(id) {
+            const el = document.getElementById(`advanceDetail_${id}`);
+            if (el) el.style.display = el.style.display === 'none' ? 'block' : 'none';
         }
 
         // ============================================================

@@ -516,7 +516,8 @@ if (isset($_GET['ajax'])) {
 
         case 'requests': {
             $stmt = $pdo->prepare("
-                SELECT r.id, e.full_name AS name, r.type, r.details, r.amount, r.date_from, r.date_to, r.status
+                SELECT r.id, e.full_name AS name, r.type, r.details, r.amount, r.date_from, r.date_to, r.status,
+                       r.approved_monthly_deduction, r.remaining_balance
                 FROM requests r JOIN employees e ON e.id = r.employee_id
                 WHERE r.branch_id = ? ORDER BY r.created_at DESC LIMIT 50
             ");
@@ -528,6 +529,7 @@ if (isset($_GET['ajax'])) {
                 } elseif ($r['type'] === 'leave' && $r['date_from']) {
                     $details = $r['date_from'] . ' إلى ' . $r['date_to'] . ($details ? ' - ' . $details : '');
                 }
+                $isAdvanceApproved = $r['type'] === 'advance' && $r['status'] === 'approved';
                 return [
                     'id' => $r['id'],
                     'name' => $r['name'],
@@ -535,6 +537,10 @@ if (isset($_GET['ajax'])) {
                     'details' => $details ?: '-',
                     'status' => request_status_ar($r['status']),
                     'canReview' => $r['status'] === 'pending',
+                    'isAdvanceApproved' => $isAdvanceApproved,
+                    'amount' => $isAdvanceApproved ? (float) $r['amount'] : null,
+                    'monthlyDeduction' => $isAdvanceApproved ? (float) $r['approved_monthly_deduction'] : null,
+                    'remainingBalance' => $isAdvanceApproved ? (float) $r['remaining_balance'] : null,
                 ];
             }, $stmt->fetchAll());
             echo json_encode(['ok' => true, 'requests' => $rows], JSON_UNESCAPED_UNICODE);
@@ -1262,19 +1268,27 @@ function branch_report_data(PDO $pdo, string $type, string $from, string $to, in
             .grid-2 { grid-template-columns: 1fr; }
         }
 
-        /* واجهة اللابتوب/سطح المكتب: قائمة جانبية ثابتة بدل الشريط السفلي */
+        /* واجهة اللابتوب/سطح المكتب: القائمة الجانبية مغلقة افتراضياً، تُفتح بزر القائمة (☰) */
         @media (min-width: 1024px) {
             body { padding-bottom: 0; }
             .bottom-nav-minimal { display: none; }
-            .side-menu-overlay { display: none !important; }
-            .side-menu {
-                transform: translateX(0) !important;
-                top: var(--header-height);
-                box-shadow: 2px 0 24px rgba(0,0,0,0.08);
-            }
-            .side-menu .close-btn { display: none; }
-            .page-content { max-width: 1100px; margin: 0 300px 0 auto; padding: 24px 28px 40px; }
+            .side-menu { top: var(--header-height); }
+            .side-menu.show { box-shadow: 2px 0 24px rgba(0,0,0,0.08); }
+            .page-content { max-width: 1100px; margin: 0 auto; padding: 24px 28px 40px; }
             .login-page { padding: 40px; }
+        }
+
+        /* طباعة التقرير كـ PDF */
+        #reportPrintHeader { display: none; }
+        @media print {
+            body { background: #fff !important; }
+            body * { visibility: hidden; }
+            #reportResult, #reportResult * { visibility: visible; }
+            #reportResult { width: 100%; box-shadow: none; border: none; }
+            #reportPrintHeader, #reportPrintHeader * { visibility: visible; }
+            #reportPrintHeader { display: block; text-align: center; margin-bottom: 16px; background: #fff; }
+            #reportPrintHeader h2 { font-size: 20px; margin-bottom: 4px; color: #173437; }
+            #reportPrintHeader span { font-size: 12px; color: #555; }
         }
     </style>
 </head>
@@ -1754,8 +1768,13 @@ function branch_report_data(PDO $pdo, string $type, string $from, string $to, in
                         <button class="btn" onclick="generateReport()"><i class="fas fa-file-lines"></i> إنشاء التقرير</button>
                         <button class="btn gold" onclick="downloadReport()"><i class="fas fa-download"></i> تحميل CSV</button>
                     </div>
+                    <button class="btn" style="width:100%;margin-top:8px;" onclick="printReportPDF()"><i class="fas fa-file-pdf"></i> تصدير PDF</button>
                 </div>
 
+                <div id="reportPrintHeader">
+                    <h2 id="reportPrintCompany">شركة الصوى للصرافة</h2>
+                    <span id="reportPrintMeta"></span>
+                </div>
                 <div id="reportResult"></div>
             </div>
 
@@ -1964,6 +1983,7 @@ function branch_report_data(PDO $pdo, string $type, string $from, string $to, in
                 navigator.serviceWorker.register('/sw.js').catch(function() {});
             });
         }
+        let companyNameForPrint = 'شركة الصوى للصرافة';
         let deferredInstallPrompt = null;
         window.addEventListener('beforeinstallprompt', function(e) {
             e.preventDefault();
@@ -2091,9 +2111,25 @@ function branch_report_data(PDO $pdo, string $type, string $from, string $to, in
         // ============================================================
         // الإشعارات
         // ============================================================
+        function checkNewBrowserNotifications(list, storageKey) {
+            if (!('Notification' in window) || Notification.permission !== 'granted' || !list.length) return;
+            const lastId = parseInt(localStorage.getItem(storageKey) || '0', 10);
+            const maxId = list.reduce((m, n) => Math.max(m, n.id || 0), 0);
+            if (lastId > 0) {
+                list.filter(n => (n.id || 0) > lastId).slice(0, 3).forEach(n => {
+                    try {
+                        const notif = new Notification(n.title, { body: n.message || '', icon: 'icons/icon-192.png', tag: storageKey + '_' + n.id });
+                        notif.onclick = () => { window.focus(); notif.close(); };
+                    } catch (e) {}
+                });
+            }
+            if (maxId > lastId) localStorage.setItem(storageKey, maxId);
+        }
+
         function loadNotifications() {
             fetch('?ajax=notifications_list').then(r => r.json()).then(data => {
                 if (!data.ok) return;
+                checkNewBrowserNotifications(data.notifications, 'lastNotifId_branch');
                 const badge = document.getElementById('notifBadge');
                 if (data.unread > 0) {
                     badge.style.display = 'flex';
@@ -2125,6 +2161,7 @@ function branch_report_data(PDO $pdo, string $type, string $from, string $to, in
             fetch('?ajax=bootstrap').then(r => r.json()).then(data => {
                 if (!data.ok) return;
                 if (data.company) {
+                    companyNameForPrint = data.company.name;
                     document.getElementById('headerCompanyName').innerHTML = data.company.name + ' <span>مدير الفرع</span>';
                     if (data.company.logo) document.getElementById('headerLogo').innerHTML = `<img src="${data.company.logo}" style="width:100%;height:100%;object-fit:cover;border-radius:inherit;">`;
                 }
@@ -2256,14 +2293,29 @@ function branch_report_data(PDO $pdo, string $type, string $from, string $to, in
             container.innerHTML = '<div class="page-title"><h2><i class="fas fa-file-pen"></i> طلبات الموظفين</h2><button onclick="navigateTo(\'home\')" class="back-btn"><i class="fas fa-arrow-right"></i> رجوع</button></div>' +
                 requests.map(r => `
                     <div class="card">
-                        <div class="flex-between"><b>${icons[r.type] || '📄'} طلب ${r.type}</b><span class="badge ${badgeClass[r.status] || 'wait'}">${r.status}</span></div>
+                        <div class="flex-between" ${r.isAdvanceApproved ? `style="cursor:pointer;" onclick="toggleAdvanceDetail(${r.id})"` : ''}>
+                            <b>${icons[r.type] || '📄'} طلب ${r.type} ${r.isAdvanceApproved ? '<i class="fas fa-chevron-down" style="font-size:10px;color:var(--text-muted);"></i>' : ''}</b>
+                            <span class="badge ${badgeClass[r.status] || 'wait'}">${r.status}</span>
+                        </div>
                         <p class="muted">${r.name} • ${r.details}</p>
+                        ${r.isAdvanceApproved ? `
+                            <div id="advanceDetail_${r.id}" style="display:none;margin-top:6px;padding:10px 12px;background:var(--bg-light,#f5f8f8);border-radius:8px;font-size:12px;">
+                                <div style="display:flex;justify-content:space-between;padding:3px 0;"><span class="muted">💰 مبلغ السلفة</span><b>${Number(r.amount).toLocaleString()} د.ع</b></div>
+                                <div style="display:flex;justify-content:space-between;padding:3px 0;"><span class="muted">📉 الخصم الشهري</span><b>${Number(r.monthlyDeduction).toLocaleString()} د.ع</b></div>
+                                <div style="display:flex;justify-content:space-between;padding:3px 0;border-top:1px solid rgba(0,107,115,0.06);margin-top:4px;padding-top:6px;"><span class="muted">المتبقي</span><b style="color:${r.remainingBalance > 0 ? 'var(--red)' : 'var(--green)'};">${Number(r.remainingBalance).toLocaleString()} د.ع</b></div>
+                            </div>
+                        ` : ''}
                         ${r.canReview ? `
                             <input type="text" id="reqNote_${r.id}" placeholder="رد برسالة (اختياري)" style="width:100%;height:36px;padding:0 10px;border:1.5px solid #e2ebeb;border-radius:8px;font-family:var(--font-family);margin-top:6px;">
                             <div class="flex gap-2 mt-2"><button class="btn green small" onclick="reviewRequest(${r.id},'approved')">موافقة</button><button class="btn red small" onclick="reviewRequest(${r.id},'rejected')">رفض</button></div>
                         ` : ''}
                     </div>
                 `).join('');
+        }
+
+        function toggleAdvanceDetail(id) {
+            const el = document.getElementById(`advanceDetail_${id}`);
+            if (el) el.style.display = el.style.display === 'none' ? 'block' : 'none';
         }
 
         function reviewRequest(id, decision) {
@@ -2878,6 +2930,8 @@ function branch_report_data(PDO $pdo, string $type, string $from, string $to, in
                 rows.map(r => `<tr><td>${r.date}</td><td>${r.revenue}</td><td>${r.expense}</td><td>${r.travelers}</td><td>${r.profit}</td><td>${r.statusText || '-'}</td><td>${r.hrNote || '-'}</td><td>${r.gmNote || '-'}</td></tr>`).join('') + '</table></div>';
         }
 
+        const reportTypeNames = { 'attendance': 'تقرير الحضور', 'salaries': 'تقرير الرواتب', 'briefing': 'تقرير الإيجاز اليومي', 'all': 'تقرير شامل' };
+
         function generateReport() {
             const type = document.getElementById('reportType').value;
             const from = document.getElementById('reportFrom').value;
@@ -2891,6 +2945,8 @@ function branch_report_data(PDO $pdo, string $type, string $from, string $to, in
                 if (type === 'briefing' || type === 'all') html += '<h3 style="margin-top:14px;"><i class="fas fa-chart-simple"></i> الإيجاز</h3>' + reportBriefingTable(data.briefing);
                 html += '</div>';
                 document.getElementById('reportResult').innerHTML = html;
+                document.getElementById('reportPrintCompany').textContent = companyNameForPrint;
+                document.getElementById('reportPrintMeta').textContent = `${reportTypeNames[type] || type} — من ${from} إلى ${to}`;
                 showToast('✅ تم الإنشاء', 'تم إنشاء التقرير بنجاح', 'success');
             });
         }
@@ -2901,6 +2957,15 @@ function branch_report_data(PDO $pdo, string $type, string $from, string $to, in
             const to = document.getElementById('reportTo').value;
             const qs = new URLSearchParams({ type, from, to });
             window.location.href = '?ajax=report_download&' + qs.toString();
+        }
+
+        function printReportPDF() {
+            if (!document.getElementById('reportResult').innerHTML.trim()) {
+                showToast('⚠️ تنبيه', 'الرجاء إنشاء التقرير أولاً', 'warning');
+                return;
+            }
+            showToast('🖨️ جاري التجهيز', 'اختر "حفظ كـ PDF" من نافذة الطباعة', 'info');
+            setTimeout(() => window.print(), 300);
         }
 
         function saveAttendanceReport() {
@@ -3076,6 +3141,7 @@ function branch_report_data(PDO $pdo, string $type, string $from, string $to, in
         window.deleteEntry = deleteEntry;
         window.publishBriefing = publishBriefing;
         window.downloadReport = downloadReport;
+        window.printReportPDF = printReportPDF;
         window.markAllNotifsRead = markAllNotifsRead;
         window.generateReport = generateReport;
         window.saveAttendanceReport = saveAttendanceReport;
