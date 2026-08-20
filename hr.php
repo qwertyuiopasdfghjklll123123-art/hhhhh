@@ -354,11 +354,14 @@ if (isset($_GET['ajax'])) {
                 'pending' => 'بانتظار المراجعة', 'hr_approved' => 'وافقت HR', 'gm_approved' => 'وافق المسؤول العام',
                 'approved' => 'معتمد نهائياً', 'rejected' => 'مرفوض',
             ];
-            $briefs = array_map(function ($r) use ($statusAr) {
+            $bdEntriesStmt = $pdo->prepare("SELECT id, entry_type, amount, description, attachment FROM daily_ledger WHERE branch_id=? AND entry_date=? ORDER BY created_at ASC");
+            $briefs = array_map(function ($r) use ($statusAr, $branchId, $bdEntriesStmt) {
                 $r['revenue'] = (float) $r['revenue'];
                 $r['expense'] = (float) $r['expense'];
                 $r['profit'] = $r['revenue'] - $r['expense'];
                 $r['statusText'] = $statusAr[$r['status']] ?? $r['status'];
+                $bdEntriesStmt->execute([$branchId, $r['rawDate']]);
+                $r['entries'] = array_map(fn($e) => ['id' => (int) $e['id'], 'type' => $e['entry_type'], 'amount' => (float) $e['amount'], 'note' => $e['description'], 'attachment' => $e['attachment']], $bdEntriesStmt->fetchAll());
                 return $r;
             }, $briefsStmt->fetchAll());
 
@@ -875,7 +878,8 @@ if (isset($_GET['ajax'])) {
                 'rejected' => 'مرفوض',
             ];
             $today = date('Y-m-d');
-            $rows = array_map(function ($r) use ($statusAr, $today) {
+            $entriesStmt = $pdo->prepare("SELECT id, entry_type, amount, description, attachment FROM daily_ledger WHERE branch_id=? AND entry_date=? ORDER BY created_at ASC");
+            $rows = array_map(function ($r) use ($statusAr, $today, $entriesStmt) {
                 $r['revenue'] = (float) $r['revenue'];
                 $r['expenses'] = (float) $r['expenses'];
                 $r['travelersCount'] = (int) $r['travelersCount'];
@@ -885,6 +889,8 @@ if (isset($_GET['ajax'])) {
                 $r['canReview'] = $r['hr_decision'] === 'pending' && !in_array($r['status'], ['approved', 'rejected'], true);
                 $r['statusText'] = $statusAr[$r['status']] ?? $r['status'];
                 $r['isToday'] = $r['rawDate'] === $today;
+                $entriesStmt->execute([$r['branchId'], $r['rawDate']]);
+                $r['entries'] = array_map(fn($e) => ['id' => (int) $e['id'], 'type' => $e['entry_type'], 'amount' => (float) $e['amount'], 'note' => $e['description'], 'attachment' => $e['attachment']], $entriesStmt->fetchAll());
                 return $r;
             }, $stmt->fetchAll());
             echo json_encode(['ok' => true, 'briefs' => $rows, 'branchId' => $branchId, 'pendingCount' => $pendingCount], JSON_UNESCAPED_UNICODE);
@@ -1238,9 +1244,9 @@ function report_data(PDO $pdo, string $type, string $from, string $to, int $bran
         .sidebar {
             width: var(--sidebar-width);
             height: 100vh;
-            background: var(--bg-card);
-            border-left: 1px solid rgba(0,107,115,0.04);
-            box-shadow: 2px 0 20px rgba(0,0,0,0.02);
+            background: linear-gradient(180deg, #4B5320 0%, #3A4019 100%);
+            border-left: 1px solid rgba(0,0,0,0.08);
+            box-shadow: 2px 0 20px rgba(0,0,0,0.08);
             position: fixed;
             right: 0;
             top: 0;
@@ -1256,14 +1262,14 @@ function report_data(PDO $pdo, string $type, string $from, string $to, int $bran
             align-items: center;
             gap: 12px;
             padding-bottom: 20px;
-            border-bottom: 1px solid rgba(0,107,115,0.04);
+            border-bottom: 1px solid rgba(255,255,255,0.1);
             margin-bottom: 16px;
         }
         .sidebar .brand .logo {
             width: 44px;
             height: 44px;
             border-radius: var(--radius-md);
-            background: var(--primary-gradient);
+            background: rgba(255,255,255,0.14);
             display: flex;
             align-items: center;
             justify-content: center;
@@ -1275,17 +1281,14 @@ function report_data(PDO $pdo, string $type, string $from, string $to, int $bran
         .sidebar .brand .name {
             font-size: 18px;
             font-weight: 900;
-            color: var(--text-primary);
+            color: #fff;
         }
         .sidebar .brand .name span {
-            background: var(--primary-gradient);
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-            background-clip: text;
+            color: #C9D18F;
         }
         .sidebar .brand .version {
             font-size: 9px;
-            color: var(--text-muted);
+            color: rgba(255,255,255,0.55);
             font-weight: 400;
             display: block;
         }
@@ -1304,7 +1307,7 @@ function report_data(PDO $pdo, string $type, string $from, string $to, int $bran
             border-radius: var(--radius-md);
             cursor: pointer;
             transition: var(--transition-base);
-            color: var(--text-secondary);
+            color: rgba(255,255,255,0.75);
             font-weight: 600;
             font-size: 13px;
             border: none;
@@ -1314,12 +1317,12 @@ function report_data(PDO $pdo, string $type, string $from, string $to, int $bran
             text-align: right;
         }
         .sidebar .nav-item:hover {
-            background: rgba(0,107,115,0.04);
-            color: var(--text-primary);
+            background: rgba(255,255,255,0.08);
+            color: #fff;
         }
         .sidebar .nav-item.active {
-            background: rgba(0,107,115,0.06);
-            color: var(--primary);
+            background: rgba(255,255,255,0.16);
+            color: #fff;
         }
         .sidebar .nav-item i {
             width: 20px;
@@ -1345,13 +1348,13 @@ function report_data(PDO $pdo, string $type, string $from, string $to, int $bran
 
         .sidebar .nav-divider {
             height: 1px;
-            background: rgba(0,107,115,0.04);
+            background: rgba(255,255,255,0.1);
             margin: 8px 0;
         }
 
         .sidebar .user-info {
             padding-top: 16px;
-            border-top: 1px solid rgba(0,107,115,0.04);
+            border-top: 1px solid rgba(255,255,255,0.1);
             display: flex;
             align-items: center;
             gap: 12px;
@@ -1360,7 +1363,7 @@ function report_data(PDO $pdo, string $type, string $from, string $to, int $bran
             width: 44px;
             height: 44px;
             border-radius: var(--radius-full);
-            background: var(--primary-gradient);
+            background: rgba(255,255,255,0.14);
             display: flex;
             align-items: center;
             justify-content: center;
@@ -1372,18 +1375,18 @@ function report_data(PDO $pdo, string $type, string $from, string $to, int $bran
         .sidebar .user-info .info .name {
             font-size: 14px;
             font-weight: 800;
-            color: var(--text-primary);
+            color: #fff;
         }
         .sidebar .user-info .info .role {
             font-size: 11px;
-            color: var(--text-muted);
+            color: rgba(255,255,255,0.6);
             font-weight: 400;
         }
         .sidebar .user-info .logout-btn {
             margin-right: auto;
             background: none;
             border: none;
-            color: var(--text-muted);
+            color: rgba(255,255,255,0.6);
             cursor: pointer;
             font-size: 18px;
             transition: var(--transition-base);
@@ -4238,6 +4241,16 @@ function report_data(PDO $pdo, string $type, string $from, string $to, int $bran
                         <span>الربح: <b style="color:#059669;">${Number(br.profit).toLocaleString()}</b></span>
                         <span class="bd-brief-status" style="background:${statusColors[br.status]}1A;color:${statusColors[br.status]};">${br.statusText}</span>
                         ${br.attachment ? `<a href="${br.attachment}" target="_blank" style="font-size:11px;"><i class="fas fa-paperclip"></i> الملف المرفق</a>` : ''}
+                        ${br.entries && br.entries.length ? `
+                            <div style="width:100%;border-top:1px solid rgba(0,107,115,0.06);margin-top:4px;padding-top:4px;">
+                                ${br.entries.map(en => `
+                                    <div style="display:flex;justify-content:space-between;gap:8px;font-size:11px;padding:2px 0;">
+                                        <span style="color:${en.type === 'income' ? '#059669' : '#DC2626'};">${en.type === 'income' ? '💰' : '💸'} ${en.note || 'بدون ملاحظات'}${en.attachment ? ` <a href="${en.attachment}" target="_blank"><i class="fas fa-paperclip"></i></a>` : ''}</span>
+                                        <b style="color:${en.type === 'income' ? '#059669' : '#DC2626'};">${en.type === 'income' ? '+' : '-'}${Number(en.amount).toLocaleString()}</b>
+                                    </div>
+                                `).join('')}
+                            </div>
+                        ` : ''}
                     </div>
                 `).join('');
             }
@@ -4688,6 +4701,22 @@ function report_data(PDO $pdo, string $type, string $from, string $to, int $bran
                             <span class="value" style="color:#059669;font-size:16px;">${item.netProfit.toLocaleString()}</span>
                         </div>
                     </div>
+
+                    ${item.entries && item.entries.length ? `
+                        <div class="briefing-note" style="padding:0;overflow:hidden;">
+                            <div style="padding:8px 10px;font-weight:800;font-size:11.5px;background:rgba(0,107,115,0.04);"><i class="fas fa-list"></i> قيود الإيجاز (${item.entries.length})</div>
+                            ${item.entries.map(en => `
+                                <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:7px 10px;border-top:1px solid rgba(0,107,115,0.06);font-size:11.5px;">
+                                    <div style="min-width:0;">
+                                        <span style="font-weight:700;color:${en.type === 'income' ? '#059669' : '#DC2626'};">${en.type === 'income' ? '💰 إيراد' : '💸 صرف'}</span>
+                                        <span style="color:var(--text-muted);"> — ${en.note || 'بدون ملاحظات'}</span>
+                                        ${en.attachment ? `<a href="${en.attachment}" target="_blank" style="margin-right:6px;"><i class="fas fa-paperclip"></i></a>` : ''}
+                                    </div>
+                                    <b style="white-space:nowrap;color:${en.type === 'income' ? '#059669' : '#DC2626'};">${en.type === 'income' ? '+' : '-'}${en.amount.toLocaleString()}</b>
+                                </div>
+                            `).join('')}
+                        </div>
+                    ` : ''}
 
                     ${item.note ? `
                         <div class="briefing-note">

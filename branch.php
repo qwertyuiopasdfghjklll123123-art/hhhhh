@@ -990,6 +990,7 @@ function branch_report_data(PDO $pdo, string $type, string $from, string $to, in
             --font-family: 'IBM Plex Sans Arabic', 'Tajawal', sans-serif;
             --header-height: 64px;
             --nav-height: 72px;
+            --sidebar-width: 260px;
         }
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
@@ -997,7 +998,6 @@ function branch_report_data(PDO $pdo, string $type, string $from, string $to, in
             background: var(--bg);
             color: var(--text-primary);
             min-height: 100vh;
-            padding-bottom: calc(var(--nav-height) + 20px);
             font-size: 14px;
         }
         .hidden { display: none !important; }
@@ -1063,30 +1063,70 @@ function branch_report_data(PDO $pdo, string $type, string $from, string $to, in
         .login-card .login-error { color: #EF4444; font-size: 13px; text-align: center; margin-top: 12px; display: none; }
         .login-card .login-toggle { margin-top: 16px; text-align: center; font-size: 13px; color: var(--text-muted); font-weight: 400; }
 
-        /* الهيدر */
-        .header-glass {
-            background: rgba(255,255,255,0.92);
-            backdrop-filter: blur(24px);
-            padding: 12px 20px;
-            height: var(--header-height);
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            position: sticky;
+        /* الشريط الجانبي (بنفس شكل لوحة الموارد البشرية) */
+        .sidebar {
+            width: var(--sidebar-width);
+            height: 100vh;
+            background: linear-gradient(180deg, #4B5320 0%, #3A4019 100%);
+            border-left: 1px solid rgba(0,0,0,0.08);
+            box-shadow: 2px 0 20px rgba(0,0,0,0.08);
+            position: fixed;
+            right: 0;
             top: 0;
             z-index: 100;
-            border-bottom: 1px solid rgba(0,0,0,0.04);
-            box-shadow: 0 2px 20px rgba(0,0,0,0.04);
+            display: flex;
+            flex-direction: column;
+            padding: 20px 16px;
+            overflow-y: auto;
+            transition: var(--transition-base, 0.3s ease);
         }
-        .header-glass .brand { display: flex; align-items: center; gap: 10px; }
-        .header-glass .brand .logo { width: 40px; height: 40px; border-radius: 14px; display: flex; align-items: center; justify-content: center; color: #fff; font-size: 18px; font-weight: 900; background: var(--primary-gradient); }
-        .header-glass .brand .name { font-size: 17px; font-weight: 900; color: var(--text-primary); }
-        .header-glass .brand .name span { background: var(--primary-gradient); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
-        .header-glass .brand .role-badge { font-size: 9px; font-weight: 800; padding: 4px 12px; border-radius: var(--radius-full); background: var(--accent); color: #fff; }
-        .header-glass .actions .icon-btn { width: 40px; height: 40px; border-radius: var(--radius-full); border: none; background: rgba(0,0,0,0.03); color: var(--text-muted); cursor: pointer; font-size: 18px; }
+        .sidebar .brand { display: flex; align-items: center; gap: 12px; padding-bottom: 20px; border-bottom: 1px solid rgba(255,255,255,0.1); margin-bottom: 16px; }
+        .sidebar .brand .logo { width: 44px; height: 44px; border-radius: var(--radius-md); background: rgba(255,255,255,0.14); display: flex; align-items: center; justify-content: center; color: #fff; font-size: 20px; font-weight: 900; flex-shrink: 0; }
+        .sidebar .brand .name { font-size: 17px; font-weight: 900; color: #fff; }
+        .sidebar .brand .name span { color: #C9D18F; }
+        .sidebar .brand .version { font-size: 9px; color: rgba(255,255,255,0.55); font-weight: 400; display: block; }
+        .sidebar .nav-menu { flex: 1; display: flex; flex-direction: column; gap: 2px; }
+        .sidebar .nav-item {
+            display: flex; align-items: center; gap: 12px; padding: 11px 14px; border-radius: var(--radius-md);
+            cursor: pointer; transition: var(--transition-base, 0.2s ease); color: rgba(255,255,255,0.75);
+            font-weight: 600; font-size: 13px; border: none; background: transparent; width: 100%;
+            font-family: var(--font-family); text-align: right;
+        }
+        .sidebar .nav-item:hover { background: rgba(255,255,255,0.08); color: #fff; }
+        .sidebar .nav-item.active { background: rgba(255,255,255,0.16); color: #fff; }
+        .sidebar .nav-item i { width: 20px; font-size: 15px; text-align: center; flex-shrink: 0; }
+        .sidebar .nav-item .badge { margin-right: auto; font-size: 9px; font-weight: 800; padding: 2px 8px; border-radius: var(--radius-full); background: #EF4444; color: #fff; }
+        .sidebar .nav-divider { height: 1px; background: rgba(255,255,255,0.1); margin: 8px 0; }
+        .sidebar .user-info { padding-top: 16px; border-top: 1px solid rgba(255,255,255,0.1); display: flex; align-items: center; gap: 12px; }
+        .sidebar .user-info .avatar { width: 44px; height: 44px; border-radius: var(--radius-full); background: rgba(255,255,255,0.14); display: flex; align-items: center; justify-content: center; color: #fff; font-size: 18px; font-weight: 900; flex-shrink: 0; overflow: hidden; }
+        .sidebar .user-info .avatar img { width: 100%; height: 100%; object-fit: cover; }
+        .sidebar .user-info .info { min-width: 0; }
+        .sidebar .user-info .info .name { font-size: 14px; font-weight: 800; color: #fff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .sidebar .user-info .info .title { font-size: 11px; color: rgba(255,255,255,0.6); font-weight: 400; }
+        .sidebar .user-info .logout-btn { margin-right: auto; background: none; border: none; color: rgba(255,255,255,0.6); cursor: pointer; font-size: 18px; transition: var(--transition-base, 0.2s ease); padding: 4px 8px; border-radius: var(--radius-full); flex-shrink: 0; }
+        .sidebar .user-info .logout-btn:hover { color: #EF4444; background: rgba(239,68,68,0.12); }
+
+        .sidebar-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.3); z-index: 99; }
+        .sidebar-overlay.show { display: block; }
+
+        /* المحتوى الرئيسي والهيدر العلوي */
+        .main-content { flex: 1; margin-right: var(--sidebar-width); padding: 20px 24px 40px; min-height: 100vh; }
+        .top-header {
+            display: flex; align-items: center; justify-content: space-between;
+            padding-bottom: 16px; border-bottom: 1px solid rgba(0,63,70,0.06); margin-bottom: 18px;
+            flex-wrap: wrap; gap: 12px;
+        }
+        .top-header .page-title { display: flex; align-items: center; gap: 10px; margin: 0; }
+        .top-header .page-title h2 { font-size: 20px; font-weight: 800; color: var(--text-primary); display: flex; align-items: center; gap: 10px; }
+        .top-header .page-title h2 i { color: var(--primary-light); }
+        .top-header .page-title .sub { font-size: 12.5px; color: var(--text-muted); font-weight: 400; display: block; }
+        .top-header .header-actions { display: flex; align-items: center; gap: 10px; }
+        .top-header .header-actions .date-display { font-size: 12.5px; color: var(--text-primary); font-weight: 500; background: var(--bg-card); padding: 8px 14px; border-radius: var(--radius-md); border: 1px solid rgba(0,63,70,0.06); }
+        .top-header .header-actions .date-display i { color: var(--primary-light); margin-left: 6px; }
+        .mobile-menu-toggle { display: none; background: none; border: none; font-size: 22px; color: var(--text-primary); cursor: pointer; padding: 4px 8px; }
 
         /* المحتوى */
-        .page-content { max-width: 480px; margin: 0 auto; padding: 14px; padding-bottom: 80px; }
+        .page-content { max-width: 900px; }
         .page-title { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; }
         .page-title h2 { font-size: 19px; font-weight: 800; color: var(--text-primary); display: flex; align-items: center; gap: 10px; }
         .page-title h2 i { color: var(--primary-light); }
@@ -1257,59 +1297,6 @@ function branch_report_data(PDO $pdo, string $type, string $from, string $to, in
             margin-top: 12px;
         }
 
-        /* الشريط السفلي */
-        .bottom-nav-minimal {
-            position: fixed; bottom: 0; left: 0; right: 0;
-            height: var(--nav-height); padding: 6px 8px 12px;
-            background: var(--bg-card); border-top: 2px solid rgba(0,63,70,0.04);
-            display: flex; justify-content: space-around; align-items: center; z-index: 200;
-        }
-        .bottom-nav-minimal .nav-item {
-            flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center;
-            padding: 4px 2px; min-height: 44px; border-radius: 8px; background: transparent;
-            border: none; cursor: pointer; font-size: 9px; font-weight: 700; color: var(--text-muted);
-            font-family: var(--font-family);
-        }
-        .bottom-nav-minimal .nav-item i { font-size: 18px; transition: 0.3s; }
-        .bottom-nav-minimal .nav-item.active { color: var(--primary-light); background: rgba(0,107,115,0.04); }
-        .bottom-nav-minimal .nav-item.active i { transform: translateY(-2px); }
-        .bottom-nav-minimal .nav-item .nav-badge {
-            position: absolute; top: 0; right: 50%; transform: translateX(50%);
-            min-width: 16px; height: 16px; padding: 0 5px; border-radius: var(--radius-full);
-            background: #EF4444; color: #fff; font-size: 8px; font-weight: 800;
-            display: flex; align-items: center; justify-content: center;
-        }
-
-        /* القائمة الجانبية */
-        .side-menu-overlay {
-            position: fixed; inset: 0; z-index: 300;
-            background: rgba(0,0,0,0.4); backdrop-filter: blur(4px);
-            display: none; animation: fadeInModal 0.3s ease;
-        }
-        .side-menu-overlay.show { display: block; }
-        @keyframes fadeInModal { 0% { opacity: 0; } 100% { opacity: 1; } }
-        .side-menu {
-            position: fixed; right: 0; top: 0; bottom: 0;
-            width: 300px; max-width: 85%;
-            background: linear-gradient(180deg, #003f46, #003138);
-            color: #fff; padding: 24px 18px; overflow-y: auto;
-            z-index: 301; transform: translateX(100%);
-            transition: transform 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
-            box-shadow: -4px 0 40px rgba(0,0,0,0.2);
-        }
-        .side-menu.show { transform: translateX(0); }
-        .side-menu .profile { display: flex; align-items: center; gap: 12px; margin-bottom: 22px; padding-bottom: 16px; border-bottom: 1px solid rgba(255,255,255,0.08); }
-        .side-menu .profile .avatar { width: 48px; height: 48px; border-radius: var(--radius-full); background: rgba(255,255,255,0.1); display: flex; align-items: center; justify-content: center; font-size: 24px; font-weight: 900; color: #fff; overflow: hidden; }
-        .side-menu .profile .avatar img { width: 100%; height: 100%; object-fit: cover; }
-        .side-menu .profile .info .name { font-size: 16px; font-weight: 800; }
-        .side-menu .profile .info .title { font-size: 11px; opacity: 0.7; }
-        .side-menu .menu-item { padding: 10px 6px; border-bottom: 1px solid rgba(255,255,255,0.06); font-size: 13px; display: flex; gap: 12px; align-items: center; cursor: pointer; border-radius: 8px; }
-        .side-menu .menu-item:hover { background: rgba(255,255,255,0.05); padding-right: 12px; }
-        .side-menu .menu-item i { width: 22px; color: var(--accent); }
-        .side-menu .menu-item.logout { color: #ff8178; margin-top: 10px; border-bottom: 0; }
-        .side-menu .menu-item .badge { font-size: 8px; padding: 1px 8px; background: #EF4444; color: #fff; border-radius: var(--radius-full); margin-right: auto; }
-        .side-menu .close-btn { position: absolute; top: 16px; left: 16px; background: none; border: none; color: rgba(255,255,255,0.5); font-size: 24px; cursor: pointer; }
-
         /* التوست */
         .toast-container {
             position: fixed; top: 20px; left: 50%; transform: translateX(-50%);
@@ -1354,14 +1341,13 @@ function branch_report_data(PDO $pdo, string $type, string $from, string $to, in
             .grid-2 { grid-template-columns: 1fr; }
         }
 
-        /* واجهة اللابتوب/سطح المكتب: القائمة الجانبية مغلقة افتراضياً، تُفتح بزر القائمة (☰) */
-        @media (min-width: 1024px) {
-            body { padding-bottom: 0; }
-            .bottom-nav-minimal { display: none; }
-            .side-menu { top: var(--header-height); }
-            .side-menu.show { box-shadow: 2px 0 24px rgba(0,0,0,0.08); }
-            .page-content { max-width: 1100px; margin: 0 auto; padding: 24px 28px 40px; }
-            .login-page { padding: 40px; }
+        /* الجوّال: القائمة الجانبية تنزلق من الخارج، بلا هامش للمحتوى الرئيسي */
+        @media (max-width: 768px) {
+            :root { --sidebar-width: 0px; }
+            .sidebar { transform: translateX(100%); width: 280px; }
+            .sidebar.open { transform: translateX(0); }
+            .main-content { margin-right: 0; padding: 16px; }
+            .mobile-menu-toggle { display: flex !important; }
         }
 
         /* طباعة التقرير كـ PDF */
@@ -1417,23 +1403,69 @@ function branch_report_data(PDO $pdo, string $type, string $from, string $to, in
     </div>
 
     <!-- التطبيق الرئيسي -->
-    <div id="appContainer" class="hidden">
+    <div id="appContainer" class="hidden" style="display:flex;width:100%;">
 
-        <!-- الهيدر -->
-        <header class="header-glass">
+        <!-- ===== الشريط الجانبي (بنفس شكل لوحة الموارد البشرية) ===== -->
+        <aside class="sidebar" id="sidebar">
             <div class="brand">
                 <div class="logo" id="headerLogo">✥</div>
-                <div class="name" id="headerCompanyName">شركة <span>الصوى</span></div>
-                <span class="role-badge">مدير فرع</span>
+                <div>
+                    <div class="name" id="headerCompanyName">شركة <span>الصوى</span></div>
+                    <span class="version">مدير فرع</span>
+                </div>
             </div>
-            <div class="actions">
-                <button class="icon-btn" onclick="toggleSideMenu()"><i class="fas fa-bars"></i></button>
-                <button class="icon-btn" style="position:relative;" onclick="navigateTo('notifications')">
-                    <i class="fas fa-bell"></i>
-                    <span id="notifBadge" style="display:none;position:absolute;top:2px;left:2px;background:#EF4444;color:#fff;font-size:9px;font-weight:800;min-width:15px;height:15px;border-radius:50%;align-items:center;justify-content:center;">0</span>
+
+            <nav class="nav-menu">
+                <button class="nav-item active" id="sidenav-home" onclick="navigateTo('home')"><i class="fas fa-home"></i> الرئيسية</button>
+                <button class="nav-item" id="sidenav-employees" onclick="navigateTo('employees')"><i class="fas fa-users"></i> الموظفون</button>
+                <button class="nav-item" id="sidenav-attendance" onclick="navigateTo('attendance')"><i class="fas fa-fingerprint"></i> البصمة والحضور</button>
+                <button class="nav-item" id="sidenav-requests" onclick="navigateTo('requests')"><i class="fas fa-file-pen"></i> طلبات الموظفين</button>
+                <button class="nav-item" id="sidenav-briefing" onclick="navigateTo('briefing')"><i class="fas fa-chart-simple"></i> الإيجاز اليومي</button>
+                <button class="nav-item" id="sidenav-delegation" onclick="navigateTo('delegation')"><i class="fas fa-user-check"></i> التفويضات</button>
+                <button class="nav-item" id="sidenav-payroll" onclick="navigateTo('payroll')"><i class="fas fa-money-bill-wave"></i> الرواتب</button>
+                <button class="nav-item" id="sidenav-reports" onclick="navigateTo('reports')"><i class="fas fa-chart-bar"></i> التقارير</button>
+                <button class="nav-item" id="sidenav-files" onclick="navigateTo('files')"><i class="fas fa-folder"></i> الملفات</button>
+                <div class="nav-divider"></div>
+                <button class="nav-item" id="sidenav-notifications" onclick="navigateTo('notifications')">
+                    <i class="fas fa-bell"></i> الإشعارات
+                    <span class="badge" id="notifBadgeSidebar" style="display:none;">0</span>
                 </button>
+                <button class="nav-item" id="sidenav-myProfile" onclick="navigateTo('myProfile')"><i class="fas fa-user"></i> ملفي</button>
+            </nav>
+
+            <div class="user-info">
+                <div class="avatar" id="sideMenuAvatar">👤</div>
+                <div class="info">
+                    <div class="name" id="sideMenuName">مدير الفرع</div>
+                    <div class="title" id="sideMenuTitle">مدير فرع</div>
+                </div>
+                <button class="logout-btn" onclick="handleLogout()" title="تسجيل الخروج"><i class="fas fa-sign-out-alt"></i></button>
             </div>
-        </header>
+        </aside>
+
+        <!-- ===== الظل خلف القائمة الجانبية (موبايل) ===== -->
+        <div class="sidebar-overlay" id="sidebarOverlay" onclick="toggleSideMenu()"></div>
+
+        <!-- ===== المحتوى الرئيسي ===== -->
+        <main class="main-content">
+
+            <!-- ===== الهيدر العلوي ===== -->
+            <header class="top-header">
+                <div class="page-title">
+                    <button class="mobile-menu-toggle" onclick="toggleSideMenu()"><i class="fas fa-bars"></i></button>
+                    <div>
+                        <h2 id="pageTitle"><i class="fas fa-home"></i> الرئيسية</h2>
+                        <span class="sub" id="pageSub">نظرة عامة على أداء الفرع</span>
+                    </div>
+                </div>
+                <div class="header-actions">
+                    <span class="date-display"><i class="fas fa-calendar"></i> <span id="currentDateDisplayTop"></span></span>
+                    <button style="position:relative;width:38px;height:38px;border:none;border-radius:50%;background:rgba(0,107,115,0.06);color:var(--primary-light);cursor:pointer;font-size:16px;" onclick="navigateTo('notifications')">
+                        <i class="fas fa-bell"></i>
+                        <span id="notifBadge" style="display:none;position:absolute;top:-2px;left:-2px;background:#EF4444;color:#fff;font-size:9px;font-weight:800;min-width:15px;height:15px;border-radius:50%;align-items:center;justify-content:center;">0</span>
+                    </button>
+                </div>
+            </header>
 
         <div class="page-content">
 
@@ -1743,15 +1775,15 @@ function branch_report_data(PDO $pdo, string $type, string $from, string $to, in
                     <h3>إضافة قيد جديد</h3>
                     <div class="form-row">
                         <div class="form-group">
+                            <label>المبلغ <span style="color:var(--red);">*</span></label>
+                            <input type="number" id="entryAmount" placeholder="أدخل المبلغ" required>
+                        </div>
+                        <div class="form-group">
                             <label>نوع القيد <span style="color:var(--red);">*</span></label>
                             <select id="entryType">
                                 <option value="income">💰 إيراد (دخل)</option>
                                 <option value="expense">💸 صرف (مصروف)</option>
                             </select>
-                        </div>
-                        <div class="form-group">
-                            <label>المبلغ <span style="color:var(--red);">*</span></label>
-                            <input type="number" id="entryAmount" placeholder="أدخل المبلغ" required>
                         </div>
                     </div>
                     <div class="form-group">
@@ -1935,33 +1967,7 @@ function branch_report_data(PDO $pdo, string $type, string $from, string $to, in
 
         </div>
 
-        <!-- الشريط السفلي -->
-        <nav class="bottom-nav-minimal">
-            <button class="nav-item active" id="nav-home" onclick="navigateTo('home')"><i class="fas fa-home"></i><span>الرئيسية</span></button>
-            <button class="nav-item" id="nav-employees" onclick="navigateTo('employees')"><i class="fas fa-users"></i><span>الموظفون</span></button>
-            <button class="nav-item" id="nav-attendance" onclick="navigateTo('attendance')"><i class="fas fa-fingerprint"></i><span>البصمة</span></button>
-            <button class="nav-item" id="nav-briefing" onclick="navigateTo('briefing')"><i class="fas fa-chart-simple"></i><span>الإيجاز</span></button>
-            <button class="nav-item" id="nav-more" onclick="toggleSideMenu()"><i class="fas fa-bars"></i><span>المزيد</span></button>
-        </nav>
-
-        <!-- القائمة الجانبية -->
-        <div class="side-menu-overlay" id="sideMenuOverlay" onclick="toggleSideMenu()"></div>
-        <div class="side-menu" id="sideMenu">
-            <button class="close-btn" onclick="toggleSideMenu()"><i class="fas fa-times"></i></button>
-            <div class="profile"><div class="avatar" id="sideMenuAvatar">👤</div><div class="info"><div class="name" id="sideMenuName">مدير الفرع</div><div class="title" id="sideMenuTitle">مدير فرع</div></div></div>
-            <div class="menu-item" onclick="navigateTo('home');toggleSideMenu();"><i class="fas fa-home"></i> الرئيسية</div>
-            <div class="menu-item" onclick="navigateTo('myProfile');toggleSideMenu();"><i class="fas fa-user-circle"></i> ملفي</div>
-            <div class="menu-item" onclick="navigateTo('employees');toggleSideMenu();"><i class="fas fa-users"></i> الموظفون</div>
-            <div class="menu-item" onclick="navigateTo('attendance');toggleSideMenu();"><i class="fas fa-fingerprint"></i> البصمة والحضور</div>
-            <div class="menu-item" onclick="navigateTo('requests');toggleSideMenu();"><i class="fas fa-file-pen"></i> طلبات الموظفين</div>
-            <div class="menu-item" onclick="navigateTo('delegation');toggleSideMenu();"><i class="fas fa-user-check"></i> التفويضات</div>
-            <div class="menu-item" onclick="navigateTo('briefing');toggleSideMenu();"><i class="fas fa-chart-simple"></i> الإيجاز اليومي</div>
-            <div class="menu-item" onclick="navigateTo('payroll');toggleSideMenu();"><i class="fas fa-money-bill-wave"></i> الرواتب</div>
-            <div class="menu-item" onclick="navigateTo('reports');toggleSideMenu();"><i class="fas fa-chart-bar"></i> التقارير</div>
-            <div class="menu-item" onclick="navigateTo('notifications');toggleSideMenu();"><i class="fas fa-bell"></i> الإشعارات</div>
-           
-            <div class="menu-item logout" onclick="handleLogout();toggleSideMenu();"><i class="fas fa-sign-out-alt"></i> تسجيل الخروج</div>
-        </div>
+        </main>
 
     </div>
 
@@ -2178,11 +2184,14 @@ function branch_report_data(PDO $pdo, string $type, string $from, string $to, in
                 if (!data.ok) return;
                 checkNewBrowserNotifications(data.notifications, 'lastNotifId_branch');
                 const badge = document.getElementById('notifBadge');
+                const sidebarBadge = document.getElementById('notifBadgeSidebar');
                 if (data.unread > 0) {
                     badge.style.display = 'flex';
                     badge.textContent = data.unread;
+                    if (sidebarBadge) { sidebarBadge.style.display = ''; sidebarBadge.textContent = data.unread; }
                 } else {
                     badge.style.display = 'none';
+                    if (sidebarBadge) sidebarBadge.style.display = 'none';
                 }
                 const list = document.getElementById('notifList');
                 if (!list) return;
@@ -2523,15 +2532,41 @@ function branch_report_data(PDO $pdo, string $type, string $from, string $to, in
         // ============================================================
         let currentPage = 'home';
 
+        const pageTitles = {
+            home: { title: 'الرئيسية', sub: 'نظرة عامة على أداء الفرع', icon: 'fa-home' },
+            employees: { title: 'الموظفون', sub: 'إدارة موظفي الفرع', icon: 'fa-users' },
+            attendance: { title: 'البصمة والحضور', sub: 'تسجيل ومتابعة الحضور اليومي', icon: 'fa-fingerprint' },
+            requests: { title: 'طلبات الموظفين', sub: 'مراجعة طلبات الموظفين', icon: 'fa-file-pen' },
+            briefing: { title: 'الإيجاز اليومي', sub: 'كتابة ونشر إيجاز الفرع', icon: 'fa-chart-simple' },
+            delegation: { title: 'التفويضات', sub: 'تفويض كتابة الإيجاز لموظف', icon: 'fa-user-check' },
+            payroll: { title: 'الرواتب', sub: 'تسليم رواتب الموظفين', icon: 'fa-money-bill-wave' },
+            reports: { title: 'التقارير', sub: 'إنشاء وعرض التقارير', icon: 'fa-chart-bar' },
+            files: { title: 'الملفات', sub: 'مستندات الفرع', icon: 'fa-folder' },
+            notifications: { title: 'الإشعارات', sub: 'آخر التحديثات', icon: 'fa-bell' },
+            myProfile: { title: 'ملفي الشخصي', sub: 'بياناتك وراتبك وحضورك', icon: 'fa-user' },
+        };
+
         function navigateTo(page) {
             document.querySelectorAll('.page-screen').forEach(el => el.classList.add('hidden'));
             const target = document.getElementById('page-' + page);
             if (target) target.classList.remove('hidden');
-            document.querySelectorAll('.bottom-nav-minimal .nav-item').forEach(el => el.classList.remove('active'));
-            const navItem = document.getElementById('nav-' + page);
+            document.querySelectorAll('.sidebar .nav-item').forEach(el => el.classList.remove('active'));
+            const navItem = document.getElementById('sidenav-' + page);
             if (navItem) navItem.classList.add('active');
             currentPage = page;
             window.scrollTo(0, 0);
+
+            const t = pageTitles[page] || { title: page, sub: '', icon: 'fa-circle' };
+            const titleEl = document.getElementById('pageTitle');
+            const subEl = document.getElementById('pageSub');
+            if (titleEl) titleEl.innerHTML = `<i class="fas ${t.icon}"></i> ${t.title}`;
+            if (subEl) subEl.textContent = t.sub;
+
+            if (window.innerWidth <= 768) {
+                document.getElementById('sidebar').classList.remove('open');
+                document.getElementById('sidebarOverlay').classList.remove('show');
+                document.body.style.overflow = '';
+            }
 
             if (page === 'employees') loadEmployees();
             else if (page === 'attendance') { loadAttendanceToday(); loadEmployees(); }
@@ -2553,10 +2588,10 @@ function branch_report_data(PDO $pdo, string $type, string $from, string $to, in
         }
 
         function toggleSideMenu() {
-            const overlay = document.getElementById('sideMenuOverlay');
-            const menu = document.getElementById('sideMenu');
+            const overlay = document.getElementById('sidebarOverlay');
+            const menu = document.getElementById('sidebar');
             overlay.classList.toggle('show');
-            menu.classList.toggle('show');
+            menu.classList.toggle('open');
             document.body.style.overflow = overlay.classList.contains('show') ? 'hidden' : '';
         }
 
@@ -3190,12 +3225,14 @@ function branch_report_data(PDO $pdo, string $type, string $from, string $to, in
                 day: 'numeric' });
             document.getElementById('todayDate').textContent = dateStr;
             document.getElementById('briefDate').textContent = dateStr;
+            const topDateEl = document.getElementById('currentDateDisplayTop');
+            if (topDateEl) topDateEl.textContent = dateStr;
             document.getElementById('payrollMonthDisplay').textContent = today.toLocaleDateString('ar-SA', { month: 'long',
                 year: 'numeric' });
 
             document.addEventListener('keydown', function(e) {
                 if (e.key === 'Escape') {
-                    if (document.getElementById('sideMenuOverlay').classList.contains('show')) toggleSideMenu();
+                    if (document.getElementById('sidebarOverlay').classList.contains('show')) toggleSideMenu();
                     closeRequestModal();
                 }
             });

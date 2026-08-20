@@ -353,19 +353,22 @@ if (isset($_GET['ajax'])) {
 
         case 'briefs_pending': {
             $stmt = $pdo->query("
-                SELECT db.id, b.name AS branch, DATE_FORMAT(db.brief_date, '%d/%m/%Y') AS date,
+                SELECT db.id, db.branch_id, b.name AS branch, DATE_FORMAT(db.brief_date, '%d/%m/%Y') AS date, db.brief_date AS rawDate,
                        db.total_income AS revenue, db.total_expense AS expenses, db.travelers_count AS travelersCount,
                        db.note, db.attachment, db.hr_note AS hrNote, db.status, db.hr_decision, db.gm_decision
                 FROM daily_briefs db JOIN branches b ON b.id = db.branch_id
                 WHERE db.gm_decision = 'pending' AND db.status NOT IN ('approved','rejected')
                 ORDER BY db.brief_date DESC, db.id DESC
             ");
-            $rows = array_map(function ($r) {
+            $entriesStmt = $pdo->prepare("SELECT id, entry_type, amount, description, attachment FROM daily_ledger WHERE branch_id=? AND entry_date=? ORDER BY created_at ASC");
+            $rows = array_map(function ($r) use ($entriesStmt) {
                 $r['revenue'] = (float) $r['revenue'];
                 $r['expenses'] = (float) $r['expenses'];
                 $r['travelersCount'] = (int) $r['travelersCount'];
                 $r['netProfit'] = $r['revenue'] - $r['expenses'];
                 $r['hrStatusText'] = $r['hr_decision'] === 'approved' ? 'وافقت عليه الموارد البشرية' : 'بانتظار مراجعة الموارد البشرية أيضاً';
+                $entriesStmt->execute([$r['branch_id'], $r['rawDate']]);
+                $r['entries'] = array_map(fn($e) => ['id' => (int) $e['id'], 'type' => $e['entry_type'], 'amount' => (float) $e['amount'], 'note' => $e['description'], 'attachment' => $e['attachment']], $entriesStmt->fetchAll());
                 return $r;
             }, $stmt->fetchAll());
             echo json_encode(['ok' => true, 'briefs' => $rows], JSON_UNESCAPED_UNICODE);
@@ -602,12 +605,15 @@ if (isset($_GET['ajax'])) {
                 'approved' => 'معتمد نهائياً', 'rejected' => 'مرفوض',
             ];
             $today = date('Y-m-d');
-            $briefs = array_map(function ($r) use ($statusAr, $today) {
+            $gmEntriesStmt = $pdo->prepare("SELECT id, entry_type, amount, description, attachment FROM daily_ledger WHERE branch_id=? AND entry_date=? ORDER BY created_at ASC");
+            $briefs = array_map(function ($r) use ($statusAr, $today, $branchId, $gmEntriesStmt) {
                 $r['revenue'] = (float) $r['revenue'];
                 $r['expense'] = (float) $r['expense'];
                 $r['profit'] = $r['revenue'] - $r['expense'];
                 $r['statusText'] = $statusAr[$r['status']] ?? $r['status'];
                 $r['isToday'] = $r['rawDate'] === $today;
+                $gmEntriesStmt->execute([$branchId, $r['rawDate']]);
+                $r['entries'] = array_map(fn($e) => ['id' => (int) $e['id'], 'type' => $e['entry_type'], 'amount' => (float) $e['amount'], 'note' => $e['description'], 'attachment' => $e['attachment']], $gmEntriesStmt->fetchAll());
                 return $r;
             }, $briefsStmt->fetchAll());
 
@@ -1306,6 +1312,17 @@ if (isset($_GET['ajax'])) {
                         <i class="fas ${b.hr_decision === 'approved' ? 'fa-circle-check' : 'fa-clock'}" style="color:${b.hr_decision === 'approved' ? 'var(--green)' : '#D97706'};"></i>
                         ${b.hrStatusText}
                     </div>
+                    ${b.entries && b.entries.length ? `
+                        <div class="brief-note" style="padding:0;overflow:hidden;">
+                            <div style="padding:6px 10px;font-weight:800;font-size:11px;background:rgba(0,107,115,0.04);"><i class="fas fa-list"></i> قيود الإيجاز (${b.entries.length})</div>
+                            ${b.entries.map(en => `
+                                <div style="display:flex;justify-content:space-between;gap:8px;font-size:11.5px;padding:5px 10px;border-top:1px solid rgba(0,107,115,0.06);">
+                                    <span style="color:${en.type === 'income' ? 'var(--green)' : '#DC2626'};">${en.type === 'income' ? '💰' : '💸'} ${en.note || 'بدون ملاحظات'}${en.attachment ? ` <a href="${en.attachment}" target="_blank"><i class="fas fa-paperclip"></i></a>` : ''}</span>
+                                    <b style="color:${en.type === 'income' ? 'var(--green)' : '#DC2626'};">${en.type === 'income' ? '+' : '-'}${Number(en.amount).toLocaleString()}</b>
+                                </div>
+                            `).join('')}
+                        </div>
+                    ` : ''}
                     ${b.note ? `<div class="brief-note"><b>ملاحظة المرسل:</b> ${b.note}</div>` : ''}
                     ${b.attachment ? `<div class="brief-note"><a href="${b.attachment}" target="_blank"><i class="fas fa-paperclip"></i> عرض الملف المرفق مع الإيجاز</a></div>` : ''}
                     ${b.hrNote ? `<div class="brief-note"><b>ملاحظة HR:</b> ${b.hrNote}</div>` : ''}
@@ -1450,6 +1467,17 @@ if (isset($_GET['ajax'])) {
                             <div class="item"><div class="v">${br.travelers}</div><div class="l">المسافرون</div></div>
                             <div class="item"><div class="v" style="color:var(--green);">${br.profit.toLocaleString()}</div><div class="l">صافي الربح</div></div>
                         </div>
+                        ${br.entries && br.entries.length ? `
+                            <div class="brief-note" style="padding:0;overflow:hidden;">
+                                <div style="padding:6px 10px;font-weight:800;font-size:11px;background:rgba(0,107,115,0.04);"><i class="fas fa-list"></i> قيود الإيجاز (${br.entries.length})</div>
+                                ${br.entries.map(en => `
+                                    <div style="display:flex;justify-content:space-between;gap:8px;font-size:11.5px;padding:5px 10px;border-top:1px solid rgba(0,107,115,0.06);">
+                                        <span style="color:${en.type === 'income' ? 'var(--green)' : '#DC2626'};">${en.type === 'income' ? '💰' : '💸'} ${en.note || 'بدون ملاحظات'}${en.attachment ? ` <a href="${en.attachment}" target="_blank"><i class="fas fa-paperclip"></i></a>` : ''}</span>
+                                        <b style="color:${en.type === 'income' ? 'var(--green)' : '#DC2626'};">${en.type === 'income' ? '+' : '-'}${Number(en.amount).toLocaleString()}</b>
+                                    </div>
+                                `).join('')}
+                            </div>
+                        ` : ''}
                         ${br.note ? `<div class="brief-note"><b>ملاحظة المرسل:</b> ${br.note}</div>` : ''}
                         ${br.attachment ? `<div class="brief-note"><a href="${br.attachment}" target="_blank"><i class="fas fa-paperclip"></i> عرض الملف المرفق مع الإيجاز</a></div>` : ''}
                         ${br.hrNote ? `<div class="brief-note"><b>ملاحظة HR:</b> ${br.hrNote}</div>` : ''}

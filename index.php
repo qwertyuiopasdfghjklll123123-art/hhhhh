@@ -587,7 +587,7 @@ if (isset($_GET['ajax'])) {
                 echo json_encode(['ok' => false, 'error' => 'غير مخوّل بهذه العملية']);
                 exit;
             }
-            $stmt = $pdo->prepare("SELECT id, entry_type, amount, description FROM daily_ledger WHERE branch_id=? AND entry_date=CURDATE() ORDER BY created_at DESC");
+            $stmt = $pdo->prepare("SELECT id, entry_type, amount, description, attachment FROM daily_ledger WHERE branch_id=? AND entry_date=CURDATE() ORDER BY created_at DESC");
             $stmt->execute([$branchId]);
             echo json_encode(['ok' => true, 'entries' => $stmt->fetchAll()], JSON_UNESCAPED_UNICODE);
             exit;
@@ -605,8 +605,9 @@ if (isset($_GET['ajax'])) {
                 echo json_encode(['ok' => false, 'error' => 'يرجى إدخال مبلغ صحيح']);
                 exit;
             }
-            $stmt = $pdo->prepare("INSERT INTO daily_ledger (branch_id, entry_date, entry_type, amount, description, created_by) VALUES (?, CURDATE(), ?, ?, ?, ?)");
-            $stmt->execute([$branchId, $type, $amount, $note, $emp['id']]);
+            $attachment = handle_upload('file', 'ledger', ['jpg', 'jpeg', 'png', 'pdf', 'doc', 'docx']);
+            $stmt = $pdo->prepare("INSERT INTO daily_ledger (branch_id, entry_date, entry_type, amount, description, attachment, created_by) VALUES (?, CURDATE(), ?, ?, ?, ?, ?)");
+            $stmt->execute([$branchId, $type, $amount, $note, $attachment, $emp['id']]);
             echo json_encode(['ok' => true]);
             exit;
         }
@@ -2856,20 +2857,26 @@ try {
                         <p class="muted" style="font-size:12px;" id="briefDelegationPeriod">فترة التفويض: ...</p>
                     </div>
                     <div class="card">
-                        <div class="form-group">
-                            <label>نوع القيد</label>
-                            <select id="ledgerType">
-                                <option value="income">إيراد</option>
-                                <option value="expense">مصروف</option>
-                            </select>
-                        </div>
-                        <div class="form-group">
-                            <label>المبلغ</label>
-                            <input type="number" id="ledgerAmount" placeholder="أدخل المبلغ" min="1">
+                        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+                            <div class="form-group">
+                                <label>المبلغ</label>
+                                <input type="number" id="ledgerAmount" placeholder="أدخل المبلغ" min="1">
+                            </div>
+                            <div class="form-group">
+                                <label>نوع القيد</label>
+                                <select id="ledgerType">
+                                    <option value="income">إيراد</option>
+                                    <option value="expense">مصروف</option>
+                                </select>
+                            </div>
                         </div>
                         <div class="form-group">
                             <label>ملاحظة</label>
                             <input type="text" id="ledgerNote" placeholder="وصف القيد (اختياري)">
+                        </div>
+                        <div class="form-group">
+                            <label>إرفاق ملف (اختياري)</label>
+                            <input type="file" id="ledgerFile" accept=".pdf,.doc,.docx,.jpg,.png">
                         </div>
                         <button class="quick-action-btn" style="width:100%;padding:12px;border-color:var(--primary);" onclick="addLedgerEntry()">
                             <i class="fas fa-plus"></i> إضافة قيد
@@ -3578,6 +3585,7 @@ try {
                         <div class="item-content">
                             <div class="item-title">${e.entry_type === 'income' ? 'إيراد' : 'مصروف'}</div>
                             <div class="item-desc">${e.description || '-'}</div>
+                            ${e.attachment ? `<a href="${e.attachment}" target="_blank" style="font-size:10px;"><i class="fas fa-paperclip"></i> عرض الملف</a>` : ''}
                         </div>
                         <span style="font-weight:800;">${Number(e.amount).toLocaleString()}</span>
                     </div>
@@ -3589,14 +3597,23 @@ try {
             const type = document.getElementById('ledgerType').value;
             const amount = document.getElementById('ledgerAmount').value;
             const note = document.getElementById('ledgerNote').value;
+            const fileInput = document.getElementById('ledgerFile');
             if (!amount || Number(amount) <= 0) {
                 showToast('⚠️ تنبيه', 'يرجى إدخال مبلغ صحيح', 'warning');
                 return;
             }
-            fetch('?ajax=ledger_add', { method: 'POST', body: new URLSearchParams({ type, amount, note }) }).then(r => r.json()).then(data => {
+            const formData = new FormData();
+            formData.append('type', type);
+            formData.append('amount', amount);
+            formData.append('note', note);
+            if (fileInput.files && fileInput.files.length > 0) {
+                formData.append('file', fileInput.files[0]);
+            }
+            fetch('?ajax=ledger_add', { method: 'POST', body: formData }).then(r => r.json()).then(data => {
                 if (!data.ok) { showToast('⚠️ خطأ', data.error || 'تعذر إضافة القيد', 'error'); return; }
                 document.getElementById('ledgerAmount').value = '';
                 document.getElementById('ledgerNote').value = '';
+                if (fileInput) fileInput.value = '';
                 showToast('✅ تمت الإضافة', 'تم إضافة القيد بنجاح', 'success');
                 loadLedgerEntries();
                 loadBriefing();
