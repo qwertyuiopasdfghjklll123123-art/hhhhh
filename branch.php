@@ -700,6 +700,8 @@ if (isset($_GET['ajax'])) {
 
         case 'briefing_publish': {
             $travelersCount = (int) ($_POST['travelersCount'] ?? 0);
+            $note = trim($_POST['note'] ?? '');
+            $attachment = handle_upload('attachment', 'briefs', ['jpg', 'jpeg', 'png', 'pdf', 'doc', 'docx']);
             $stmt = $pdo->prepare("SELECT
                 COALESCE(SUM(CASE WHEN entry_type='income' THEN amount ELSE 0 END),0) AS income,
                 COALESCE(SUM(CASE WHEN entry_type='expense' THEN amount ELSE 0 END),0) AS expense
@@ -715,11 +717,12 @@ if (isset($_GET['ajax'])) {
             $prevStmt->execute([$branchId, $yesterday]);
             $previousProfit = (float) ($prevStmt->fetchColumn() ?: 0);
 
-            $stmt = $pdo->prepare("INSERT INTO daily_briefs (branch_id, brief_date, total_income, total_expense, previous_profit, travelers_count, status, submitted_by)
-                VALUES (?, CURDATE(), ?, ?, ?, ?, 'pending', ?)
-                ON DUPLICATE KEY UPDATE total_income=VALUES(total_income), total_expense=VALUES(total_expense), travelers_count=VALUES(travelers_count), status='pending', submitted_by=VALUES(submitted_by),
+            $stmt = $pdo->prepare("INSERT INTO daily_briefs (branch_id, brief_date, total_income, total_expense, previous_profit, travelers_count, note, attachment, status, submitted_by)
+                VALUES (?, CURDATE(), ?, ?, ?, ?, ?, ?, 'pending', ?)
+                ON DUPLICATE KEY UPDATE total_income=VALUES(total_income), total_expense=VALUES(total_expense), travelers_count=VALUES(travelers_count),
+                    note=VALUES(note), attachment=COALESCE(VALUES(attachment), attachment), status='pending', submitted_by=VALUES(submitted_by),
                     hr_decision='pending', gm_decision='pending', hr_note=NULL, gm_review_note=NULL, reviewed_by=NULL, reviewed_at=NULL, gm_reviewed_by=NULL, gm_reviewed_at=NULL");
-            $stmt->execute([$branchId, $totals['income'], $totals['expense'], $previousProfit, $travelersCount, $mgr['employee_id']]);
+            $stmt->execute([$branchId, $totals['income'], $totals['expense'], $previousProfit, $travelersCount, $note ?: null, $attachment, $mgr['employee_id']]);
 
             $branchName = $pdo->prepare("SELECT name FROM branches WHERE id=?");
             $branchName->execute([$branchId]);
@@ -1709,35 +1712,39 @@ function branch_report_data(PDO $pdo, string $type, string $from, string $to, in
                     <button onclick="navigateTo('home')" class="back-btn"><i class="fas fa-arrow-right"></i> رجوع</button>
                 </div>
 
-                <!-- معلومات أساسية -->
+                <!-- ===== التاريخ والفرع ===== -->
                 <div class="card">
-                    <div class="flex-between"><span class="muted">التاريخ</span><b id="briefDate">15 مايو 2024</b></div>
-                    <div class="flex-between"><span class="muted">الفرع</span><b>المنصور</b></div>
-                    <div class="flex-between"><span class="muted">المدير</span><b>أحمد محمد علي</b></div>
-                    <div class="flex-between" style="border-top:1px solid #e2ebeb;padding-top:8px;margin-top:8px;">
-                        <span class="muted">صلاحية الكتابة</span>
-                        <span style="font-weight:800;color:var(--green);" id="writePermission">✅ لديك صلاحية</span>
-                    </div>
+                    <div class="flex-between"><span class="muted">التاريخ</span><b id="briefDate">...</b></div>
+                    <div class="flex-between"><span class="muted">الفرع</span><b id="briefBranchName">...</b></div>
+                </div>
+
+                <!-- ===== المسافرين / المصاريف / الإيرادات ===== -->
+                <div class="card">
+                    <div class="flex-between"><span class="muted">المسافرين</span><b id="briefTravelersDisplay">0</b></div>
+                    <div class="flex-between"><span class="muted">المصاريف</span><b id="briefExpenseDisplay">0</b></div>
+                    <div class="flex-between" style="border-bottom:0;"><span class="muted">الإيرادات</span><b style="color:#059669;" id="briefIncomeDisplay">0</b></div>
+                </div>
+
+                <!-- ===== نتيجة اليوم ===== -->
+                <div class="card" style="text-align:center;background:rgba(16,185,129,0.04);border-color:rgba(16,185,129,0.12);">
+                    <div class="muted">نتيجة اليوم</div>
+                    <h2 style="color:var(--green);font-size:28px;margin:8px 0;" id="briefProfitDisplay">0 د.ع</h2>
+                    <p class="muted" style="font-size:12px;">صافي ربح الأمس: <b id="previousDayProfit">0 د.ع</b></p>
                 </div>
 
                 <!-- ===== حالة اعتماد الإيجاز ===== -->
                 <div class="card">
                     <div class="flex-between"><span class="muted">حالة إيجاز اليوم</span><b id="briefStatusText">لم يُنشر بعد</b></div>
                     <div class="muted" id="briefStatusNote" style="display:none;"></div>
-                </div>
-
-                <!-- ===== صافي ربح اليوم السابق ===== -->
-                <div class="card" style="background:rgba(16,185,129,0.04);border-color:rgba(16,185,129,0.12);">
-                    <div class="flex-between">
-                        <span style="font-weight:800;"><i class="fas fa-coins"></i> صافي ربح اليوم السابق</span>
-                        <span style="font-size:22px;font-weight:900;color:var(--green);" id="previousDayProfit">+2,450,000 د.ع</span>
+                    <div class="flex-between" style="border-top:1px solid #e2ebeb;padding-top:8px;margin-top:8px;">
+                        <span class="muted">تفويض كتابة الإيجاز لموظف</span>
+                        <span style="font-weight:800;color:var(--green);" id="writePermission">...</span>
                     </div>
-                    <div class="muted">تم حساب الربح بناءً على إيرادات ومصروفات الأمس</div>
                 </div>
 
                 <!-- ===== عدد المسافرين ===== -->
                 <div class="card">
-                    <div class="form-group"><label>عدد المسافرين اليوم</label><input type="number" id="travelersCount" min="0" placeholder="0"></div>
+                    <div class="form-group"><label>عدد المسافرين اليوم</label><input type="number" id="travelersCount" min="0" placeholder="0" oninput="updateBriefingSummary()"></div>
                 </div>
 
                 <!-- ===== إضافة قيد جديد ===== -->
@@ -1773,56 +1780,17 @@ function branch_report_data(PDO $pdo, string $type, string $from, string $to, in
                     <div class="card" style="text-align:center;padding:30px 20px;color:var(--text-muted);">جاري التحميل...</div>
                 </div>
 
-                <!-- ===== ملخص الإيجاز ===== -->
-                <div class="card" style="background:var(--primary-gradient);color:#fff;">
-                    <h3 style="color:#fff;">ملخص الإيجاز اليومي</h3>
-                    <div class="calc-row" style="display:flex;justify-content:space-between;padding:6px 0;border-color:rgba(255,255,255,0.1);border-bottom:1px solid rgba(255,255,255,0.1);">
-                        <span style="color:rgba(255,255,255,0.7);">صافي ربح الأمس</span>
-                        <span style="color:#fff;font-weight:700;" id="summaryPrevious">+2,450,000</span>
-                    </div>
-                    <div class="calc-row" style="display:flex;justify-content:space-between;padding:6px 0;border-color:rgba(255,255,255,0.1);border-bottom:1px solid rgba(255,255,255,0.1);">
-                        <span style="color:rgba(255,255,255,0.7);">إجمالي الإيرادات</span>
-                        <span style="color:#fff;font-weight:700;" id="summaryIncome">+2,000,000</span>
-                    </div>
-                    <div class="calc-row" style="display:flex;justify-content:space-between;padding:6px 0;border-color:rgba(255,255,255,0.1);border-bottom:1px solid rgba(255,255,255,0.1);">
-                        <span style="color:rgba(255,255,255,0.7);">إجمالي المصروفات</span>
-                        <span style="color:#fff;font-weight:700;" id="summaryExpense">-1,500,000</span>
-                    </div>
-                    <div class="calc-total" style="border-color:rgba(255,255,255,0.3);color:#fff;font-size:18px;text-align:center;padding-top:10px;border-top:2px solid rgba(255,255,255,0.3);margin-top:8px;">
-                        صافي ربح اليوم
-                        <div style="font-size:26px;color:var(--accent);" id="summaryTotal">+2,950,000 د.ع</div>
-                    </div>
+                <!-- ===== ملاحظة ومرفق الإيجاز ===== -->
+                <div class="card">
+                    <h3>ملاحظة ومرفق الإيجاز (اختياري)</h3>
+                    <p class="muted" style="margin-top:-6px;">يصل هذا المرفق إلى الموارد البشرية والمسؤول العام لمعاينته مع الإيجاز</p>
+                    <div class="form-group"><label>ملاحظة</label><input type="text" id="briefNote" placeholder="ملاحظة عامة على إيجاز اليوم"></div>
+                    <div class="form-group"><label>إرفاق ملف</label><input type="file" id="briefAttachment" accept=".pdf,.doc,.docx,.jpg,.png"></div>
                 </div>
 
                 <!-- ===== أزرار النشر ===== -->
                 <div class="grid-2">
                     <button class="btn gold" onclick="publishBriefing()"><i class="fas fa-paper-plane"></i> نشر الإيجاز لـ HR</button>
-                </div>
-
-                <!-- ===== عرض الإيجاز لـ HR ===== -->
-                <div class="section-title"><i class="fas fa-building"></i> عرض الإيجاز لـ HR</div>
-                <div id="hrBriefingDisplay">
-                    <div class="hr-briefing-card">
-                        <div class="hr-header">
-                            <span class="hr-branch">🏢 فرع المنصور</span>
-                            <span class="hr-date">15 مايو 2024</span>
-                        </div>
-                        <div class="hr-net-profit">
-                            <div class="label">صافي ربح اليوم</div>
-                            <div class="value">+2,950,000 د.ع</div>
-                        </div>
-                        <div class="hr-entry">
-                            <span><span class="hr-entry-type income">💰 إيراد</span> عمولة خدمة زبائن</span>
-                            <span class="hr-entry-amount income">+2,000,000</span>
-                        </div>
-                        <div class="hr-entry">
-                            <span><span class="hr-entry-type expense">💸 صرف</span> إيجار الفرع</span>
-                            <span class="hr-entry-amount expense">-1,500,000</span>
-                        </div>
-                        <div class="hr-footer">
-                            تم إنشاء هذا التقرير بواسطة نظام إدارة فروع شركة الصوى للصرافة
-                        </div>
-                    </div>
                 </div>
             </div>
 
@@ -2255,6 +2223,8 @@ function branch_report_data(PDO $pdo, string $type, string $from, string $to, in
                 }
                 document.getElementById('homeManagerName').textContent = data.manager.name;
                 document.getElementById('homeManagerRole').textContent = 'مدير فرع — ' + data.manager.branch;
+                const briefBranchEl = document.getElementById('briefBranchName');
+                if (briefBranchEl) briefBranchEl.textContent = data.manager.branch;
                 document.getElementById('homeManagerCode').textContent = 'رقم الموظف: ' + data.manager.code;
                 document.getElementById('sideMenuName').textContent = data.manager.name;
                 document.getElementById('sideMenuTitle').textContent = 'مدير فرع — ' + data.manager.branch;
@@ -2298,8 +2268,6 @@ function branch_report_data(PDO $pdo, string $type, string $from, string $to, in
                     document.getElementById('delegateEnd').value = endStr;
                 }
                 previousDayProfit = Number(data.previousDayProfit) || 0;
-                document.getElementById('previousDayProfit').textContent = (previousDayProfit >= 0 ? '+' : '') +
-                    previousDayProfit.toLocaleString() + ' د.ع';
                 updateBriefingSummary();
 
                 shiftInfo = data.shift;
@@ -2829,14 +2797,14 @@ function branch_report_data(PDO $pdo, string $type, string $from, string $to, in
                 statusText.style.color = 'var(--green)';
                 statusBadge.textContent = 'فعال';
                 statusBadge.className = 'badge ok';
-                document.getElementById('writePermission').textContent = '✅ لديك صلاحية (مفوض)';
+                document.getElementById('writePermission').textContent = '✅ مفعّل لـ ' + delegationData.employee;
                 document.getElementById('writePermission').style.color = 'var(--green)';
             } else {
                 statusText.textContent = '❌ غير فعال';
                 statusText.style.color = 'var(--red)';
                 statusBadge.textContent = 'غير فعال';
                 statusBadge.className = 'badge danger';
-                document.getElementById('writePermission').textContent = '❌ لا توجد صلاحية';
+                document.getElementById('writePermission').textContent = '❌ غير مفعّل';
                 document.getElementById('writePermission').style.color = 'var(--red)';
             }
         }
@@ -2946,53 +2914,13 @@ function branch_report_data(PDO $pdo, string $type, string $from, string $to, in
             });
 
             const netProfit = previousDayProfit + totalIncome - totalExpense;
+            const travelers = document.getElementById('travelersCount').value || 0;
 
-            document.getElementById('summaryPrevious').textContent = (previousDayProfit >= 0 ? '+' : '') + previousDayProfit
-                .toLocaleString();
-            document.getElementById('summaryIncome').textContent = '+' + totalIncome.toLocaleString();
-            document.getElementById('summaryExpense').textContent = '-' + totalExpense.toLocaleString();
-            document.getElementById('summaryTotal').textContent = (netProfit >= 0 ? '+' : '') + netProfit.toLocaleString() +
-                ' د.ع';
-
-            // تحديث عرض HR
-            updateHRBriefing(totalIncome, totalExpense, netProfit);
-        }
-
-        function updateHRBriefing(totalIncome, totalExpense, netProfit) {
-            const container = document.getElementById('hrBriefingDisplay');
-            const date = document.getElementById('briefDate').textContent;
-
-            let entriesHTML = briefingEntries.map(entry => `
-                <div class="hr-entry">
-                    <span><span class="hr-entry-type ${entry.type}">${entry.type === 'income' ? '💰 إيراد' : '💸 صرف'}</span> ${entry.note || 'بدون ملاحظات'}</span>
-                    <span class="hr-entry-amount ${entry.type}">${entry.type === 'income' ? '+' : '-'}${entry.amount.toLocaleString()}</span>
-                </div>
-            `).join('');
-
-            if (briefingEntries.length === 0) {
-                entriesHTML = `
-                    <div style="text-align:center;padding:20px;color:var(--text-muted);">
-                        <p>لا توجد قيود مضافة في هذا الإيجاز</p>
-                    </div>
-                `;
-            }
-
-            container.innerHTML = `
-                <div class="hr-briefing-card">
-                    <div class="hr-header">
-                        <span class="hr-branch">🏢 ${document.getElementById('homeManagerRole') ? document.getElementById('homeManagerRole').textContent.replace('مدير فرع — ', '') : ''}</span>
-                        <span class="hr-date">${date}</span>
-                    </div>
-                    <div class="hr-net-profit">
-                        <div class="label">صافي ربح اليوم</div>
-                        <div class="value">${netProfit >= 0 ? '+' : ''}${netProfit.toLocaleString()} د.ع</div>
-                    </div>
-                    ${entriesHTML}
-                    <div class="hr-footer">
-                        تم إنشاء هذا التقرير بواسطة نظام إدارة فروع شركة الصوى للصرافة
-                    </div>
-                </div>
-            `;
+            document.getElementById('briefTravelersDisplay').textContent = travelers;
+            document.getElementById('briefExpenseDisplay').textContent = totalExpense.toLocaleString();
+            document.getElementById('briefIncomeDisplay').textContent = totalIncome.toLocaleString();
+            document.getElementById('briefProfitDisplay').textContent = (netProfit >= 0 ? '+' : '') + netProfit.toLocaleString() + ' د.ع';
+            document.getElementById('previousDayProfit').textContent = (previousDayProfit >= 0 ? '+' : '') + previousDayProfit.toLocaleString() + ' د.ع';
         }
 
         // ============================================================
@@ -3005,12 +2933,19 @@ function branch_report_data(PDO $pdo, string $type, string $from, string $to, in
                 return;
             }
             const travelersCount = document.getElementById('travelersCount').value || 0;
-            fetch('?ajax=briefing_publish', { method: 'POST', body: new URLSearchParams({ travelersCount }) }).then(r => r.json()).then(data => {
+            const note = document.getElementById('briefNote').value;
+            const fileInput = document.getElementById('briefAttachment');
+            const formData = new FormData();
+            formData.append('travelersCount', travelersCount);
+            formData.append('note', note);
+            if (fileInput.files && fileInput.files.length > 0) {
+                formData.append('attachment', fileInput.files[0]);
+            }
+            fetch('?ajax=briefing_publish', { method: 'POST', body: formData }).then(r => r.json()).then(data => {
                 if (!data.ok) { showToast('⚠️ خطأ', data.error || 'تعذر نشر الإيجاز', 'error'); return; }
                 const date = document.getElementById('briefDate').textContent;
-                const total = document.getElementById('summaryTotal').textContent;
+                const total = document.getElementById('briefProfitDisplay').textContent;
                 showToast('✅ تم النشر', 'تم نشر الإيجاز بتاريخ ' + date + '\n' + total + '\nتم إرساله إلى HR بنجاح', 'success');
-                document.getElementById('hrBriefingDisplay').scrollIntoView({ behavior: 'smooth', block: 'start' });
                 loadBriefStatus();
             });
         }

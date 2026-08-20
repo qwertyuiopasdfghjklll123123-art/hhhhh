@@ -355,7 +355,7 @@ if (isset($_GET['ajax'])) {
             $stmt = $pdo->query("
                 SELECT db.id, b.name AS branch, DATE_FORMAT(db.brief_date, '%d/%m/%Y') AS date,
                        db.total_income AS revenue, db.total_expense AS expenses, db.travelers_count AS travelersCount,
-                       db.note, db.hr_note AS hrNote, db.status, db.hr_decision, db.gm_decision
+                       db.note, db.attachment, db.hr_note AS hrNote, db.status, db.hr_decision, db.gm_decision
                 FROM daily_briefs db JOIN branches b ON b.id = db.branch_id
                 WHERE db.gm_decision = 'pending' AND db.status NOT IN ('approved','rejected')
                 ORDER BY db.brief_date DESC, db.id DESC
@@ -587,7 +587,7 @@ if (isset($_GET['ajax'])) {
             $sql = "
                 SELECT db.id, DATE_FORMAT(db.brief_date,'%d/%m/%Y') AS date, db.brief_date AS rawDate,
                        db.total_income AS revenue, db.total_expense AS expense, db.travelers_count AS travelers,
-                       db.status, db.hr_note AS hrNote, db.gm_review_note AS gmNote,
+                       db.status, db.note, db.attachment, db.hr_note AS hrNote, db.gm_review_note AS gmNote,
                        COALESCE(se.full_name, 'مدير الفرع') AS sender
                 FROM daily_briefs db
                 LEFT JOIN employees se ON se.id = db.submitted_by
@@ -1306,6 +1306,8 @@ if (isset($_GET['ajax'])) {
                         <i class="fas ${b.hr_decision === 'approved' ? 'fa-circle-check' : 'fa-clock'}" style="color:${b.hr_decision === 'approved' ? 'var(--green)' : '#D97706'};"></i>
                         ${b.hrStatusText}
                     </div>
+                    ${b.note ? `<div class="brief-note"><b>ملاحظة المرسل:</b> ${b.note}</div>` : ''}
+                    ${b.attachment ? `<div class="brief-note"><a href="${b.attachment}" target="_blank"><i class="fas fa-paperclip"></i> عرض الملف المرفق مع الإيجاز</a></div>` : ''}
                     ${b.hrNote ? `<div class="brief-note"><b>ملاحظة HR:</b> ${b.hrNote}</div>` : ''}
                     ${currentRole !== 'shareholder' ? `
                         <div class="brief-actions">
@@ -1448,6 +1450,8 @@ if (isset($_GET['ajax'])) {
                             <div class="item"><div class="v">${br.travelers}</div><div class="l">المسافرون</div></div>
                             <div class="item"><div class="v" style="color:var(--green);">${br.profit.toLocaleString()}</div><div class="l">صافي الربح</div></div>
                         </div>
+                        ${br.note ? `<div class="brief-note"><b>ملاحظة المرسل:</b> ${br.note}</div>` : ''}
+                        ${br.attachment ? `<div class="brief-note"><a href="${br.attachment}" target="_blank"><i class="fas fa-paperclip"></i> عرض الملف المرفق مع الإيجاز</a></div>` : ''}
                         ${br.hrNote ? `<div class="brief-note"><b>ملاحظة HR:</b> ${br.hrNote}</div>` : ''}
                         ${br.gmNote ? `<div class="brief-note"><b>ملاحظتك:</b> ${br.gmNote}</div>` : ''}
                     </div>

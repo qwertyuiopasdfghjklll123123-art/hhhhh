@@ -264,16 +264,29 @@ if (isset($_GET['ajax'])) {
         }
 
         case 'branches': {
+            $rate = (float) ($pdo->query("SELECT usd_exchange_rate FROM settings ORDER BY id DESC LIMIT 1")->fetchColumn() ?: 0);
             $rows = $pdo->query("
                 SELECT b.id, b.name, b.location, b.status, b.notes,
                        e.id AS managerId, e.full_name AS manager, e.national_id AS nationalId, e.phone_number AS phone, e.birth_date AS birthDate,
                        e.hire_date AS hireDate,
                        e.shift_start AS shiftStart, e.shift_end AS shiftEnd,
-                       e.photo, e.documents AS docs
+                       e.photo, e.documents AS docs,
+                       lb.net_profit AS lastBriefProfit, lb.brief_date AS lastBriefDate
                 FROM branches b
                 LEFT JOIN employees e ON e.branch_id = b.id AND e.is_branch_manager = 1
+                LEFT JOIN (
+                    SELECT db1.branch_id, (db1.total_income - db1.total_expense) AS net_profit, db1.brief_date
+                    FROM daily_briefs db1
+                    INNER JOIN (SELECT branch_id, MAX(brief_date) AS max_date FROM daily_briefs GROUP BY branch_id) latest
+                        ON latest.branch_id = db1.branch_id AND latest.max_date = db1.brief_date
+                ) lb ON lb.branch_id = b.id
                 ORDER BY b.created_at DESC
             ")->fetchAll();
+            $rows = array_map(function ($r) use ($rate) {
+                $r['lastBriefProfit'] = $r['lastBriefProfit'] !== null ? (float) $r['lastBriefProfit'] : null;
+                $r['lastBriefProfitUsd'] = ($r['lastBriefProfit'] !== null && $rate > 0) ? round($r['lastBriefProfit'] / $rate, 2) : null;
+                return $r;
+            }, $rows);
             echo json_encode(['ok' => true, 'branches' => $rows], JSON_UNESCAPED_UNICODE);
             exit;
         }
@@ -298,18 +311,27 @@ if (isset($_GET['ajax'])) {
 
             $empStmt = $pdo->prepare("
                 SELECT e.id, e.full_name AS name, e.job_title, e.shift_type, e.is_branch_manager AS isManager, e.documents,
-                       ROUND(SUM(a.status IN ('present','late')) / GREATEST(COUNT(a.id),1) * 100) AS attendanceRate
+                       ROUND(SUM(a.status IN ('present','late')) / GREATEST(COUNT(a.id),1) * 100) AS attendanceRate,
+                       p.status AS payrollStatus, p.period_month AS payrollMonth, p.period_year AS payrollYear
                 FROM employees e
                 LEFT JOIN attendance a ON a.employee_id = e.id AND a.attendance_date >= DATE_FORMAT(CURDATE(), '%Y-%m-01')
+                LEFT JOIN payroll p ON p.employee_id = e.id AND p.period_month = MONTH(CURDATE()) AND p.period_year = YEAR(CURDATE())
                 WHERE e.branch_id = ? AND e.status = 'active'
-                GROUP BY e.id, e.full_name, e.job_title, e.shift_type, e.is_branch_manager, e.documents
+                GROUP BY e.id, e.full_name, e.job_title, e.shift_type, e.is_branch_manager, e.documents, p.status, p.period_month, p.period_year
                 ORDER BY e.is_branch_manager DESC, e.full_name
             ");
             $empStmt->execute([$branchId]);
-            $employees = array_map(function ($r) {
+            $monthNames = ['', 'يناير', 'فبراير', 'مارس', 'أبريل', 'مايو', 'يونيو', 'يوليو', 'أغسطس', 'سبتمبر', 'أكتوبر', 'نوفمبر', 'ديسمبر'];
+            $employees = array_map(function ($r) use ($monthNames) {
                 $r['isManager'] = (bool) $r['isManager'];
                 $r['attendanceRate'] = $r['attendanceRate'] !== null ? (int) $r['attendanceRate'] : 0;
                 $r['shiftTypeText'] = $r['shift_type'] === 'evening' ? 'مسائي' : 'صباحي';
+                if ($r['payrollStatus'] === 'delivered') {
+                    $r['payrollText'] = 'استلم راتب ' . ($monthNames[(int) $r['payrollMonth']] ?? $r['payrollMonth']) . ' ' . $r['payrollYear'];
+                } else {
+                    $r['payrollText'] = 'لم يستلم راتب الشهر الحالي بعد';
+                }
+                unset($r['payrollStatus'], $r['payrollMonth'], $r['payrollYear']);
                 return $r;
             }, $empStmt->fetchAll());
 
@@ -321,7 +343,7 @@ if (isset($_GET['ajax'])) {
 
             $briefsStmt = $pdo->prepare("
                 SELECT db.id, DATE_FORMAT(db.brief_date,'%d/%m/%Y') AS date, db.brief_date AS rawDate, db.total_income AS revenue, db.total_expense AS expense,
-                       db.travelers_count AS travelers, db.status, db.hr_note AS hrNote, db.gm_review_note AS gmNote,
+                       db.travelers_count AS travelers, db.status, db.note, db.attachment, db.hr_note AS hrNote, db.gm_review_note AS gmNote,
                        COALESCE(se.full_name, 'مدير الفرع') AS sender
                 FROM daily_briefs db
                 LEFT JOIN employees se ON se.id = db.submitted_by
@@ -834,7 +856,7 @@ if (isset($_GET['ajax'])) {
             $sql = "
                 SELECT db.id, e.full_name AS sender, e.job_title AS senderRole, b.id AS branchId, b.name AS branch,
                        DATE_FORMAT(db.brief_date, '%d/%m/%Y') AS date, db.brief_date AS rawDate,
-                       db.total_income AS revenue, db.total_expense AS expenses, db.travelers_count AS travelersCount, db.note,
+                       db.total_income AS revenue, db.total_expense AS expenses, db.travelers_count AS travelersCount, db.note, db.attachment,
                        db.status, db.hr_decision, db.gm_decision, db.hr_note AS hrNote, db.gm_review_note AS gmNote
                 FROM daily_briefs db
                 JOIN branches b ON b.id = db.branch_id
@@ -1520,13 +1542,14 @@ function report_data(PDO $pdo, string $type, string $from, string $to, int $bran
         .top-employees {
             display: grid;
             grid-template-columns: 1fr 1fr 1fr;
-            gap: 8px;
-            margin-bottom: 16px;
+            gap: 4px;
+            margin-bottom: 10px;
+            max-width: 260px;
         }
         .top-employee-card {
             background: var(--bg-card);
-            border-radius: var(--radius-md);
-            padding: 10px 8px;
+            border-radius: var(--radius-sm);
+            padding: 5px 4px;
             border: 1px solid rgba(0,107,115,0.04);
             box-shadow: var(--shadow-sm);
             text-align: center;
@@ -1539,24 +1562,24 @@ function report_data(PDO $pdo, string $type, string $from, string $to, int $bran
             box-shadow: var(--shadow-md);
         }
         .top-employee-card .rank {
-            font-size: 18px;
-            margin-bottom: 4px;
+            font-size: 11px;
+            margin-bottom: 2px;
         }
         .top-employee-card .avatar {
-            width: 36px;
-            height: 36px;
+            width: 20px;
+            height: 20px;
             border-radius: var(--radius-full);
             background: var(--primary-gradient);
             display: flex;
             align-items: center;
             justify-content: center;
             color: #fff;
-            font-size: 14px;
+            font-size: 9px;
             font-weight: 900;
-            margin: 0 auto 6px;
+            margin: 0 auto 3px;
         }
         .top-employee-card .name {
-            font-size: 12px;
+            font-size: 8px;
             font-weight: 800;
             color: var(--text-primary);
             white-space: nowrap;
@@ -1564,36 +1587,36 @@ function report_data(PDO $pdo, string $type, string $from, string $to, int $bran
             text-overflow: ellipsis;
         }
         .top-employee-card .branch {
-            font-size: 10px;
+            font-size: 7px;
             color: var(--text-muted);
             white-space: nowrap;
             overflow: hidden;
             text-overflow: ellipsis;
         }
         .top-employee-card .attendance-rate {
-            font-size: 15px;
+            font-size: 10px;
             font-weight: 900;
             color: #059669;
-            margin-top: 4px;
+            margin-top: 2px;
         }
         .top-employee-card .attendance-label {
-            font-size: 9px;
+            font-size: 6px;
             color: var(--text-muted);
             font-weight: 400;
         }
         .top-employee-card .badge-gold {
             position: absolute;
-            top: 6px;
-            left: 6px;
-            font-size: 8.5px;
+            top: 2px;
+            left: 2px;
+            font-size: 6px;
             font-weight: 700;
-            padding: 1px 7px;
+            padding: 1px 4px;
             border-radius: var(--radius-full);
             background: var(--accent);
             color: #fff;
         }
         .top-employee-card .medal {
-            font-size: 16px;
+            font-size: 10px;
         }
         .top-employee-card.gold {
             border: 2px solid var(--accent);
@@ -1653,13 +1676,13 @@ function report_data(PDO $pdo, string $type, string $from, string $to, int $bran
             align-items: center;
             justify-content: flex-end;
             height: 100%;
-            min-width: 34px;
+            min-width: 60px;
             position: relative;
             cursor: default;
         }
         .branch-bar {
-            width: 10px;
-            border-radius: 4px 4px 0 0;
+            width: 20px;
+            border-radius: 2px;
             background: var(--primary-gradient);
             min-height: 4px;
             transition: height 0.6s ease;
@@ -2082,13 +2105,13 @@ function report_data(PDO $pdo, string $type, string $from, string $to, int $bran
 
         #branchList {
             display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
-            gap: 12px;
+            grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+            gap: 10px;
         }
         .branch-card {
             background: var(--bg);
             border-radius: var(--radius-md);
-            padding: 12px 14px;
+            padding: 10px 12px;
             border: 1px solid rgba(0,107,115,0.04);
             border-right: 3px solid var(--primary);
             transition: var(--transition-base);
@@ -3999,7 +4022,8 @@ function report_data(PDO $pdo, string $type, string $from, string $to, int $bran
                 const statusClass = branch.status === 'active' ? 'active' : 'inactive';
                 const statusLabel = branch.status === 'active' ? '✅ نشط' : '❌ غير نشط';
 
-                const shiftText = (branch.shiftStart && branch.shiftEnd) ? `${branch.shiftStart.slice(0,5)} - ${branch.shiftEnd.slice(0,5)}` : 'غير محدد';
+                const profitIqd = branch.lastBriefProfit !== null ? (branch.lastBriefProfit >= 0 ? '+' : '') + Number(branch.lastBriefProfit).toLocaleString() + ' د.ع' : 'لا يوجد إيجاز بعد';
+                const profitUsd = branch.lastBriefProfitUsd !== null ? (branch.lastBriefProfitUsd >= 0 ? '+' : '') + Number(branch.lastBriefProfitUsd).toLocaleString() + ' $' : '—';
 
                 html += `
                     <div class="branch-card" onclick="viewBranch(${branch.id})">
@@ -4015,21 +4039,18 @@ function report_data(PDO $pdo, string $type, string $from, string $to, int $bran
 
                         <div class="branch-details">
                             <div class="detail-item">
-                                <span class="label">⏰ الدوام</span>
-                                <span class="value">${shiftText}</span>
+                                <span class="label">💰 صافي آخر إيجاز (د.ع)</span>
+                                <span class="value" style="color:${branch.lastBriefProfit >= 0 ? 'var(--success,#159447)' : 'var(--red)'};">${profitIqd}</span>
                             </div>
                             <div class="detail-item">
-                                <span class="label">🪪 الهوية</span>
-                                <span class="value">${branch.nationalId}</span>
+                                <span class="label">💵 صافي آخر إيجاز ($)</span>
+                                <span class="value">${profitUsd}</span>
                             </div>
                         </div>
 
                         <div class="branch-actions" onclick="event.stopPropagation();">
                             <button class="btn-sm edit" onclick="editBranch(${branch.id})">
                                 <i class="fas fa-edit"></i> تعديل
-                            </button>
-                            <button class="btn-sm view" onclick="viewBranch(${branch.id})">
-                                <i class="fas fa-eye"></i> التفاصيل
                             </button>
                             <button class="btn-sm delete" onclick="deleteBranch(${branch.id})">
                                 <i class="fas fa-trash"></i> حذف
@@ -4196,6 +4217,7 @@ function report_data(PDO $pdo, string $type, string $from, string $to, int $bran
                         <div style="min-width:0;">
                             <div class="name">${e.name}${e.isManager ? ' 👑' : ''}</div>
                             <div class="role">${e.job_title || ''} · ${e.shiftTypeText}</div>
+                            <div class="role" style="color:${e.payrollText.startsWith('استلم') ? '#059669' : '#D97706'};"><i class="fas fa-money-bill-wave"></i> ${e.payrollText}</div>
                             ${e.documents ? `<a href="${e.documents}" target="_blank" style="font-size:10px;" onclick="event.stopPropagation()"><i class="fas fa-id-card"></i> مستمسكاته</a>` : ''}
                         </div>
                         <div class="rate" style="color:${e.attendanceRate >= 80 ? '#059669' : (e.attendanceRate >= 50 ? '#D97706' : '#DC2626')};">${e.attendanceRate}%</div>
@@ -4215,6 +4237,7 @@ function report_data(PDO $pdo, string $type, string $from, string $to, int $bran
                         <span>الإيراد: <b>${Number(br.revenue).toLocaleString()}</b></span>
                         <span>الربح: <b style="color:#059669;">${Number(br.profit).toLocaleString()}</b></span>
                         <span class="bd-brief-status" style="background:${statusColors[br.status]}1A;color:${statusColors[br.status]};">${br.statusText}</span>
+                        ${br.attachment ? `<a href="${br.attachment}" target="_blank" style="font-size:11px;"><i class="fas fa-paperclip"></i> الملف المرفق</a>` : ''}
                     </div>
                 `).join('');
             }
@@ -4670,6 +4693,12 @@ function report_data(PDO $pdo, string $type, string $from, string $to, int $bran
                         <div class="briefing-note">
                             <strong><i class="fas fa-comment"></i> ملاحظة المرسل:</strong>
                             ${item.note}
+                        </div>
+                    ` : ''}
+
+                    ${item.attachment ? `
+                        <div class="briefing-note">
+                            <a href="${item.attachment}" target="_blank"><i class="fas fa-paperclip"></i> عرض الملف المرفق مع الإيجاز</a>
                         </div>
                     ` : ''}
 

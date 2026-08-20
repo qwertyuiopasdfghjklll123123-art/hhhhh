@@ -221,6 +221,11 @@ function migration_steps(): array
             'needed' => fn(PDO $pdo) => (int) $pdo->query("SELECT COUNT(*) FROM daily_briefs WHERE status='pending' AND (hr_decision <> 'pending' OR gm_decision <> 'pending')")->fetchColumn() > 0,
             'run' => fn(PDO $pdo) => $pdo->exec("UPDATE daily_briefs SET hr_decision='pending', gm_decision='pending', hr_note=NULL, gm_review_note=NULL, reviewed_by=NULL, reviewed_at=NULL, gm_reviewed_by=NULL, gm_reviewed_at=NULL WHERE status='pending' AND (hr_decision <> 'pending' OR gm_decision <> 'pending')"),
         ],
+        [
+            'label' => 'إضافة إمكانية إرفاق ملف مع الإيجاز اليومي نفسه (يصل لـ HR والمسؤول العام)',
+            'needed' => fn(PDO $pdo) => !column_exists($pdo, 'daily_briefs', 'attachment'),
+            'run' => fn(PDO $pdo) => $pdo->exec("ALTER TABLE daily_briefs ADD COLUMN attachment VARCHAR(255) DEFAULT NULL AFTER note"),
+        ],
     ];
 }
 

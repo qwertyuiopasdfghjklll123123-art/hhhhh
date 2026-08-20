@@ -170,6 +170,7 @@ function install_schema(PDO $pdo): void
             previous_profit DECIMAL(14,2) NOT NULL DEFAULT 0,
             travelers_count INT NOT NULL DEFAULT 0,
             note TEXT DEFAULT NULL,
+            attachment VARCHAR(255) DEFAULT NULL,
             status ENUM('pending','hr_approved','gm_approved','approved','rejected') NOT NULL DEFAULT 'pending',
             hr_decision ENUM('pending','approved','rejected') NOT NULL DEFAULT 'pending',
             gm_decision ENUM('pending','approved','rejected') NOT NULL DEFAULT 'pending',

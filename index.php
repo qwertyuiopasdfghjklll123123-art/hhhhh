@@ -41,6 +41,26 @@ function db(): PDO
     return $pdo;
 }
 
+function handle_upload(string $field, string $sub, array $allowedExt): ?string
+{
+    if (empty($_FILES[$field]) || $_FILES[$field]['error'] !== UPLOAD_ERR_OK) {
+        return null;
+    }
+    $ext = strtolower(pathinfo($_FILES[$field]['name'], PATHINFO_EXTENSION));
+    if (!in_array($ext, $allowedExt, true)) {
+        return null;
+    }
+    $dir = __DIR__ . '/uploads/' . $sub;
+    if (!is_dir($dir)) {
+        @mkdir($dir, 0755, true);
+    }
+    $filename = bin2hex(random_bytes(12)) . '.' . $ext;
+    if (!move_uploaded_file($_FILES[$field]['tmp_name'], $dir . '/' . $filename)) {
+        return null;
+    }
+    return 'uploads/' . $sub . '/' . $filename;
+}
+
 function is_late(string $now, ?array $settingsRow): bool
 {
     if (!$settingsRow || !$settingsRow['work_start_time']) {
@@ -597,6 +617,8 @@ if (isset($_GET['ajax'])) {
                 exit;
             }
             $travelersCount = (int) ($_POST['travelersCount'] ?? 0);
+            $note = trim($_POST['note'] ?? '');
+            $attachment = handle_upload('attachment', 'briefs', ['jpg', 'jpeg', 'png', 'pdf', 'doc', 'docx']);
             $stmt = $pdo->prepare("SELECT
                 COALESCE(SUM(CASE WHEN entry_type='income' THEN amount ELSE 0 END),0) AS income,
                 COALESCE(SUM(CASE WHEN entry_type='expense' THEN amount ELSE 0 END),0) AS expense
@@ -612,11 +634,12 @@ if (isset($_GET['ajax'])) {
             $prevStmt->execute([$branchId, $yesterday]);
             $previousProfit = (float) ($prevStmt->fetchColumn() ?: 0);
 
-            $stmt = $pdo->prepare("INSERT INTO daily_briefs (branch_id, brief_date, total_income, total_expense, previous_profit, travelers_count, status, submitted_by)
-                VALUES (?, CURDATE(), ?, ?, ?, ?, 'pending', ?)
-                ON DUPLICATE KEY UPDATE total_income=VALUES(total_income), total_expense=VALUES(total_expense), travelers_count=VALUES(travelers_count), status='pending', submitted_by=VALUES(submitted_by),
+            $stmt = $pdo->prepare("INSERT INTO daily_briefs (branch_id, brief_date, total_income, total_expense, previous_profit, travelers_count, note, attachment, status, submitted_by)
+                VALUES (?, CURDATE(), ?, ?, ?, ?, ?, ?, 'pending', ?)
+                ON DUPLICATE KEY UPDATE total_income=VALUES(total_income), total_expense=VALUES(total_expense), travelers_count=VALUES(travelers_count),
+                    note=VALUES(note), attachment=COALESCE(VALUES(attachment), attachment), status='pending', submitted_by=VALUES(submitted_by),
                     hr_decision='pending', gm_decision='pending', hr_note=NULL, gm_review_note=NULL, reviewed_by=NULL, reviewed_at=NULL, gm_reviewed_by=NULL, gm_reviewed_at=NULL");
-            $stmt->execute([$branchId, $totals['income'], $totals['expense'], $previousProfit, $travelersCount, $employeeId]);
+            $stmt->execute([$branchId, $totals['income'], $totals['expense'], $previousProfit, $travelersCount, $note ?: null, $attachment, $employeeId]);
 
             $branchName = $pdo->prepare("SELECT name FROM branches WHERE id=?");
             $branchName->execute([$branchId]);
@@ -2890,6 +2913,12 @@ try {
                         <label>عدد المسافرين اليوم</label>
                         <input type="number" id="briefTravelersInput" placeholder="0" min="0">
                     </div>
+                    <div class="card">
+                        <h3 style="margin-top:0;">ملاحظة ومرفق الإيجاز (اختياري)</h3>
+                        <p class="muted" style="font-size:12px;">يصل هذا المرفق إلى الموارد البشرية والمسؤول العام لمعاينته مع الإيجاز</p>
+                        <div class="form-group"><label>ملاحظة</label><input type="text" id="briefNoteInput" placeholder="ملاحظة عامة على إيجاز اليوم"></div>
+                        <div class="form-group"><label>إرفاق ملف</label><input type="file" id="briefAttachmentInput" accept=".pdf,.doc,.docx,.jpg,.png"></div>
+                    </div>
                     <button class="quick-action-btn" style="width:100%;padding:14px;border-color:var(--accent);" onclick="publishBriefingAsDelegate()">
                         <i class="fas fa-paper-plane"></i> نشر إيجاز اليوم
                     </button>
@@ -3608,7 +3637,15 @@ try {
 
         function doPublishBriefingAsDelegate() {
             const travelersCount = document.getElementById('briefTravelersInput').value || 0;
-            fetch('?ajax=briefing_publish_delegate', { method: 'POST', body: new URLSearchParams({ travelersCount }) }).then(r => r.json()).then(data => {
+            const note = document.getElementById('briefNoteInput').value;
+            const fileInput = document.getElementById('briefAttachmentInput');
+            const formData = new FormData();
+            formData.append('travelersCount', travelersCount);
+            formData.append('note', note);
+            if (fileInput.files && fileInput.files.length > 0) {
+                formData.append('attachment', fileInput.files[0]);
+            }
+            fetch('?ajax=briefing_publish_delegate', { method: 'POST', body: formData }).then(r => r.json()).then(data => {
                 if (!data.ok) { showToast('⚠️ خطأ', data.error || 'تعذر نشر الإيجاز', 'error'); return; }
                 showToast('✅ تم النشر', 'تم نشر إيجاز اليوم بانتظار مراجعة الموارد البشرية', 'success');
                 loadBriefing();
