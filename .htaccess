@@ -16,4 +16,5 @@ DirectoryIndex index.php
     RewriteRule ^general/?$ general.php [L]
     RewriteRule ^migrate/?$ migrate.php [L]
     RewriteRule ^install/?$ install.php [L]
+    RewriteRule ^diagnose/?$ diagnose.php [L]
 </IfModule>
