@@ -158,8 +158,9 @@ if (isset($_GET['ajax'])) {
         case 'bootstrap': {
             $branches = $pdo->query("
                 SELECT b.id, b.name, b.location, b.status, b.notes,
-                       e.full_name AS manager, e.national_id AS nationalId, e.birth_date AS birthDate,
+                       e.id AS managerId, e.full_name AS manager, e.national_id AS nationalId, e.phone_number AS phone, e.birth_date AS birthDate,
                        e.hire_date AS hireDate, e.duty_start_date AS startDate, e.duty_end_date AS endDate,
+                       e.shift_start AS shiftStart, e.shift_end AS shiftEnd,
                        e.photo, e.documents AS docs
                 FROM branches b
                 LEFT JOIN employees e ON e.branch_id = b.id AND e.is_branch_manager = 1
@@ -187,13 +188,54 @@ if (isset($_GET['ajax'])) {
             }
 
             $monthStart = date('Y-m-01');
+            $approvedStatuses = "('hr_approved','gm_approved','approved')";
             $monthTotals = $pdo->prepare("SELECT COALESCE(SUM(total_income),0) AS income, COALESCE(SUM(total_expense),0) AS expense
-                FROM daily_briefs WHERE brief_date >= ? AND status IN ('hr_approved','approved')");
+                FROM daily_briefs WHERE brief_date >= ? AND status IN $approvedStatuses");
             $monthTotals->execute([$monthStart]);
             $monthTotals = $monthTotals->fetch();
             $monthlyIncome = (float) $monthTotals['income'];
             $monthlyExpense = (float) $monthTotals['expense'];
             $profitMarginPct = $monthlyIncome > 0 ? round((($monthlyIncome - $monthlyExpense) / $monthlyIncome) * 100, 1) : 0;
+
+            // توزيع الحضور اليوم (حاضر/متأخر/غائب) لكل الموظفين النشطين — حسب شفت كل موظف الخاص به
+            $presentCount = 0; $lateCount = 0; $absentCount = 0;
+            $todayRows = $pdo->query("
+                SELECT e.shift_start, a.status FROM employees e
+                LEFT JOIN attendance a ON a.employee_id = e.id AND a.attendance_date = CURDATE()
+                WHERE e.status = 'active'
+            ")->fetchAll();
+            $totalActive = count($todayRows);
+            $dow = (int) date('w');
+            $isOffDay = ($dow === 5 || $dow === 6);
+            $nowMinutes = (int) date('H') * 60 + (int) date('i');
+            $grace = (int) ($settingsRow['late_grace_minutes'] ?? 0);
+            foreach ($todayRows as $r) {
+                if ($r['status'] === 'late') { $lateCount++; continue; }
+                if ($r['status'] === 'present') { $presentCount++; continue; }
+                if ($isOffDay || !$r['shift_start']) continue;
+                [$shH, $shM] = array_map('intval', explode(':', $r['shift_start']));
+                $deadline = $shH * 60 + $shM + $grace;
+                if ($nowMinutes > $deadline) $absentCount++;
+            }
+            $pendingCount = $totalActive - $presentCount - $lateCount - $absentCount;
+
+            // حصة كل فرع من إيرادات الشهر الحالي كمقياس مقارنة بين الفروع
+            $branchRevenueRows = $pdo->query("
+                SELECT b.id, b.name, COALESCE(SUM(CASE WHEN db.brief_date >= '$monthStart' AND db.status IN $approvedStatuses THEN db.total_income ELSE 0 END),0) AS revenue
+                FROM branches b
+                LEFT JOIN daily_briefs db ON db.branch_id = b.id
+                WHERE b.status = 'active'
+                GROUP BY b.id, b.name
+                ORDER BY revenue DESC
+            ")->fetchAll();
+            $branchRevenueTotal = array_sum(array_column($branchRevenueRows, 'revenue'));
+            $branchRevenueShares = array_map(function ($r) use ($branchRevenueTotal) {
+                return [
+                    'name' => $r['name'],
+                    'revenue' => (float) $r['revenue'],
+                    'pct' => $branchRevenueTotal > 0 ? round(((float) $r['revenue'] / $branchRevenueTotal) * 100, 1) : 0,
+                ];
+            }, $branchRevenueRows);
 
             echo json_encode([
                 'ok' => true,
@@ -201,8 +243,18 @@ if (isset($_GET['ajax'])) {
                 'exchangeRate' => (float) ($rateRow['usd_exchange_rate'] ?? 0),
                 'settings' => $settingsRow,
                 'topEmployees' => $topEmployees,
+                'branchRevenueShares' => $branchRevenueShares,
                 'stats' => [
-                    'employees' => (int) $pdo->query("SELECT COUNT(*) FROM employees WHERE status='active'")->fetchColumn(),
+                    'employees' => $totalActive,
+                    'attendanceToday' => [
+                        'present' => $presentCount,
+                        'late' => $lateCount,
+                        'absent' => $absentCount,
+                        'pending' => max(0, $pendingCount),
+                        'presentPct' => $totalActive > 0 ? round($presentCount / $totalActive * 100) : 0,
+                        'latePct' => $totalActive > 0 ? round($lateCount / $totalActive * 100) : 0,
+                        'absentPct' => $totalActive > 0 ? round($absentCount / $totalActive * 100) : 0,
+                    ],
                     'monthlyIncome' => $monthlyIncome,
                     'monthlyExpense' => $monthlyExpense,
                     'profitMarginPct' => $profitMarginPct,
@@ -214,14 +266,84 @@ if (isset($_GET['ajax'])) {
         case 'branches': {
             $rows = $pdo->query("
                 SELECT b.id, b.name, b.location, b.status, b.notes,
-                       e.full_name AS manager, e.national_id AS nationalId, e.birth_date AS birthDate,
+                       e.id AS managerId, e.full_name AS manager, e.national_id AS nationalId, e.phone_number AS phone, e.birth_date AS birthDate,
                        e.hire_date AS hireDate, e.duty_start_date AS startDate, e.duty_end_date AS endDate,
+                       e.shift_start AS shiftStart, e.shift_end AS shiftEnd,
                        e.photo, e.documents AS docs
                 FROM branches b
                 LEFT JOIN employees e ON e.branch_id = b.id AND e.is_branch_manager = 1
                 ORDER BY b.created_at DESC
             ")->fetchAll();
             echo json_encode(['ok' => true, 'branches' => $rows], JSON_UNESCAPED_UNICODE);
+            exit;
+        }
+
+        case 'branch_detail': {
+            $branchId = (int) ($_GET['id'] ?? 0);
+            $branchStmt = $pdo->prepare("
+                SELECT b.id, b.name, b.location, b.status,
+                       e.full_name AS manager, e.shift_start AS shiftStart, e.shift_end AS shiftEnd
+                FROM branches b
+                LEFT JOIN employees e ON e.branch_id = b.id AND e.is_branch_manager = 1
+                WHERE b.id = ?
+            ");
+            $branchStmt->execute([$branchId]);
+            $branch = $branchStmt->fetch();
+            if (!$branch) {
+                echo json_encode(['ok' => false, 'error' => 'الفرع غير موجود']);
+                exit;
+            }
+            $branch['shiftStart'] = $branch['shiftStart'] ? substr($branch['shiftStart'], 0, 5) : null;
+            $branch['shiftEnd'] = $branch['shiftEnd'] ? substr($branch['shiftEnd'], 0, 5) : null;
+
+            $empStmt = $pdo->prepare("
+                SELECT e.id, e.full_name AS name, e.job_title, e.shift_type, e.is_branch_manager AS isManager,
+                       ROUND(SUM(a.status IN ('present','late')) / GREATEST(COUNT(a.id),1) * 100) AS attendanceRate
+                FROM employees e
+                LEFT JOIN attendance a ON a.employee_id = e.id AND a.attendance_date >= DATE_FORMAT(CURDATE(), '%Y-%m-01')
+                WHERE e.branch_id = ? AND e.status = 'active'
+                GROUP BY e.id, e.full_name, e.job_title, e.shift_type, e.is_branch_manager
+                ORDER BY e.is_branch_manager DESC, e.full_name
+            ");
+            $empStmt->execute([$branchId]);
+            $employees = array_map(function ($r) {
+                $r['isManager'] = (bool) $r['isManager'];
+                $r['attendanceRate'] = $r['attendanceRate'] !== null ? (int) $r['attendanceRate'] : 0;
+                $r['shiftTypeText'] = $r['shift_type'] === 'evening' ? 'مسائي' : 'صباحي';
+                return $r;
+            }, $empStmt->fetchAll());
+
+            $overallRate = 0;
+            if ($employees) {
+                $rates = array_column($employees, 'attendanceRate');
+                $overallRate = (int) round(array_sum($rates) / count($rates));
+            }
+
+            $briefsStmt = $pdo->prepare("
+                SELECT DATE_FORMAT(brief_date,'%d/%m/%Y') AS date, total_income AS revenue, total_expense AS expense,
+                       travelers_count AS travelers, status, hr_note AS hrNote, gm_review_note AS gmNote
+                FROM daily_briefs WHERE branch_id = ? ORDER BY brief_date DESC LIMIT 30
+            ");
+            $briefsStmt->execute([$branchId]);
+            $statusAr = [
+                'pending' => 'بانتظار المراجعة', 'hr_approved' => 'وافقت HR', 'gm_approved' => 'وافق المسؤول العام',
+                'approved' => 'معتمد نهائياً', 'rejected' => 'مرفوض',
+            ];
+            $briefs = array_map(function ($r) use ($statusAr) {
+                $r['revenue'] = (float) $r['revenue'];
+                $r['expense'] = (float) $r['expense'];
+                $r['profit'] = $r['revenue'] - $r['expense'];
+                $r['statusText'] = $statusAr[$r['status']] ?? $r['status'];
+                return $r;
+            }, $briefsStmt->fetchAll());
+
+            echo json_encode([
+                'ok' => true,
+                'branch' => $branch,
+                'employees' => $employees,
+                'overallAttendanceRate' => $overallRate,
+                'briefs' => $briefs,
+            ], JSON_UNESCAPED_UNICODE);
             exit;
         }
 
@@ -235,6 +357,8 @@ if (isset($_GET['ajax'])) {
             $hireDate = $_POST['hireDate'] ?: null;
             $startDate = $_POST['startDate'] ?: null;
             $endDate = $_POST['endDate'] ?: null;
+            $shiftStart = $_POST['shiftStart'] ?: null;
+            $shiftEnd = $_POST['shiftEnd'] ?: null;
             $notes = trim($_POST['notes'] ?? '');
             $status = ($_POST['status'] ?? 'active') === 'inactive' ? 'inactive' : 'active';
             $managerPassword = (string) ($_POST['managerPassword'] ?? '');
@@ -273,8 +397,8 @@ if (isset($_GET['ajax'])) {
                 $existingManagerId = $mgrStmt->fetchColumn();
 
                 if ($existingManagerId) {
-                    $sql = "UPDATE employees SET full_name=?, national_id=?, phone_number=?, birth_date=?, hire_date=?, duty_start_date=?, duty_end_date=?";
-                    $params = [$manager, $nationalId, $phone, $birthDate, $hireDate, $startDate, $endDate];
+                    $sql = "UPDATE employees SET full_name=?, national_id=?, phone_number=?, birth_date=?, hire_date=?, duty_start_date=?, duty_end_date=?, shift_start=?, shift_end=?";
+                    $params = [$manager, $nationalId, $phone, $birthDate, $hireDate, $startDate, $endDate, $shiftStart, $shiftEnd];
                     if ($photoPath) { $sql .= ", photo=?"; $params[] = $photoPath; }
                     if ($docsPath) { $sql .= ", documents=?"; $params[] = $docsPath; }
                     $sql .= " WHERE id=?";
@@ -284,8 +408,8 @@ if (isset($_GET['ajax'])) {
                 } else {
                     $numStmt = $pdo->query("SELECT MAX(CAST(employee_number AS UNSIGNED)) FROM employees WHERE employee_number REGEXP '^[0-9]+$'");
                     $empNumber = (string) max(1001, (int) $numStmt->fetchColumn() + 1);
-                    $stmt = $pdo->prepare("INSERT INTO employees (branch_id, employee_number, full_name, national_id, phone_number, birth_date, hire_date, duty_start_date, duty_end_date, job_title, photo, documents, is_branch_manager, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'مدير فرع', ?, ?, 1, 'active')");
-                    $stmt->execute([$branchId, $empNumber, $manager, $nationalId, $phone, $birthDate, $hireDate, $startDate, $endDate, $photoPath, $docsPath]);
+                    $stmt = $pdo->prepare("INSERT INTO employees (branch_id, employee_number, full_name, national_id, phone_number, birth_date, hire_date, duty_start_date, duty_end_date, shift_start, shift_end, job_title, photo, documents, is_branch_manager, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'مدير فرع', ?, ?, 1, 'active')");
+                    $stmt->execute([$branchId, $empNumber, $manager, $nationalId, $phone, $birthDate, $hireDate, $startDate, $endDate, $shiftStart, $shiftEnd, $photoPath, $docsPath]);
                     $managerEmployeeId = (int) $pdo->lastInsertId();
 
                     if ($managerPassword !== '' && strlen($managerPassword) >= 4) {
@@ -338,12 +462,35 @@ if (isset($_GET['ajax'])) {
         }
 
         case 'employees_full_list': {
-            $rows = $pdo->query("
+            $month = (int) date('n');
+            $year = (int) date('Y');
+            $rows = $pdo->prepare("
                 SELECT e.id, e.full_name AS name, b.name AS branch, e.job_title, e.employee_number,
-                       e.rating, e.status, e.is_branch_manager AS isManager
-                FROM employees e JOIN branches b ON b.id = e.branch_id
+                       e.rating, e.status, e.is_branch_manager AS isManager, e.base_salary AS baseSalary,
+                       e.shift_type AS shiftType,
+                       COALESCE(p.bonus, 0) AS bonus, COALESCE(p.deduction, 0) AS deduction, COALESCE(p.late_deduction, 0) AS lateDeduction,
+                       (SELECT COUNT(*) FROM requests r2 WHERE r2.employee_id = e.id AND r2.type = 'advance' AND r2.status = 'approved' AND r2.remaining_balance > 0) AS activeAdvanceCount,
+                       (SELECT GROUP_CONCAT(padj.note SEPARATOR ' | ') FROM payroll_adjustments padj WHERE padj.employee_id = e.id AND padj.period_month = ? AND padj.period_year = ? AND padj.type = 'deduction' AND padj.note IS NOT NULL) AS adjustmentNote
+                FROM employees e
+                JOIN branches b ON b.id = e.branch_id
+                LEFT JOIN payroll p ON p.employee_id = e.id AND p.period_month = ? AND p.period_year = ?
                 ORDER BY e.is_branch_manager DESC, e.full_name
-            ")->fetchAll();
+            ");
+            $rows->execute([$month, $year, $month, $year]);
+            $shiftAr = ['morning' => 'صباحي', 'evening' => 'مسائي'];
+            $rows = array_map(function ($r) use ($shiftAr) {
+                $r['baseSalary'] = (float) $r['baseSalary'];
+                $r['bonus'] = (float) $r['bonus'];
+                $r['deduction'] = (float) $r['deduction'];
+                $r['shiftTypeText'] = $shiftAr[$r['shiftType']] ?? $r['shiftType'];
+                $reasons = [];
+                if ((float) $r['lateDeduction'] > 0) $reasons[] = 'تأخير';
+                if ((int) $r['activeAdvanceCount'] > 0) $reasons[] = 'سلفة';
+                if ($r['adjustmentNote']) $reasons[] = $r['adjustmentNote'];
+                $r['deductionReason'] = $r['deduction'] > 0 ? (($reasons ? implode(' + ', array_unique($reasons)) : 'خصم إداري')) : null;
+                unset($r['lateDeduction'], $r['activeAdvanceCount'], $r['adjustmentNote'], $r['shiftType']);
+                return $r;
+            }, $rows->fetchAll());
             echo json_encode(['ok' => true, 'employees' => $rows], JSON_UNESCAPED_UNICODE);
             exit;
         }
@@ -662,16 +809,20 @@ if (isset($_GET['ajax'])) {
         }
 
         case 'briefs': {
-            $stmt = $pdo->query("
-                SELECT db.id, e.full_name AS sender, e.job_title AS senderRole, b.name AS branch,
+            $date = $_GET['date'] ?? date('Y-m-d');
+            if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $date)) $date = date('Y-m-d');
+            $stmt = $pdo->prepare("
+                SELECT db.id, e.full_name AS sender, e.job_title AS senderRole, b.id AS branchId, b.name AS branch,
                        DATE_FORMAT(db.brief_date, '%d/%m/%Y') AS date,
                        db.total_income AS revenue, db.total_expense AS expenses, db.travelers_count AS travelersCount, db.note,
                        db.status, db.hr_decision, db.gm_decision, db.hr_note AS hrNote, db.gm_review_note AS gmNote
                 FROM daily_briefs db
                 JOIN branches b ON b.id = db.branch_id
                 LEFT JOIN employees e ON e.id = db.submitted_by
-                ORDER BY db.brief_date DESC, db.id DESC LIMIT 30
+                WHERE db.brief_date = ?
+                ORDER BY b.name
             ");
+            $stmt->execute([$date]);
             $statusAr = [
                 'pending' => 'بانتظار مراجعتك',
                 'hr_approved' => 'وافقت أنت — بانتظار موافقة المسؤول العام أيضاً',
@@ -690,7 +841,8 @@ if (isset($_GET['ajax'])) {
                 $r['statusText'] = $statusAr[$r['status']] ?? $r['status'];
                 return $r;
             }, $stmt->fetchAll());
-            echo json_encode(['ok' => true, 'briefs' => $rows], JSON_UNESCAPED_UNICODE);
+            $pendingCount = (int) $pdo->query("SELECT COUNT(*) FROM daily_briefs WHERE hr_decision='pending' AND status NOT IN ('approved','rejected')")->fetchColumn();
+            echo json_encode(['ok' => true, 'briefs' => $rows, 'date' => $date, 'pendingCount' => $pendingCount], JSON_UNESCAPED_UNICODE);
             exit;
         }
 
@@ -1251,51 +1403,91 @@ function report_data(PDO $pdo, string $type, string $from, string $to, int $bran
         /* ============================================================
            البطاقات الإحصائية
            ============================================================ */
-        .stats-grid {
+        .ring-stats-grid {
             display: grid;
-            grid-template-columns: repeat(4, 1fr);
-            gap: 16px;
-            margin-bottom: 24px;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 14px;
+            margin-bottom: 20px;
         }
-        .stat-card {
+        .ring-stat-card {
             background: var(--bg-card);
-            border-radius: var(--radius-lg);
-            padding: 20px 22px;
+            border-radius: var(--radius-md);
+            padding: 14px 16px;
             border: 1px solid rgba(0,107,115,0.04);
             box-shadow: var(--shadow-sm);
+            display: flex;
+            align-items: center;
+            gap: 14px;
             transition: var(--transition-base);
         }
-        .stat-card:hover {
-            transform: translateY(-4px);
-            box-shadow: var(--shadow-md);
+        .ring-stat-card:hover { box-shadow: var(--shadow-md); }
+        .ring-chart {
+            width: 66px;
+            height: 66px;
+            min-width: 66px;
+            border-radius: 50%;
+            position: relative;
+            background: conic-gradient(#E5E7EB 0% 100%);
         }
-        .stat-card .stat-label {
-            font-size: 12px;
+        .ring-chart .ring-center {
+            position: absolute;
+            inset: 9px;
+            border-radius: 50%;
+            background: var(--bg-card);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            line-height: 1.1;
+        }
+        .ring-chart .ring-center span {
+            font-size: 14px;
+            font-weight: 900;
+            color: var(--text-primary);
+        }
+        .ring-chart .ring-center small {
+            font-size: 8.5px;
             color: var(--text-muted);
             font-weight: 500;
+        }
+        .ring-info {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+            min-width: 0;
+        }
+        .ring-title {
+            font-size: 12px;
+            font-weight: 700;
+            color: var(--text-primary);
             display: flex;
             align-items: center;
             gap: 6px;
         }
-        .stat-card .stat-label i { color: var(--primary); }
-        .stat-card .stat-value {
-            font-size: 28px;
-            font-weight: 900;
+        .ring-title i { color: var(--primary); font-size: 11px; }
+        .ring-legend {
+            display: flex;
+            flex-direction: column;
+            gap: 3px;
+            font-size: 11px;
+            color: var(--text-secondary);
+        }
+        .ring-legend .legend-item {
+            display: flex;
+            align-items: center;
+            gap: 5px;
+            white-space: nowrap;
+        }
+        .ring-legend .legend-item b {
             color: var(--text-primary);
-            margin-top: 6px;
+            font-weight: 800;
         }
-        .stat-card .stat-value.green { color: #059669; }
-        .stat-card .stat-value.red { color: #DC2626; }
-        .stat-card .stat-value.primary { color: var(--primary); }
-        .stat-card .stat-value.gold { color: var(--accent); }
-        .stat-card .stat-change {
-            font-size: 12px;
-            font-weight: 600;
-            margin-top: 4px;
+        .ring-legend .dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            display: inline-block;
         }
-        .stat-card .stat-change.up { color: #059669; }
-        .stat-card .stat-change.down { color: #DC2626; }
-        .stat-card .stat-change i { font-size: 10px; }
 
         /* ============================================================
            أفضل 3 موظفين حضور
@@ -1303,13 +1495,13 @@ function report_data(PDO $pdo, string $type, string $from, string $to, int $bran
         .top-employees {
             display: grid;
             grid-template-columns: 1fr 1fr 1fr;
-            gap: 16px;
-            margin-bottom: 24px;
+            gap: 8px;
+            margin-bottom: 16px;
         }
         .top-employee-card {
             background: var(--bg-card);
-            border-radius: var(--radius-lg);
-            padding: 20px;
+            border-radius: var(--radius-md);
+            padding: 10px 8px;
             border: 1px solid rgba(0,107,115,0.04);
             box-shadow: var(--shadow-sm);
             text-align: center;
@@ -1318,59 +1510,65 @@ function report_data(PDO $pdo, string $type, string $from, string $to, int $bran
             overflow: hidden;
         }
         .top-employee-card:hover {
-            transform: translateY(-4px);
+            transform: translateY(-2px);
             box-shadow: var(--shadow-md);
         }
         .top-employee-card .rank {
-            font-size: 32px;
-            margin-bottom: 8px;
+            font-size: 18px;
+            margin-bottom: 4px;
         }
         .top-employee-card .avatar {
-            width: 64px;
-            height: 64px;
+            width: 36px;
+            height: 36px;
             border-radius: var(--radius-full);
             background: var(--primary-gradient);
             display: flex;
             align-items: center;
             justify-content: center;
             color: #fff;
-            font-size: 24px;
+            font-size: 14px;
             font-weight: 900;
-            margin: 0 auto 10px;
+            margin: 0 auto 6px;
         }
         .top-employee-card .name {
-            font-size: 16px;
+            font-size: 12px;
             font-weight: 800;
             color: var(--text-primary);
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
         }
         .top-employee-card .branch {
-            font-size: 12px;
+            font-size: 10px;
             color: var(--text-muted);
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
         }
         .top-employee-card .attendance-rate {
-            font-size: 22px;
+            font-size: 15px;
             font-weight: 900;
             color: #059669;
-            margin-top: 8px;
+            margin-top: 4px;
         }
         .top-employee-card .attendance-label {
-            font-size: 11px;
+            font-size: 9px;
             color: var(--text-muted);
             font-weight: 400;
         }
         .top-employee-card .badge-gold {
             position: absolute;
-            top: 12px;
-            left: 12px;
-            font-size: 10px;
+            top: 6px;
+            left: 6px;
+            font-size: 8.5px;
             font-weight: 700;
-            padding: 3px 12px;
+            padding: 1px 7px;
             border-radius: var(--radius-full);
             background: var(--accent);
             color: #fff;
         }
         .top-employee-card .medal {
-            font-size: 28px;
+            font-size: 16px;
         }
         .top-employee-card.gold {
             border: 2px solid var(--accent);
@@ -1418,46 +1616,49 @@ function report_data(PDO $pdo, string $type, string $from, string $to, int $bran
         .stocks-chart {
             display: flex;
             align-items: flex-end;
-            gap: 8px;
-            height: 120px;
-            padding: 8px 0;
+            justify-content: center;
+            gap: 18px;
+            height: 110px;
+            padding: 22px 4px 8px;
+            overflow-x: auto;
         }
-        .stocks-chart .bar {
-            flex: 1;
+        .branch-bar-wrap {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: flex-end;
+            height: 100%;
+            min-width: 34px;
+            position: relative;
+            cursor: default;
+        }
+        .branch-bar {
+            width: 10px;
             border-radius: 4px 4px 0 0;
             background: var(--primary-gradient);
-            min-height: 8px;
+            min-height: 4px;
             transition: height 0.6s ease;
-            position: relative;
-            opacity: 0.7;
-            cursor: pointer;
+            opacity: 0.85;
         }
-        .stocks-chart .bar:hover {
-            opacity: 1;
-            transform: scaleY(1.02);
-            transform-origin: bottom;
+        .branch-bar-wrap:hover .branch-bar { opacity: 1; }
+        .branch-bar-pct {
+            font-size: 10px;
+            font-weight: 800;
+            color: var(--text-secondary);
+            margin-bottom: 4px;
+            white-space: nowrap;
         }
-        .stocks-chart .bar .bar-label {
+        .branch-bar-label {
             position: absolute;
-            bottom: -22px;
-            left: 50%;
-            transform: translateX(-50%);
-            font-size: 9px;
+            bottom: -20px;
+            font-size: 9.5px;
             color: var(--text-muted);
             font-weight: 500;
             white-space: nowrap;
+            max-width: 70px;
+            overflow: hidden;
+            text-overflow: ellipsis;
         }
-        .stocks-chart .bar .bar-value {
-            position: absolute;
-            top: -18px;
-            left: 50%;
-            transform: translateX(-50%);
-            font-size: 9px;
-            font-weight: 700;
-            color: var(--text-secondary);
-        }
-        .stocks-chart .bar.up { background: linear-gradient(180deg, #059669, #10B981); }
-        .stocks-chart .bar.down { background: linear-gradient(180deg, #DC2626, #EF4444); }
 
         .stocks-summary {
             display: flex;
@@ -1578,10 +1779,61 @@ function report_data(PDO $pdo, string $type, string $from, string $to, int $bran
         }
         .briefing-section .briefing-header h4 i { color: var(--primary); }
 
+        .brief-date-bar {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            flex-wrap: wrap;
+            background: var(--bg);
+            border-radius: var(--radius-md);
+            padding: 8px 12px;
+            margin-bottom: 14px;
+            border: 1px solid rgba(0,107,115,0.06);
+        }
+        .brief-date-bar label {
+            font-size: 12px;
+            font-weight: 600;
+            color: var(--text-secondary);
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+        .brief-date-bar label i { color: var(--primary); }
+        .brief-date-bar input[type="date"] {
+            padding: 6px 10px;
+            border-radius: var(--radius-sm);
+            border: 1px solid rgba(0,107,115,0.1);
+            font-family: var(--font-family);
+            font-size: 12px;
+            background: var(--bg-card);
+            color: var(--text-primary);
+        }
+        .brief-day-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
+            gap: 10px;
+        }
+        .brief-day-card {
+            background: var(--bg);
+            border-radius: var(--radius-md);
+            padding: 10px 8px;
+            text-align: center;
+            cursor: pointer;
+            border-top: 3px solid var(--primary);
+            transition: var(--transition-base);
+        }
+        .brief-day-card:hover {
+            box-shadow: var(--shadow-sm);
+            transform: translateY(-2px);
+        }
+        .brief-day-icon { font-size: 18px; margin-bottom: 4px; }
+        .brief-day-branch { font-size: 12px; font-weight: 700; color: var(--text-primary); }
+        .brief-day-sender { font-size: 10px; color: var(--text-muted); margin-top: 2px; }
+
         .briefing-card {
             background: var(--bg);
             border-radius: var(--radius-md);
-            padding: 16px 20px;
+            padding: 12px 14px;
             margin-bottom: 14px;
             border-right: 4px solid var(--primary);
             transition: var(--transition-base);
@@ -1806,33 +2058,35 @@ function report_data(PDO $pdo, string $type, string $from, string $to, int $bran
         .branch-card {
             background: var(--bg);
             border-radius: var(--radius-md);
-            padding: 16px 20px;
-            margin-bottom: 14px;
+            padding: 10px 14px;
+            margin-bottom: 10px;
             border: 1px solid rgba(0,107,115,0.04);
-            border-right: 4px solid var(--primary);
+            border-right: 3px solid var(--primary);
             transition: var(--transition-base);
+            cursor: pointer;
         }
         .branch-card:hover {
             box-shadow: var(--shadow-sm);
+            transform: translateY(-1px);
         }
         .branch-card .branch-top {
             display: flex;
             justify-content: space-between;
             align-items: flex-start;
             flex-wrap: wrap;
-            gap: 8px;
-            margin-bottom: 8px;
+            gap: 6px;
+            margin-bottom: 4px;
         }
         .branch-card .branch-top .branch-name {
-            font-size: 16px;
+            font-size: 13.5px;
             font-weight: 800;
             color: var(--text-primary);
         }
         .branch-card .branch-top .branch-name i { color: var(--primary); }
         .branch-card .branch-top .branch-status {
-            font-size: 11px;
+            font-size: 10px;
             font-weight: 700;
-            padding: 3px 14px;
+            padding: 2px 10px;
             border-radius: var(--radius-full);
         }
         .branch-card .branch-top .branch-status.active {
@@ -1845,25 +2099,25 @@ function report_data(PDO $pdo, string $type, string $from, string $to, int $bran
         }
         .branch-card .branch-details {
             display: grid;
-            grid-template-columns: 1fr 1fr 1fr 1fr;
-            gap: 8px;
-            margin: 8px 0;
+            grid-template-columns: 1fr 1fr;
+            gap: 6px;
+            margin: 6px 0;
             font-size: 13px;
         }
         .branch-card .branch-details .detail-item {
             background: var(--bg-card);
-            padding: 6px 12px;
+            padding: 4px 10px;
             border-radius: var(--radius-sm);
             border: 1px solid rgba(0,107,115,0.04);
         }
         .branch-card .branch-details .detail-item .label {
-            font-size: 10px;
+            font-size: 9.5px;
             color: var(--text-muted);
             font-weight: 500;
             display: block;
         }
         .branch-card .branch-details .detail-item .value {
-            font-size: 13px;
+            font-size: 12px;
             font-weight: 700;
             color: var(--text-primary);
         }
@@ -1916,6 +2170,130 @@ function report_data(PDO $pdo, string $type, string $from, string $to, int $bran
         .branch-card .branch-actions .btn-sm.delete:hover {
             background: #DC2626;
             color: #fff;
+        }
+
+        /* ============================================================
+           تفاصيل الفرع
+           ============================================================ */
+        .branch-detail-header {
+            background: var(--bg-card);
+            border-radius: var(--radius-md);
+            padding: 14px 18px;
+            display: flex;
+            align-items: center;
+            gap: 14px;
+            box-shadow: var(--shadow-sm);
+            border: 1px solid rgba(0,107,115,0.04);
+            margin-bottom: 18px;
+            flex-wrap: wrap;
+        }
+        .branch-detail-icon {
+            width: 44px;
+            height: 44px;
+            min-width: 44px;
+            border-radius: var(--radius-md);
+            background: var(--primary-gradient);
+            color: #fff;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 18px;
+        }
+        .branch-detail-name {
+            font-size: 16px;
+            font-weight: 800;
+            color: var(--text-primary);
+        }
+        .branch-detail-sub {
+            display: flex;
+            gap: 14px;
+            font-size: 12px;
+            color: var(--text-secondary);
+            margin-top: 4px;
+            flex-wrap: wrap;
+        }
+        .branch-detail-rate {
+            margin-right: auto;
+            text-align: center;
+        }
+        .branch-detail-rate small {
+            display: block;
+            font-size: 10px;
+            color: var(--text-muted);
+            margin-top: 4px;
+        }
+        .section-subtitle {
+            font-size: 13px;
+            font-weight: 800;
+            color: var(--text-primary);
+            margin: 18px 0 10px;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+        .section-subtitle i { color: var(--primary); }
+        .bd-employees-list {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+            gap: 8px;
+        }
+        .bd-employee-card {
+            background: var(--bg-card);
+            border-radius: var(--radius-sm);
+            padding: 10px 12px;
+            border: 1px solid rgba(0,107,115,0.04);
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        .bd-employee-card .avatar {
+            width: 32px;
+            height: 32px;
+            min-width: 32px;
+            border-radius: 50%;
+            background: var(--primary-gradient);
+            color: #fff;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 12px;
+            font-weight: 800;
+        }
+        .bd-employee-card .name {
+            font-size: 12.5px;
+            font-weight: 700;
+            color: var(--text-primary);
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .bd-employee-card .role {
+            font-size: 10.5px;
+            color: var(--text-muted);
+        }
+        .bd-employee-card .rate {
+            margin-right: auto;
+            font-size: 12px;
+            font-weight: 800;
+        }
+        .bd-brief-card {
+            background: var(--bg-card);
+            border-radius: var(--radius-sm);
+            padding: 8px 12px;
+            border: 1px solid rgba(0,107,115,0.04);
+            margin-bottom: 6px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 10px;
+            font-size: 12px;
+            flex-wrap: wrap;
+        }
+        .bd-brief-card .bd-brief-status {
+            font-size: 10px;
+            font-weight: 700;
+            padding: 2px 10px;
+            border-radius: var(--radius-full);
         }
 
         /* ============================================================
@@ -2262,7 +2640,6 @@ function report_data(PDO $pdo, string $type, string $from, string $to, int $bran
            التجاوب
            ============================================================ */
         @media (max-width: 1200px) {
-            .stats-grid { grid-template-columns: repeat(2, 1fr); }
             .top-employees { grid-template-columns: 1fr 1fr 1fr; }
             .branch-form { grid-template-columns: 1fr 1fr; }
             .branch-card .branch-details { grid-template-columns: 1fr 1fr; }
@@ -2277,7 +2654,6 @@ function report_data(PDO $pdo, string $type, string $from, string $to, int $bran
             }
             .sidebar.open { transform: translateX(0); }
             .main-content { margin-right: 0; padding: 16px; }
-            .stats-grid { grid-template-columns: 1fr 1fr; }
             .top-employees { grid-template-columns: 1fr; }
             .top-header .page-title h2 { font-size: 18px; }
             .branch-form { grid-template-columns: 1fr; }
@@ -2288,15 +2664,15 @@ function report_data(PDO $pdo, string $type, string $from, string $to, int $bran
             .exchange-rate-box .rate-actions { flex-wrap: wrap; }
             .exchange-rate-box .rate-actions input { width: 100%; }
             .stocks-chart { height: 80px; }
-            .stocks-chart .bar .bar-label { font-size: 7px; bottom: -18px; }
-            .stocks-chart .bar .bar-value { font-size: 7px; top: -14px; }
+            .branch-bar-label { font-size: 8px; bottom: -16px; max-width: 50px; }
+            .branch-bar-pct { font-size: 9px; }
             .mobile-menu-toggle {
                 display: flex !important;
             }
         }
 
         @media (max-width: 480px) {
-            .stats-grid { grid-template-columns: 1fr; }
+            .ring-stats-grid { grid-template-columns: 1fr; }
             .top-employees { grid-template-columns: 1fr; }
             .top-header .header-actions .date-display { font-size: 11px; padding: 6px 12px; }
             .stat-card .stat-value { font-size: 22px; }
@@ -2322,6 +2698,19 @@ function report_data(PDO $pdo, string $type, string $from, string $to, int $bran
             z-index: 99;
         }
         .sidebar-overlay.show { display: block; }
+
+        /* طباعة التقرير كـ PDF */
+        #reportPrintHeader { display: none; }
+        @media print {
+            body * { visibility: hidden; }
+            #reportResult, #reportResult * { visibility: visible; }
+            #reportResult { position: absolute; inset: 0; width: 100%; box-shadow: none; border: none; }
+            #reportResult .card-header button { display: none !important; }
+            #reportPrintHeader { display: block; visibility: visible; text-align: center; margin-bottom: 16px; }
+            #reportPrintHeader h2 { font-size: 20px; margin-bottom: 4px; }
+            #reportPrintHeader span { font-size: 12px; color: #555; }
+            .table th, .table td { color: #000 !important; }
+        }
     </style>
 </head>
 <body>
@@ -2463,22 +2852,36 @@ function report_data(PDO $pdo, string $type, string $from, string $to, int $bran
                 ========================================================== -->
                 <div id="page-dashboard" class="page-section">
 
-                    <div class="stats-grid">
-                        <div class="stat-card">
-                            <div class="stat-label"><i class="fas fa-users"></i> إجمالي الموظفين</div>
-                            <div class="stat-value primary" id="statEmployees">0</div>
+                    <div class="ring-stats-grid">
+                        <div class="ring-stat-card">
+                            <div class="ring-chart" id="attendanceRing">
+                                <div class="ring-center">
+                                    <span id="ringEmployeeCount">0</span>
+                                    <small>موظف</small>
+                                </div>
+                            </div>
+                            <div class="ring-info">
+                                <div class="ring-title"><i class="fas fa-users"></i> حضور اليوم</div>
+                                <div class="ring-legend">
+                                    <span class="legend-item"><i class="dot" style="background:#059669;"></i> حاضر <b id="legendPresentPct">0%</b></span>
+                                    <span class="legend-item"><i class="dot" style="background:#D97706;"></i> متأخر <b id="legendLatePct">0%</b></span>
+                                    <span class="legend-item"><i class="dot" style="background:#DC2626;"></i> غائب <b id="legendAbsentPct">0%</b></span>
+                                </div>
+                            </div>
                         </div>
-                        <div class="stat-card">
-                            <div class="stat-label"><i class="fas fa-percent"></i> نسبة الربح الشهرية</div>
-                            <div class="stat-value green" id="statProfitMargin">0%</div>
-                        </div>
-                        <div class="stat-card">
-                            <div class="stat-label"><i class="fas fa-money-bill-wave"></i> صافي الإيراد الشهري</div>
-                            <div class="stat-value gold" id="statMonthlyIncome">0</div>
-                        </div>
-                        <div class="stat-card">
-                            <div class="stat-label"><i class="fas fa-hand-holding-usd"></i> صافي الصرف الشهري</div>
-                            <div class="stat-value red" id="statMonthlyExpense">0</div>
+                        <div class="ring-stat-card">
+                            <div class="ring-chart" id="profitRing">
+                                <div class="ring-center">
+                                    <span id="ringProfitPct">0%</span>
+                                    <small>الربح</small>
+                                </div>
+                            </div>
+                            <div class="ring-info">
+                                <div class="ring-title"><i class="fas fa-percent"></i> نسبة الربح الشهرية</div>
+                                <div class="ring-legend">
+                                    <span class="legend-item"><i class="dot" style="background:#059669;"></i> ربح صافٍ من إجمالي الإيرادات</span>
+                                </div>
+                            </div>
                         </div>
                     </div>
 
@@ -2487,19 +2890,14 @@ function report_data(PDO $pdo, string $type, string $from, string $to, int $bran
                         <!-- يتم التعبئة بواسطة JavaScript -->
                     </div>
 
-                    <!-- الأسهم اليومية -->
+                    <!-- مقارنة إيرادات الفروع -->
                     <div class="stocks-section">
                         <div class="stocks-header">
-                            <h4><i class="fas fa-chart-line"></i> الأسهم اليومية</h4>
+                            <h4><i class="fas fa-chart-column"></i> مقارنة إيرادات الفروع (الشهر الحالي)</h4>
                             <span class="update-time"><i class="fas fa-clock"></i> تحديث: <span id="stocksTime">15:30</span></span>
                         </div>
                         <div class="stocks-chart" id="stocksChart"></div>
-                        <div class="stocks-summary">
-                            <span class="summary-item"><span class="dot up"></span> صاعد: <span class="value" id="stocksUp">3</span></span>
-                            <span class="summary-item"><span class="dot down"></span> هابط: <span class="value" id="stocksDown">2</span></span>
-                            <span class="summary-item"><i class="fas fa-arrow-up" style="color:#059669;"></i> أعلى: <span class="value" id="stocksHigh">92.5</span></span>
-                            <span class="summary-item"><i class="fas fa-arrow-down" style="color:#DC2626;"></i> أدنى: <span class="value" id="stocksLow">84.2</span></span>
-                        </div>
+                        <div class="stocks-summary" id="stocksSummary"></div>
                     </div>
 
                     <!-- صندوق سعر الصرف -->
@@ -2566,12 +2964,20 @@ function report_data(PDO $pdo, string $type, string $from, string $to, int $bran
                                 <input type="date" id="branchHireDate">
                             </div>
                             <div class="form-group">
-                                <label>تاريخ بداية الدوام</label>
+                                <label>تاريخ بداية فترة العمل</label>
                                 <input type="date" id="branchStartDate">
                             </div>
                             <div class="form-group">
-                                <label>تاريخ نهاية الدوام</label>
+                                <label>تاريخ نهاية فترة العمل</label>
                                 <input type="date" id="branchEndDate">
+                            </div>
+                            <div class="form-group">
+                                <label>⏰ بداية دوام الفرع (وقت)</label>
+                                <input type="time" id="branchShiftStart">
+                            </div>
+                            <div class="form-group">
+                                <label>⏰ نهاية دوام الفرع (وقت)</label>
+                                <input type="time" id="branchShiftEnd">
                             </div>
                             <div class="form-group">
                                 <label>الصورة الشخصية <span style="color:#EF4444;">*</span></label>
@@ -2631,6 +3037,38 @@ function report_data(PDO $pdo, string $type, string $from, string $to, int $bran
                 </div>
 
                 <!-- ==========================================================
+                صفحة تفاصيل الفرع
+                ========================================================== -->
+                <div id="page-branchDetail" class="page-section" style="display:none;">
+                    <button class="btn-outline" style="margin-bottom:14px;" onclick="navigateTo('branches')">
+                        <i class="fas fa-arrow-right"></i> رجوع للفروع
+                    </button>
+
+                    <div class="branch-detail-header">
+                        <div class="branch-detail-icon"><i class="fas fa-building"></i></div>
+                        <div>
+                            <div class="branch-detail-name" id="bdName">...</div>
+                            <div class="branch-detail-sub">
+                                <span><i class="fas fa-user-tie"></i> <span id="bdManager">...</span></span>
+                                <span><i class="fas fa-clock"></i> <span id="bdShift">...</span></span>
+                            </div>
+                        </div>
+                        <div class="branch-detail-rate">
+                            <div class="ring-chart" id="bdAttendanceRing" style="width:56px;height:56px;min-width:56px;">
+                                <div class="ring-center" style="inset:7px;"><span id="bdAttendancePct">0%</span></div>
+                            </div>
+                            <small>نسبة الحضور الشهرية</small>
+                        </div>
+                    </div>
+
+                    <div class="section-subtitle"><i class="fas fa-users"></i> موظفو الفرع</div>
+                    <div id="bdEmployeesList" class="bd-employees-list"></div>
+
+                    <div class="section-subtitle"><i class="fas fa-file-signature"></i> الإيجازات المنشورة</div>
+                    <div id="bdBriefsList"></div>
+                </div>
+
+                <!-- ==========================================================
                 صفحة الموظفون
                 ========================================================== -->
                 <div id="page-employees" class="page-section" style="display:none;">
@@ -2642,7 +3080,7 @@ function report_data(PDO $pdo, string $type, string $from, string $to, int $bran
                         <div class="card-body">
                             <div class="table-wrap">
                                 <table class="table">
-                                    <thead><tr><th>#</th><th>الاسم</th><th>الفرع</th><th>المسمى</th><th>الرقم الوظيفي</th><th>التقييم</th><th>الحالة</th><th>إجراء</th></tr></thead>
+                                    <thead><tr><th>#</th><th>الاسم</th><th>الفرع</th><th>المسمى</th><th>الشفت</th><th>الراتب الأساسي</th><th>المكافأة</th><th>الخصم وسببه</th><th>التقييم</th><th>الحالة</th><th>إجراء</th></tr></thead>
                                     <tbody id="employeesBody"></tbody>
                                 </table>
                             </div>
@@ -2776,10 +3214,19 @@ function report_data(PDO $pdo, string $type, string $from, string $to, int $bran
                     <div class="briefing-section">
                         <div class="briefing-header">
                             <h4><i class="fas fa-inbox"></i> الإيجازات الواردة</h4>
-                            <span style="font-size:12px;color:var(--text-muted);" id="briefingCount">3 إيجازات</span>
+                            <span style="font-size:12px;color:var(--text-muted);" id="briefingCount">0 إيجازات</span>
                         </div>
-                        <div id="briefingList">
+                        <div class="brief-date-bar">
+                            <label for="briefingDateInput"><i class="fas fa-calendar-day"></i> اختر التاريخ</label>
+                            <input type="date" id="briefingDateInput" onchange="loadBriefingRequests(this.value)">
+                            <button class="btn-sm view" onclick="loadBriefingRequests(new Date().toISOString().slice(0,10))"><i class="fas fa-rotate-left"></i> اليوم</button>
+                        </div>
+                        <div id="briefingDayList" class="brief-day-grid">
                             <!-- يتم التعبئة بواسطة JavaScript -->
+                        </div>
+                        <div id="briefingDetailPanel" style="display:none;">
+                            <button class="btn-outline" style="margin-bottom:10px;" onclick="closeBriefingDetail()"><i class="fas fa-arrow-right"></i> رجوع لقائمة الفروع</button>
+                            <div id="briefingDetailContent"></div>
                         </div>
                     </div>
                 </div>
@@ -2872,9 +3319,18 @@ function report_data(PDO $pdo, string $type, string $from, string $to, int $bran
                     <div class="content-card" id="reportResult" style="display:none;">
                         <div class="card-header">
                             <h4><i class="fas fa-file-alt"></i> <span id="reportTitle">تقرير الحضور</span></h4>
-                            <button class="btn-primary" onclick="downloadReport()" style="font-size:12px;padding:6px 14px;">
-                                <i class="fas fa-download"></i> تحميل
-                            </button>
+                            <div style="display:flex;gap:8px;">
+                                <button class="btn-primary" onclick="downloadReport()" style="font-size:12px;padding:6px 14px;">
+                                    <i class="fas fa-file-csv"></i> CSV
+                                </button>
+                                <button class="btn-primary" onclick="printReportPDF()" style="font-size:12px;padding:6px 14px;">
+                                    <i class="fas fa-file-pdf"></i> PDF
+                                </button>
+                            </div>
+                        </div>
+                        <div id="reportPrintHeader">
+                            <h2 id="reportPrintCompany">شركة الصوى للصرافة</h2>
+                            <span id="reportPrintMeta"></span>
                         </div>
                         <div class="card-body" id="reportContent"></div>
                     </div>
@@ -3094,6 +3550,7 @@ function report_data(PDO $pdo, string $type, string $from, string $to, int $bran
         let requestsData = [];
         let briefingRequests = [];
         let branches = [];
+        let companyNameForPrint = 'شركة الصوى للصرافة';
         let exchangeRate = 1320;
         let branchIdCounter = 1;
         let editingBranchId = null;
@@ -3142,7 +3599,6 @@ function report_data(PDO $pdo, string $type, string $from, string $to, int $bran
         function initData() {
             updateDateTime();
             setInterval(updateDateTime, 1000);
-            generateStocks();
             loadNotifications();
             setInterval(loadNotifications, 60000);
             requestNotifPermission();
@@ -3154,14 +3610,14 @@ function report_data(PDO $pdo, string $type, string $from, string $to, int $bran
                 loadRateHistory();
                 renderTopEmployees(data.topEmployees || []);
                 if (data.stats) {
-                    document.getElementById('statEmployees').textContent = data.stats.employees;
-                    document.getElementById('statProfitMargin').textContent = data.stats.profitMarginPct + '%';
-                    document.getElementById('statMonthlyIncome').textContent = Number(data.stats.monthlyIncome).toLocaleString();
-                    document.getElementById('statMonthlyExpense').textContent = Number(data.stats.monthlyExpense).toLocaleString();
+                    renderAttendanceRing(data.stats.employees, data.stats.attendanceToday || {});
+                    renderProfitRing(data.stats.profitMarginPct || 0);
                 }
+                renderBranchRevenueBars(data.branchRevenueShares || []);
                 if (data.settings) {
                     const s = data.settings;
                     const byId = id => document.getElementById(id);
+                    companyNameForPrint = s.company_name || 'شركة الصوى للصرافة';
                     if (byId('settingsCompanyName')) byId('settingsCompanyName').value = s.company_name || '';
                     if (s.company_logo && byId('settingsLogoPreview')) byId('settingsLogoPreview').innerHTML = `<img src="${s.company_logo}" style="width:100%;height:100%;object-fit:cover;">`;
                     if (byId('headerCompanyName')) byId('headerCompanyName').innerHTML = (s.company_name || 'نظام') + ' <span>الموارد البشرية</span>';
@@ -3233,7 +3689,8 @@ function report_data(PDO $pdo, string $type, string $from, string $to, int $bran
                 'requests': { title: 'الطلبات', sub: 'إدارة طلبات الموظفين' },
                 'reports': { title: 'التقارير', sub: 'إنشاء وعرض التقارير' },
                 'exchange': { title: 'سعر الصرف', sub: 'تحديد سعر صرف الدولار' },
-                'settings': { title: 'الإعدادات', sub: 'إعدادات النظام والشركة' }
+                'settings': { title: 'الإعدادات', sub: 'إعدادات النظام والشركة' },
+                'branchDetail': { title: 'تفاصيل الفرع', sub: 'الموظفون والإيجازات المنشورة' }
             };
             document.getElementById('pageTitle').innerHTML = `<i class="fas ${getPageIcon(page)}"></i> ${titles[page]?.title || page}`;
             document.getElementById('pageSub').textContent = titles[page]?.sub || '';
@@ -3250,7 +3707,7 @@ function report_data(PDO $pdo, string $type, string $from, string $to, int $bran
         }
 
         function getPageIcon(page) {
-            const icons = { 'dashboard': 'fa-chart-pie', 'branches': 'fa-building', 'employees': 'fa-users', 'attendance': 'fa-clock', 'salaries': 'fa-wallet', 'briefing': 'fa-file-signature', 'requests': 'fa-file-pen', 'reports': 'fa-chart-bar', 'exchange': 'fa-dollar-sign', 'settings': 'fa-cog' };
+            const icons = { 'dashboard': 'fa-chart-pie', 'branches': 'fa-building', 'employees': 'fa-users', 'attendance': 'fa-clock', 'salaries': 'fa-wallet', 'briefing': 'fa-file-signature', 'requests': 'fa-file-pen', 'reports': 'fa-chart-bar', 'exchange': 'fa-dollar-sign', 'settings': 'fa-cog', 'branchDetail': 'fa-building' };
             return icons[page] || 'fa-circle';
         }
 
@@ -3337,38 +3794,64 @@ function report_data(PDO $pdo, string $type, string $from, string $to, int $bran
         }
 
         // ============================================================
-        // توليد الأسهم اليومية
+        // حلقة حضور اليوم (دائرة حاضر/متأخر/غائب)
         // ============================================================
-        function generateStocks() {
-            const chart = document.getElementById('stocksChart');
-            const days = ['أحد', 'إثن', 'ثلاث', 'أربع', 'خميس', 'جمعة', 'سبت'];
-            const values = [85, 88, 84, 90, 92, 87, 89];
-            let html = '';
-            let up = 0,
-                down = 0,
-                high = 0,
-                low = 100;
+        function renderAttendanceRing(totalEmployees, att) {
+            const p = att.presentPct || 0, l = att.latePct || 0, a = att.absentPct || 0;
+            const ring = document.getElementById('attendanceRing');
+            if (totalEmployees > 0 && (p + l + a) > 0) {
+                ring.style.background = `conic-gradient(#059669 0% ${p}%, #D97706 ${p}% ${p + l}%, #DC2626 ${p + l}% ${p + l + a}%, #E5E7EB ${p + l + a}% 100%)`;
+            } else {
+                ring.style.background = 'conic-gradient(#E5E7EB 0% 100%)';
+            }
+            document.getElementById('ringEmployeeCount').textContent = totalEmployees;
+            document.getElementById('legendPresentPct').textContent = p + '%';
+            document.getElementById('legendLatePct').textContent = l + '%';
+            document.getElementById('legendAbsentPct').textContent = a + '%';
+        }
 
-            values.forEach((val, i) => {
-                const isUp = i > 0 && val > values[i - 1];
-                if (i > 0) { if (isUp) up++;
-                    else down++; }
-                if (val > high) high = val;
-                if (val < low) low = val;
-                const height = Math.max((val / 100) * 100, 15);
+        // ============================================================
+        // حلقة نسبة الربح الشهرية
+        // ============================================================
+        function renderProfitRing(pct) {
+            const ring = document.getElementById('profitRing');
+            const clamped = Math.max(0, Math.min(100, pct));
+            const color = pct < 0 ? '#DC2626' : '#059669';
+            ring.style.background = `conic-gradient(${color} 0% ${clamped}%, #E5E7EB ${clamped}% 100%)`;
+            document.getElementById('ringProfitPct').textContent = pct + '%';
+        }
+
+        // ============================================================
+        // مقارنة إيرادات الفروع (يحل محل شريط الأسهم الوهمي)
+        // ============================================================
+        function renderBranchRevenueBars(shares) {
+            const chart = document.getElementById('stocksChart');
+            const summary = document.getElementById('stocksSummary');
+            if (!shares || shares.length === 0) {
+                chart.innerHTML = '<div style="width:100%;text-align:center;color:var(--text-muted);font-size:12px;padding:20px 0;">لا توجد بيانات إيرادات كافية بعد</div>';
+                if (summary) summary.innerHTML = '';
+                return;
+            }
+            let html = '';
+            shares.forEach(s => {
+                const height = Math.max(s.pct, 3);
                 html += `
-                    <div class="bar ${isUp ? 'up' : 'down'}" style="height:${height}%;">
-                        <span class="bar-value">${val}</span>
-                        <span class="bar-label">${days[i]}</span>
+                    <div class="branch-bar-wrap" title="${s.name}: ${s.pct}% (${Number(s.revenue).toLocaleString()} د.ع)">
+                        <span class="branch-bar-pct">${s.pct}%</span>
+                        <div class="branch-bar" style="height:${height}%;"></div>
+                        <span class="branch-bar-label">${s.name}</span>
                     </div>
                 `;
             });
-
             chart.innerHTML = html;
-            document.getElementById('stocksUp').textContent = up;
-            document.getElementById('stocksDown').textContent = down;
-            document.getElementById('stocksHigh').textContent = high.toFixed(1);
-            document.getElementById('stocksLow').textContent = low.toFixed(1);
+            if (summary) {
+                const total = shares.reduce((sum, s) => sum + s.revenue, 0);
+                const best = shares[0];
+                summary.innerHTML = `
+                    <span class="summary-item">إجمالي إيرادات الشهر: <span class="value">${Number(total).toLocaleString()}</span></span>
+                    ${best && best.revenue > 0 ? `<span class="summary-item"><i class="fas fa-trophy" style="color:var(--accent);"></i> الأعلى: <span class="value">${best.name}</span></span>` : ''}
+                `;
+            }
         }
 
         // ============================================================
@@ -3473,60 +3956,37 @@ function report_data(PDO $pdo, string $type, string $from, string $to, int $bran
                 const statusClass = branch.status === 'active' ? 'active' : 'inactive';
                 const statusLabel = branch.status === 'active' ? '✅ نشط' : '❌ غير نشط';
 
+                const shiftText = (branch.shiftStart && branch.shiftEnd) ? `${branch.shiftStart.slice(0,5)} - ${branch.shiftEnd.slice(0,5)}` : 'غير محدد';
+
                 html += `
-                    <div class="branch-card">
+                    <div class="branch-card" onclick="viewBranch(${branch.id})">
                         <div class="branch-top">
                             <div>
                                 <div class="branch-name"><i class="fas fa-building"></i> ${branch.name}</div>
-                                <div style="font-size:13px;color:var(--text-secondary);">
+                                <div style="font-size:12px;color:var(--text-secondary);">
                                     <i class="fas fa-user-tie"></i> مسؤول: ${branch.manager}
                                 </div>
                             </div>
-                            <div>
-                                <span class="branch-status ${statusClass}">${statusLabel}</span>
-                                <span style="font-size:11px;color:var(--text-muted);margin-right:10px;">
-                                    <i class="fas fa-id-card"></i> ${branch.nationalId}
-                                </span>
-                            </div>
+                            <span class="branch-status ${statusClass}">${statusLabel}</span>
                         </div>
 
                         <div class="branch-details">
                             <div class="detail-item">
-                                <span class="label">📅 تاريخ الميلاد</span>
-                                <span class="value">${branch.birthDate || 'غير محدد'}</span>
+                                <span class="label">⏰ الدوام</span>
+                                <span class="value">${shiftText}</span>
                             </div>
                             <div class="detail-item">
-                                <span class="label">📅 تاريخ التعيين</span>
-                                <span class="value">${branch.hireDate || 'غير محدد'}</span>
-                            </div>
-                            <div class="detail-item">
-                                <span class="label">📅 بداية الدوام</span>
-                                <span class="value">${branch.startDate || 'غير محدد'}</span>
-                            </div>
-                            <div class="detail-item">
-                                <span class="label">📅 نهاية الدوام</span>
-                                <span class="value">${branch.endDate || 'غير محدد'}</span>
+                                <span class="label">🪪 الهوية</span>
+                                <span class="value">${branch.nationalId}</span>
                             </div>
                         </div>
 
-                        ${branch.notes ? `
-                            <div style="font-size:12px;color:var(--text-muted);padding:6px 12px;background:var(--bg-card);border-radius:var(--radius-sm);margin:6px 0;border:1px solid rgba(0,107,115,0.04);">
-                                <strong><i class="fas fa-comment"></i> ملاحظات:</strong> ${branch.notes}
-                            </div>
-                        ` : ''}
-
-                        <div class="branch-docs">
-                            ${branch.photo ? `<span class="doc-tag"><i class="fas fa-image"></i> صورة شخصية</span>` : ''}
-                            ${branch.docs ? `<span class="doc-tag"><i class="fas fa-file-pdf"></i> مستمسكات</span>` : ''}
-                            <span class="doc-tag"><i class="fas fa-id-card"></i> هوية وطنية: ${branch.nationalId}</span>
-                        </div>
-
-                        <div class="branch-actions">
+                        <div class="branch-actions" onclick="event.stopPropagation();">
                             <button class="btn-sm edit" onclick="editBranch(${branch.id})">
                                 <i class="fas fa-edit"></i> تعديل
                             </button>
                             <button class="btn-sm view" onclick="viewBranch(${branch.id})">
-                                <i class="fas fa-eye"></i> عرض
+                                <i class="fas fa-eye"></i> التفاصيل
                             </button>
                             <button class="btn-sm delete" onclick="deleteBranch(${branch.id})">
                                 <i class="fas fa-trash"></i> حذف
@@ -3558,10 +4018,13 @@ function report_data(PDO $pdo, string $type, string $from, string $to, int $bran
             document.getElementById('branchName').value = '';
             document.getElementById('branchManager').value = '';
             document.getElementById('branchNationalId').value = '';
+            document.getElementById('branchPhone').value = '';
             document.getElementById('branchBirthDate').value = '';
             document.getElementById('branchHireDate').value = '';
             document.getElementById('branchStartDate').value = '';
             document.getElementById('branchEndDate').value = '';
+            document.getElementById('branchShiftStart').value = '';
+            document.getElementById('branchShiftEnd').value = '';
             document.getElementById('branchNotes').value = '';
             document.getElementById('branchStatus').value = 'active';
             document.getElementById('branchPhotoLabel').textContent = 'اختر صورة';
@@ -3609,6 +4072,8 @@ function report_data(PDO $pdo, string $type, string $from, string $to, int $bran
             fd.append('hireDate', document.getElementById('branchHireDate').value);
             fd.append('startDate', document.getElementById('branchStartDate').value);
             fd.append('endDate', document.getElementById('branchEndDate').value);
+            fd.append('shiftStart', document.getElementById('branchShiftStart').value);
+            fd.append('shiftEnd', document.getElementById('branchShiftEnd').value);
             fd.append('notes', document.getElementById('branchNotes').value.trim());
             fd.append('status', document.getElementById('branchStatus').value);
             const managerPasswordEl = document.getElementById('branchManagerPassword');
@@ -3639,10 +4104,13 @@ function report_data(PDO $pdo, string $type, string $from, string $to, int $bran
             document.getElementById('branchName').value = branch.name;
             document.getElementById('branchManager').value = branch.manager;
             document.getElementById('branchNationalId').value = branch.nationalId;
+            document.getElementById('branchPhone').value = branch.phone || '';
             document.getElementById('branchBirthDate').value = branch.birthDate || '';
             document.getElementById('branchHireDate').value = branch.hireDate || '';
             document.getElementById('branchStartDate').value = branch.startDate || '';
             document.getElementById('branchEndDate').value = branch.endDate || '';
+            document.getElementById('branchShiftStart').value = branch.shiftStart || '';
+            document.getElementById('branchShiftEnd').value = branch.shiftEnd || '';
             document.getElementById('branchNotes').value = branch.notes || '';
             document.getElementById('branchStatus').value = branch.status;
 
@@ -3655,24 +4123,58 @@ function report_data(PDO $pdo, string $type, string $from, string $to, int $bran
         }
 
         function viewBranch(id) {
-            const branch = branches.find(b => b.id === id);
-            if (!branch) return;
-            const statusLabel = branch.status === 'active' ? 'نشط' : 'غير نشط';
-            const statusEmoji = branch.status === 'active' ? '✅' : '❌';
-            let details = `
-                🏢 ${branch.name}
-                👤 مسؤول: ${branch.manager}
-                🪪 الهوية: ${branch.nationalId}
-                📅 تاريخ الميلاد: ${branch.birthDate || 'غير محدد'}
-                📅 تاريخ التعيين: ${branch.hireDate || 'غير محدد'}
-                📅 بداية الدوام: ${branch.startDate || 'غير محدد'}
-                📅 نهاية الدوام: ${branch.endDate || 'غير محدد'}
-                📝 ملاحظات: ${branch.notes || 'لا توجد'}
-                📌 الحالة: ${statusEmoji} ${statusLabel}
-            `;
-            if (branch.photo) details += `\n🖼️ الصورة: ${branch.photo}`;
-            if (branch.docs) details += `\n📄 المستمسكات: ${branch.docs}`;
-            showToast('📋 تفاصيل الفرع', details, 'info', 6000);
+            navigateTo('branchDetail');
+            document.getElementById('bdEmployeesList').innerHTML = '<p style="color:var(--text-muted);font-size:12px;">جاري التحميل...</p>';
+            document.getElementById('bdBriefsList').innerHTML = '';
+            fetch('?ajax=branch_detail&id=' + id).then(r => r.json()).then(data => {
+                if (!data.ok) { showToast('⚠️ خطأ', data.error || 'تعذر تحميل تفاصيل الفرع', 'error'); navigateTo('branches'); return; }
+                renderBranchDetail(data);
+            }).catch(() => {
+                showToast('❌ خطأ', 'تعذر الاتصال بالخادم', 'error');
+                navigateTo('branches');
+            });
+        }
+
+        function renderBranchDetail(data) {
+            const b = data.branch;
+            document.getElementById('bdName').textContent = b.name;
+            document.getElementById('bdManager').textContent = b.manager || 'غير محدد';
+            document.getElementById('bdShift').textContent = (b.shiftStart && b.shiftEnd) ? `${b.shiftStart} - ${b.shiftEnd}` : 'غير محدد';
+
+            const pct = data.overallAttendanceRate || 0;
+            document.getElementById('bdAttendancePct').textContent = pct + '%';
+            document.getElementById('bdAttendanceRing').style.background = `conic-gradient(#059669 0% ${pct}%, #E5E7EB ${pct}% 100%)`;
+
+            const empList = document.getElementById('bdEmployeesList');
+            if (!data.employees || !data.employees.length) {
+                empList.innerHTML = '<p style="color:var(--text-muted);font-size:12px;">لا يوجد موظفون في هذا الفرع</p>';
+            } else {
+                empList.innerHTML = data.employees.map(e => `
+                    <div class="bd-employee-card">
+                        <div class="avatar">${e.name.charAt(0)}</div>
+                        <div style="min-width:0;">
+                            <div class="name">${e.name}${e.isManager ? ' 👑' : ''}</div>
+                            <div class="role">${e.job_title || ''} · ${e.shiftTypeText}</div>
+                        </div>
+                        <div class="rate" style="color:${e.attendanceRate >= 80 ? '#059669' : (e.attendanceRate >= 50 ? '#D97706' : '#DC2626')};">${e.attendanceRate}%</div>
+                    </div>
+                `).join('');
+            }
+
+            const briefsList = document.getElementById('bdBriefsList');
+            if (!data.briefs || !data.briefs.length) {
+                briefsList.innerHTML = '<p style="color:var(--text-muted);font-size:12px;">لا توجد إيجازات منشورة بعد</p>';
+            } else {
+                const statusColors = { pending: '#D97706', hr_approved: '#0A8A94', gm_approved: '#0A8A94', approved: '#059669', rejected: '#DC2626' };
+                briefsList.innerHTML = data.briefs.map(br => `
+                    <div class="bd-brief-card">
+                        <span><i class="fas fa-calendar" style="color:var(--text-muted);"></i> ${br.date}</span>
+                        <span>الإيراد: <b>${Number(br.revenue).toLocaleString()}</b></span>
+                        <span>الربح: <b style="color:#059669;">${Number(br.profit).toLocaleString()}</b></span>
+                        <span class="bd-brief-status" style="background:${statusColors[br.status]}1A;color:${statusColors[br.status]};">${br.statusText}</span>
+                    </div>
+                `).join('');
+            }
         }
 
         function deleteBranch(id) {
@@ -3857,7 +4359,10 @@ function report_data(PDO $pdo, string $type, string $from, string $to, int $bran
                     <td>${item.name}${item.isManager ? ' <span style="font-size:10px;color:var(--accent);">(مدير فرع)</span>' : ''}</td>
                     <td>${item.branch}</td>
                     <td>${item.job_title || '-'}</td>
-                    <td>${item.employee_number}</td>
+                    <td>${item.shiftTypeText || '-'}</td>
+                    <td>${Number(item.baseSalary).toLocaleString()}</td>
+                    <td style="color:#059669;">${item.bonus > 0 ? '+' + Number(item.bonus).toLocaleString() : '-'}</td>
+                    <td>${item.deduction > 0 ? `<span style="color:#DC2626;">-${Number(item.deduction).toLocaleString()}</span><br><span style="font-size:10px;color:var(--text-muted);">${item.deductionReason || ''}</span>` : '-'}</td>
                     <td>${Number(item.rating).toFixed(1)} ★</td>
                     <td><span class="status-badge ${item.status === 'active' ? 'approved' : 'rejected'}">${item.status === 'active' ? 'نشط' : 'غير نشط'}</span></td>
                     <td><button class="action-btn add" onclick="openProfile(${item.id})"><i class="fas fa-eye"></i> عرض الملف</button></td>
@@ -3970,108 +4475,144 @@ function report_data(PDO $pdo, string $type, string $from, string $to, int $bran
         // ============================================================
         // نظام الإيجاز - تم تصحيحه
         // ============================================================
-        function loadBriefingRequests() {
-            fetch('?ajax=briefs').then(r => r.json()).then(data => {
+        let briefingSelectedId = null;
+
+        function loadBriefingRequests(date) {
+            const dateInput = document.getElementById('briefingDateInput');
+            const d = date || (dateInput && dateInput.value) || new Date().toISOString().slice(0, 10);
+            fetch('?ajax=briefs&date=' + encodeURIComponent(d)).then(r => r.json()).then(data => {
                 if (!data.ok) return;
                 briefingRequests = data.briefs;
-                renderBriefingRequests();
-                updateBriefingBadge();
-            });
+                if (dateInput) dateInput.value = data.date;
+                updateBriefingBadge(data.pendingCount);
+                if (briefingSelectedId !== null) {
+                    const item = briefingRequests.find(b => b.id === briefingSelectedId);
+                    if (item) { renderBriefingDetail(item); return; }
+                    closeBriefingDetail();
+                    return;
+                }
+                renderBriefingDayCards();
+            }).catch(() => {});
         }
 
-        function renderBriefingRequests() {
-            const list = document.getElementById('briefingList');
+        function renderBriefingDayCards() {
+            const list = document.getElementById('briefingDayList');
             if (!list) return;
+            document.getElementById('briefingDetailPanel').style.display = 'none';
+            list.style.display = '';
 
             if (briefingRequests.length === 0) {
                 list.innerHTML = `
-                    <div style="text-align:center;padding:30px 20px;color:var(--text-muted);">
-                        <i class="fas fa-inbox" style="font-size:48px;opacity:0.3;display:block;margin-bottom:12px;"></i>
-                        <p>لا توجد إيجازات في انتظار الاعتماد</p>
+                    <div style="text-align:center;padding:30px 20px;color:var(--text-muted);grid-column:1/-1;">
+                        <i class="fas fa-inbox" style="font-size:40px;opacity:0.3;display:block;margin-bottom:10px;"></i>
+                        <p style="font-size:13px;">لا توجد إيجازات منشورة في هذا التاريخ</p>
                     </div>
                 `;
                 document.getElementById('briefingCount').textContent = '0 إيجازات';
                 return;
             }
 
-            let html = '';
-            briefingRequests.forEach((item) => {
-                const statusClass = item.status === 'approved' ? 'approved' : (item.status === 'rejected' ? 'rejected' : 'pending');
-                const statusColors = { pending: '#D97706', hr_approved: '#0A8A94', approved: '#10B981', rejected: '#DC2626' };
-                const statusIcons = { pending: '⏳', hr_approved: '📤', approved: '✅', rejected: '❌' };
-
-                html += `
-                    <div class="briefing-card" style="border-right-color: ${statusColors[item.status] || '#D97706'};">
-                        <div class="briefing-top">
-                            <div>
-                                <div class="sender">
-                                    <i class="fas fa-user-circle"></i> ${item.sender}
-                                    <span style="font-size:11px;color:var(--text-muted);font-weight:400;"> - ${item.senderRole}</span>
-                                </div>
-                                <div style="font-size:12px;color:var(--text-muted);">${item.branch}</div>
-                            </div>
-                            <div>
-                                <span class="briefing-status ${statusClass}">${statusIcons[item.status] || ''} ${item.statusText}</span>
-                                <span class="date" style="margin-right:10px;">${item.date}</span>
-                            </div>
-                        </div>
-
-                        <div class="briefing-details">
-                            <div class="detail-item">
-                                <span class="label">📉 المصاريف</span>
-                                <span class="value">${item.expenses.toLocaleString()}</span>
-                            </div>
-                            <div class="detail-item">
-                                <span class="label">📈 الإيرادات</span>
-                                <span class="value" style="color:#059669;">${item.revenue.toLocaleString()}</span>
-                            </div>
-                            <div class="detail-item">
-                                <span class="label">🧳 عدد المسافرين</span>
-                                <span class="value">${item.travelersCount}</span>
-                            </div>
-                            <div class="detail-item">
-                                <span class="label">💰 صافي الربح</span>
-                                <span class="value" style="color:#059669;font-size:16px;">${item.netProfit.toLocaleString()}</span>
-                            </div>
-                        </div>
-
-                        ${item.note ? `
-                            <div class="briefing-note">
-                                <strong><i class="fas fa-comment"></i> ملاحظة المرسل:</strong>
-                                ${item.note}
-                            </div>
-                        ` : ''}
-
-                        ${item.hrNote ? `
-                            <div class="briefing-note" style="border-color:var(--primary);background:rgba(0,107,115,0.03);">
-                                <strong><i class="fas fa-check-circle" style="color:var(--primary);"></i> ملاحظة HR:</strong>
-                                ${item.hrNote}
-                            </div>
-                        ` : ''}
-
-                        ${item.canReview ? `
-                            <div class="briefing-actions">
-                                <input type="text" class="hr-note-input" id="hrNote_${item.id}" placeholder="أضف ملاحظة (اختياري)...">
-                                <button class="btn-success" onclick="approveBriefing(${item.id})">
-                                    <i class="fas fa-check"></i> اعتماد
-                                </button>
-                                <button class="btn-danger" onclick="rejectBriefing(${item.id})">
-                                    <i class="fas fa-times"></i> رفض
-                                </button>
-                            </div>
-                        ` : `
-                            <div style="font-size:12px;color:var(--text-muted);padding-top:8px;">
-                                <i class="fas fa-info-circle" style="color:${statusColors[item.status] || '#666'};"></i>
-                                ${item.statusText}
-                            </div>
-                        `}
-                    </div>
-                `;
-            });
-
-            list.innerHTML = html;
+            const statusColors = { pending: '#D97706', hr_approved: '#0A8A94', gm_approved: '#0A8A94', approved: '#10B981', rejected: '#DC2626' };
+            const statusIcons = { pending: '⏳', hr_approved: '📤', gm_approved: '📥', approved: '✅', rejected: '❌' };
+            list.innerHTML = briefingRequests.map(item => `
+                <div class="brief-day-card" style="border-top-color:${statusColors[item.status] || '#D97706'};" onclick="openBriefingDetail(${item.id})">
+                    <div class="brief-day-icon" style="color:${statusColors[item.status] || '#D97706'};">${statusIcons[item.status] || '📄'}</div>
+                    <div class="brief-day-branch"><i class="fas fa-building"></i> ${item.branch}</div>
+                    <div class="brief-day-sender">${item.sender}</div>
+                </div>
+            `).join('');
             document.getElementById('briefingCount').textContent = briefingRequests.length + ' إيجازات';
-            updateBriefingBadge();
+        }
+
+        function openBriefingDetail(id) {
+            const item = briefingRequests.find(b => b.id === id);
+            if (!item) return;
+            briefingSelectedId = id;
+            document.getElementById('briefingDayList').style.display = 'none';
+            document.getElementById('briefingDetailPanel').style.display = 'block';
+            renderBriefingDetail(item);
+        }
+
+        function closeBriefingDetail() {
+            briefingSelectedId = null;
+            document.getElementById('briefingDetailPanel').style.display = 'none';
+            renderBriefingDayCards();
+        }
+
+        function renderBriefingDetail(item) {
+            const content = document.getElementById('briefingDetailContent');
+            if (!content) return;
+            const statusClass = item.status === 'approved' ? 'approved' : (item.status === 'rejected' ? 'rejected' : 'pending');
+            const statusColors = { pending: '#D97706', hr_approved: '#0A8A94', gm_approved: '#0A8A94', approved: '#10B981', rejected: '#DC2626' };
+            const statusIcons = { pending: '⏳', hr_approved: '📤', gm_approved: '📥', approved: '✅', rejected: '❌' };
+
+            content.innerHTML = `
+                <div class="briefing-card" style="border-right-color: ${statusColors[item.status] || '#D97706'};">
+                    <div class="briefing-top">
+                        <div>
+                            <div class="sender">
+                                <i class="fas fa-user-circle"></i> ${item.sender}
+                                <span style="font-size:11px;color:var(--text-muted);font-weight:400;"> - ${item.senderRole}</span>
+                            </div>
+                            <div style="font-size:12px;color:var(--text-muted);"><i class="fas fa-building"></i> ${item.branch}</div>
+                        </div>
+                        <div>
+                            <span class="briefing-status ${statusClass}">${statusIcons[item.status] || ''} ${item.statusText}</span>
+                            <span class="date" style="margin-right:10px;">${item.date}</span>
+                        </div>
+                    </div>
+
+                    <div class="briefing-details">
+                        <div class="detail-item">
+                            <span class="label">📉 المصاريف</span>
+                            <span class="value">${item.expenses.toLocaleString()}</span>
+                        </div>
+                        <div class="detail-item">
+                            <span class="label">📈 الإيرادات</span>
+                            <span class="value" style="color:#059669;">${item.revenue.toLocaleString()}</span>
+                        </div>
+                        <div class="detail-item">
+                            <span class="label">🧳 عدد المسافرين</span>
+                            <span class="value">${item.travelersCount}</span>
+                        </div>
+                        <div class="detail-item">
+                            <span class="label">💰 صافي الربح</span>
+                            <span class="value" style="color:#059669;font-size:16px;">${item.netProfit.toLocaleString()}</span>
+                        </div>
+                    </div>
+
+                    ${item.note ? `
+                        <div class="briefing-note">
+                            <strong><i class="fas fa-comment"></i> ملاحظة المرسل:</strong>
+                            ${item.note}
+                        </div>
+                    ` : ''}
+
+                    ${item.hrNote ? `
+                        <div class="briefing-note" style="border-color:var(--primary);background:rgba(0,107,115,0.03);">
+                            <strong><i class="fas fa-check-circle" style="color:var(--primary);"></i> ملاحظة HR:</strong>
+                            ${item.hrNote}
+                        </div>
+                    ` : ''}
+
+                    ${item.canReview ? `
+                        <div class="briefing-actions">
+                            <input type="text" class="hr-note-input" id="hrNote_${item.id}" placeholder="أضف ملاحظة (اختياري)...">
+                            <button class="btn-success" onclick="approveBriefing(${item.id})">
+                                <i class="fas fa-check"></i> اعتماد
+                            </button>
+                            <button class="btn-danger" onclick="rejectBriefing(${item.id})">
+                                <i class="fas fa-times"></i> رفض
+                            </button>
+                        </div>
+                    ` : `
+                        <div style="font-size:12px;color:var(--text-muted);padding-top:8px;">
+                            <i class="fas fa-info-circle" style="color:${statusColors[item.status] || '#666'};"></i>
+                            ${item.statusText}
+                        </div>
+                    `}
+                </div>
+            `;
         }
 
         function reviewBriefing(id, decision) {
@@ -4093,8 +4634,8 @@ function report_data(PDO $pdo, string $type, string $from, string $to, int $bran
         function approveBriefing(id) { reviewBriefing(id, 'approved'); }
         function rejectBriefing(id) { reviewBriefing(id, 'rejected'); }
 
-        function updateBriefingBadge() {
-            const pending = briefingRequests.filter(b => b.status === 'pending').length;
+        function updateBriefingBadge(count) {
+            const pending = typeof count === 'number' ? count : briefingRequests.filter(b => b.status === 'pending').length;
             const badge = document.getElementById('briefingBadge');
             if (badge) {
                 badge.textContent = pending;
@@ -4265,6 +4806,8 @@ function report_data(PDO $pdo, string $type, string $from, string $to, int $bran
                 `;
 
                 content.innerHTML = html;
+                document.getElementById('reportPrintCompany').textContent = companyNameForPrint;
+                document.getElementById('reportPrintMeta').textContent = `${typeNames[type]} — من ${from} إلى ${to} — ${branchLabel}`;
                 document.getElementById('reportResult').style.display = 'block';
                 showToast('📊 تم الإنشاء', 'تم إنشاء التقرير بنجاح', 'success');
             });
@@ -4278,6 +4821,15 @@ function report_data(PDO $pdo, string $type, string $from, string $to, int $bran
             const qs = new URLSearchParams({ type, from, to, branch });
             showToast('📥 جاري التحميل', 'يتم تحميل التقرير...', 'info');
             window.location.href = '?ajax=report_download&' + qs.toString();
+        }
+
+        function printReportPDF() {
+            if (document.getElementById('reportResult').style.display === 'none') {
+                showToast('⚠️ تنبيه', 'الرجاء إنشاء التقرير أولاً', 'warning');
+                return;
+            }
+            showToast('🖨️ جاري التجهيز', 'اختر "حفظ كـ PDF" من نافذة الطباعة', 'info');
+            setTimeout(() => window.print(), 300);
         }
 
         // ============================================================
