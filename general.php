@@ -105,8 +105,10 @@ function gm_report_data(PDO $pdo, string $type, string $from, string $to, int $b
         $sql = "SELECT b.name AS branch, DATE_FORMAT(db.brief_date,'%d/%m/%Y') AS date,
                        db.total_income AS revenue, db.total_expense AS expense, db.travelers_count AS travelers,
                        (db.total_income - db.total_expense) AS profit, db.status,
-                       db.hr_note AS hrNote, db.gm_review_note AS gmNote
+                       db.hr_note AS hrNote, db.gm_review_note AS gmNote,
+                       COALESCE(se.full_name, 'مدير الفرع') AS sender
                 FROM daily_briefs db JOIN branches b ON b.id = db.branch_id
+                LEFT JOIN employees se ON se.id = db.submitted_by
                 WHERE db.brief_date BETWEEN ? AND ?";
         $params = [$from, $to];
         if ($branch > 0) { $sql .= " AND db.branch_id = ?"; $params[] = $branch; }
@@ -182,7 +184,7 @@ if (isset($_GET['ajax'])) {
     }
     $gmUser = $_SESSION['gm_user'];
     $isShareholder = $gmUser['role'] === 'shareholder';
-    $gmOnlyActions = ['brief_final_review', 'payroll_window_open', 'shareholders_list', 'shareholder_create', 'shareholder_toggle', 'payroll_adjustment_add'];
+    $gmOnlyActions = ['brief_final_review', 'payroll_window_open', 'payroll_window_close', 'shareholders_list', 'shareholder_create', 'shareholder_toggle', 'payroll_adjustment_add'];
     if ($isShareholder && in_array($action, $gmOnlyActions, true)) {
         http_response_code(403);
         echo json_encode(['ok' => false, 'error' => 'هذه الصلاحية متاحة للمسؤول العام فقط']);
@@ -209,10 +211,22 @@ if (isset($_GET['ajax'])) {
             $employees = (int) $pdo->query("SELECT COUNT(*) FROM employees WHERE status='active'")->fetchColumn();
             $month = (int) date('n');
             $year = (int) date('Y');
-            $winStmt = $pdo->prepare("SELECT expires_at FROM payroll_windows WHERE period_month=? AND period_year=?");
-            $winStmt->execute([$month, $year]);
-            $expiresAt = $winStmt->fetchColumn();
-            $windowOpen = $expiresAt && strtotime($expiresAt) > time();
+            $branchWinStmt = $pdo->prepare("
+                SELECT b.id, b.name, pw.expires_at
+                FROM branches b
+                LEFT JOIN payroll_windows pw ON pw.branch_id = b.id AND pw.period_month = ? AND pw.period_year = ? AND pw.expires_at > NOW()
+                WHERE b.status = 'active'
+                ORDER BY b.name
+            ");
+            $branchWinStmt->execute([$month, $year]);
+            $payrollBranches = array_map(function ($r) {
+                return [
+                    'id' => (int) $r['id'],
+                    'name' => $r['name'],
+                    'open' => $r['expires_at'] !== null,
+                    'expiresAt' => $r['expires_at'],
+                ];
+            }, $branchWinStmt->fetchAll());
             $settingsRow = $pdo->query("SELECT company_name, company_logo FROM settings ORDER BY id DESC LIMIT 1")->fetch();
 
             echo json_encode([
@@ -228,10 +242,7 @@ if (isset($_GET['ajax'])) {
                     'branches' => $branches,
                     'employees' => $employees,
                 ],
-                'payrollWindow' => [
-                    'open' => $windowOpen,
-                    'expiresAt' => $expiresAt ?: null,
-                ],
+                'payrollBranches' => $payrollBranches,
             ], JSON_UNESCAPED_UNICODE);
             exit;
         }
@@ -253,20 +264,54 @@ if (isset($_GET['ajax'])) {
         }
 
         case 'payroll_window_open': {
+            $branchIds = array_filter(array_map('intval', $_POST['branchIds'] ?? []), fn($id) => $id > 0);
+            if (empty($branchIds)) {
+                echo json_encode(['ok' => false, 'error' => 'الرجاء اختيار فرع واحد على الأقل']);
+                exit;
+            }
             $month = (int) date('n');
             $year = (int) date('Y');
             $expiresAt = date('Y-m-d H:i:s', strtotime('+3 days'));
-            $pdo->prepare("INSERT INTO payroll_windows (period_month, period_year, opened_by, expires_at) VALUES (?, ?, ?, ?)
-                ON DUPLICATE KEY UPDATE opened_by=VALUES(opened_by), opened_at=NOW(), expires_at=VALUES(expires_at)")
-                ->execute([$month, $year, $gmUser['id'], $expiresAt]);
-
-            $everyone = $pdo->query("SELECT id FROM users WHERE role IN ('hr','branch_manager')")->fetchAll(PDO::FETCH_COLUMN);
-            $msg = 'فتح المسؤول العام صلاحية تسليم الرواتب لشهر ' . $month . '/' . $year . ' لمدة 3 أيام';
-            foreach ($everyone as $uid) {
-                $pdo->prepare("INSERT INTO notifications (user_id, title, message) VALUES (?, 'صلاحية تسليم الرواتب مفتوحة', ?)")->execute([$uid, $msg]);
+            $winStmt = $pdo->prepare("INSERT INTO payroll_windows (branch_id, period_month, period_year, opened_by, expires_at) VALUES (?, ?, ?, ?, ?)
+                ON DUPLICATE KEY UPDATE opened_by=VALUES(opened_by), opened_at=NOW(), expires_at=VALUES(expires_at)");
+            $nameStmt = $pdo->prepare("SELECT name FROM branches WHERE id=?");
+            $uidStmt = $pdo->prepare("SELECT id FROM users WHERE (branch_id=? AND role='branch_manager') OR role='hr'");
+            foreach ($branchIds as $branchId) {
+                $winStmt->execute([$branchId, $month, $year, $gmUser['id'], $expiresAt]);
+                $nameStmt->execute([$branchId]);
+                $branchName = $nameStmt->fetchColumn() ?: 'الفرع';
+                $msg = 'فتح المسؤول العام صلاحية تسليم الرواتب لفرع ' . $branchName . ' لشهر ' . $month . '/' . $year . ' لمدة 3 أيام';
+                $uidStmt->execute([$branchId]);
+                foreach ($uidStmt->fetchAll(PDO::FETCH_COLUMN) as $uid) {
+                    $pdo->prepare("INSERT INTO notifications (user_id, title, message) VALUES (?, 'صلاحية تسليم الرواتب مفتوحة', ?)")->execute([$uid, $msg]);
+                }
             }
 
             echo json_encode(['ok' => true, 'expiresAt' => $expiresAt]);
+            exit;
+        }
+
+        case 'payroll_window_close': {
+            $branchId = (int) ($_POST['branchId'] ?? 0);
+            if ($branchId <= 0) {
+                echo json_encode(['ok' => false, 'error' => 'فرع غير صالح']);
+                exit;
+            }
+            $month = (int) date('n');
+            $year = (int) date('Y');
+            $pdo->prepare("DELETE FROM payroll_windows WHERE branch_id=? AND period_month=? AND period_year=?")
+                ->execute([$branchId, $month, $year]);
+
+            $nameStmt = $pdo->prepare("SELECT name FROM branches WHERE id=?");
+            $nameStmt->execute([$branchId]);
+            $branchName = $nameStmt->fetchColumn() ?: 'الفرع';
+            $uidStmt = $pdo->prepare("SELECT id FROM users WHERE branch_id=? AND role='branch_manager'");
+            $uidStmt->execute([$branchId]);
+            foreach ($uidStmt->fetchAll(PDO::FETCH_COLUMN) as $uid) {
+                $pdo->prepare("INSERT INTO notifications (user_id, title, message) VALUES (?, 'أُلغيت صلاحية تسليم الرواتب', ?)")
+                    ->execute([$uid, 'ألغى المسؤول العام صلاحية تسليم رواتب فرع ' . $branchName . ' لهذا الشهر']);
+            }
+            echo json_encode(['ok' => true]);
             exit;
         }
 
@@ -352,7 +397,7 @@ if (isset($_GET['ajax'])) {
             $decision = ($_POST['decision'] ?? '') === 'approved' ? 'approved' : 'rejected';
             $note = trim($_POST['note'] ?? '');
 
-            $briefRow = $pdo->prepare("SELECT branch_id, hr_decision FROM daily_briefs WHERE id=? AND gm_decision='pending' AND status NOT IN ('approved','rejected')");
+            $briefRow = $pdo->prepare("SELECT branch_id, hr_decision, submitted_by FROM daily_briefs WHERE id=? AND gm_decision='pending' AND status NOT IN ('approved','rejected')");
             $briefRow->execute([$id]);
             $brief = $briefRow->fetch();
             if (!$brief) {
@@ -372,8 +417,8 @@ if (isset($_GET['ajax'])) {
             } else {
                 $msg = 'وافق المسؤول العام على إيجاز اليوم، بانتظار موافقة الموارد البشرية أيضاً' . ($note ? (' — ' . $note) : '');
             }
-            $notifyUids = $pdo->prepare("SELECT id FROM users WHERE branch_id=? AND role='branch_manager' UNION SELECT id FROM users WHERE role='hr'");
-            $notifyUids->execute([$briefBranchId]);
+            $notifyUids = $pdo->prepare("SELECT id FROM users WHERE branch_id=? AND role='branch_manager' UNION SELECT id FROM users WHERE role='hr' UNION SELECT id FROM users WHERE employee_id=? AND role='employee'");
+            $notifyUids->execute([$briefBranchId, $brief['submitted_by']]);
             foreach ($notifyUids->fetchAll(PDO::FETCH_COLUMN) as $uid) {
                 $pdo->prepare("INSERT INTO notifications (user_id, title, message) VALUES (?, 'اعتماد نهائي للإيجاز', ?)")->execute([$uid, $msg]);
             }
@@ -493,6 +538,86 @@ if (isset($_GET['ajax'])) {
                 ORDER BY b.name
             ")->fetchAll();
             echo json_encode(['ok' => true, 'branches' => $rows], JSON_UNESCAPED_UNICODE);
+            exit;
+        }
+
+        case 'branch_detail': {
+            $branchId = (int) ($_GET['id'] ?? 0);
+            $date = $_GET['date'] ?? '';
+            if ($date !== '' && !preg_match('/^\d{4}-\d{2}-\d{2}$/', $date)) $date = '';
+
+            $branchStmt = $pdo->prepare("
+                SELECT b.id, b.name, b.status, e.full_name AS manager, e.shift_start AS shiftStart, e.shift_end AS shiftEnd
+                FROM branches b
+                LEFT JOIN employees e ON e.branch_id = b.id AND e.is_branch_manager = 1
+                WHERE b.id = ?
+            ");
+            $branchStmt->execute([$branchId]);
+            $branch = $branchStmt->fetch();
+            if (!$branch) {
+                echo json_encode(['ok' => false, 'error' => 'الفرع غير موجود']);
+                exit;
+            }
+            $branch['shiftStart'] = $branch['shiftStart'] ? substr($branch['shiftStart'], 0, 5) : null;
+            $branch['shiftEnd'] = $branch['shiftEnd'] ? substr($branch['shiftEnd'], 0, 5) : null;
+
+            $empStmt = $pdo->prepare("
+                SELECT e.id, e.full_name AS name, e.job_title, e.shift_type, e.is_branch_manager AS isManager,
+                       ROUND(SUM(a.status IN ('present','late')) / GREATEST(COUNT(a.id),1) * 100) AS attendanceRate
+                FROM employees e
+                LEFT JOIN attendance a ON a.employee_id = e.id AND a.attendance_date >= DATE_FORMAT(CURDATE(), '%Y-%m-01')
+                WHERE e.branch_id = ? AND e.status = 'active'
+                GROUP BY e.id, e.full_name, e.job_title, e.shift_type, e.is_branch_manager
+                ORDER BY e.is_branch_manager DESC, e.full_name
+            ");
+            $empStmt->execute([$branchId]);
+            $employees = array_map(function ($r) {
+                $r['isManager'] = (bool) $r['isManager'];
+                $r['attendanceRate'] = $r['attendanceRate'] !== null ? (int) $r['attendanceRate'] : 0;
+                $r['shiftTypeText'] = $r['shift_type'] === 'evening' ? 'مسائي' : 'صباحي';
+                return $r;
+            }, $empStmt->fetchAll());
+
+            $overallRate = 0;
+            if ($employees) {
+                $rates = array_column($employees, 'attendanceRate');
+                $overallRate = (int) round(array_sum($rates) / count($rates));
+            }
+
+            $sql = "
+                SELECT db.id, DATE_FORMAT(db.brief_date,'%d/%m/%Y') AS date, db.brief_date AS rawDate,
+                       db.total_income AS revenue, db.total_expense AS expense, db.travelers_count AS travelers,
+                       db.status, db.hr_note AS hrNote, db.gm_review_note AS gmNote,
+                       COALESCE(se.full_name, 'مدير الفرع') AS sender
+                FROM daily_briefs db
+                LEFT JOIN employees se ON se.id = db.submitted_by
+                WHERE db.branch_id = ?";
+            $params = [$branchId];
+            if ($date !== '') { $sql .= " AND db.brief_date = ?"; $params[] = $date; }
+            $sql .= " ORDER BY db.brief_date DESC LIMIT 60";
+            $briefsStmt = $pdo->prepare($sql);
+            $briefsStmt->execute($params);
+            $statusAr = [
+                'pending' => 'بانتظار المراجعة', 'hr_approved' => 'وافقت HR', 'gm_approved' => 'وافقت أنت',
+                'approved' => 'معتمد نهائياً', 'rejected' => 'مرفوض',
+            ];
+            $today = date('Y-m-d');
+            $briefs = array_map(function ($r) use ($statusAr, $today) {
+                $r['revenue'] = (float) $r['revenue'];
+                $r['expense'] = (float) $r['expense'];
+                $r['profit'] = $r['revenue'] - $r['expense'];
+                $r['statusText'] = $statusAr[$r['status']] ?? $r['status'];
+                $r['isToday'] = $r['rawDate'] === $today;
+                return $r;
+            }, $briefsStmt->fetchAll());
+
+            echo json_encode([
+                'ok' => true,
+                'branch' => $branch,
+                'employees' => $employees,
+                'overallAttendanceRate' => $overallRate,
+                'briefs' => $briefs,
+            ], JSON_UNESCAPED_UNICODE);
             exit;
         }
 
@@ -714,11 +839,11 @@ if (isset($_GET['ajax'])) {
 
             <div class="brief-card" id="payrollWindowCard" style="display:none;border-right-color:var(--primary);">
                 <div class="brief-top">
-                    <span class="branch"><i class="fas fa-money-check-dollar"></i> نافذة صرف رواتب هذا الشهر</span>
-                    <span id="payrollWindowStatus" class="status-pill"></span>
+                    <span class="branch"><i class="fas fa-money-check-dollar"></i> صلاحية تسليم رواتب هذا الشهر لكل فرع</span>
                 </div>
-                <div style="font-size:12px;color:var(--text-muted);margin-bottom:10px;" id="payrollWindowDetail"></div>
-                <button class="btn small" id="payrollWindowBtn" onclick="openPayrollWindow()"><i class="fas fa-unlock"></i> فتح صلاحية تسليم الرواتب لهذا الشهر (3 أيام)</button>
+                <div style="font-size:12px;color:var(--text-muted);margin-bottom:10px;">اختر فرعاً أو أكثر لفتح صلاحية تسليم الرواتب له لمدة 3 أيام، أو ألغِ صلاحية فرع مفتوحة</div>
+                <div id="payrollBranchList" style="display:flex;flex-direction:column;gap:8px;margin-bottom:10px;"></div>
+                <button class="btn small" id="payrollWindowBtn" onclick="openPayrollWindow()"><i class="fas fa-unlock"></i> فتح الصلاحية للفروع المحددة (3 أيام)</button>
             </div>
 
             <div class="tabs">
@@ -1080,32 +1205,64 @@ if (isset($_GET['ajax'])) {
             document.getElementById('statEmployees').textContent = data.stats.employees;
 
             if (currentRole !== 'shareholder') {
-                const card = document.getElementById('payrollWindowCard');
-                card.style.display = 'block';
-                const statusEl = document.getElementById('payrollWindowStatus');
-                const detailEl = document.getElementById('payrollWindowDetail');
-                const btn = document.getElementById('payrollWindowBtn');
-                if (data.payrollWindow.open) {
-                    statusEl.textContent = 'مفتوحة';
-                    statusEl.className = 'status-pill approved';
-                    const expires = new Date(data.payrollWindow.expiresAt.replace(' ', 'T'));
-                    detailEl.textContent = 'صلاحية تسليم الرواتب مفتوحة لـ HR ومديري الفروع حتى ' + expires.toLocaleString('ar-SA');
-                    btn.textContent = 'تجديد الفتح 3 أيام إضافية';
-                } else {
-                    statusEl.textContent = 'مغلقة';
-                    statusEl.className = 'status-pill rejected';
-                    detailEl.textContent = 'لا يمكن لـ HR أو مديري الفروع تسليم أي راتب حتى تفتح الصلاحية لهذا الشهر';
-                    btn.innerHTML = '<i class="fas fa-unlock"></i> فتح صلاحية تسليم الرواتب لهذا الشهر (3 أيام)';
-                }
+                document.getElementById('payrollWindowCard').style.display = 'block';
+                renderPayrollBranchList(data.payrollBranches || []);
             }
         });
     }
 
+    function renderPayrollBranchList(branches) {
+        const wrap = document.getElementById('payrollBranchList');
+        if (!branches.length) {
+            wrap.innerHTML = '<p style="font-size:12px;color:var(--text-muted);">لا توجد فروع نشطة</p>';
+            return;
+        }
+        wrap.innerHTML = branches.map(b => {
+            if (b.open) {
+                const expires = new Date(b.expiresAt.replace(' ', 'T'));
+                return `
+                    <div style="display:flex;align-items:center;justify-content:space-between;padding:8px 10px;background:rgba(16,185,129,0.06);border-radius:8px;">
+                        <div>
+                            <b style="font-size:13px;">${b.name}</b>
+                            <div style="font-size:11px;color:var(--text-muted);">مفتوحة حتى ${expires.toLocaleString('ar-SA')}</div>
+                        </div>
+                        <button class="btn small red" onclick="closePayrollWindow(${b.id}, '${b.name.replace(/'/g, "")}')"><i class="fas fa-lock"></i> إلغاء</button>
+                    </div>
+                `;
+            }
+            return `
+                <label style="display:flex;align-items:center;gap:8px;padding:8px 10px;background:var(--bg);border-radius:8px;cursor:pointer;">
+                    <input type="checkbox" class="payroll-branch-check" value="${b.id}">
+                    <span style="font-size:13px;">${b.name}</span>
+                </label>
+            `;
+        }).join('');
+    }
+
     function openPayrollWindow() {
-        showConfirmSheet('فتح نافذة تسليم الرواتب', 'سيمنح هذا صلاحية تسليم الرواتب لـ HR ولمديري الفروع لمدة 3 أيام من الآن. متابعة؟', function() {
-            fetch('?ajax=payroll_window_open', { method: 'POST' }).then(r => r.json()).then(data => {
+        const checked = [...document.querySelectorAll('.payroll-branch-check:checked')].map(el => el.value);
+        if (!checked.length) {
+            showToast('⚠️ تنبيه', 'الرجاء اختيار فرع واحد على الأقل', 'warning');
+            return;
+        }
+        showConfirmSheet('فتح صلاحية تسليم الرواتب', `سيمنح هذا صلاحية تسليم الرواتب لـ ${checked.length} فرع لمدة 3 أيام من الآن. متابعة؟`, function() {
+            const body = new URLSearchParams();
+            checked.forEach(id => body.append('branchIds[]', id));
+            fetch('?ajax=payroll_window_open', { method: 'POST', body }).then(r => r.json()).then(data => {
                 if (!data.ok) { showToast('⚠️ خطأ', data.error || 'تعذر الفتح', 'error'); return; }
-                showToast('✅ تم الفتح', 'أصبح بإمكان HR تسليم الرواتب لمدة 3 أيام', 'success');
+                showToast('✅ تم الفتح', 'أصبح بإمكان الفروع المحددة تسليم الرواتب لمدة 3 أيام', 'success');
+                loadBootstrap();
+            }).catch(() => {
+                showToast('⚠️ خطأ', 'تعذر الاتصال بالخادم', 'error');
+            });
+        });
+    }
+
+    function closePayrollWindow(branchId, branchName) {
+        showConfirmSheet('إلغاء صلاحية تسليم الرواتب', `سيتم إلغاء صلاحية تسليم الرواتب لفرع ${branchName} فوراً. متابعة؟`, function() {
+            fetch('?ajax=payroll_window_close', { method: 'POST', body: new URLSearchParams({ branchId }) }).then(r => r.json()).then(data => {
+                if (!data.ok) { showToast('⚠️ خطأ', data.error || 'تعذر الإلغاء', 'error'); return; }
+                showToast('✅ تم الإلغاء', `أُلغيت صلاحية تسليم رواتب فرع ${branchName}`, 'success');
                 loadBootstrap();
             }).catch(() => {
                 showToast('⚠️ خطأ', 'تعذر الاتصال بالخادم', 'error');
@@ -1201,18 +1358,122 @@ if (isset($_GET['ajax'])) {
         });
     }
 
+    let gmBranchList = [];
+    let gmBranchDetailId = null;
+    let gmBranchDateFilter = null;
+
     function loadBranches() {
         fetch('?ajax=branches_overview').then(r => r.json()).then(data => {
             if (!data.ok) return;
-            const view = document.getElementById('view-branches');
-            view.innerHTML = '<div class="branches-grid">' + data.branches.map(b => `
-                <div class="branch-card">
-                    <div class="name"><i class="fas fa-building" style="color:var(--primary);"></i> ${b.name}</div>
-                    <div class="muted">المدير: ${b.manager || '—'}</div>
-                    <div class="muted">عدد الموظفين: ${b.employeeCount}</div>
-                </div>
-            `).join('') + '</div>';
+            gmBranchList = data.branches;
+            renderGmBranchGrid();
         });
+    }
+
+    function renderGmBranchGrid() {
+        gmBranchDetailId = null;
+        const view = document.getElementById('view-branches');
+        view.innerHTML = '<div class="branches-grid">' + gmBranchList.map(b => `
+            <div class="branch-card" style="cursor:pointer;" onclick="openGmBranchDetail(${b.id})">
+                <div class="name"><i class="fas fa-building" style="color:var(--primary);"></i> ${b.name}</div>
+                <div class="muted">المدير: ${b.manager || '—'}</div>
+                <div class="muted">عدد الموظفين: ${b.employeeCount}</div>
+            </div>
+        `).join('') + '</div>';
+    }
+
+    function openGmBranchDetail(id) {
+        gmBranchDetailId = id;
+        gmBranchDateFilter = null;
+        loadGmBranchDetail(id, null);
+    }
+
+    function loadGmBranchDetail(id, date) {
+        let url = '?ajax=branch_detail&id=' + id;
+        if (date) url += '&date=' + encodeURIComponent(date);
+        fetch(url).then(r => r.json()).then(data => {
+            if (!data.ok) { showToast('⚠️ خطأ', data.error || 'تعذر تحميل بيانات الفرع', 'error'); return; }
+            renderGmBranchDetail(data);
+        });
+    }
+
+    function closeGmBranchDetail() {
+        renderGmBranchGrid();
+    }
+
+    function filterGmBranchDate() {
+        const date = document.getElementById('gmBranchDateInput').value;
+        if (!date) { showToast('⚠️ تنبيه', 'اختر تاريخاً أولاً', 'warning'); return; }
+        gmBranchDateFilter = date;
+        loadGmBranchDetail(gmBranchDetailId, date);
+    }
+
+    function clearGmBranchDateFilter() {
+        gmBranchDateFilter = null;
+        loadGmBranchDetail(gmBranchDetailId, null);
+    }
+
+    function renderGmBranchDetail(data) {
+        const view = document.getElementById('view-branches');
+        const b = data.branch;
+        const pct = data.overallAttendanceRate || 0;
+
+        const employeesHtml = data.employees.length ? data.employees.map(e => `
+            <div style="display:flex;align-items:center;justify-content:space-between;padding:8px 10px;background:var(--bg);border-radius:8px;margin-bottom:6px;">
+                <div><b style="font-size:13px;">${e.name}${e.isManager ? ' 👑' : ''}</b><div class="muted" style="font-size:11px;">${e.job_title || ''} · ${e.shiftTypeText}</div></div>
+                <div style="font-weight:800;color:${e.attendanceRate >= 80 ? 'var(--green)' : (e.attendanceRate >= 50 ? 'var(--orange)' : 'var(--red)')};">${e.attendanceRate}%</div>
+            </div>
+        `).join('') : '<p class="muted">لا يوجد موظفون</p>';
+
+        let briefsHtml = '';
+        if (!data.briefs.length) {
+            briefsHtml = `<p class="muted" style="text-align:center;padding:16px;">لا توجد إيجازات ${gmBranchDateFilter ? 'في هذا التاريخ' : 'منشورة بعد'}</p>`;
+        } else {
+            let dividerInserted = !!gmBranchDateFilter;
+            data.briefs.forEach(br => {
+                if (!dividerInserted && !br.isToday) {
+                    briefsHtml += `<div style="display:flex;align-items:center;gap:10px;margin:14px 0;color:var(--text-muted);font-size:11.5px;"><span style="flex:1;height:1px;background:#eee;"></span>إيجازات سابقة<span style="flex:1;height:1px;background:#eee;"></span></div>`;
+                    dividerInserted = true;
+                }
+                briefsHtml += `
+                    <div class="brief-card history">
+                        <div class="brief-top">
+                            <span class="branch"><i class="fas fa-pen"></i> ${br.sender}</span>
+                            <span class="status-pill ${br.status === 'approved' ? 'approved' : (br.status === 'rejected' ? 'rejected' : 'pending')}">${br.statusText}</span>
+                            <span class="date">${br.date}${br.isToday ? ' (اليوم)' : ''}</span>
+                        </div>
+                        <div class="brief-details">
+                            <div class="item"><div class="v">${br.revenue.toLocaleString()}</div><div class="l">الإيرادات</div></div>
+                            <div class="item"><div class="v">${br.expense.toLocaleString()}</div><div class="l">المصاريف</div></div>
+                            <div class="item"><div class="v">${br.travelers}</div><div class="l">المسافرون</div></div>
+                            <div class="item"><div class="v" style="color:var(--green);">${br.profit.toLocaleString()}</div><div class="l">صافي الربح</div></div>
+                        </div>
+                        ${br.hrNote ? `<div class="brief-note"><b>ملاحظة HR:</b> ${br.hrNote}</div>` : ''}
+                        ${br.gmNote ? `<div class="brief-note"><b>ملاحظتك:</b> ${br.gmNote}</div>` : ''}
+                    </div>
+                `;
+            });
+        }
+
+        view.innerHTML = `
+            <button class="btn small" onclick="closeGmBranchDetail()" style="margin-bottom:12px;"><i class="fas fa-arrow-right"></i> رجوع لكل الفروع</button>
+            <div class="brief-card" style="border-right-color:var(--primary);">
+                <div class="brief-top">
+                    <span class="branch"><i class="fas fa-building"></i> ${b.name}</span>
+                    <span class="date">${pct}% حضور</span>
+                </div>
+                <div class="muted" style="font-size:12px;">المدير: ${b.manager || '—'} • الدوام: ${(b.shiftStart && b.shiftEnd) ? (b.shiftStart + ' - ' + b.shiftEnd) : 'غير محدد'}</div>
+            </div>
+            <h4 style="font-size:14px;margin:14px 0 8px;"><i class="fas fa-users"></i> الموظفون</h4>
+            ${employeesHtml}
+            <h4 style="font-size:14px;margin:14px 0 8px;"><i class="fas fa-file-signature"></i> الإيجازات</h4>
+            <div style="display:flex;gap:8px;align-items:center;margin-bottom:10px;flex-wrap:wrap;">
+                <input type="date" id="gmBranchDateInput" style="height:36px;padding:0 10px;border:1.5px solid #e2ebeb;border-radius:8px;font-family:var(--font-family);">
+                <button class="btn small" onclick="filterGmBranchDate()"><i class="fas fa-rotate"></i> تحديث</button>
+                <button class="btn small" onclick="clearGmBranchDateFilter()"><i class="fas fa-list"></i> كل السجل</button>
+            </div>
+            ${briefsHtml}
+        `;
     }
 
     // ============================================================
@@ -1230,8 +1491,8 @@ if (isset($_GET['ajax'])) {
     }
     function briefingTable(rows) {
         if (!rows || !rows.length) return '<p style="color:var(--text-muted);font-size:13px;">لا توجد بيانات</p>';
-        return '<div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font-size:12px;"><thead><tr style="background:var(--bg);"><th style="padding:6px;text-align:right;">الفرع</th><th style="padding:6px;">التاريخ</th><th style="padding:6px;">الإيراد</th><th style="padding:6px;">المصروف</th><th style="padding:6px;">المسافرون</th><th style="padding:6px;">الربح</th><th style="padding:6px;">الحالة</th><th style="padding:6px;">ملاحظة HR</th><th style="padding:6px;">ملاحظة المسؤول العام</th></tr></thead><tbody>' +
-            rows.map(r => `<tr style="border-bottom:1px solid #eee;"><td style="padding:6px;">${r.branch}</td><td style="padding:6px;">${r.date}</td><td style="padding:6px;">${r.revenue}</td><td style="padding:6px;">${r.expense}</td><td style="padding:6px;">${r.travelers}</td><td style="padding:6px;">${r.profit}</td><td style="padding:6px;">${r.statusText || '-'}</td><td style="padding:6px;">${r.hrNote || '-'}</td><td style="padding:6px;">${r.gmNote || '-'}</td></tr>`).join('') + '</tbody></table></div>';
+        return '<div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font-size:12px;"><thead><tr style="background:var(--bg);"><th style="padding:6px;text-align:right;">الفرع</th><th style="padding:6px;">كاتب الإيجاز</th><th style="padding:6px;">التاريخ</th><th style="padding:6px;">الإيراد</th><th style="padding:6px;">المصروف</th><th style="padding:6px;">المسافرون</th><th style="padding:6px;">الربح</th><th style="padding:6px;">الحالة</th><th style="padding:6px;">ملاحظة HR</th><th style="padding:6px;">ملاحظة المسؤول العام</th></tr></thead><tbody>' +
+            rows.map(r => `<tr style="border-bottom:1px solid #eee;"><td style="padding:6px;">${r.branch}</td><td style="padding:6px;">${r.sender || '-'}</td><td style="padding:6px;">${r.date}</td><td style="padding:6px;">${r.revenue}</td><td style="padding:6px;">${r.expense}</td><td style="padding:6px;">${r.travelers}</td><td style="padding:6px;">${r.profit}</td><td style="padding:6px;">${r.statusText || '-'}</td><td style="padding:6px;">${r.hrNote || '-'}</td><td style="padding:6px;">${r.gmNote || '-'}</td></tr>`).join('') + '</tbody></table></div>';
     }
 
     const reportTypeNamesGm = { 'attendance': 'الحضور', 'salaries': 'الرواتب', 'briefing': 'الإيجاز', 'all': 'تقرير شامل' };

@@ -207,6 +207,15 @@ function migration_steps(): array
             'needed' => fn(PDO $pdo) => !column_exists($pdo, 'payroll', 'late_deduction'),
             'run' => fn(PDO $pdo) => $pdo->exec("ALTER TABLE payroll ADD COLUMN late_deduction DECIMAL(12,2) NOT NULL DEFAULT 0 AFTER deduction"),
         ],
+        [
+            'label' => 'جعل صلاحية تسليم الرواتب لكل فرع على حدة بدل صلاحية واحدة لكل الفروع',
+            'needed' => fn(PDO $pdo) => !column_exists($pdo, 'payroll_windows', 'branch_id'),
+            'run' => function (PDO $pdo) {
+                $pdo->exec("ALTER TABLE payroll_windows ADD COLUMN branch_id INT DEFAULT NULL AFTER id");
+                $pdo->exec("ALTER TABLE payroll_windows DROP INDEX uniq_period");
+                $pdo->exec("ALTER TABLE payroll_windows ADD UNIQUE KEY uniq_branch_period (branch_id, period_month, period_year)");
+            },
+        ],
     ];
 }
 

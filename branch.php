@@ -333,6 +333,75 @@ if (isset($_GET['ajax'])) {
             exit;
         }
 
+        case 'employee_detail': {
+            $employeeId = (int) ($_GET['id'] ?? 0);
+            $stmt = $pdo->prepare("SELECT id, full_name AS name, mother_name AS motherName, national_id AS nationalId,
+                       phone_number AS phone, job_title AS position, birth_date AS birthDate, hire_date AS hireDate,
+                       shift_type AS shiftType, shift_start AS shiftStart, shift_end AS shiftEnd, base_salary AS salary,
+                       photo, documents
+                FROM employees WHERE id=? AND branch_id=? AND is_branch_manager=0");
+            $stmt->execute([$employeeId, $branchId]);
+            $emp = $stmt->fetch();
+            if (!$emp) {
+                echo json_encode(['ok' => false, 'error' => 'الموظف غير موجود']);
+                exit;
+            }
+            $emp['salary'] = (float) $emp['salary'];
+            $emp['shiftStart'] = $emp['shiftStart'] ? substr($emp['shiftStart'], 0, 5) : null;
+            $emp['shiftEnd'] = $emp['shiftEnd'] ? substr($emp['shiftEnd'], 0, 5) : null;
+            echo json_encode(['ok' => true, 'employee' => $emp], JSON_UNESCAPED_UNICODE);
+            exit;
+        }
+
+        case 'employee_update': {
+            $employeeId = (int) ($_POST['id'] ?? 0);
+            $name = trim($_POST['name'] ?? '');
+            $position = trim($_POST['position'] ?? '');
+            $salary = (float) ($_POST['salary'] ?? 0);
+            $password = (string) ($_POST['password'] ?? '');
+            $motherName = trim($_POST['motherName'] ?? '');
+            $nationalId = trim($_POST['nationalId'] ?? '');
+            $phone = trim($_POST['phone'] ?? '');
+            $birthDate = $_POST['birthDate'] ?: null;
+            $hireDate = $_POST['hireDate'] ?: null;
+            $shiftType = ($_POST['shiftType'] ?? '') === 'evening' ? 'evening' : 'morning';
+            $shiftStart = $_POST['shiftStart'] ?: null;
+            $shiftEnd = $_POST['shiftEnd'] ?: null;
+            if ($employeeId <= 0 || $name === '' || $position === '' || $salary <= 0 || $phone === '') {
+                echo json_encode(['ok' => false, 'error' => 'الرجاء تعبئة جميع الحقول المطلوبة']);
+                exit;
+            }
+            $ownerStmt = $pdo->prepare("SELECT id FROM employees WHERE id=? AND branch_id=? AND is_branch_manager=0");
+            $ownerStmt->execute([$employeeId, $branchId]);
+            if (!$ownerStmt->fetchColumn()) {
+                echo json_encode(['ok' => false, 'error' => 'الموظف غير موجود']);
+                exit;
+            }
+
+            $photoPath = handle_upload('photo', 'photos', ['jpg', 'jpeg', 'png', 'webp']);
+            $docsPath = handle_upload('documents', 'documents', ['jpg', 'jpeg', 'png', 'pdf', 'doc', 'docx']);
+
+            $sql = "UPDATE employees SET full_name=?, mother_name=?, national_id=?, phone_number=?, birth_date=?, hire_date=?, job_title=?, shift_type=?, shift_start=?, shift_end=?, base_salary=?";
+            $params = [$name, $motherName ?: null, $nationalId ?: null, $phone, $birthDate, $hireDate, $position, $shiftType, $shiftStart, $shiftEnd, $salary];
+            if ($photoPath) { $sql .= ", photo=?"; $params[] = $photoPath; }
+            if ($docsPath) { $sql .= ", documents=?"; $params[] = $docsPath; }
+            $sql .= " WHERE id=?";
+            $params[] = $employeeId;
+            $pdo->prepare($sql)->execute($params);
+
+            if ($password !== '') {
+                if (strlen($password) < 6) {
+                    echo json_encode(['ok' => false, 'error' => 'كلمة المرور الجديدة يجب أن تكون 6 أحرف على الأقل']);
+                    exit;
+                }
+                $hash = password_hash($password, PASSWORD_DEFAULT);
+                $pdo->prepare("UPDATE users SET password_hash=? WHERE employee_id=? AND role='employee'")->execute([$hash, $employeeId]);
+            }
+
+            echo json_encode(['ok' => true]);
+            exit;
+        }
+
         case 'branch_location_save': {
             $lat = (float) ($_POST['lat'] ?? 0);
             $lng = (float) ($_POST['lng'] ?? 0);
@@ -436,7 +505,7 @@ if (isset($_GET['ajax'])) {
         }
 
         case 'my_profile': {
-            $meRow = $pdo->prepare("SELECT e.full_name, e.employee_number, e.base_salary, b.name AS branch_name
+            $meRow = $pdo->prepare("SELECT e.full_name, e.employee_number, e.base_salary, e.documents, b.name AS branch_name
                 FROM employees e JOIN branches b ON b.id = e.branch_id WHERE e.id = ?");
             $meRow->execute([$mgr['employee_id']]);
             $meRow = $meRow->fetch();
@@ -459,6 +528,7 @@ if (isset($_GET['ajax'])) {
                 'code' => $meRow['employee_number'],
                 'branch' => $meRow['branch_name'],
                 'baseSalary' => (float) $meRow['base_salary'],
+                'documents' => $meRow['documents'] ?: null,
                 'salary' => ['base' => $base, 'bonus' => $bonus, 'deduction' => $deduction, 'net' => $net, 'statusText' => $statusText],
             ], JSON_UNESCAPED_UNICODE);
             exit;
@@ -704,7 +774,17 @@ if (isset($_GET['ajax'])) {
                     'net' => $salary - $loan, 'status' => $r['status'] === 'delivered' ? 'تم التسليم' : 'قيد الانتظار',
                 ];
             }, $stmt->fetchAll());
-            echo json_encode(['ok' => true, 'payroll' => $rows], JSON_UNESCAPED_UNICODE);
+
+            $winStmt = $pdo->prepare("SELECT expires_at FROM payroll_windows WHERE branch_id=? AND period_month=? AND period_year=?");
+            $winStmt->execute([$branchId, $month, $year]);
+            $expiresAt = $winStmt->fetchColumn();
+            $windowOpen = $expiresAt && strtotime($expiresAt) > time();
+
+            echo json_encode([
+                'ok' => true, 'payroll' => $rows,
+                'windowOpen' => $windowOpen, 'windowExpiresAt' => $windowOpen ? $expiresAt : null,
+                'monthLabel' => $month . '/' . $year,
+            ], JSON_UNESCAPED_UNICODE);
             exit;
         }
 
@@ -713,11 +793,11 @@ if (isset($_GET['ajax'])) {
             $month = (int) date('n');
             $year = (int) date('Y');
 
-            $winStmt = $pdo->prepare("SELECT expires_at FROM payroll_windows WHERE period_month=? AND period_year=?");
-            $winStmt->execute([$month, $year]);
+            $winStmt = $pdo->prepare("SELECT expires_at FROM payroll_windows WHERE branch_id=? AND period_month=? AND period_year=?");
+            $winStmt->execute([$branchId, $month, $year]);
             $expiresAt = $winStmt->fetchColumn();
             if (!$expiresAt || strtotime($expiresAt) < time()) {
-                echo json_encode(['ok' => false, 'error' => 'صلاحية تسليم الرواتب لهذا الشهر مغلقة حالياً']);
+                echo json_encode(['ok' => false, 'error' => 'صلاحية تسليم الرواتب لفرعك لهذا الشهر مغلقة حالياً']);
                 exit;
             }
 
@@ -848,10 +928,12 @@ function branch_report_data(PDO $pdo, string $type, string $from, string $to, in
     }
 
     if ($type === 'briefing' || $type === 'all') {
-        $stmt = $pdo->prepare("SELECT DATE_FORMAT(brief_date,'%d/%m/%Y') AS date, total_income AS revenue, total_expense AS expense,
-                       travelers_count AS travelers, (total_income - total_expense) AS profit, status,
-                       hr_note AS hrNote, gm_review_note AS gmNote
-                FROM daily_briefs WHERE branch_id = ? AND brief_date BETWEEN ? AND ? ORDER BY brief_date DESC");
+        $stmt = $pdo->prepare("SELECT DATE_FORMAT(db.brief_date,'%d/%m/%Y') AS date, db.total_income AS revenue, db.total_expense AS expense,
+                       db.travelers_count AS travelers, (db.total_income - db.total_expense) AS profit, db.status,
+                       db.hr_note AS hrNote, db.gm_review_note AS gmNote, COALESCE(se.full_name, 'مدير الفرع') AS sender
+                FROM daily_briefs db
+                LEFT JOIN employees se ON se.id = db.submitted_by
+                WHERE db.branch_id = ? AND db.brief_date BETWEEN ? AND ? ORDER BY db.brief_date DESC");
         $stmt->execute([$branchId, $from, $to]);
         $briefStatusAr = [
             'pending' => 'بانتظار مراجعة HR والمسؤول العام',
@@ -1547,6 +1629,7 @@ function branch_report_data(PDO $pdo, string $type, string $from, string $to, in
                 <div class="card">
                     <h3>تسليم الرواتب - <span id="payrollMonthDisplay">الشهر الحالي</span></h3>
                     <p class="muted">يمكن تسليم رواتب الشهر الحالي فقط، ولا يمكن تسليم راتب متأخر لشهر سابق.</p>
+                    <p style="font-size:12.5px;font-weight:700;margin-top:6px;" id="payrollWindowBanner"></p>
                 </div>
 
                 <div id="payrollList">
@@ -1817,6 +1900,12 @@ function branch_report_data(PDO $pdo, string $type, string $from, string $to, in
                         </table>
                     </div>
                     <div class="muted" id="mpStatus" style="margin-top:6px;"></div>
+                </div>
+
+                <div class="section-title"><i class="fas fa-id-card"></i> مستمسكاتي</div>
+                <div class="card" style="display:flex;align-items:center;justify-content:space-between;">
+                    <span class="muted" id="mpDocumentsStatus">لا توجد مستمسكات مرفوعة بعد</span>
+                    <button class="btn small" id="mpDocumentsBtn" style="display:none;" onclick="window.open(mpDocumentsPath, '_blank')"><i class="fas fa-eye"></i> عرض</button>
                 </div>
 
                 <div class="section-title"><i class="fas fa-calendar-days"></i> سجل حضوري الشهري</div>
@@ -2249,6 +2338,7 @@ function branch_report_data(PDO $pdo, string $type, string $from, string $to, in
                         <span><span class="muted">الحضور:</span> ${e.attendancePct}%</span>
                         <span><span class="muted">التقييم:</span> ${e.rating} ★</span>
                     </div>
+                    <button class="btn light small" style="width:100%;margin-top:8px;" onclick="editEmployee(${e.id})"><i class="fas fa-edit"></i> تعديل</button>
                 </div>
             `).join('');
         }
@@ -2336,9 +2426,21 @@ function branch_report_data(PDO $pdo, string $type, string $from, string $to, in
         // ============================================================
         // الرواتب
         // ============================================================
+        let payrollWindowOpen = false;
+
         function loadPayroll() {
             fetch('?ajax=payroll_list').then(r => r.json()).then(data => {
                 if (!data.ok) return;
+                payrollWindowOpen = data.windowOpen;
+                const banner = document.getElementById('payrollWindowBanner');
+                if (data.windowOpen) {
+                    const expires = new Date(data.windowExpiresAt.replace(' ', 'T'));
+                    banner.innerHTML = `<i class="fas fa-unlock" style="color:var(--green);"></i> الصلاحية مفتوحة حتى ${expires.toLocaleString('ar-SA')}`;
+                    banner.style.color = 'var(--green)';
+                } else {
+                    banner.innerHTML = `<i class="fas fa-lock" style="color:var(--red);"></i> الصلاحية مغلقة — بانتظار تفعيل المسؤول العام لفرعك`;
+                    banner.style.color = 'var(--red)';
+                }
                 renderPayroll(data.payroll);
             });
         }
@@ -2346,6 +2448,8 @@ function branch_report_data(PDO $pdo, string $type, string $from, string $to, in
         // ============================================================
         // ملفي — بيانات مدير الفرع الشخصية
         // ============================================================
+        let mpDocumentsPath = null;
+
         function loadMyProfile() {
             fetch('?ajax=my_profile').then(r => r.json()).then(data => {
                 if (!data.ok) return;
@@ -2358,6 +2462,9 @@ function branch_report_data(PDO $pdo, string $type, string $from, string $to, in
                 document.getElementById('mpBonus').textContent = '+ ' + Number(data.salary.bonus).toLocaleString();
                 document.getElementById('mpNet').textContent = Number(data.salary.net).toLocaleString() + ' د.ع';
                 document.getElementById('mpStatus').textContent = 'حالة راتب الشهر الحالي: ' + data.salary.statusText;
+                mpDocumentsPath = data.documents || null;
+                document.getElementById('mpDocumentsStatus').textContent = mpDocumentsPath ? 'المستمسكات مرفوعة' : 'لا توجد مستمسكات مرفوعة بعد';
+                document.getElementById('mpDocumentsBtn').style.display = mpDocumentsPath ? 'inline-flex' : 'none';
             });
         }
 
@@ -2420,21 +2527,23 @@ function branch_report_data(PDO $pdo, string $type, string $from, string $to, in
                 container.innerHTML = '<div class="card" style="text-align:center;padding:24px;color:var(--text-muted);">لا يوجد موظفون بعد</div>';
                 return;
             }
+            const monthLabel = new Date().toLocaleDateString('ar-SA', { month: 'long', year: 'numeric' });
             container.innerHTML = rows.map(r => `
                 <div class="payroll-card" style="background:var(--bg-card);border-radius:var(--radius-md);border:1px solid #e2ebeb;padding:12px 14px;margin-bottom:8px;">
                     <div class="payroll-header" style="display:flex;align-items:center;justify-content:space-between;">
                         <span style="font-weight:800;font-size:14px;">👤 ${r.name}</span>
-                        <span class="badge ${r.status === 'تم التسليم' ? 'ok' : 'wait'}">${r.status}</span>
+                        <span class="badge ${r.status === 'تم التسليم' ? 'ok' : 'wait'}">${r.status === 'تم التسليم' ? `تم تسليم راتب ${monthLabel}` : r.status}</span>
                     </div>
                     <div class="payroll-details" style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;margin-top:6px;font-size:12px;">
                         <div class="detail-item" style="text-align:center;padding:4px;background:rgba(0,107,115,0.03);border-radius:6px;"><span class="value" style="font-weight:700;">${r.salary.toLocaleString()}</span><div class="label" style="font-size:9px;color:var(--text-muted);">الراتب</div></div>
                         <div class="detail-item" style="text-align:center;padding:4px;background:rgba(0,107,115,0.03);border-radius:6px;"><span class="value" style="font-weight:700;color:var(--red);">${r.loan.toLocaleString()}</span><div class="label" style="font-size:9px;color:var(--text-muted);">السلف</div></div>
                         <div class="detail-item" style="text-align:center;padding:4px;background:rgba(0,107,115,0.03);border-radius:6px;"><span class="value" style="font-weight:700;color:var(--green);">${r.net.toLocaleString()}</span><div class="label" style="font-size:9px;color:var(--text-muted);">المستحق</div></div>
                     </div>
-                    <div class="payroll-actions" style="display:flex;gap:6px;margin-top:8px;">
-                        ${r.status === 'تم التسليم' ? '' : `<button class="btn green small" onclick="paySalary(${r.id})"><i class="fas fa-check"></i> تسليم</button>`}
-                        <button class="btn light small" onclick="showToast('📄 تقرير الراتب','تم عرض تقرير الراتب','info')"><i class="fas fa-file"></i> تقرير</button>
-                    </div>
+                    ${r.status === 'تم التسليم' ? '' : `
+                        <div class="payroll-actions" style="display:flex;gap:6px;margin-top:8px;">
+                            <button class="btn green small" onclick="paySalary(${r.id})" ${payrollWindowOpen ? '' : 'disabled'}><i class="fas fa-check"></i> تسليم</button>
+                        </div>
+                    `}
                 </div>
             `).join('');
         }
@@ -2926,8 +3035,8 @@ function branch_report_data(PDO $pdo, string $type, string $from, string $to, in
         }
         function reportBriefingTable(rows) {
             if (!rows || !rows.length) return '<p class="muted">لا توجد بيانات</p>';
-            return '<div class="table-wrap"><table class="table"><tr><th>التاريخ</th><th>الإيراد</th><th>المصروف</th><th>المسافرون</th><th>الربح</th><th>الحالة</th><th>ملاحظة HR</th><th>ملاحظة المسؤول العام</th></tr>' +
-                rows.map(r => `<tr><td>${r.date}</td><td>${r.revenue}</td><td>${r.expense}</td><td>${r.travelers}</td><td>${r.profit}</td><td>${r.statusText || '-'}</td><td>${r.hrNote || '-'}</td><td>${r.gmNote || '-'}</td></tr>`).join('') + '</table></div>';
+            return '<div class="table-wrap"><table class="table"><tr><th>التاريخ</th><th>كاتب الإيجاز</th><th>الإيراد</th><th>المصروف</th><th>المسافرون</th><th>الربح</th><th>الحالة</th><th>ملاحظة HR</th><th>ملاحظة المسؤول العام</th></tr>' +
+                rows.map(r => `<tr><td>${r.date}</td><td>${r.sender || '-'}</td><td>${r.revenue}</td><td>${r.expense}</td><td>${r.travelers}</td><td>${r.profit}</td><td>${r.statusText || '-'}</td><td>${r.hrNote || '-'}</td><td>${r.gmNote || '-'}</td></tr>`).join('') + '</table></div>';
         }
 
         const reportTypeNames = { 'attendance': 'تقرير الحضور', 'salaries': 'تقرير الرواتب', 'briefing': 'تقرير الإيجاز اليومي', 'all': 'تقرير شامل' };
@@ -2987,26 +3096,62 @@ function branch_report_data(PDO $pdo, string $type, string $from, string $to, in
         // ============================================================
         // نافذة الطلب
         // ============================================================
+        let editingEmployeeId = null;
+
         function openRequestModal(type) {
             const modal = document.getElementById('requestModal');
             modal.style.display = 'flex';
             document.body.style.overflow = 'hidden';
             if (type === 'addEmployee') {
+                editingEmployeeId = null;
                 document.getElementById('requestModalTitle').innerHTML =
                     '<i class="fas fa-user-plus" style="color:var(--primary-light);"></i> إضافة موظف';
                 document.getElementById('requestForm').reset();
+                document.getElementById('reqPhoto').required = true;
+                document.getElementById('reqPassword').required = true;
+                document.getElementById('reqPassword').placeholder = 'أدخل كلمة المرور';
             }
+        }
+
+        function editEmployee(id) {
+            fetch('?ajax=employee_detail&id=' + id).then(r => r.json()).then(data => {
+                if (!data.ok) { showToast('⚠️ خطأ', data.error || 'تعذر تحميل بيانات الموظف', 'error'); return; }
+                const emp = data.employee;
+                editingEmployeeId = emp.id;
+                document.getElementById('requestModalTitle').innerHTML =
+                    '<i class="fas fa-user-edit" style="color:var(--primary-light);"></i> تعديل موظف';
+                document.getElementById('requestForm').reset();
+                document.getElementById('reqName').value = emp.name || '';
+                document.getElementById('reqMotherName').value = emp.motherName || '';
+                document.getElementById('reqNationalId').value = emp.nationalId || '';
+                document.getElementById('reqPhone').value = emp.phone || '';
+                document.getElementById('reqPosition').value = emp.position || '';
+                document.getElementById('reqBirthDate').value = emp.birthDate || '';
+                document.getElementById('reqHireDate').value = emp.hireDate || '';
+                document.getElementById('reqShiftType').value = emp.shiftType || 'morning';
+                document.getElementById('reqShiftStart').value = emp.shiftStart || '';
+                document.getElementById('reqShiftEnd').value = emp.shiftEnd || '';
+                document.getElementById('reqSalary').value = emp.salary || '';
+                document.getElementById('reqPhoto').required = false;
+                document.getElementById('reqPassword').required = false;
+                document.getElementById('reqPassword').placeholder = 'اتركه فارغاً للإبقاء على كلمة المرور الحالية';
+                document.getElementById('requestModal').style.display = 'flex';
+                document.body.style.overflow = 'hidden';
+            });
         }
 
         function closeRequestModal() {
             document.getElementById('requestModal').style.display = 'none';
             document.body.style.overflow = '';
+            editingEmployeeId = null;
         }
 
         function submitRequestForm(e) {
             e.preventDefault();
             const btn = e.target.querySelector('button[type="submit"]');
+            const isEdit = !!editingEmployeeId;
             const formData = new FormData();
+            if (isEdit) formData.append('id', editingEmployeeId);
             formData.append('name', document.getElementById('reqName').value);
             formData.append('motherName', document.getElementById('reqMotherName').value);
             formData.append('nationalId', document.getElementById('reqNationalId').value);
@@ -3020,26 +3165,27 @@ function branch_report_data(PDO $pdo, string $type, string $from, string $to, in
             formData.append('salary', document.getElementById('reqSalary').value);
             formData.append('password', document.getElementById('reqPassword').value);
             const photoInput = document.getElementById('reqPhoto');
-            if (!photoInput.files || photoInput.files.length === 0) {
+            if (photoInput.files && photoInput.files.length > 0) {
+                formData.append('photo', photoInput.files[0]);
+            } else if (!isEdit) {
                 showToast('⚠️ تنبيه', 'صورة الموظف مطلوبة', 'warning');
                 return;
             }
-            formData.append('photo', photoInput.files[0]);
             const docsInput = document.getElementById('reqDocuments');
             if (docsInput.files && docsInput.files.length > 0) {
                 formData.append('documents', docsInput.files[0]);
             }
             btn.innerHTML = '<span style="display:inline-block;width:18px;height:18px;border:2px solid rgba(255,255,255,0.3);border-radius:50%;border-top-color:#fff;animation:spin 0.8s linear infinite;"></span> جاري الحفظ...';
             btn.disabled = true;
-            fetch('?ajax=employee_add', { method: 'POST', body: formData }).then(r => r.json()).then(data => {
+            fetch('?ajax=' + (isEdit ? 'employee_update' : 'employee_add'), { method: 'POST', body: formData }).then(r => r.json()).then(data => {
                 btn.innerHTML = '<i class="fas fa-save"></i> حفظ';
                 btn.disabled = false;
                 if (!data.ok) {
-                    showToast('⚠️ خطأ', data.error || 'تعذر إضافة الموظف', 'error');
+                    showToast('⚠️ خطأ', data.error || 'تعذر الحفظ', 'error');
                     return;
                 }
                 closeRequestModal();
-                showToast('✅ تم الحفظ', 'تم إضافة الموظف بنجاح، الكود الوظيفي: ' + data.code, 'success');
+                showToast('✅ تم الحفظ', isEdit ? 'تم تحديث بيانات الموظف بنجاح' : ('تم إضافة الموظف بنجاح، الكود الوظيفي: ' + data.code), 'success');
                 loadEmployees();
                 loadHomeStats();
             }).catch(() => {

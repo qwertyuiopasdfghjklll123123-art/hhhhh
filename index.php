@@ -256,6 +256,7 @@ if (isset($_GET['ajax'])) {
                     'title' => $empRow['job_title'],
                     'branch' => $empRow['branch_name'],
                     'photo' => $empRow['photo'] ?: null,
+                    'documents' => $empRow['documents'] ?: null,
                     'hireDate' => $empRow['hire_date'],
                     'baseSalary' => (float) $empRow['base_salary'],
                     'shiftTypeText' => $empRow['shift_type'] === 'evening' ? 'مطبق' : 'غير مطبق',
@@ -696,8 +697,9 @@ if (isset($_GET['ajax'])) {
 
             if ($brief['status'] !== 'approved') {
                 $pendingMap = [
-                    'pending' => 'الإيجاز قيد مراجعة الموارد البشرية، سيظهر بعد الاعتماد النهائي',
+                    'pending' => 'الإيجاز قيد مراجعة الموارد البشرية والمسؤول العام، سيظهر بعد الاعتماد النهائي',
                     'hr_approved' => 'وافقت الموارد البشرية — بانتظار الاعتماد النهائي من المسؤول العام',
+                    'gm_approved' => 'وافق المسؤول العام — بانتظار الاعتماد النهائي من الموارد البشرية',
                     'rejected' => 'تم رفض إيجاز اليوم',
                 ];
                 echo json_encode([
@@ -2600,7 +2602,7 @@ try {
                     <button class="quick-action-btn" onclick="showToast('📄 عقد العمل', 'تم عرض عقد العمل', 'info')">
                         <i class="fas fa-file-contract"></i> عقد العمل
                     </button>
-                    <button class="quick-action-btn" onclick="showToast('🪪 المستمسكات', 'تم عرض المستمسكات', 'info')">
+                    <button class="quick-action-btn" onclick="openMyDocuments()">
                         <i class="fas fa-id-card"></i> مستمسكاتي
                     </button>
                 </div>
@@ -3212,10 +3214,13 @@ try {
             requestNotifPermission();
         }
 
+        let profileDocumentsPath = null;
+
         function loadBootstrap() {
             fetch('?ajax=bootstrap').then(r => r.json()).then(data => {
                 if (!data.ok) return;
                 const p = data.profile;
+                profileDocumentsPath = p.documents || null;
 
                 if (data.company) {
                     document.getElementById('headerCompanyName').innerHTML = data.company.name + ' <span>نافذة الموظف</span>';
@@ -3424,6 +3429,14 @@ try {
         function toggleAdvanceDetail(id) {
             const el = document.getElementById(`advanceDetail_${id}`);
             if (el) el.style.display = el.style.display === 'none' ? 'block' : 'none';
+        }
+
+        function openMyDocuments() {
+            if (!profileDocumentsPath) {
+                showToast('🪪 المستمسكات', 'لم يقم قسم الموارد البشرية برفع مستمسكاتك بعد', 'info');
+                return;
+            }
+            window.open(profileDocumentsPath, '_blank');
         }
 
         // ============================================================

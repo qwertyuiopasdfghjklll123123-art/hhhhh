@@ -282,7 +282,7 @@ if (isset($_GET['ajax'])) {
             $branchId = (int) ($_GET['id'] ?? 0);
             $branchStmt = $pdo->prepare("
                 SELECT b.id, b.name, b.location, b.status,
-                       e.full_name AS manager, e.shift_start AS shiftStart, e.shift_end AS shiftEnd
+                       e.full_name AS manager, e.shift_start AS shiftStart, e.shift_end AS shiftEnd, e.documents AS branchDocs
                 FROM branches b
                 LEFT JOIN employees e ON e.branch_id = b.id AND e.is_branch_manager = 1
                 WHERE b.id = ?
@@ -297,12 +297,12 @@ if (isset($_GET['ajax'])) {
             $branch['shiftEnd'] = $branch['shiftEnd'] ? substr($branch['shiftEnd'], 0, 5) : null;
 
             $empStmt = $pdo->prepare("
-                SELECT e.id, e.full_name AS name, e.job_title, e.shift_type, e.is_branch_manager AS isManager,
+                SELECT e.id, e.full_name AS name, e.job_title, e.shift_type, e.is_branch_manager AS isManager, e.documents,
                        ROUND(SUM(a.status IN ('present','late')) / GREATEST(COUNT(a.id),1) * 100) AS attendanceRate
                 FROM employees e
                 LEFT JOIN attendance a ON a.employee_id = e.id AND a.attendance_date >= DATE_FORMAT(CURDATE(), '%Y-%m-01')
                 WHERE e.branch_id = ? AND e.status = 'active'
-                GROUP BY e.id, e.full_name, e.job_title, e.shift_type, e.is_branch_manager
+                GROUP BY e.id, e.full_name, e.job_title, e.shift_type, e.is_branch_manager, e.documents
                 ORDER BY e.is_branch_manager DESC, e.full_name
             ");
             $empStmt->execute([$branchId]);
@@ -320,9 +320,12 @@ if (isset($_GET['ajax'])) {
             }
 
             $briefsStmt = $pdo->prepare("
-                SELECT DATE_FORMAT(brief_date,'%d/%m/%Y') AS date, total_income AS revenue, total_expense AS expense,
-                       travelers_count AS travelers, status, hr_note AS hrNote, gm_review_note AS gmNote
-                FROM daily_briefs WHERE branch_id = ? ORDER BY brief_date DESC LIMIT 30
+                SELECT db.id, DATE_FORMAT(db.brief_date,'%d/%m/%Y') AS date, db.brief_date AS rawDate, db.total_income AS revenue, db.total_expense AS expense,
+                       db.travelers_count AS travelers, db.status, db.hr_note AS hrNote, db.gm_review_note AS gmNote,
+                       COALESCE(se.full_name, 'مدير الفرع') AS sender
+                FROM daily_briefs db
+                LEFT JOIN employees se ON se.id = db.submitted_by
+                WHERE db.branch_id = ? ORDER BY db.brief_date DESC LIMIT 30
             ");
             $briefsStmt->execute([$branchId]);
             $statusAr = [
@@ -683,11 +686,18 @@ if (isset($_GET['ajax'])) {
         case 'payroll_window_status': {
             $month = (int) date('n');
             $year = (int) date('Y');
-            $winStmt = $pdo->prepare("SELECT expires_at FROM payroll_windows WHERE period_month=? AND period_year=?");
-            $winStmt->execute([$month, $year]);
-            $expiresAt = $winStmt->fetchColumn();
-            $open = $expiresAt && strtotime($expiresAt) > time();
-            echo json_encode(['ok' => true, 'open' => $open, 'expiresAt' => $expiresAt ?: null]);
+            $stmt = $pdo->prepare("
+                SELECT b.id, b.name, pw.expires_at
+                FROM branches b
+                LEFT JOIN payroll_windows pw ON pw.branch_id = b.id AND pw.period_month=? AND pw.period_year=? AND pw.expires_at > NOW()
+                WHERE b.status = 'active'
+                ORDER BY b.name
+            ");
+            $stmt->execute([$month, $year]);
+            $branches = array_map(function ($r) {
+                return ['id' => (int) $r['id'], 'name' => $r['name'], 'open' => $r['expires_at'] !== null, 'expiresAt' => $r['expires_at']];
+            }, $stmt->fetchAll());
+            echo json_encode(['ok' => true, 'branches' => $branches], JSON_UNESCAPED_UNICODE);
             exit;
         }
 
@@ -695,19 +705,21 @@ if (isset($_GET['ajax'])) {
             $month = (int) ($_GET['month'] ?? date('n'));
             $year = (int) ($_GET['year'] ?? date('Y'));
             $stmt = $pdo->prepare("
-                SELECT e.id AS employeeId, e.full_name AS name, b.name AS branch, e.is_branch_manager AS isManager,
+                SELECT e.id AS employeeId, e.full_name AS name, b.id AS branchId, b.name AS branch, e.is_branch_manager AS isManager,
                        p.id AS payrollId, COALESCE(p.base_salary, e.base_salary) AS base, COALESCE(p.bonus,0) AS bonus, COALESCE(p.deduction,0) AS deduction,
                        (COALESCE(p.base_salary, e.base_salary) + COALESCE(p.bonus,0) - COALESCE(p.deduction,0)) AS net,
                        COALESCE(p.status, 'pending') AS status,
-                       adv.approved_monthly_deduction AS advanceMonthly, adv.remaining_balance AS advanceRemaining
+                       adv.approved_monthly_deduction AS advanceMonthly, adv.remaining_balance AS advanceRemaining,
+                       pw.expires_at AS windowExpiresAt
                 FROM employees e
                 JOIN branches b ON b.id = e.branch_id
                 LEFT JOIN payroll p ON p.employee_id = e.id AND p.period_month=? AND p.period_year=?
                 LEFT JOIN requests adv ON adv.employee_id = e.id AND adv.type='advance' AND adv.status='approved' AND adv.remaining_balance > 0
+                LEFT JOIN payroll_windows pw ON pw.branch_id = e.branch_id AND pw.period_month=? AND pw.period_year=? AND pw.expires_at > NOW()
                 WHERE e.status='active'
                 ORDER BY (COALESCE(p.status, 'pending') = 'delivered') ASC, e.full_name
             ");
-            $stmt->execute([$month, $year]);
+            $stmt->execute([$month, $year, $month, $year]);
             $rows = array_map(function ($r) {
                 $r['base'] = (float) $r['base'];
                 $r['bonus'] = (float) $r['bonus'];
@@ -718,6 +730,8 @@ if (isset($_GET['ajax'])) {
                 $r['advanceRemaining'] = $r['advanceRemaining'] !== null ? (float) $r['advanceRemaining'] : null;
                 $r['statusRaw'] = $r['status'];
                 $r['status'] = payroll_status_ar($r['status']);
+                $r['windowOpen'] = $r['windowExpiresAt'] !== null;
+                unset($r['windowExpiresAt']);
                 return $r;
             }, $stmt->fetchAll());
             echo json_encode(['ok' => true, 'salaries' => $rows], JSON_UNESCAPED_UNICODE);
@@ -729,14 +743,6 @@ if (isset($_GET['ajax'])) {
             $month = (int) date('n');
             $year = (int) date('Y');
 
-            $winStmt = $pdo->prepare("SELECT expires_at FROM payroll_windows WHERE period_month=? AND period_year=?");
-            $winStmt->execute([$month, $year]);
-            $expiresAt = $winStmt->fetchColumn();
-            if (!$expiresAt || strtotime($expiresAt) < time()) {
-                echo json_encode(['ok' => false, 'error' => 'صلاحية تسليم الرواتب لهذا الشهر مغلقة، يجب أن يفتحها المسؤول العام أولاً']);
-                exit;
-            }
-
             $empStmt = $pdo->prepare("SELECT branch_id, full_name, base_salary FROM employees WHERE id=?");
             $empStmt->execute([$employeeId]);
             $emp = $empStmt->fetch();
@@ -745,6 +751,14 @@ if (isset($_GET['ajax'])) {
                 exit;
             }
             $branchId = (int) $emp['branch_id'];
+
+            $winStmt = $pdo->prepare("SELECT expires_at FROM payroll_windows WHERE branch_id=? AND period_month=? AND period_year=?");
+            $winStmt->execute([$branchId, $month, $year]);
+            $expiresAt = $winStmt->fetchColumn();
+            if (!$expiresAt || strtotime($expiresAt) < time()) {
+                echo json_encode(['ok' => false, 'error' => 'صلاحية تسليم الرواتب لفرع هذا الموظف مغلقة، يجب أن يفتحها المسؤول العام أولاً']);
+                exit;
+            }
 
             $existing = $pdo->prepare("SELECT * FROM payroll WHERE employee_id=? AND period_month=? AND period_year=?");
             $existing->execute([$employeeId, $month, $year]);
@@ -807,20 +821,30 @@ if (isset($_GET['ajax'])) {
         }
 
         case 'briefs': {
-            $date = $_GET['date'] ?? date('Y-m-d');
-            if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $date)) $date = date('Y-m-d');
-            $stmt = $pdo->prepare("
+            $branchId = (int) ($_GET['branchId'] ?? 0);
+            $date = $_GET['date'] ?? '';
+            if ($date !== '' && !preg_match('/^\d{4}-\d{2}-\d{2}$/', $date)) $date = '';
+            $pendingCount = (int) $pdo->query("SELECT COUNT(*) FROM daily_briefs WHERE hr_decision='pending' AND status NOT IN ('approved','rejected')")->fetchColumn();
+
+            if ($branchId <= 0) {
+                echo json_encode(['ok' => true, 'briefs' => [], 'pendingCount' => $pendingCount], JSON_UNESCAPED_UNICODE);
+                exit;
+            }
+
+            $sql = "
                 SELECT db.id, e.full_name AS sender, e.job_title AS senderRole, b.id AS branchId, b.name AS branch,
-                       DATE_FORMAT(db.brief_date, '%d/%m/%Y') AS date,
+                       DATE_FORMAT(db.brief_date, '%d/%m/%Y') AS date, db.brief_date AS rawDate,
                        db.total_income AS revenue, db.total_expense AS expenses, db.travelers_count AS travelersCount, db.note,
                        db.status, db.hr_decision, db.gm_decision, db.hr_note AS hrNote, db.gm_review_note AS gmNote
                 FROM daily_briefs db
                 JOIN branches b ON b.id = db.branch_id
                 LEFT JOIN employees e ON e.id = db.submitted_by
-                WHERE db.brief_date = ?
-                ORDER BY b.name
-            ");
-            $stmt->execute([$date]);
+                WHERE db.branch_id = ?";
+            $params = [$branchId];
+            if ($date !== '') { $sql .= " AND db.brief_date = ?"; $params[] = $date; }
+            $sql .= " ORDER BY db.brief_date DESC LIMIT 60";
+            $stmt = $pdo->prepare($sql);
+            $stmt->execute($params);
             $statusAr = [
                 'pending' => 'بانتظار مراجعتك',
                 'hr_approved' => 'وافقت أنت — بانتظار موافقة المسؤول العام أيضاً',
@@ -828,7 +852,8 @@ if (isset($_GET['ajax'])) {
                 'approved' => 'معتمد نهائياً (وافق الطرفان)',
                 'rejected' => 'مرفوض',
             ];
-            $rows = array_map(function ($r) use ($statusAr) {
+            $today = date('Y-m-d');
+            $rows = array_map(function ($r) use ($statusAr, $today) {
                 $r['revenue'] = (float) $r['revenue'];
                 $r['expenses'] = (float) $r['expenses'];
                 $r['travelersCount'] = (int) $r['travelersCount'];
@@ -837,10 +862,10 @@ if (isset($_GET['ajax'])) {
                 $r['senderRole'] = $r['senderRole'] ?: 'مدير فرع';
                 $r['canReview'] = $r['hr_decision'] === 'pending' && !in_array($r['status'], ['approved', 'rejected'], true);
                 $r['statusText'] = $statusAr[$r['status']] ?? $r['status'];
+                $r['isToday'] = $r['rawDate'] === $today;
                 return $r;
             }, $stmt->fetchAll());
-            $pendingCount = (int) $pdo->query("SELECT COUNT(*) FROM daily_briefs WHERE hr_decision='pending' AND status NOT IN ('approved','rejected')")->fetchColumn();
-            echo json_encode(['ok' => true, 'briefs' => $rows, 'date' => $date, 'pendingCount' => $pendingCount], JSON_UNESCAPED_UNICODE);
+            echo json_encode(['ok' => true, 'briefs' => $rows, 'branchId' => $branchId, 'pendingCount' => $pendingCount], JSON_UNESCAPED_UNICODE);
             exit;
         }
 
@@ -849,7 +874,7 @@ if (isset($_GET['ajax'])) {
             $decision = ($_POST['decision'] ?? '') === 'approved' ? 'approved' : 'rejected';
             $hrNote = trim($_POST['hrNote'] ?? '') ?: ($decision === 'approved' ? 'تمت الموافقة من قبل الموارد البشرية' : 'تم الرفض من قبل الموارد البشرية');
 
-            $briefRow = $pdo->prepare("SELECT branch_id, gm_decision FROM daily_briefs WHERE id=? AND hr_decision='pending' AND status NOT IN ('approved','rejected')");
+            $briefRow = $pdo->prepare("SELECT branch_id, gm_decision, submitted_by FROM daily_briefs WHERE id=? AND hr_decision='pending' AND status NOT IN ('approved','rejected')");
             $briefRow->execute([$id]);
             $brief = $briefRow->fetch();
             if (!$brief) {
@@ -871,8 +896,8 @@ if (isset($_GET['ajax'])) {
                     ? 'وافقت الموارد البشرية على إيجاز اليوم، بانتظار موافقة المسؤول العام أيضاً — ' . $hrNote
                     : 'رفضت الموارد البشرية إيجاز اليوم — ' . $hrNote;
             }
-            $mgrUids = $pdo->prepare("SELECT id FROM users WHERE branch_id=? AND role='branch_manager'");
-            $mgrUids->execute([$briefBranchId]);
+            $mgrUids = $pdo->prepare("SELECT id FROM users WHERE branch_id=? AND role='branch_manager' UNION SELECT id FROM users WHERE employee_id=? AND role='employee'");
+            $mgrUids->execute([$briefBranchId, $brief['submitted_by']]);
             foreach ($mgrUids->fetchAll(PDO::FETCH_COLUMN) as $uid) {
                 $pdo->prepare("INSERT INTO notifications (user_id, title, message) VALUES (?, 'رد على الإيجاز', ?)")->execute([$uid, $msg]);
             }
@@ -1097,8 +1122,10 @@ function report_data(PDO $pdo, string $type, string $from, string $to, int $bran
         $sql = "SELECT b.name AS branch, DATE_FORMAT(db.brief_date,'%d/%m/%Y') AS date,
                        db.total_income AS revenue, db.total_expense AS expense,
                        (db.total_income - db.total_expense) AS profit,
-                       db.hr_note AS hrNote, db.gm_review_note AS gmNote, db.status
+                       db.hr_note AS hrNote, db.gm_review_note AS gmNote, db.status,
+                       COALESCE(se.full_name, 'مدير الفرع') AS sender
                 FROM daily_briefs db JOIN branches b ON b.id = db.branch_id
+                LEFT JOIN employees se ON se.id = db.submitted_by
                 WHERE db.brief_date BETWEEN ? AND ?";
         $params = [$from, $to];
         if ($branch > 0) { $sql .= " AND db.branch_id = ?"; $params[] = $branch; }
@@ -2053,15 +2080,21 @@ function report_data(PDO $pdo, string $type, string $from, string $to, int $bran
             color: var(--primary);
         }
 
+        #branchList {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
+            gap: 12px;
+        }
         .branch-card {
             background: var(--bg);
             border-radius: var(--radius-md);
-            padding: 10px 14px;
-            margin-bottom: 10px;
+            padding: 12px 14px;
             border: 1px solid rgba(0,107,115,0.04);
             border-right: 3px solid var(--primary);
             transition: var(--transition-base);
             cursor: pointer;
+            display: flex;
+            flex-direction: column;
         }
         .branch-card:hover {
             box-shadow: var(--shadow-sm);
@@ -3043,6 +3076,7 @@ function report_data(PDO $pdo, string $type, string $from, string $to, int $bran
                             <div class="branch-detail-sub">
                                 <span><i class="fas fa-user-tie"></i> <span id="bdManager">...</span></span>
                                 <span><i class="fas fa-clock"></i> <span id="bdShift">...</span></span>
+                                <span id="bdDocuments" style="font-size:11px;"></span>
                             </div>
                         </div>
                         <div class="branch-detail-rate">
@@ -3205,19 +3239,20 @@ function report_data(PDO $pdo, string $type, string $from, string $to, int $bran
                     <!-- قائمة الإيجازات -->
                     <div class="briefing-section">
                         <div class="briefing-header">
-                            <h4><i class="fas fa-inbox"></i> الإيجازات الواردة</h4>
-                            <span style="font-size:12px;color:var(--text-muted);" id="briefingCount">0 إيجازات</span>
-                        </div>
-                        <div class="brief-date-bar">
-                            <label for="briefingDateInput"><i class="fas fa-calendar-day"></i> اختر التاريخ</label>
-                            <input type="date" id="briefingDateInput" onchange="loadBriefingRequests(this.value)">
-                            <button class="btn-sm view" onclick="loadBriefingRequests(new Date().toISOString().slice(0,10))"><i class="fas fa-rotate-left"></i> اليوم</button>
+                            <h4><i class="fas fa-inbox"></i> الإيجازات الواردة — اختر فرعاً</h4>
+                            <span style="font-size:12px;color:var(--text-muted);" id="briefingCount">0 فرع</span>
                         </div>
                         <div id="briefingDayList" class="brief-day-grid">
-                            <!-- يتم التعبئة بواسطة JavaScript -->
+                            <!-- يتم التعبئة بواسطة JavaScript: بطاقة لكل فرع -->
                         </div>
                         <div id="briefingDetailPanel" style="display:none;">
                             <button class="btn-outline" style="margin-bottom:10px;" onclick="closeBriefingDetail()"><i class="fas fa-arrow-right"></i> رجوع لقائمة الفروع</button>
+                            <div class="brief-date-bar">
+                                <label for="briefingDateInput"><i class="fas fa-calendar-day"></i> عرض تاريخ محدد</label>
+                                <input type="date" id="briefingDateInput">
+                                <button class="btn-sm view" onclick="filterBriefingByDate()"><i class="fas fa-rotate"></i> تحديث</button>
+                                <button class="btn-sm view" onclick="clearBriefingDateFilter()"><i class="fas fa-list"></i> كل السجل</button>
+                            </div>
                             <div id="briefingDetailContent"></div>
                         </div>
                     </div>
@@ -4142,6 +4177,10 @@ function report_data(PDO $pdo, string $type, string $from, string $to, int $bran
             document.getElementById('bdName').textContent = b.name;
             document.getElementById('bdManager').textContent = b.manager || 'غير محدد';
             document.getElementById('bdShift').textContent = (b.shiftStart && b.shiftEnd) ? `${b.shiftStart} - ${b.shiftEnd}` : 'غير محدد';
+            const docsEl = document.getElementById('bdDocuments');
+            if (docsEl) {
+                docsEl.innerHTML = b.branchDocs ? `<a href="${b.branchDocs}" target="_blank"><i class="fas fa-id-card"></i> عرض مستمسكات مسؤول الفرع</a>` : 'لا توجد مستمسكات مرفوعة';
+            }
 
             const pct = data.overallAttendanceRate || 0;
             document.getElementById('bdAttendancePct').textContent = pct + '%';
@@ -4157,6 +4196,7 @@ function report_data(PDO $pdo, string $type, string $from, string $to, int $bran
                         <div style="min-width:0;">
                             <div class="name">${e.name}${e.isManager ? ' 👑' : ''}</div>
                             <div class="role">${e.job_title || ''} · ${e.shiftTypeText}</div>
+                            ${e.documents ? `<a href="${e.documents}" target="_blank" style="font-size:10px;" onclick="event.stopPropagation()"><i class="fas fa-id-card"></i> مستمسكاته</a>` : ''}
                         </div>
                         <div class="rate" style="color:${e.attendanceRate >= 80 ? '#059669' : (e.attendanceRate >= 50 ? '#D97706' : '#DC2626')};">${e.attendanceRate}%</div>
                     </div>
@@ -4171,6 +4211,7 @@ function report_data(PDO $pdo, string $type, string $from, string $to, int $bran
                 briefsList.innerHTML = data.briefs.map(br => `
                     <div class="bd-brief-card">
                         <span><i class="fas fa-calendar" style="color:var(--text-muted);"></i> ${br.date}</span>
+                        <span><i class="fas fa-pen" style="color:var(--text-muted);"></i> ${br.sender}</span>
                         <span>الإيراد: <b>${Number(br.revenue).toLocaleString()}</b></span>
                         <span>الربح: <b style="color:#059669;">${Number(br.profit).toLocaleString()}</b></span>
                         <span class="bd-brief-status" style="background:${statusColors[br.status]}1A;color:${statusColors[br.status]};">${br.statusText}</span>
@@ -4280,15 +4321,15 @@ function report_data(PDO $pdo, string $type, string $from, string $to, int $bran
             fetch('?ajax=payroll_window_status').then(r => r.json()).then(data => {
                 if (!data.ok) return;
                 const banner = document.getElementById('payrollWindowBanner');
-                if (data.open) {
-                    const expires = new Date(data.expiresAt.replace(' ', 'T'));
+                const openBranches = data.branches.filter(b => b.open);
+                if (openBranches.length > 0) {
                     banner.style.background = 'rgba(21,148,71,0.08)';
                     banner.style.color = 'var(--success, #159447)';
-                    banner.innerHTML = '<i class="fas fa-unlock"></i> صلاحية تسليم الرواتب مفتوحة حتى ' + expires.toLocaleString('ar-SA');
+                    banner.innerHTML = `<i class="fas fa-unlock"></i> صلاحية تسليم الرواتب مفتوحة لـ ${openBranches.length} من ${data.branches.length} فرع: ${openBranches.map(b => b.name).join('، ')}`;
                 } else {
                     banner.style.background = 'rgba(223,75,75,0.08)';
                     banner.style.color = '#df4b4b';
-                    banner.innerHTML = '<i class="fas fa-lock"></i> صلاحية تسليم الرواتب مغلقة لهذا الشهر — يجب أن يفتحها المسؤول العام أولاً';
+                    banner.innerHTML = '<i class="fas fa-lock"></i> صلاحية تسليم الرواتب مغلقة لكل الفروع هذا الشهر — يجب أن يفتحها المسؤول العام لكل فرع';
                 }
             });
         }
@@ -4325,11 +4366,11 @@ function report_data(PDO $pdo, string $type, string $from, string $to, int $bran
                         <td><strong>${item.net.toLocaleString()}</strong></td>
                         <td><span class="status-badge ${statusClass}">${item.status}</span></td>
                         <td>
-                            ${item.statusRaw !== 'delivered' ? `
+                            ${item.statusRaw !== 'delivered' ? (item.windowOpen ? `
                                 <button class="action-btn approve" onclick="deliverSalary(${item.employeeId}, '${item.name}')" title="تسليم">
                                     <i class="fas fa-check"></i> تسليم
                                 </button>
-                            ` : '<span style="font-size:11px;color:var(--text-muted);">تم التسليم</span>'}
+                            ` : `<span style="font-size:10.5px;color:var(--text-muted);"><i class="fas fa-lock"></i> الصلاحية مغلقة لفرع ${item.branch}</span>`) : '<span style="font-size:11px;color:var(--text-muted);">تم التسليم</span>'}
                         </td>
                     </tr>
                 `;
@@ -4477,78 +4518,120 @@ function report_data(PDO $pdo, string $type, string $from, string $to, int $bran
         // ============================================================
         // نظام الإيجاز - تم تصحيحه
         // ============================================================
-        let briefingSelectedId = null;
+        let briefingSelectedBranchId = null;
+        let briefingDateFilter = null;
+        let briefingBranchList = [];
 
-        function loadBriefingRequests(date) {
-            const dateInput = document.getElementById('briefingDateInput');
-            const d = date || (dateInput && dateInput.value) || new Date().toISOString().slice(0, 10);
-            fetch('?ajax=briefs&date=' + encodeURIComponent(d)).then(r => r.json()).then(data => {
-                if (!data.ok) return;
-                briefingRequests = data.briefs;
-                if (dateInput) dateInput.value = data.date;
-                updateBriefingBadge(data.pendingCount);
-                if (briefingSelectedId !== null) {
-                    const item = briefingRequests.find(b => b.id === briefingSelectedId);
-                    if (item) { renderBriefingDetail(item); return; }
-                    closeBriefingDetail();
-                    return;
-                }
-                renderBriefingDayCards();
+        function loadBriefingRequests() {
+            fetch('?ajax=briefs').then(r => r.json()).then(data => {
+                if (data.ok) updateBriefingBadge(data.pendingCount);
             }).catch(() => {});
+
+            if (briefingSelectedBranchId) {
+                loadBriefingBranchDetail(briefingSelectedBranchId, briefingDateFilter);
+            } else {
+                fetch('?ajax=branches').then(r => r.json()).then(data => {
+                    if (!data.ok) return;
+                    briefingBranchList = data.branches;
+                    renderBriefingBranchGrid();
+                }).catch(() => {});
+            }
         }
 
-        function renderBriefingDayCards() {
+        function renderBriefingBranchGrid() {
             const list = document.getElementById('briefingDayList');
             if (!list) return;
             document.getElementById('briefingDetailPanel').style.display = 'none';
             list.style.display = '';
 
-            if (briefingRequests.length === 0) {
+            if (briefingBranchList.length === 0) {
                 list.innerHTML = `
                     <div style="text-align:center;padding:30px 20px;color:var(--text-muted);grid-column:1/-1;">
                         <i class="fas fa-inbox" style="font-size:40px;opacity:0.3;display:block;margin-bottom:10px;"></i>
-                        <p style="font-size:13px;">لا توجد إيجازات منشورة في هذا التاريخ</p>
+                        <p style="font-size:13px;">لا توجد فروع بعد</p>
                     </div>
                 `;
-                document.getElementById('briefingCount').textContent = '0 إيجازات';
+                document.getElementById('briefingCount').textContent = '0 فرع';
                 return;
             }
 
-            const statusColors = { pending: '#D97706', hr_approved: '#0A8A94', gm_approved: '#0A8A94', approved: '#10B981', rejected: '#DC2626' };
-            const statusIcons = { pending: '⏳', hr_approved: '📤', gm_approved: '📥', approved: '✅', rejected: '❌' };
-            list.innerHTML = briefingRequests.map(item => `
-                <div class="brief-day-card" style="border-top-color:${statusColors[item.status] || '#D97706'};" onclick="openBriefingDetail(${item.id})">
-                    <div class="brief-day-icon" style="color:${statusColors[item.status] || '#D97706'};">${statusIcons[item.status] || '📄'}</div>
-                    <div class="brief-day-branch"><i class="fas fa-building"></i> ${item.branch}</div>
-                    <div class="brief-day-sender">${item.sender}</div>
+            list.innerHTML = briefingBranchList.map(b => `
+                <div class="brief-day-card" onclick="openBriefingBranch(${b.id})">
+                    <div class="brief-day-icon"><i class="fas fa-building"></i></div>
+                    <div class="brief-day-branch">${b.name}</div>
                 </div>
             `).join('');
-            document.getElementById('briefingCount').textContent = briefingRequests.length + ' إيجازات';
+            document.getElementById('briefingCount').textContent = briefingBranchList.length + ' فرع';
         }
 
-        function openBriefingDetail(id) {
-            const item = briefingRequests.find(b => b.id === id);
-            if (!item) return;
-            briefingSelectedId = id;
+        function openBriefingBranch(branchId) {
+            briefingSelectedBranchId = branchId;
+            briefingDateFilter = null;
+            const dateInput = document.getElementById('briefingDateInput');
+            if (dateInput) dateInput.value = '';
             document.getElementById('briefingDayList').style.display = 'none';
             document.getElementById('briefingDetailPanel').style.display = 'block';
-            renderBriefingDetail(item);
+            document.getElementById('briefingDetailContent').innerHTML = '<p style="color:var(--text-muted);font-size:12px;text-align:center;padding:20px;">جاري التحميل...</p>';
+            loadBriefingBranchDetail(branchId, null);
+        }
+
+        function loadBriefingBranchDetail(branchId, date) {
+            let url = '?ajax=briefs&branchId=' + branchId;
+            if (date) url += '&date=' + encodeURIComponent(date);
+            fetch(url).then(r => r.json()).then(data => {
+                if (!data.ok) return;
+                briefingRequests = data.briefs;
+                updateBriefingBadge(data.pendingCount);
+                renderBriefingHistoryFeed();
+            }).catch(() => {});
+        }
+
+        function filterBriefingByDate() {
+            const date = document.getElementById('briefingDateInput').value;
+            if (!date) { showToast('⚠️ تنبيه', 'اختر تاريخاً أولاً', 'warning'); return; }
+            briefingDateFilter = date;
+            loadBriefingBranchDetail(briefingSelectedBranchId, date);
+        }
+
+        function clearBriefingDateFilter() {
+            briefingDateFilter = null;
+            const dateInput = document.getElementById('briefingDateInput');
+            if (dateInput) dateInput.value = '';
+            loadBriefingBranchDetail(briefingSelectedBranchId, null);
         }
 
         function closeBriefingDetail() {
-            briefingSelectedId = null;
+            briefingSelectedBranchId = null;
+            briefingDateFilter = null;
             document.getElementById('briefingDetailPanel').style.display = 'none';
-            renderBriefingDayCards();
+            renderBriefingBranchGrid();
         }
 
-        function renderBriefingDetail(item) {
+        function renderBriefingHistoryFeed() {
             const content = document.getElementById('briefingDetailContent');
             if (!content) return;
+            if (briefingRequests.length === 0) {
+                content.innerHTML = `<p style="color:var(--text-muted);font-size:13px;text-align:center;padding:20px;">لا توجد إيجازات ${briefingDateFilter ? 'في هذا التاريخ' : 'منشورة بعد لهذا الفرع'}</p>`;
+                return;
+            }
+            let html = '';
+            let dividerInserted = !!briefingDateFilter;
+            briefingRequests.forEach(item => {
+                if (!dividerInserted && !item.isToday) {
+                    html += `<div style="display:flex;align-items:center;gap:10px;margin:14px 0;color:var(--text-muted);font-size:11.5px;"><span style="flex:1;height:1px;background:rgba(0,107,115,0.12);"></span>إيجازات سابقة<span style="flex:1;height:1px;background:rgba(0,107,115,0.12);"></span></div>`;
+                    dividerInserted = true;
+                }
+                html += renderBriefingCard(item);
+            });
+            content.innerHTML = html;
+        }
+
+        function renderBriefingCard(item) {
             const statusClass = item.status === 'approved' ? 'approved' : (item.status === 'rejected' ? 'rejected' : 'pending');
             const statusColors = { pending: '#D97706', hr_approved: '#0A8A94', gm_approved: '#0A8A94', approved: '#10B981', rejected: '#DC2626' };
             const statusIcons = { pending: '⏳', hr_approved: '📤', gm_approved: '📥', approved: '✅', rejected: '❌' };
 
-            content.innerHTML = `
+            return `
                 <div class="briefing-card" style="border-right-color: ${statusColors[item.status] || '#D97706'};">
                     <div class="briefing-top">
                         <div>
@@ -4560,7 +4643,7 @@ function report_data(PDO $pdo, string $type, string $from, string $to, int $bran
                         </div>
                         <div>
                             <span class="briefing-status ${statusClass}">${statusIcons[item.status] || ''} ${item.statusText}</span>
-                            <span class="date" style="margin-right:10px;">${item.date}</span>
+                            <span class="date" style="margin-right:10px;">${item.date}${item.isToday ? ' (اليوم)' : ''}</span>
                         </div>
                     </div>
 
@@ -4753,9 +4836,9 @@ function report_data(PDO $pdo, string $type, string $from, string $to, int $bran
         }
         function briefingTable(rows) {
             if (!rows || rows.length === 0) return '<p style="color:var(--text-muted);text-align:center;padding:12px;">لا توجد بيانات إيجاز ضمن هذا النطاق</p>';
-            let html = '<div class="table-wrap"><table class="table"><thead><tr><th>#</th><th>الفرع</th><th>التاريخ</th><th>الإيرادات</th><th>المصاريف</th><th>صافي الربح</th><th>الحالة</th><th>ملاحظة HR</th><th>ملاحظة المسؤول العام</th></tr></thead><tbody>';
+            let html = '<div class="table-wrap"><table class="table"><thead><tr><th>#</th><th>الفرع</th><th>كاتب الإيجاز</th><th>التاريخ</th><th>الإيرادات</th><th>المصاريف</th><th>صافي الربح</th><th>الحالة</th><th>ملاحظة HR</th><th>ملاحظة المسؤول العام</th></tr></thead><tbody>';
             rows.forEach((item, i) => {
-                html += `<tr><td>${i+1}</td><td>${item.branch}</td><td>${item.date}</td><td>${item.revenue}</td><td>${item.expense}</td><td style="color:#059669;">${item.profit}</td><td>${item.statusText || '-'}</td><td>${item.hrNote || '-'}</td><td>${item.gmNote || '-'}</td></tr>`;
+                html += `<tr><td>${i+1}</td><td>${item.branch}</td><td>${item.sender || '-'}</td><td>${item.date}</td><td>${item.revenue}</td><td>${item.expense}</td><td style="color:#059669;">${item.profit}</td><td>${item.statusText || '-'}</td><td>${item.hrNote || '-'}</td><td>${item.gmNote || '-'}</td></tr>`;
             });
             return html + '</tbody></table></div>';
         }

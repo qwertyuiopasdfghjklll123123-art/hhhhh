@@ -204,12 +204,13 @@ function install_schema(PDO $pdo): void
 
         'payroll_windows' => "CREATE TABLE IF NOT EXISTS payroll_windows (
             id INT AUTO_INCREMENT PRIMARY KEY,
+            branch_id INT DEFAULT NULL,
             period_month TINYINT NOT NULL,
             period_year SMALLINT NOT NULL,
             opened_by INT DEFAULT NULL,
             opened_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             expires_at TIMESTAMP NOT NULL,
-            UNIQUE KEY uniq_period (period_month, period_year)
+            UNIQUE KEY uniq_branch_period (branch_id, period_month, period_year)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4",
 
         'payroll_adjustments' => "CREATE TABLE IF NOT EXISTS payroll_adjustments (
