@@ -70,6 +70,16 @@ function request_status_ar(string $s): string
     return ['pending' => 'قيد مراجعة مدير الفرع', 'branch_approved' => 'قيد مراجعة الموارد البشرية', 'approved' => 'مقبول', 'rejected' => 'مرفوض'][$s] ?? $s;
 }
 
+function log_error(PDO $pdo, string $action, ?string $role, ?int $userId, string $message): void
+{
+    try {
+        $pdo->prepare("INSERT INTO error_log (app, action, user_role, user_id, message) VALUES ('hr', ?, ?, ?, ?)")
+            ->execute([$action, $role, $userId, mb_substr($message, 0, 500)]);
+    } catch (Throwable $e) {
+        // جدول error_log قد لا يكون موجوداً بعد على قاعدة بيانات لم تُحدَّث — تجاهل بصمت
+    }
+}
+
 $isLoggedIn = !empty($_SESSION['hr_user']);
 
 /* ======================================================================
@@ -115,6 +125,17 @@ if (isset($_GET['ajax'])) {
     }
     $hrUser = $_SESSION['hr_user'];
 
+    if ($action === 'log_error') {
+        $clientMsg = trim((string) ($_POST['message'] ?? ''));
+        $clientAction = trim((string) ($_POST['clientAction'] ?? 'client'));
+        if ($clientMsg !== '') {
+            log_error($pdo, $clientAction, 'hr', $hrUser['id'], $clientMsg);
+        }
+        echo json_encode(['ok' => true]);
+        exit;
+    }
+
+    try {
     switch ($action) {
 
         case 'bootstrap': {
@@ -798,6 +819,12 @@ if (isset($_GET['ajax'])) {
 
     echo json_encode(['ok' => false, 'error' => 'unknown action']);
     exit;
+    } catch (Throwable $ex) {
+        log_error($pdo, $action, 'hr', $hrUser['id'], $ex->getMessage());
+        http_response_code(500);
+        echo json_encode(['ok' => false, 'error' => 'حدث خطأ غير متوقع في الخادم — تأكد من تشغيل migrate.php على قاعدة البيانات']);
+        exit;
+    }
 }
 
 /**
@@ -2895,6 +2922,9 @@ function report_data(PDO $pdo, string $type, string $from, string $to, int $bran
             if (typeof showToast === 'function') {
                 showToast('❌ خطأ في الاتصال', 'تعذر تنفيذ العملية — تأكد من تشغيل migrate.php على قاعدة البيانات ثم أعد المحاولة', 'error');
             }
+            try {
+                fetch('?ajax=log_error', { method: 'POST', body: new URLSearchParams({ clientAction: 'unhandledrejection', message: String(e.reason && e.reason.message || e.reason || 'unknown') }) }).catch(() => {});
+            } catch (_) {}
             e.preventDefault();
         });
 

@@ -167,6 +167,19 @@ function migration_steps(): array
             'needed' => fn(PDO $pdo) => !column_exists($pdo, 'settings', 'company_logo'),
             'run' => fn(PDO $pdo) => $pdo->exec("ALTER TABLE settings ADD COLUMN company_logo VARCHAR(255) DEFAULT NULL"),
         ],
+        [
+            'label' => 'إنشاء جدول سجل الأخطاء (error_log) لتتبع مشاكل الأزرار والعمليات الفاشلة',
+            'needed' => fn(PDO $pdo) => !table_exists($pdo, 'error_log'),
+            'run' => fn(PDO $pdo) => $pdo->exec("CREATE TABLE IF NOT EXISTS error_log (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                app VARCHAR(20) NOT NULL,
+                action VARCHAR(60) NOT NULL,
+                user_role VARCHAR(30) DEFAULT NULL,
+                user_id INT DEFAULT NULL,
+                message VARCHAR(500) NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4"),
+        ],
     ];
 }
 

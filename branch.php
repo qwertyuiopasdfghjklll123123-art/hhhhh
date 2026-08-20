@@ -81,6 +81,16 @@ function request_status_ar(string $s): string
     return ['pending' => 'بانتظار موافقتك', 'branch_approved' => 'أُرسل للموارد البشرية', 'approved' => 'مقبول نهائياً', 'rejected' => 'مرفوض'][$s] ?? $s;
 }
 
+function log_error(PDO $pdo, string $action, ?string $role, ?int $userId, string $message): void
+{
+    try {
+        $pdo->prepare("INSERT INTO error_log (app, action, user_role, user_id, message) VALUES ('branch', ?, ?, ?, ?)")
+            ->execute([$action, $role, $userId, mb_substr($message, 0, 500)]);
+    } catch (Throwable $e) {
+        // جدول error_log قد لا يكون موجوداً بعد على قاعدة بيانات لم تُحدَّث — تجاهل بصمت
+    }
+}
+
 $isLoggedIn = !empty($_SESSION['branch_user']);
 
 /* ======================================================================
@@ -135,6 +145,17 @@ if (isset($_GET['ajax'])) {
     $mgr = $_SESSION['branch_user'];
     $branchId = $mgr['branch_id'];
 
+    if ($action === 'log_error') {
+        $clientMsg = trim((string) ($_POST['message'] ?? ''));
+        $clientAction = trim((string) ($_POST['clientAction'] ?? 'client'));
+        if ($clientMsg !== '') {
+            log_error($pdo, $clientAction, 'branch_manager', $mgr['id'], $clientMsg);
+        }
+        echo json_encode(['ok' => true]);
+        exit;
+    }
+
+    try {
     switch ($action) {
 
         case 'bootstrap': {
@@ -681,6 +702,12 @@ if (isset($_GET['ajax'])) {
 
     echo json_encode(['ok' => false, 'error' => 'unknown action']);
     exit;
+    } catch (Throwable $ex) {
+        log_error($pdo, $action, 'branch_manager', $mgr['id'], $ex->getMessage());
+        http_response_code(500);
+        echo json_encode(['ok' => false, 'error' => 'حدث خطأ غير متوقع في الخادم — تأكد من تشغيل migrate.php على قاعدة البيانات']);
+        exit;
+    }
 }
 
 function branch_report_data(PDO $pdo, string $type, string $from, string $to, int $branchId): array
@@ -803,6 +830,39 @@ function branch_report_data(PDO $pdo, string $type, string $from, string $to, in
         .welcome-loader .loader-bottom { display: flex; align-items: center; justify-content: space-between; width: 100%; max-width: 400px; }
         .welcome-loader .loader-status { color: rgba(255,255,255,0.5); font-size: 11px; font-weight: 400; }
         .welcome-loader .loader-percent { color: rgba(255,255,255,0.8); font-size: 14px; font-weight: 700; min-width: 44px; text-align: center; }
+
+        /* إطار تطبيق ثابت العرض لشاشات ما قبل الدخول فقط (الترحيب/التعريف/الدخول) —
+           لا يُطبَّق على لوحة التحكم بعد الدخول حتى لا يتعارض مع تخطيط سطح المكتب */
+        body { background: #003f46; }
+        .welcome-screen, .onboarding-screen, .login-page {
+            left: 50% !important;
+            right: auto !important;
+            width: 480px !important;
+            max-width: 100% !important;
+            transform: translateX(-50%);
+            box-shadow: 0 0 0 1px rgba(255,255,255,0.08), 0 30px 80px rgba(0,0,0,0.45);
+        }
+
+        /* الشاشة التعريفية (Onboarding) لمدير الفرع */
+        .onboarding-screen {
+            position: fixed;
+            top: 0; bottom: 0;
+            z-index: 9998;
+            background: linear-gradient(160deg, #003f46 0%, #006b73 60%, #0A8A94 100%);
+            display: flex; flex-direction: column; align-items: center; justify-content: center;
+            padding: 40px 24px; text-align: center;
+        }
+        .onboarding-screen.hidden { display: none; }
+        .onboarding-skip { position: absolute; top: max(20px, env(safe-area-inset-top)); left: 20px; background: rgba(255,255,255,0.12); border: none; color: #fff; font-size: 13px; font-weight: 700; padding: 8px 18px; border-radius: 999px; cursor: pointer; }
+        .onboarding-slides { width: 100%; max-width: 340px; display: flex; overflow: hidden; transition: transform 0.4s cubic-bezier(0.4,0,0.2,1); }
+        .onboarding-slide { min-width: 100%; flex-shrink: 0; }
+        .onboarding-icon { width: 96px; height: 96px; border-radius: 50%; background: rgba(255,255,255,0.12); display: flex; align-items: center; justify-content: center; font-size: 40px; color: var(--accent); margin: 0 auto 28px; }
+        .onboarding-slide h2 { color: #fff; font-size: 20px; font-weight: 800; margin-bottom: 12px; }
+        .onboarding-slide p { color: rgba(255,255,255,0.75); font-size: 13.5px; line-height: 1.8; }
+        .onboarding-dots { display: flex; gap: 8px; margin: 32px 0 24px; }
+        .onboarding-dots .dot { width: 8px; height: 8px; border-radius: 50%; background: rgba(255,255,255,0.25); border: none; cursor: pointer; }
+        .onboarding-dots .dot.active { width: 24px; border-radius: 4px; background: var(--accent); }
+        .onboarding-next { background: var(--accent); color: #fff; border: none; padding: 14px 48px; border-radius: 999px; font-size: 14px; font-weight: 800; font-family: var(--font-family); cursor: pointer; }
 
         /* تسجيل الدخول */
         .login-page { min-height: 100vh; background: linear-gradient(135deg, #003f46 0%, #006b73 100%); display: flex; align-items: center; justify-content: center; padding: 20px; }
@@ -1143,6 +1203,34 @@ function branch_report_data(PDO $pdo, string $type, string $from, string $to, in
                 <span class="loader-percent" id="loaderPercent">0%</span>
             </div>
         </div>
+    </div>
+
+    <!-- الشاشة التعريفية (تظهر مرة واحدة فقط عند أول استخدام) -->
+    <div class="onboarding-screen hidden" id="onboardingScreen">
+        <button class="onboarding-skip" onclick="finishOnboarding()">تخطي</button>
+        <div class="onboarding-slides" id="onboardingSlides">
+            <div class="onboarding-slide">
+                <div class="onboarding-icon"><i class="fas fa-fingerprint"></i></div>
+                <h2>حضورك وحضور فريقك بلمسة</h2>
+                <p>سجّل حضورك وانصرافك، وتابع حضور موظفي فرعك يومياً من مكان واحد.</p>
+            </div>
+            <div class="onboarding-slide">
+                <div class="onboarding-icon"><i class="fas fa-file-pen"></i></div>
+                <h2>راجع طلبات فريقك بسرعة</h2>
+                <p>إجازات، سلف، شكاوى واستقالات موظفيك — وافق أو ارفض مع رد مباشر، وتابع حالتها حتى الموارد البشرية.</p>
+            </div>
+            <div class="onboarding-slide">
+                <div class="onboarding-icon"><i class="fas fa-chart-simple"></i></div>
+                <h2>انشر إيجاز فرعك اليومي</h2>
+                <p>سجّل قيود الدخل والمصروف وانشر إيجاز اليوم بضغطة، وتابع مسار اعتماده حتى المسؤول العام.</p>
+            </div>
+        </div>
+        <div class="onboarding-dots" id="onboardingDots">
+            <button class="dot active" onclick="onboardingGoTo(0)"></button>
+            <button class="dot" onclick="onboardingGoTo(1)"></button>
+            <button class="dot" onclick="onboardingGoTo(2)"></button>
+        </div>
+        <button class="onboarding-next" id="onboardingNextBtn" onclick="onboardingNext()">التالي</button>
     </div>
 
     <!-- شاشة تسجيل الدخول -->
@@ -1808,6 +1896,9 @@ function branch_report_data(PDO $pdo, string $type, string $from, string $to, in
             if (typeof showToast === 'function') {
                 showToast('❌ خطأ في الاتصال', 'تعذر تنفيذ العملية — تأكد من تشغيل migrate.php على قاعدة البيانات ثم أعد المحاولة', 'error');
             }
+            try {
+                fetch('?ajax=log_error', { method: 'POST', body: new URLSearchParams({ clientAction: 'unhandledrejection', message: String(e.reason && e.reason.message || e.reason || 'unknown') }) }).catch(() => {});
+            } catch (_) {}
             e.preventDefault();
         });
 
@@ -1821,6 +1912,28 @@ function branch_report_data(PDO $pdo, string $type, string $from, string $to, in
         const loaderLabel = document.getElementById('loaderLabel');
         const welcomeScreen = document.getElementById('welcomeScreen');
         const loginScreen = document.getElementById('loginScreen');
+        const onboardingScreen = document.getElementById('onboardingScreen');
+
+        let onboardingSlideIndex = 0;
+        const onboardingSlideCount = 3;
+
+        function onboardingGoTo(index) {
+            onboardingSlideIndex = index;
+            document.getElementById('onboardingSlides').style.transform = `translateX(-${index * 100}%)`;
+            document.querySelectorAll('#onboardingDots .dot').forEach((dot, i) => dot.classList.toggle('active', i === index));
+            document.getElementById('onboardingNextBtn').textContent = index === onboardingSlideCount - 1 ? 'ابدأ الآن' : 'التالي';
+        }
+
+        function onboardingNext() {
+            if (onboardingSlideIndex < onboardingSlideCount - 1) onboardingGoTo(onboardingSlideIndex + 1);
+            else finishOnboarding();
+        }
+
+        function finishOnboarding() {
+            localStorage.setItem('onboardingSeenBranch', '1');
+            onboardingScreen.classList.add('hidden');
+            loginScreen.classList.remove('hidden');
+        }
 
         const statusMessages = [
             { at: 0, text: 'تهيئة البيئة...' },
@@ -1859,6 +1972,8 @@ function branch_report_data(PDO $pdo, string $type, string $from, string $to, in
                         if (alreadyLoggedIn) {
                             document.getElementById('appContainer').classList.remove('hidden');
                             initApp();
+                        } else if (!localStorage.getItem('onboardingSeenBranch')) {
+                            document.getElementById('onboardingScreen').classList.remove('hidden');
                         } else {
                             loginScreen.classList.remove('hidden');
                         }

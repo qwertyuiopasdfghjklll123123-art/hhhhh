@@ -223,10 +223,20 @@ function install_schema(PDO $pdo): void
             CONSTRAINT fk_padj_employee FOREIGN KEY (employee_id) REFERENCES employees(id) ON DELETE CASCADE,
             CONSTRAINT fk_padj_branch FOREIGN KEY (branch_id) REFERENCES branches(id) ON DELETE CASCADE
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4",
+
+        'error_log' => "CREATE TABLE IF NOT EXISTS error_log (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            app VARCHAR(20) NOT NULL,
+            action VARCHAR(60) NOT NULL,
+            user_role VARCHAR(30) DEFAULT NULL,
+            user_id INT DEFAULT NULL,
+            message VARCHAR(500) NOT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4",
     ];
 
     // الترتيب مهم بسبب المفاتيح الأجنبية
-    foreach (['settings', 'branches', 'employees', 'users', 'attendance', 'payroll', 'requests', 'daily_ledger', 'delegations', 'daily_briefs', 'exchange_rate_history', 'notifications', 'payroll_windows', 'payroll_adjustments'] as $table) {
+    foreach (['settings', 'branches', 'employees', 'users', 'attendance', 'payroll', 'requests', 'daily_ledger', 'delegations', 'daily_briefs', 'exchange_rate_history', 'notifications', 'payroll_windows', 'payroll_adjustments', 'error_log'] as $table) {
         $pdo->exec($tables[$table]);
     }
 }
@@ -321,7 +331,7 @@ if (!$alreadyInstalled && $requirementsOk && $_SERVER['REQUEST_METHOD'] === 'POS
                 PDO::ATTR_EMULATE_PREPARES => false,
             ]);
 
-            $ourTables = ['settings', 'branches', 'employees', 'users', 'attendance', 'payroll', 'requests', 'daily_ledger', 'delegations', 'daily_briefs', 'exchange_rate_history', 'notifications', 'payroll_windows', 'payroll_adjustments'];
+            $ourTables = ['settings', 'branches', 'employees', 'users', 'attendance', 'payroll', 'requests', 'daily_ledger', 'delegations', 'daily_briefs', 'exchange_rate_history', 'notifications', 'payroll_windows', 'payroll_adjustments', 'error_log'];
             $existing = $pdo->query("SHOW TABLES")->fetchAll(PDO::FETCH_COLUMN);
             $conflicting = array_intersect($ourTables, $existing);
             if (!empty($conflicting)) {

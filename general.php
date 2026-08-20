@@ -37,6 +37,16 @@ function attendance_status_ar(string $s): string
     return ['present' => 'حاضر', 'late' => 'متأخر', 'absent' => 'غائب'][$s] ?? $s;
 }
 
+function log_error(PDO $pdo, string $action, ?string $role, ?int $userId, string $message): void
+{
+    try {
+        $pdo->prepare("INSERT INTO error_log (app, action, user_role, user_id, message) VALUES ('general', ?, ?, ?, ?)")
+            ->execute([$action, $role, $userId, mb_substr($message, 0, 500)]);
+    } catch (Throwable $e) {
+        // جدول error_log قد لا يكون موجوداً بعد على قاعدة بيانات لم تُحدَّث — تجاهل بصمت
+    }
+}
+
 function gm_report_data(PDO $pdo, string $type, string $from, string $to, int $branch): array
 {
     $result = [];
@@ -151,6 +161,17 @@ if (isset($_GET['ajax'])) {
         exit;
     }
 
+    if ($action === 'log_error') {
+        $clientMsg = trim((string) ($_POST['message'] ?? ''));
+        $clientAction = trim((string) ($_POST['clientAction'] ?? 'client'));
+        if ($clientMsg !== '') {
+            log_error($pdo, $clientAction, $gmUser['role'], $gmUser['id'], $clientMsg);
+        }
+        echo json_encode(['ok' => true]);
+        exit;
+    }
+
+    try {
     switch ($action) {
 
         case 'bootstrap': {
@@ -216,7 +237,11 @@ if (isset($_GET['ajax'])) {
             $username = trim($_POST['username'] ?? '');
             $password = (string) ($_POST['password'] ?? '');
             if ($name === '' || $username === '' || strlen($password) < 6) {
-                echo json_encode(['ok' => false, 'error' => 'الرجاء تعبئة الاسم واسم الدخول (كلمة المرور 6 أحرف على الأقل)']);
+                echo json_encode(['ok' => false, 'error' => 'الرجاء تعبئة الاسم والبريد الإلكتروني (كلمة المرور 6 أحرف على الأقل)']);
+                exit;
+            }
+            if (!filter_var($username, FILTER_VALIDATE_EMAIL)) {
+                echo json_encode(['ok' => false, 'error' => 'الرجاء إدخال بريد إلكتروني صحيح لتسجيل الدخول']);
                 exit;
             }
             try {
@@ -452,6 +477,12 @@ if (isset($_GET['ajax'])) {
 
     echo json_encode(['ok' => false, 'error' => 'unknown action']);
     exit;
+    } catch (Throwable $ex) {
+        log_error($pdo, $action, $gmUser['role'], $gmUser['id'], $ex->getMessage());
+        http_response_code(500);
+        echo json_encode(['ok' => false, 'error' => 'حدث خطأ غير متوقع في الخادم — تأكد من تشغيل migrate.php على قاعدة البيانات']);
+        exit;
+    }
 }
 ?>
 <!DOCTYPE html>
@@ -675,7 +706,7 @@ if (isset($_GET['ajax'])) {
                     <h4 style="margin-bottom:10px;"><i class="fas fa-user-plus"></i> إضافة حساب مساهم جديد</h4>
                     <div style="display:grid;grid-template-columns:1fr 1fr 1fr auto;gap:10px;">
                         <input type="text" id="shName" placeholder="الاسم" style="height:38px;padding:0 10px;border:1.5px solid #e2ebeb;border-radius:8px;font-family:var(--font-family);">
-                        <input type="text" id="shUsername" placeholder="اسم الدخول" style="height:38px;padding:0 10px;border:1.5px solid #e2ebeb;border-radius:8px;font-family:var(--font-family);">
+                        <input type="email" id="shUsername" placeholder="البريد الإلكتروني (لتسجيل الدخول)" style="height:38px;padding:0 10px;border:1.5px solid #e2ebeb;border-radius:8px;font-family:var(--font-family);">
                         <input type="password" id="shPassword" placeholder="كلمة المرور" style="height:38px;padding:0 10px;border:1.5px solid #e2ebeb;border-radius:8px;font-family:var(--font-family);">
                         <button class="btn small" onclick="createShareholder()"><i class="fas fa-save"></i> إنشاء</button>
                     </div>
@@ -718,6 +749,9 @@ if (isset($_GET['ajax'])) {
         if (typeof showToast === 'function') {
             showToast('❌ خطأ في الاتصال', 'تعذر تنفيذ العملية — تأكد من تشغيل migrate.php على قاعدة البيانات ثم أعد المحاولة', 'error');
         }
+        try {
+            fetch('?ajax=log_error', { method: 'POST', body: new URLSearchParams({ clientAction: 'unhandledrejection', message: String(e.reason && e.reason.message || e.reason || 'unknown') }) }).catch(() => {});
+        } catch (_) {}
         e.preventDefault();
     });
 
@@ -1110,7 +1144,11 @@ if (isset($_GET['ajax'])) {
         const username = document.getElementById('shUsername').value;
         const password = document.getElementById('shPassword').value;
         if (!name || !username || password.length < 6) {
-            showToast('⚠️ تنبيه', 'الرجاء تعبئة الاسم واسم الدخول وكلمة مرور 6 أحرف على الأقل', 'warning');
+            showToast('⚠️ تنبيه', 'الرجاء تعبئة الاسم والبريد الإلكتروني وكلمة مرور 6 أحرف على الأقل', 'warning');
+            return;
+        }
+        if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(username)) {
+            showToast('⚠️ تنبيه', 'الرجاء إدخال بريد إلكتروني صحيح', 'warning');
             return;
         }
         fetch('?ajax=shareholder_create', { method: 'POST', body: new URLSearchParams({ name, username, password }) })
@@ -1121,6 +1159,8 @@ if (isset($_GET['ajax'])) {
                 document.getElementById('shUsername').value = '';
                 document.getElementById('shPassword').value = '';
                 loadShareholders();
+            }).catch(() => {
+                showToast('⚠️ خطأ', 'تعذر الاتصال بالخادم', 'error');
             });
     }
 

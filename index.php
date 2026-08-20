@@ -70,6 +70,16 @@ function request_status_ar_emp(string $s): string
     ][$s] ?? $s;
 }
 
+function log_error(PDO $pdo, string $action, ?string $role, ?int $userId, string $message): void
+{
+    try {
+        $pdo->prepare("INSERT INTO error_log (app, action, user_role, user_id, message) VALUES ('employee', ?, ?, ?, ?)")
+            ->execute([$action, $role, $userId, mb_substr($message, 0, 500)]);
+    } catch (Throwable $e) {
+        // جدول error_log قد لا يكون موجوداً بعد على قاعدة بيانات لم تُحدَّث — تجاهل بصمت
+    }
+}
+
 function employee_active_delegation(PDO $pdo, int $branchId, int $employeeId): ?array
 {
     $stmt = $pdo->prepare("SELECT start_date, end_date FROM delegations
@@ -135,6 +145,17 @@ if (isset($_GET['ajax'])) {
     $employeeId = $emp['employee_id'];
     $branchId = $emp['branch_id'];
 
+    if ($action === 'log_error') {
+        $clientMsg = trim((string) ($_POST['message'] ?? ''));
+        $clientAction = trim((string) ($_POST['clientAction'] ?? 'client'));
+        if ($clientMsg !== '') {
+            log_error($pdo, $clientAction, 'employee', $emp['id'], $clientMsg);
+        }
+        echo json_encode(['ok' => true]);
+        exit;
+    }
+
+    try {
     switch ($action) {
 
         case 'bootstrap': {
@@ -578,6 +599,57 @@ if (isset($_GET['ajax'])) {
             exit;
         }
 
+        case 'attendance_month': {
+            $month = max(1, min(12, (int) ($_GET['month'] ?? date('n'))));
+            $year = (int) ($_GET['year'] ?? date('Y'));
+            $from = sprintf('%04d-%02d-01', $year, $month);
+            $daysInMonth = (int) date('t', strtotime($from));
+            $to = date('Y-m-t', strtotime($from));
+
+            $rows = $pdo->prepare("SELECT attendance_date, check_in, check_out, status FROM attendance WHERE employee_id=? AND attendance_date BETWEEN ? AND ?");
+            $rows->execute([$employeeId, $from, $to]);
+            $byDate = [];
+            foreach ($rows->fetchAll() as $r) { $byDate[$r['attendance_date']] = $r; }
+
+            $today = date('Y-m-d');
+            $present = 0; $late = 0; $absent = 0;
+            $days = [];
+            for ($d = 1; $d <= $daysInMonth; $d++) {
+                $date = sprintf('%04d-%02d-%02d', $year, $month, $d);
+                $dow = (int) date('w', strtotime($date));
+                $isOff = ($dow === 5 || $dow === 6);
+                $rec = $byDate[$date] ?? null;
+                if ($isOff) {
+                    $status = 'off';
+                } elseif ($rec && $rec['check_in']) {
+                    $status = $rec['status'] === 'late' ? 'late' : 'present';
+                } elseif ($date < $today) {
+                    $status = 'absent';
+                } else {
+                    $status = 'future';
+                }
+                if ($status === 'present') $present++;
+                elseif ($status === 'late') $late++;
+                elseif ($status === 'absent') $absent++;
+                $days[] = [
+                    'day' => $d,
+                    'dow' => $dow,
+                    'status' => $status,
+                    'checkIn' => $rec && $rec['check_in'] ? substr($rec['check_in'], 0, 5) : null,
+                    'checkOut' => $rec && $rec['check_out'] ? substr($rec['check_out'], 0, 5) : null,
+                ];
+            }
+
+            echo json_encode([
+                'ok' => true,
+                'month' => $month,
+                'year' => $year,
+                'days' => $days,
+                'summary' => ['present' => $present, 'late' => $late, 'absent' => $absent],
+            ], JSON_UNESCAPED_UNICODE);
+            exit;
+        }
+
         case 'branch_briefing': {
             $branchName = $pdo->prepare("SELECT name FROM branches WHERE id=?");
             $branchName->execute([$branchId]);
@@ -626,6 +698,12 @@ if (isset($_GET['ajax'])) {
 
     echo json_encode(['ok' => false, 'error' => 'unknown action']);
     exit;
+    } catch (Throwable $ex) {
+        log_error($pdo, $action, 'employee', $emp['id'], $ex->getMessage());
+        http_response_code(500);
+        echo json_encode(['ok' => false, 'error' => 'حدث خطأ غير متوقع في الخادم — تأكد من تشغيل migrate.php على قاعدة البيانات']);
+        exit;
+    }
 }
 ?>
 <!DOCTYPE html>
@@ -1148,6 +1226,68 @@ if (isset($_GET['ajax'])) {
             box-shadow: var(--shadow-md);
             border-color: rgba(0,107,115,0.06);
         }
+
+        .form-group { margin-bottom: 14px; }
+        .form-group:last-of-type { margin-bottom: 0; }
+        .form-group label {
+            display: block;
+            font-size: 12.5px;
+            font-weight: 700;
+            color: var(--text-secondary);
+            margin-bottom: 6px;
+        }
+        .form-group input,
+        .form-group select,
+        .form-group textarea {
+            width: 100%;
+            height: 46px;
+            padding: 0 14px;
+            border: 2px solid rgba(0,107,115,0.08);
+            border-radius: var(--radius-sm);
+            font-size: 14px;
+            font-family: var(--font-family);
+            background: var(--bg);
+            color: var(--text-primary);
+            transition: var(--transition-base);
+        }
+        .form-group textarea { height: auto; padding: 12px 14px; resize: vertical; }
+        .form-group input:focus,
+        .form-group select:focus,
+        .form-group textarea:focus {
+            outline: none;
+            border-color: var(--primary);
+            box-shadow: 0 0 0 4px rgba(0,107,115,0.06);
+        }
+
+        .settings-card-header {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 16px;
+        }
+        .settings-card-header .icon-badge {
+            width: 36px;
+            height: 36px;
+            border-radius: 10px;
+            background: rgba(0,107,115,0.08);
+            color: var(--primary);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 16px;
+            flex-shrink: 0;
+        }
+        .settings-card-header .icon-badge.danger { background: rgba(239,68,68,0.1); color: #EF4444; }
+        .settings-card-header .titles .t1 { font-size: 14px; font-weight: 800; color: var(--text-primary); }
+        .settings-card-header .titles .t2 { font-size: 11.5px; color: var(--text-muted); margin-top: 1px; }
+        .logout-card {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            cursor: pointer;
+            border-color: rgba(239,68,68,0.15);
+        }
+        .logout-card .chev { margin-right: auto; color: rgba(239,68,68,0.5); }
 
         .section-title {
             font-weight: 800;
@@ -2188,39 +2328,41 @@ if (isset($_GET['ajax'])) {
            إطار تطبيق الجوال — على الشاشات الواسعة يظهر النظام كأنه
            تطبيق هاتف حقيقي (عرض ثابت 480px بمنتصف الشاشة) بدل موقع ويب ممتد
            ============================================================ */
-        @media (min-width: 641px) {
-            body {
-                background: var(--primary-dark);
-            }
-            .welcome-screen,
-            .onboarding-screen,
-            .login-page,
-            #appContainer {
-                left: 50% !important;
-                right: auto !important;
-                width: 480px !important;
-                max-width: 480px !important;
-                transform: translateX(-50%);
-                box-shadow: 0 0 0 1px rgba(255,255,255,0.08), 0 30px 80px rgba(0,0,0,0.45);
-            }
-            .welcome-screen, .onboarding-screen, .login-page {
-                position: fixed;
-                top: 0;
-                bottom: 0;
-            }
-            #appContainer {
-                position: relative;
-                margin: 0 auto;
-                min-height: 100vh;
-            }
-            .bottom-nav-minimal,
-            #sideMenu {
-                left: 50% !important;
-                right: auto !important;
-                width: 480px !important;
-                max-width: 480px !important;
-                transform: translateX(-50%);
-            }
+        /* إطار تطبيق ثابت العرض (480px كحد أقصى، ويتقلص تلقائياً على الجوال) —
+           بنفس أسلوب app-wrapper: يبدو دائماً كتطبيق حقيقي وليس موقع ويب ممتد */
+        body {
+            background: var(--primary-dark);
+        }
+        .welcome-screen,
+        .onboarding-screen,
+        .login-page,
+        #appContainer {
+            left: 50% !important;
+            right: auto !important;
+            width: 480px !important;
+            max-width: 100% !important;
+            transform: translateX(-50%);
+            box-shadow: 0 0 0 1px rgba(255,255,255,0.08), 0 30px 80px rgba(0,0,0,0.45);
+        }
+        .welcome-screen, .onboarding-screen, .login-page {
+            position: fixed;
+            top: 0;
+            bottom: 0;
+        }
+        #appContainer {
+            position: relative;
+            margin: 0 auto;
+            min-height: 100vh;
+        }
+        .bottom-nav-minimal,
+        #sideMenu,
+        #pwaInstallBanner,
+        #confirmSheet {
+            left: 50% !important;
+            right: auto !important;
+            width: 480px !important;
+            max-width: 100% !important;
+            transform: translateX(-50%);
         }
     </style>
 </head>
@@ -2510,24 +2652,36 @@ if (isset($_GET['ajax'])) {
                     </button>
                 </div>
 
-                <div class="section-title"><i class="fas fa-key"></i> تغيير كلمة المرور</div>
+                <div class="section-title"><i class="fas fa-shield-halved"></i> الحساب والأمان</div>
                 <div class="card">
+                    <div class="settings-card-header">
+                        <div class="icon-badge"><i class="fas fa-key"></i></div>
+                        <div class="titles">
+                            <div class="t1">تغيير كلمة المرور</div>
+                            <div class="t2">أدخل كلمة المرور الحالية ثم الجديدة</div>
+                        </div>
+                    </div>
                     <div class="form-group">
                         <label>كلمة المرور الحالية</label>
-                        <input type="password" id="pwOld" placeholder="أدخل كلمة المرور الحالية">
+                        <input type="password" id="pwOld" placeholder="••••••••" autocomplete="current-password">
                     </div>
                     <div class="form-group">
                         <label>كلمة المرور الجديدة</label>
-                        <input type="password" id="pwNew" placeholder="6 أحرف على الأقل">
+                        <input type="password" id="pwNew" placeholder="6 أحرف على الأقل" autocomplete="new-password">
                     </div>
-                    <button class="quick-action-btn" style="width:100%;padding:12px;border-color:var(--primary);" onclick="changePassword()">
+                    <button class="quick-action-btn" style="width:100%;padding:12px;border-color:var(--primary);margin-top:4px;" onclick="changePassword()">
                         <i class="fas fa-save"></i> حفظ كلمة المرور الجديدة
                     </button>
                 </div>
 
-                <button class="quick-action-btn" style="width:100%;padding:14px;border-color:#EF4444;color:#EF4444;margin-top:6px;" onclick="requestLogout()">
-                    <i class="fas fa-sign-out-alt" style="color:#EF4444;"></i> تسجيل الخروج
-                </button>
+                <div class="card logout-card" onclick="requestLogout()">
+                    <div class="icon-badge danger"><i class="fas fa-sign-out-alt"></i></div>
+                    <div class="titles">
+                        <div class="t1" style="color:#EF4444;">تسجيل الخروج</div>
+                        <div class="t2">إنهاء الجلسة الحالية على هذا الجهاز</div>
+                    </div>
+                    <i class="fas fa-chevron-left chev"></i>
+                </div>
             </div>
 
             <div id="page-attendance" class="page-screen hidden">
@@ -2561,9 +2715,34 @@ if (isset($_GET['ajax'])) {
                 <div class="card" id="attendanceHistoryList">
                     <div class="list-item"><div class="item-content"><div class="item-title">لا يوجد سجل بعد</div></div></div>
                 </div>
-                <button class="quick-action-btn" style="width:100%;padding:14px;" onclick="showToast('📋 سجل الحضور', 'تم عرض سجل الحضور الكامل', 'info')">
+                <button class="quick-action-btn" style="width:100%;padding:14px;" onclick="navigateTo('attendanceHistory')">
                     <i class="fas fa-list"></i> عرض سجل الحضور الكامل
                 </button>
+            </div>
+
+            <div id="page-attendanceHistory" class="page-screen hidden">
+                <div class="page-title">
+                    <h2><i class="fas fa-calendar-days"></i> سجل الحضور الشهري</h2>
+                    <button onclick="navigateTo('attendance')" class="back-btn"><i class="fas fa-arrow-right"></i> رجوع</button>
+                </div>
+                <div class="card" style="display:flex;align-items:center;justify-content:space-between;padding:12px 16px;">
+                    <button onclick="attendanceMonthNav(-1)" style="background:none;border:none;font-size:18px;color:var(--primary);cursor:pointer;padding:6px 10px;"><i class="fas fa-chevron-right"></i></button>
+                    <b id="attendanceMonthLabel" style="font-size:14px;">...</b>
+                    <button onclick="attendanceMonthNav(1)" id="attendanceNextBtn" style="background:none;border:none;font-size:18px;color:var(--primary);cursor:pointer;padding:6px 10px;"><i class="fas fa-chevron-left"></i></button>
+                </div>
+                <div class="card" id="attendanceMonthSummary" style="display:flex;justify-content:space-around;text-align:center;padding:14px;"></div>
+                <div class="card">
+                    <div style="display:grid;grid-template-columns:repeat(7,1fr);gap:6px;margin-bottom:8px;font-size:10.5px;color:var(--text-muted);font-weight:700;text-align:center;">
+                        <span>أحد</span><span>إثنين</span><span>ثلاثاء</span><span>أربعاء</span><span>خميس</span><span>جمعة</span><span>سبت</span>
+                    </div>
+                    <div id="attendanceCalendarGrid" style="display:grid;grid-template-columns:repeat(7,1fr);gap:6px;"></div>
+                </div>
+                <div class="card" style="display:flex;flex-wrap:wrap;gap:12px;font-size:11px;color:var(--text-muted);justify-content:center;">
+                    <span><span style="display:inline-block;width:10px;height:10px;border-radius:3px;background:#059669;margin-left:4px;"></span> حضور</span>
+                    <span><span style="display:inline-block;width:10px;height:10px;border-radius:3px;background:#D97706;margin-left:4px;"></span> تأخير</span>
+                    <span><span style="display:inline-block;width:10px;height:10px;border-radius:3px;background:#DC2626;margin-left:4px;"></span> غياب</span>
+                    <span><span style="display:inline-block;width:10px;height:10px;border-radius:3px;background:rgba(0,107,115,0.08);margin-left:4px;"></span> عطلة</span>
+                </div>
             </div>
 
             <div id="page-commitment" class="page-screen hidden">
@@ -2892,6 +3071,9 @@ if (isset($_GET['ajax'])) {
             if (typeof showToast === 'function') {
                 showToast('❌ خطأ في الاتصال', 'تعذر تنفيذ العملية — تأكد من تشغيل migrate.php على قاعدة البيانات ثم أعد المحاولة', 'error');
             }
+            try {
+                fetch('?ajax=log_error', { method: 'POST', body: new URLSearchParams({ clientAction: 'unhandledrejection', message: String(e.reason && e.reason.message || e.reason || 'unknown') }) }).catch(() => {});
+            } catch (_) {}
             e.preventDefault();
         });
 
@@ -3318,6 +3500,62 @@ if (isset($_GET['ajax'])) {
                 document.getElementById('salaryBonus').textContent = '+ ' + Number(data.adminBonus).toLocaleString();
                 document.getElementById('salaryNet').textContent = Number(data.net).toLocaleString() + ' د.ع';
             });
+        }
+
+        // ============================================================
+        // سجل الحضور الشهري الكامل
+        // ============================================================
+        let attendanceViewMonth = new Date().getMonth() + 1;
+        let attendanceViewYear = new Date().getFullYear();
+        const arMonthNames = ['يناير','فبراير','مارس','أبريل','مايو','يونيو','يوليو','أغسطس','سبتمبر','أكتوبر','نوفمبر','ديسمبر'];
+
+        function loadAttendanceMonth() {
+            fetch(`?ajax=attendance_month&month=${attendanceViewMonth}&year=${attendanceViewYear}`).then(r => r.json()).then(data => {
+                if (!data.ok) return;
+                renderAttendanceCalendar(data);
+            });
+        }
+
+        function attendanceMonthNav(delta) {
+            const now = new Date();
+            let m = attendanceViewMonth + delta;
+            let y = attendanceViewYear;
+            if (m > 12) { m = 1; y++; }
+            if (m < 1) { m = 12; y--; }
+            if (y > now.getFullYear() || (y === now.getFullYear() && m > now.getMonth() + 1)) return;
+            attendanceViewMonth = m;
+            attendanceViewYear = y;
+            loadAttendanceMonth();
+        }
+
+        function renderAttendanceCalendar(data) {
+            document.getElementById('attendanceMonthLabel').textContent = arMonthNames[data.month - 1] + ' ' + data.year;
+            const now = new Date();
+            const isCurrentMonth = data.year === now.getFullYear() && data.month === now.getMonth() + 1;
+            document.getElementById('attendanceNextBtn').style.visibility = isCurrentMonth ? 'hidden' : 'visible';
+
+            document.getElementById('attendanceMonthSummary').innerHTML = `
+                <div><div style="font-size:20px;font-weight:800;color:#059669;">${data.summary.present}</div><div style="font-size:11px;color:var(--text-muted);">حضور</div></div>
+                <div><div style="font-size:20px;font-weight:800;color:#D97706;">${data.summary.late}</div><div style="font-size:11px;color:var(--text-muted);">تأخير</div></div>
+                <div><div style="font-size:20px;font-weight:800;color:#DC2626;">${data.summary.absent}</div><div style="font-size:11px;color:var(--text-muted);">غياب</div></div>
+            `;
+
+            const firstDow = new Date(data.year, data.month - 1, 1).getDay();
+            const colors = {
+                present: ['#059669', 'rgba(16,185,129,0.12)'],
+                late: ['#D97706', 'rgba(217,119,6,0.12)'],
+                absent: ['#DC2626', 'rgba(239,68,68,0.12)'],
+                off: ['var(--text-muted)', 'rgba(0,107,115,0.05)'],
+                future: ['var(--text-muted)', 'transparent'],
+            };
+            let html = '';
+            for (let i = 0; i < firstDow; i++) html += '<div></div>';
+            data.days.forEach(d => {
+                const [fg, bg] = colors[d.status] || colors.future;
+                const title = d.checkIn ? `دخول ${d.checkIn}${d.checkOut ? ' - خروج ' + d.checkOut : ''}` : '';
+                html += `<div title="${title}" style="aspect-ratio:1;border-radius:8px;background:${bg};color:${fg};display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;">${d.day}</div>`;
+            });
+            document.getElementById('attendanceCalendarGrid').innerHTML = html;
         }
 
         // ============================================================
@@ -3955,6 +4193,7 @@ if (isset($_GET['ajax'])) {
             else if (page === 'salary') loadSalary();
             else if (page === 'briefing') loadBriefing();
             else if (page === 'notifications') loadNotifications();
+            else if (page === 'attendanceHistory') loadAttendanceMonth();
         }
 
         function toggleMenu() {

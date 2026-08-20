@@ -164,6 +164,19 @@ $grouped = [];
 foreach ($results as $r) {
     $grouped[$r['group']][] = $r;
 }
+
+/* ---------------------- سجل الأخطاء الأخيرة (نظام تتبع المشاكل) ---------------------- */
+$recentErrors = [];
+$appLabels = ['employee' => 'نافذة الموظف', 'hr' => 'الموارد البشرية', 'branch' => 'مدير الفرع', 'general' => 'المسؤول العام'];
+if ($pdo) {
+    try {
+        $stmt = $pdo->query("SELECT app, action, user_role, message, DATE_FORMAT(created_at,'%d/%m/%Y %H:%i') AS date
+            FROM error_log ORDER BY created_at DESC LIMIT 30");
+        $recentErrors = $stmt->fetchAll();
+    } catch (Throwable $e) {
+        // جدول error_log غير موجود بعد (لم يُشغَّل migrate.php) — لا داعي لإظهار هذا كخطأ منفصل، القسم أعلاه يغطيه
+    }
+}
 ?>
 <!DOCTYPE html>
 <html lang="ar" dir="rtl">
@@ -254,6 +267,23 @@ foreach ($results as $r) {
             <?php endforeach; ?>
         </div>
     <?php endforeach; ?>
+
+    <div class="group">
+        <h2>🕵️ سجل الأخطاء الأخيرة (نظام تتبع المشاكل)</h2>
+        <?php if (empty($recentErrors)): ?>
+            <div class="row ok"><div class="icon">✓</div><div class="content"><div class="label">لا توجد أي أخطاء مسجّلة</div><div class="detail">كل عملية فاشلة (زر لا يستجيب، اعتماد فشل، إلخ) تُسجَّل هنا تلقائياً فور حدوثها</div></div></div>
+        <?php else: ?>
+            <?php foreach ($recentErrors as $err): ?>
+                <div class="row fail">
+                    <div class="icon">✕</div>
+                    <div class="content">
+                        <div class="label"><?= h($appLabels[$err['app']] ?? $err['app']) ?> — <?= h($err['action']) ?> <span style="font-weight:400;color:#5a7373;">(<?= h($err['user_role'] ?? '-') ?>)</span></div>
+                        <div class="detail"><?= h($err['date']) ?> — <?= h($err['message']) ?></div>
+                    </div>
+                </div>
+            <?php endforeach; ?>
+        <?php endif; ?>
+    </div>
 
     <div class="links">
         <a href="/diagnose" class="refresh">🔄 إعادة الفحص</a>
