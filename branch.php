@@ -1469,16 +1469,7 @@ function branch_report_data(PDO $pdo, string $type, string $from, string $to, in
                     </div>
                 </div>
 
-                <div class="grid-2">
-                    <button class="btn light small" onclick="navigateTo('employees')"><i class="fas fa-users"></i> الموظفون</button>
-                    <button class="btn light small" onclick="navigateTo('attendance')"><i class="fas fa-fingerprint"></i> البصمة</button>
-                    <button class="btn light small" onclick="navigateTo('requests')"><i class="fas fa-file-pen"></i> الطلبات</button>
-                    <button class="btn light small" onclick="navigateTo('briefing')"><i class="fas fa-chart-simple"></i> الإيجاز</button>
-                    <button class="btn light small" onclick="navigateTo('delegation')"><i class="fas fa-user-check"></i> التفويضات</button>
-                    <button class="btn light small" onclick="navigateTo('payroll')"><i class="fas fa-money-bill-wave"></i> الرواتب</button>
-                    <button class="btn light small" onclick="navigateTo('reports')"><i class="fas fa-chart-bar"></i> التقارير</button>
-                    <button class="btn light small" onclick="navigateTo('files')"><i class="fas fa-folder"></i> الملفات</button>
-                </div>
+               
 
                 <div class="card" onclick="navigateTo('notifications')" style="cursor:pointer;">
                     <div class="section-title" style="margin-top:0;"><i class="fas fa-bell"></i> التنبيهات</div>
@@ -1968,7 +1959,7 @@ function branch_report_data(PDO $pdo, string $type, string $from, string $to, in
             <div class="menu-item" onclick="navigateTo('payroll');toggleSideMenu();"><i class="fas fa-money-bill-wave"></i> الرواتب</div>
             <div class="menu-item" onclick="navigateTo('reports');toggleSideMenu();"><i class="fas fa-chart-bar"></i> التقارير</div>
             <div class="menu-item" onclick="navigateTo('notifications');toggleSideMenu();"><i class="fas fa-bell"></i> الإشعارات</div>
-            <div class="menu-item" onclick="navigateTo('files');toggleSideMenu();"><i class="fas fa-folder"></i> الملفات</div>
+           
             <div class="menu-item logout" onclick="handleLogout();toggleSideMenu();"><i class="fas fa-sign-out-alt"></i> تسجيل الخروج</div>
         </div>
 

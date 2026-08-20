@@ -2519,38 +2519,16 @@ try {
 
                 <!-- القائمة السريعة -->
                 <div class="quick-actions-grid">
-                    <button class="quick-action-btn" onclick="navigateTo('attendance')">
-                        <i class="fas fa-fingerprint"></i> البصمة
-                        <span class="sub-text">حضور وانصراف</span>
-                    </button>
-                    <button class="quick-action-btn" onclick="navigateTo('requests')">
-                        <i class="fas fa-file-pen"></i> طلباتي
-                        <span class="sub-text">إجازة · سلفة · شكوى</span>
-                    </button>
+            
                     <button class="quick-action-btn" onclick="navigateTo('commitment')">
                         <i class="fas fa-medal"></i> الالتزام
                         <span class="sub-text" id="quickCommitmentSub">نسبتك 0%</span>
-                    </button>
-                    <button class="quick-action-btn" onclick="navigateTo('briefing')" id="qaBriefing" style="display:none;">
-                        <i class="fas fa-chart-simple"></i> إيجاز
-                        <span class="sub-text">إحصائيات الفرع</span>
+                    
                     </button>
                     <button class="quick-action-btn" onclick="navigateTo('salary')">
                         <i class="fas fa-money-bill-wave"></i> الراتب
                         <span class="sub-text">الخصومات والمكافآت</span>
-                    </button>
-                    <button class="quick-action-btn" onclick="navigateTo('profile')">
-                        <i class="fas fa-user"></i> ملفي
-                        <span class="sub-text">البيانات الشخصية</span>
-                    </button>
-                    <button class="quick-action-btn" onclick="navigateTo('notifications')">
-                        <i class="fas fa-bell"></i> الإشعارات
-                        <span class="badge" id="quickNotifBadge">0</span>
-                        <span class="sub-text">آخر التحديثات</span>
-                    </button>
-                    <button class="quick-action-btn" onclick="toggleMenu()" style="border-color:var(--accent);">
-                        <i class="fas fa-bars" style="color:var(--accent);"></i> المزيد
-                        <span class="sub-text">جميع الخدمات</span>
+        
                     </button>
                 </div>
 
@@ -2622,15 +2600,7 @@ try {
                     </div>
                 </div>
 
-                <div class="quick-actions-grid" style="grid-template-columns:1fr 1fr;">
-                    <button class="quick-action-btn" onclick="showToast('📄 عقد العمل', 'تم عرض عقد العمل', 'info')">
-                        <i class="fas fa-file-contract"></i> عقد العمل
-                    </button>
-                    <button class="quick-action-btn" onclick="openMyDocuments()">
-                        <i class="fas fa-id-card"></i> مستمسكاتي
-                    </button>
-                </div>
-
+               
                 <div class="section-title"><i class="fas fa-shield-halved"></i> الحساب والأمان</div>
                 <div class="card">
                     <div class="settings-card-header">
@@ -3288,19 +3258,21 @@ try {
                     advCard.style.display = 'none';
                 }
 
-                document.getElementById('statCommitment').textContent = data.stats.commitmentPct + '%';
-                document.getElementById('statTodayStatus').textContent = data.stats.todayStatus;
-                document.getElementById('statPendingRequests').textContent = data.stats.pendingRequests;
-                document.getElementById('statUnreadNotifs').textContent = data.stats.unreadNotifications;
-                document.getElementById('quickCommitmentSub').textContent = 'نسبتك ' + data.stats.commitmentPct + '%';
-                document.getElementById('quickNotifBadge').textContent = data.stats.unreadNotifications;
+                if (document.getElementById('statCommitment')) document.getElementById('statCommitment').textContent = data.stats.commitmentPct + '%';
+                if (document.getElementById('statTodayStatus')) document.getElementById('statTodayStatus').textContent = data.stats.todayStatus;
+                if (document.getElementById('statPendingRequests')) document.getElementById('statPendingRequests').textContent = data.stats.pendingRequests;
+                if (document.getElementById('statUnreadNotifs')) document.getElementById('statUnreadNotifs').textContent = data.stats.unreadNotifications;
+                if (document.getElementById('quickCommitmentSub')) document.getElementById('quickCommitmentSub').textContent = 'نسبتك ' + data.stats.commitmentPct + '%';
+                if (document.getElementById('quickNotifBadge')) document.getElementById('quickNotifBadge').textContent = data.stats.unreadNotifications;
 
                 const navBadge = document.getElementById('navRequestsBadge');
-                if (data.stats.pendingRequests > 0) {
-                    navBadge.style.display = 'flex';
-                    navBadge.textContent = data.stats.pendingRequests;
-                } else {
-                    navBadge.style.display = 'none';
+                if (navBadge) {
+                    if (data.stats.pendingRequests > 0) {
+                        navBadge.style.display = 'flex';
+                        navBadge.textContent = data.stats.pendingRequests;
+                    } else {
+                        navBadge.style.display = 'none';
+                    }
                 }
 
                 renderHonorRoll(data.honorRoll);
@@ -3327,13 +3299,13 @@ try {
                 updateWorkSchedule();
 
                 isDelegated = data.delegation && data.delegation.active;
-                document.getElementById('qaBriefing').style.display = isDelegated ? '' : 'none';
-                document.getElementById('menuBriefing').style.display = isDelegated ? '' : 'none';
-                document.getElementById('briefDelegatedZone').style.display = isDelegated ? 'block' : 'none';
-                document.getElementById('briefViewOnlyNote').style.display = isDelegated ? 'none' : 'block';
-                document.getElementById('navMoreLock').style.display = isDelegated ? 'none' : 'flex';
-                document.getElementById('nav-more').classList.toggle('nav-locked', !isDelegated);
-                if (isDelegated) {
+                if (document.getElementById('qaBriefing')) document.getElementById('qaBriefing').style.display = isDelegated ? '' : 'none';
+                if (document.getElementById('menuBriefing')) document.getElementById('menuBriefing').style.display = isDelegated ? '' : 'none';
+                if (document.getElementById('briefDelegatedZone')) document.getElementById('briefDelegatedZone').style.display = isDelegated ? 'block' : 'none';
+                if (document.getElementById('briefViewOnlyNote')) document.getElementById('briefViewOnlyNote').style.display = isDelegated ? 'none' : 'block';
+                if (document.getElementById('navMoreLock')) document.getElementById('navMoreLock').style.display = isDelegated ? 'none' : 'flex';
+                if (document.getElementById('nav-more')) document.getElementById('nav-more').classList.toggle('nav-locked', !isDelegated);
+                if (isDelegated && document.getElementById('briefDelegationPeriod')) {
                     document.getElementById('briefDelegationPeriod').textContent = 'فترة التفويض: ' + data.delegation.start + ' إلى ' + data.delegation.end;
                 }
             });
