@@ -216,6 +216,11 @@ function migration_steps(): array
                 $pdo->exec("ALTER TABLE payroll_windows ADD UNIQUE KEY uniq_branch_period (branch_id, period_month, period_year)");
             },
         ],
+        [
+            'label' => 'إصلاح إيجازات عالقة: إعادة نشر إيجاز تمت مراجعته سابقاً كانت لا تصفّر قرار HR/المسؤول العام فتبقى الإيجاز بلا أزرار موافقة',
+            'needed' => fn(PDO $pdo) => (int) $pdo->query("SELECT COUNT(*) FROM daily_briefs WHERE status='pending' AND (hr_decision <> 'pending' OR gm_decision <> 'pending')")->fetchColumn() > 0,
+            'run' => fn(PDO $pdo) => $pdo->exec("UPDATE daily_briefs SET hr_decision='pending', gm_decision='pending', hr_note=NULL, gm_review_note=NULL, reviewed_by=NULL, reviewed_at=NULL, gm_reviewed_by=NULL, gm_reviewed_at=NULL WHERE status='pending' AND (hr_decision <> 'pending' OR gm_decision <> 'pending')"),
+        ],
     ];
 }
 

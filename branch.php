@@ -717,7 +717,8 @@ if (isset($_GET['ajax'])) {
 
             $stmt = $pdo->prepare("INSERT INTO daily_briefs (branch_id, brief_date, total_income, total_expense, previous_profit, travelers_count, status, submitted_by)
                 VALUES (?, CURDATE(), ?, ?, ?, ?, 'pending', ?)
-                ON DUPLICATE KEY UPDATE total_income=VALUES(total_income), total_expense=VALUES(total_expense), travelers_count=VALUES(travelers_count), status='pending', submitted_by=VALUES(submitted_by)");
+                ON DUPLICATE KEY UPDATE total_income=VALUES(total_income), total_expense=VALUES(total_expense), travelers_count=VALUES(travelers_count), status='pending', submitted_by=VALUES(submitted_by),
+                    hr_decision='pending', gm_decision='pending', hr_note=NULL, gm_review_note=NULL, reviewed_by=NULL, reviewed_at=NULL, gm_reviewed_by=NULL, gm_reviewed_at=NULL");
             $stmt->execute([$branchId, $totals['income'], $totals['expense'], $previousProfit, $travelersCount, $mgr['employee_id']]);
 
             $branchName = $pdo->prepare("SELECT name FROM branches WHERE id=?");
