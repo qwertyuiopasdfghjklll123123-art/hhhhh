@@ -397,6 +397,7 @@ if (isset($_GET['ajax'])) {
             $type = ($_POST['type'] ?? '') === 'out' ? 'out' : 'in';
             $lat = (float) ($_POST['lat'] ?? 0);
             $lng = (float) ($_POST['lng'] ?? 0);
+            $accuracy = min(150.0, max(0.0, (float) ($_POST['accuracy'] ?? 0)));
 
             $branch = $pdo->prepare("SELECT latitude, longitude, geofence_radius FROM branches WHERE id=?");
             $branch->execute([$branchId]);
@@ -406,7 +407,8 @@ if (isset($_GET['ajax'])) {
                 exit;
             }
             $dist = distance_meters((float) $branch['latitude'], (float) $branch['longitude'], $lat, $lng);
-            if ($dist > (int) $branch['geofence_radius']) {
+            $effectiveDist = max(0.0, $dist - $accuracy);
+            if ($effectiveDist > (int) $branch['geofence_radius']) {
                 echo json_encode(['ok' => false, 'error' => 'أنت خارج نطاق الفرع (المسافة: ' . round($dist) . 'م)']);
                 exit;
             }
@@ -3763,7 +3765,7 @@ try {
                 <span class="fingerprint-sub">التحقق من الموقع</span>
             `;
 
-            const body = new URLSearchParams({ type: 'in', lat: gpsPosition ? gpsPosition.latitude : 0, lng: gpsPosition ? gpsPosition.longitude : 0 });
+            const body = new URLSearchParams({ type: 'in', lat: gpsPosition ? gpsPosition.latitude : 0, lng: gpsPosition ? gpsPosition.longitude : 0, accuracy: gpsPosition ? gpsPosition.accuracy : 0 });
             fetch('?ajax=attendance_self', { method: 'POST', body }).then(r => r.json()).then(data => {
                 if (!data.ok) {
                     btn.disabled = false;
@@ -3836,7 +3838,7 @@ try {
                 <span class="fingerprint-sub">التحقق من الموقع</span>
             `;
 
-            const body = new URLSearchParams({ type: 'out', lat: gpsPosition ? gpsPosition.latitude : 0, lng: gpsPosition ? gpsPosition.longitude : 0 });
+            const body = new URLSearchParams({ type: 'out', lat: gpsPosition ? gpsPosition.latitude : 0, lng: gpsPosition ? gpsPosition.longitude : 0, accuracy: gpsPosition ? gpsPosition.accuracy : 0 });
             fetch('?ajax=attendance_self', { method: 'POST', body }).then(r => r.json()).then(data => {
                 if (!data.ok) {
                     btn.disabled = false;

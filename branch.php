@@ -447,6 +447,7 @@ if (isset($_GET['ajax'])) {
             $type = ($_POST['type'] ?? '') === 'out' ? 'out' : 'in';
             $lat = (float) ($_POST['lat'] ?? 0);
             $lng = (float) ($_POST['lng'] ?? 0);
+            $accuracy = min(150.0, max(0.0, (float) ($_POST['accuracy'] ?? 0)));
 
             $branch = $pdo->prepare("SELECT latitude, longitude, geofence_radius FROM branches WHERE id=?");
             $branch->execute([$branchId]);
@@ -456,7 +457,8 @@ if (isset($_GET['ajax'])) {
                 exit;
             }
             $dist = distance_meters((float) $branch['latitude'], (float) $branch['longitude'], $lat, $lng);
-            if ($dist > (int) $branch['geofence_radius']) {
+            $effectiveDist = max(0.0, $dist - $accuracy);
+            if ($effectiveDist > (int) $branch['geofence_radius']) {
                 echo json_encode(['ok' => false, 'error' => 'أنت خارج نطاق الفرع (المسافة: ' . round($dist) . 'م)']);
                 exit;
             }
@@ -2731,7 +2733,7 @@ function branch_report_data(PDO $pdo, string $type, string $from, string $to, in
                     const lng = pos.coords.longitude;
                     document.getElementById('branchLat').value = lat;
                     document.getElementById('branchLng').value = lng;
-                    userLocation = { lat, lng };
+                    userLocation = { lat, lng, accuracy: pos.coords.accuracy };
                     gpsActive = true;
                     statusDiv.className = 'location-status active';
                     statusText.textContent = '✅ تم تحديد الموقع: ' + lat.toFixed(6) + ', ' + lng.toFixed(6);
@@ -2783,7 +2785,7 @@ function branch_report_data(PDO $pdo, string $type, string $from, string $to, in
                     branchLocation.radius + 'م)', 'error');
                 return;
             }
-            const body = new URLSearchParams({ type, lat: userLocation.lat, lng: userLocation.lng });
+            const body = new URLSearchParams({ type, lat: userLocation.lat, lng: userLocation.lng, accuracy: userLocation.accuracy || 0 });
             fetch('?ajax=attendance_self', { method: 'POST', body }).then(r => r.json()).then(data => {
                 const statusDiv = document.getElementById('managerAttendanceStatus');
                 if (!data.ok) {
