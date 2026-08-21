@@ -51,6 +51,37 @@ function audit_log_write(PDO $pdo, string $role, ?string $name, ?string $number,
     }
 }
 
+/** يُنشئ تلقائياً طلبات أفضل 3 موظفين حضوراً للشهر السابق إن لم تُنشأ من قبل (تُستدعى عند كل تحميل للوحة تحكم المسؤول العام) */
+function ensure_monthly_honor_requests(PDO $pdo): void
+{
+    $prevMonth = (int) date('n', strtotime('first day of last month'));
+    $prevYear = (int) date('Y', strtotime('first day of last month'));
+    $exists = $pdo->prepare("SELECT COUNT(*) FROM monthly_honor_requests WHERE period_month=? AND period_year=?");
+    $exists->execute([$prevMonth, $prevYear]);
+    if ((int) $exists->fetchColumn() > 0) return;
+
+    $monthStart = sprintf('%04d-%02d-01', $prevYear, $prevMonth);
+    $stmt = $pdo->prepare("
+        SELECT e.id, ROUND(SUM(a.status IN ('present','late')) / GREATEST(COUNT(a.id),1) * 100) AS rate
+        FROM employees e
+        JOIN attendance a ON a.employee_id = e.id AND a.attendance_date >= ? AND a.attendance_date < DATE_ADD(?, INTERVAL 1 MONTH) AND a.shift_period = 'morning'
+        WHERE e.status = 'active'
+        GROUP BY e.id
+        HAVING COUNT(a.id) >= 5
+        ORDER BY rate DESC, e.id ASC
+        LIMIT 3
+    ");
+    $stmt->execute([$monthStart, $monthStart]);
+    $top = $stmt->fetchAll();
+    if (!$top) return;
+
+    $ins = $pdo->prepare("INSERT INTO monthly_honor_requests (employee_id, period_month, period_year, attendance_rate, rank_no, status) VALUES (?, ?, ?, ?, ?, 'pending')
+        ON DUPLICATE KEY UPDATE attendance_rate=VALUES(attendance_rate), rank_no=VALUES(rank_no)");
+    foreach ($top as $i => $r) {
+        $ins->execute([(int) $r['id'], $prevMonth, $prevYear, (float) $r['rate'], $i + 1]);
+    }
+}
+
 function attendance_status_ar(string $s): string
 {
     return ['present' => 'حاضر', 'late' => 'متأخر', 'absent' => 'غائب'][$s] ?? $s;
@@ -652,6 +683,131 @@ if (isset($_GET['ajax'])) {
             exit;
         }
 
+        case 'control_data': {
+            ensure_monthly_honor_requests($pdo);
+
+            $today = date('Y-m-d');
+            $monthStart = date('Y-m-01');
+            $attStmt = $pdo->prepare("SELECT SUM(status IN ('present','late')) AS present_days, COUNT(*) AS total_days FROM attendance WHERE attendance_date >= ? AND shift_period='morning'");
+            $attStmt->execute([$monthStart]);
+            $att = $attStmt->fetch();
+            $totalDays = max(1, (int) ($att['total_days'] ?? 0));
+            $attendancePct = round((((int) ($att['present_days'] ?? 0)) / $totalDays) * 100);
+
+            $balanceStmt = $pdo->prepare("SELECT COALESCE(SUM(total_income - total_expense),0) AS net FROM daily_briefs WHERE brief_date = ? AND status='approved'");
+            $balanceStmt->execute([$today]);
+            $todayBalance = (float) $balanceStmt->fetchColumn();
+
+            $bestStmt = $pdo->query("SELECT MAX(daily_net) AS best FROM (SELECT brief_date, SUM(total_income - total_expense) AS daily_net FROM daily_briefs WHERE status='approved' AND brief_date >= DATE_SUB(CURDATE(), INTERVAL 30 DAY) GROUP BY brief_date) t");
+            $bestDay = (float) ($bestStmt->fetchColumn() ?: 0);
+            $balancePct = $bestDay > 0 ? min(100, round(($todayBalance / $bestDay) * 100)) : ($todayBalance > 0 ? 100 : 0);
+
+            // لائحة الشرف رجعية دائماً (تقييم شهر سابق مُعتمد خلال الشهر الحالي)، لذا نعرض أحدث شهر لديه اعتمادات فعلية
+            $latestPeriod = $pdo->query("SELECT period_month, period_year FROM honor_roll ORDER BY period_year DESC, period_month DESC LIMIT 1")->fetch();
+            $honorMonth = $latestPeriod ? (int) $latestPeriod['period_month'] : (int) date('n', strtotime('first day of last month'));
+            $honorYear = $latestPeriod ? (int) $latestPeriod['period_year'] : (int) date('Y', strtotime('first day of last month'));
+            $honorStmt = $pdo->prepare("
+                SELECT h.attendance_rate, h.reward_amount, e.full_name AS name, e.photo, b.name AS branch, e.is_branch_manager AS isManager
+                FROM honor_roll h JOIN employees e ON e.id = h.employee_id JOIN branches b ON b.id = e.branch_id
+                WHERE h.period_month=? AND h.period_year=? ORDER BY h.attendance_rate DESC LIMIT 3
+            ");
+            $honorStmt->execute([$honorMonth, $honorYear]);
+            $medals = ['🥇', '🥈', '🥉'];
+            $honorRows = $honorStmt->fetchAll();
+            $honorRoll = array_map(function ($r, $i) use ($medals) {
+                return ['name' => $r['name'], 'branch' => $r['branch'], 'photo' => $r['photo'] ?: null, 'rate' => (float) $r['attendance_rate'], 'reward' => (float) $r['reward_amount'], 'isManager' => (bool) $r['isManager'], 'medal' => $medals[$i] ?? '🏅'];
+            }, $honorRows, array_keys($honorRows));
+
+            $pendingHonorCount = (int) $pdo->query("SELECT COUNT(*) FROM monthly_honor_requests WHERE status='pending'")->fetchColumn();
+
+            echo json_encode([
+                'ok' => true,
+                'attendancePct' => $attendancePct,
+                'todayBalance' => $todayBalance,
+                'balancePct' => $balancePct,
+                'honorRoll' => $honorRoll,
+                'pendingHonorCount' => $pendingHonorCount,
+            ], JSON_UNESCAPED_UNICODE);
+            exit;
+        }
+
+        case 'honor_requests_list': {
+            $stmt = $pdo->query("
+                SELECT mhr.id, mhr.period_month, mhr.period_year, mhr.attendance_rate, mhr.rank_no, mhr.status,
+                       e.full_name AS name, e.employee_number AS employeeNumber, b.name AS branch, e.is_branch_manager AS isManager
+                FROM monthly_honor_requests mhr
+                JOIN employees e ON e.id = mhr.employee_id
+                JOIN branches b ON b.id = e.branch_id
+                ORDER BY mhr.period_year DESC, mhr.period_month DESC, mhr.rank_no ASC
+                LIMIT 30
+            ");
+            $rows = array_map(function ($r) {
+                return [
+                    'id' => (int) $r['id'],
+                    'name' => $r['name'],
+                    'employeeNumber' => $r['employeeNumber'],
+                    'branch' => $r['branch'],
+                    'isManager' => (bool) $r['isManager'],
+                    'rank' => (int) $r['rank_no'],
+                    'rate' => (float) $r['attendance_rate'],
+                    'period' => $r['period_month'] . '/' . $r['period_year'],
+                    'status' => $r['status'],
+                    'canReview' => $r['status'] === 'pending',
+                ];
+            }, $stmt->fetchAll());
+            echo json_encode(['ok' => true, 'requests' => $rows], JSON_UNESCAPED_UNICODE);
+            exit;
+        }
+
+        case 'honor_request_review': {
+            $id = (int) ($_POST['id'] ?? 0);
+            $decision = ($_POST['decision'] ?? '') === 'approved' ? 'approved' : 'rejected';
+            $reward = (float) ($_POST['reward'] ?? 0);
+
+            $row = $pdo->prepare("SELECT employee_id, period_month, period_year, attendance_rate FROM monthly_honor_requests WHERE id=? AND status='pending'");
+            $row->execute([$id]);
+            $row = $row->fetch();
+            if (!$row) {
+                echo json_encode(['ok' => false, 'error' => 'هذا الطلب غير متاح للمراجعة']);
+                exit;
+            }
+
+            $pdo->prepare("UPDATE monthly_honor_requests SET status=?, reward_amount=?, reviewed_by=?, reviewed_at=NOW() WHERE id=?")
+                ->execute([$decision, $reward ?: null, $gmUser['id'], $id]);
+
+            if ($decision === 'approved') {
+                $pdo->prepare("INSERT INTO honor_roll (employee_id, period_month, period_year, attendance_rate, reward_amount, approved_by) VALUES (?, ?, ?, ?, ?, ?)
+                    ON DUPLICATE KEY UPDATE attendance_rate=VALUES(attendance_rate), reward_amount=VALUES(reward_amount), approved_by=VALUES(approved_by)")
+                    ->execute([$row['employee_id'], $row['period_month'], $row['period_year'], $row['attendance_rate'], $reward, $gmUser['id']]);
+
+                if ($reward > 0) {
+                    $empRow = $pdo->prepare("SELECT branch_id FROM employees WHERE id=?");
+                    $empRow->execute([$row['employee_id']]);
+                    $empBranchId = (int) $empRow->fetchColumn();
+                    $curMonth = (int) date('n');
+                    $curYear = (int) date('Y');
+                    $pdo->prepare("INSERT INTO payroll (employee_id, branch_id, period_month, period_year, base_salary, bonus, status)
+                        VALUES (?, ?, ?, ?, (SELECT base_salary FROM employees WHERE id=?), ?, 'pending')
+                        ON DUPLICATE KEY UPDATE bonus = bonus + VALUES(bonus)")
+                        ->execute([$row['employee_id'], $empBranchId, $curMonth, $curYear, $row['employee_id'], $reward]);
+                    $pdo->prepare("INSERT INTO payroll_adjustments (employee_id, branch_id, period_month, period_year, type, amount, note, created_by) VALUES (?, ?, ?, ?, 'bonus', ?, ?, ?)")
+                        ->execute([$row['employee_id'], $empBranchId, $curMonth, $curYear, $reward, 'مكافأة أفضل حضور للشهر ' . $row['period_month'] . '/' . $row['period_year'], $gmUser['id']]);
+                }
+
+                $uids = $pdo->prepare("SELECT id FROM users WHERE employee_id=?");
+                $uids->execute([$row['employee_id']]);
+                foreach ($uids->fetchAll(PDO::FETCH_COLUMN) as $uid) {
+                    $pdo->prepare("INSERT INTO notifications (user_id, title, message) VALUES (?, 'أفضل حضور للشهر 🏅', ?)")
+                        ->execute([$uid, 'تهانينا! اعتمدك المسؤول العام ضمن أفضل 3 حضوراً للشهر السابق' . ($reward > 0 ? (' مع مكافأة ' . number_format($reward) . ' دينار') : '')]);
+                }
+            }
+
+            audit_log_write($pdo, $gmUser['role'], $gmUser['displayName'] ?? $gmUser['username'], $gmUser['employeeNumber'] ?? null, 'honor_request_review', ($decision === 'approved' ? 'اعتمد' : 'رفض') . ' المسؤول العام طلب أفضل حضور (طلب #' . $id . ')');
+
+            echo json_encode(['ok' => true]);
+            exit;
+        }
+
         case 'mgr_requests_list': {
             $typeAr = ['advance' => 'سلفة', 'resignation' => 'استقالة', 'supplies' => 'مستلزمات', 'leave' => 'إجازة'];
             $stmt = $pdo->query("
@@ -1155,6 +1311,9 @@ try {
                 <button class="nav-item" id="sidenav-mgrRequests" onclick="switchTab('mgrRequests')">
                     <i class="fas fa-envelope-open-text"></i> طلبات مسؤولي الفروع
                 </button>
+                <button class="nav-item" id="sidenav-control" onclick="switchTab('control')">
+                    <i class="fas fa-gauge-high"></i> تحكم
+                </button>
             </nav>
 
             <div class="user-info">
@@ -1325,6 +1484,35 @@ try {
             </div>
             <div id="view-mgrRequests" class="hidden">
                 <div id="mgrRequestsList"></div>
+            </div>
+            <div id="view-control" class="hidden">
+                <div class="brief-card">
+                    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
+                        <span style="font-size:13px;font-weight:700;"><i class="fas fa-users"></i> نسبة دوام الموظفين (الشهر الحالي)</span>
+                        <span style="font-size:13px;font-weight:800;" id="controlAttendancePctLabel">0%</span>
+                    </div>
+                    <div style="background:#eef2f4;border-radius:999px;height:22px;overflow:hidden;">
+                        <div id="controlAttendanceBar" style="background:var(--green);height:100%;width:0%;transition:width 0.6s ease;border-radius:999px;"></div>
+                    </div>
+                </div>
+                <div class="brief-card">
+                    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
+                        <span style="font-size:13px;font-weight:700;"><i class="fas fa-coins"></i> مقياس رصيد اليوم</span>
+                        <span style="font-size:13px;font-weight:800;" id="controlBalancePctLabel">0%</span>
+                    </div>
+                    <div style="background:#eef2f4;border-radius:999px;height:22px;overflow:hidden;">
+                        <div id="controlBalanceBar" style="background:var(--primary);height:100%;width:0%;transition:width 0.6s ease;border-radius:999px;"></div>
+                    </div>
+                    <div class="muted" style="font-size:11px;margin-top:4px;" id="controlBalanceValue"></div>
+                </div>
+                <div class="brief-card">
+                    <h4 style="margin-bottom:10px;"><i class="fas fa-medal"></i> لائحة الشرف — أفضل حضوراً هذا الشهر</h4>
+                    <div id="controlHonorRoll"></div>
+                </div>
+                <div class="brief-card" id="controlHonorRequestsCard">
+                    <h4 style="margin-bottom:10px;"><i class="fas fa-inbox"></i> طلبات أفضل حضور بانتظار اعتمادك</h4>
+                    <div id="controlHonorRequests"></div>
+                </div>
             </div>
             </div>
             </div>
@@ -1703,10 +1891,11 @@ try {
         audit: { title: 'تدقيق', sub: 'سجل زمني بكل عملية تمت في النظام ومن قام بها', icon: 'fa-clipboard-list' },
         attendanceBoard: { title: 'بصمة', sub: 'حضور جميع الموظفين ومسؤولي الفروع حسب التاريخ', icon: 'fa-fingerprint' },
         mgrRequests: { title: 'طلبات مسؤولي الفروع', sub: 'سلفة، استقالة، مستلزمات، إجازة — تصلك مباشرة دون المرور بالموارد البشرية', icon: 'fa-envelope-open-text' },
+        control: { title: 'تحكم', sub: 'نسبة الدوام ورصيد اليوم ولائحة الشرف', icon: 'fa-gauge-high' },
     };
 
     function switchTab(tab) {
-        ['pending', 'history', 'branches', 'payroll', 'payrollWindow', 'reports', 'shareholders', 'audit', 'attendanceBoard', 'mgrRequests'].forEach(t => {
+        ['pending', 'history', 'branches', 'payroll', 'payrollWindow', 'reports', 'shareholders', 'audit', 'attendanceBoard', 'mgrRequests', 'control'].forEach(t => {
             document.getElementById('sidenav-' + t).classList.toggle('active', t === tab);
             document.getElementById('view-' + t).classList.toggle('hidden', t !== tab);
         });
@@ -1727,6 +1916,7 @@ try {
         else if (tab === 'audit') loadAuditLog();
         else if (tab === 'attendanceBoard') loadAttendanceBoard();
         else if (tab === 'mgrRequests') loadMgrRequests();
+        else if (tab === 'control') loadControlData();
     }
 
     function renderBriefEntriesBlock(entries, prevDayNetProfit) {
@@ -2288,6 +2478,79 @@ try {
         }).catch(() => {
             showToast('⚠️ خطأ', 'تعذر تحميل طلبات مسؤولي الفروع', 'error');
         });
+    }
+
+    function loadControlData() {
+        fetch('?ajax=control_data').then(r => r.json()).then(data => {
+            if (!data.ok) return;
+            document.getElementById('controlAttendancePctLabel').textContent = data.attendancePct + '%';
+            document.getElementById('controlAttendanceBar').style.width = data.attendancePct + '%';
+            document.getElementById('controlBalancePctLabel').textContent = data.balancePct + '%';
+            document.getElementById('controlBalanceBar').style.width = data.balancePct + '%';
+            document.getElementById('controlBalanceValue').textContent = 'رصيد اليوم: ' + Number(data.todayBalance).toLocaleString() + ' د.ع';
+
+            const honorView = document.getElementById('controlHonorRoll');
+            if (!data.honorRoll.length) {
+                honorView.innerHTML = '<div class="muted" style="font-size:12px;">لا توجد لائحة شرف معتمدة لهذا الشهر بعد</div>';
+            } else {
+                honorView.innerHTML = data.honorRoll.map(h => `
+                    <div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid #eef2f4;">
+                        <span style="font-size:20px;">${h.medal}</span>
+                        <div style="flex:1;">
+                            <b style="font-size:13px;">${h.name}${h.isManager ? ' <span style="color:var(--accent);font-size:10px;">(مدير فرع)</span>' : ''}</b>
+                            <div class="muted" style="font-size:11px;">${h.branch}</div>
+                        </div>
+                        <div style="text-align:left;">
+                            <div style="font-weight:800;color:var(--green);">${h.rate}%</div>
+                            ${h.reward > 0 ? `<div class="muted" style="font-size:10px;">مكافأة ${Number(h.reward).toLocaleString()}</div>` : ''}
+                        </div>
+                    </div>
+                `).join('');
+            }
+
+            document.getElementById('controlHonorRequestsCard').style.display = currentRole === 'shareholder' ? 'none' : '';
+            if (currentRole !== 'shareholder') loadHonorRequests();
+        }).catch(() => {
+            showToast('⚠️ خطأ', 'تعذر تحميل بيانات التحكم', 'error');
+        });
+    }
+
+    function loadHonorRequests() {
+        fetch('?ajax=honor_requests_list').then(r => r.json()).then(data => {
+            if (!data.ok) return;
+            const view = document.getElementById('controlHonorRequests');
+            const pending = data.requests.filter(r => r.canReview);
+            if (!pending.length) {
+                view.innerHTML = '<div class="muted" style="font-size:12px;">لا توجد طلبات بانتظار الاعتماد حالياً</div>';
+                return;
+            }
+            view.innerHTML = pending.map(r => `
+                <div class="brief-card" style="margin-bottom:8px;">
+                    <div class="brief-top">
+                        <span class="branch">🏅 ${r.name}${r.isManager ? ' (مدير فرع)' : ''} — ${r.branch}</span>
+                        <span class="date">المركز ${r.rank} — ${r.period}</span>
+                    </div>
+                    <div style="font-size:13px;margin:6px 0;">نسبة الحضور: <b style="color:var(--green);">${r.rate}%</b></div>
+                    <div class="brief-actions">
+                        <input type="number" id="honorReward_${r.id}" placeholder="مبلغ المكافأة (اختياري)">
+                        <button class="btn small green" onclick="reviewHonorRequest(${r.id}, 'approved')"><i class="fas fa-check"></i> اعتماد</button>
+                        <button class="btn small red" onclick="reviewHonorRequest(${r.id}, 'rejected')"><i class="fas fa-times"></i> رفض</button>
+                    </div>
+                </div>
+            `).join('');
+        });
+    }
+
+    function reviewHonorRequest(id, decision) {
+        const reward = document.getElementById('honorReward_' + id)?.value || 0;
+        fetch('?ajax=honor_request_review', { method: 'POST', body: new URLSearchParams({ id, decision, reward }) })
+            .then(r => r.json()).then(data => {
+                if (!data.ok) { showToast('⚠️ خطأ', data.error || 'تعذر تنفيذ العملية', 'error'); return; }
+                showToast(decision === 'approved' ? '✅ تم الاعتماد' : '❌ تم الرفض', '', decision === 'approved' ? 'success' : 'error');
+                loadControlData();
+            }).catch(() => {
+                showToast('⚠️ خطأ', 'تعذر الاتصال بالخادم', 'error');
+            });
     }
 
     function reviewMgrRequest(id, decision) {
