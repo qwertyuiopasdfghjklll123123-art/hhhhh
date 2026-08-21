@@ -2514,13 +2514,13 @@ try {
 
                 <!-- أزرار البصمة -->
                 <div class="fingerprint-buttons">
-                    <button type="button" class="fingerprint-btn fingerprint-btn-checkin" id="checkInBtn" onclick="handleCheckIn()" disabled>
+                    <button type="button" class="fingerprint-btn fingerprint-btn-checkin" id="checkInBtn" onclick="handleCheckIn()">
                         <div class="fingerprint-icon"><i class="fas fa-fingerprint"></i></div>
                         <span class="fingerprint-label">تسجيل حضور</span>
                         <span class="fingerprint-sub">بصمة الدخول</span>
                         <span class="fingerprint-time" id="timeToStart">09:00 ص</span>
                     </button>
-                    <button type="button" class="fingerprint-btn fingerprint-btn-checkout" id="checkOutBtn" onclick="handleCheckOut()" disabled>
+                    <button type="button" class="fingerprint-btn fingerprint-btn-checkout" id="checkOutBtn" onclick="handleCheckOut()">
                         <div class="fingerprint-icon"><i class="fas fa-fingerprint"></i></div>
                         <span class="fingerprint-label">تسجيل انصراف</span>
                         <span class="fingerprint-sub">بصمة الخروج</span>
@@ -2687,12 +2687,12 @@ try {
                 </div>
 
                 <div class="fingerprint-buttons" style="flex-direction:column;gap:12px;">
-                    <button type="button" class="fingerprint-btn fingerprint-btn-checkin" style="width:100%;" id="checkInBtn2" onclick="handleCheckIn()" disabled>
+                    <button type="button" class="fingerprint-btn fingerprint-btn-checkin" style="width:100%;" id="checkInBtn2" onclick="handleCheckIn()">
                         <div class="fingerprint-icon"><i class="fas fa-fingerprint"></i></div>
                         <span class="fingerprint-label">تسجيل حضور</span>
                         <span class="fingerprint-sub">بصمة الدخول</span>
                     </button>
-                    <button type="button" class="fingerprint-btn fingerprint-btn-checkout" style="width:100%;" id="checkOutBtn2" onclick="handleCheckOut()" disabled>
+                    <button type="button" class="fingerprint-btn fingerprint-btn-checkout" style="width:100%;" id="checkOutBtn2" onclick="handleCheckOut()">
                         <div class="fingerprint-icon"><i class="fas fa-fingerprint"></i></div>
                         <span class="fingerprint-label">تسجيل انصراف</span>
                         <span class="fingerprint-sub">بصمة الخروج</span>
@@ -3213,7 +3213,6 @@ try {
                     function(err) {
                         gpsEnabled = false;
                         isGPSRequestInProgress = false;
-                        enableAttendanceButtons(false);
 
                         let errorMsg = 'يرجى تفعيل خدمة الموقع يدوياً';
                         if (err.code === 1) {
@@ -3706,8 +3705,6 @@ try {
                     document.getElementById('appContainer').classList.remove('hidden');
                     showToast('✅ مرحباً بك', 'تم تسجيل الدخول بنجاح', 'success');
                     startAutoSlide();
-                    // أزرار البصمة تبقى معطلة حتى يطلب المستخدم تفعيلها
-                    enableAttendanceButtons(false);
                     initApp();
                 } else {
                     error.textContent = data.error || 'رقم التوظيف أو الرمز السري غير صحيح';
@@ -3975,14 +3972,14 @@ try {
             const timeToEnd = document.getElementById('timeToEnd');
             if (nowTotal < startTotal) {
                 const diff = startTotal - nowTotal;
-                timeToStart.textContent = `يبدأ بعد ${Math.floor(diff/60)}h ${diff%60}m`;
-                timeToEnd.textContent = shiftInfo.end;
+                if (timeToStart) timeToStart.textContent = `يبدأ بعد ${Math.floor(diff/60)}h ${diff%60}m`;
+                if (timeToEnd) timeToEnd.textContent = shiftInfo.end;
             } else if (nowTotal < endTotal) {
-                timeToStart.textContent = '✅ في الدوام';
-                timeToEnd.textContent = `ينتهي بعد ${remainingHours}h ${remainingMinutes}m`;
+                if (timeToStart) timeToStart.textContent = todayAttendance.checkedIn ? '✅ تم تسجيل حضورك' : '⏱ اضغط الآن لتسجيل الحضور';
+                if (timeToEnd) timeToEnd.textContent = todayAttendance.checkedOut ? '✅ تم تسجيل انصرافك' : `ينتهي بعد ${remainingHours}h ${remainingMinutes}m`;
             } else {
-                timeToStart.textContent = '✅ انتهى الدوام';
-                timeToEnd.textContent = '✅ انتهى';
+                if (timeToStart) timeToStart.textContent = '✅ انتهى الدوام';
+                if (timeToEnd) timeToEnd.textContent = '✅ انتهى';
             }
 
             updateAttendanceButtonVisibility();
