@@ -42,6 +42,16 @@ function db(): PDO
     return $pdo;
 }
 
+function audit_log_write(PDO $pdo, string $role, ?string $name, ?string $number, string $actionType, string $description, ?int $branchId = null): void
+{
+    try {
+        $pdo->prepare("INSERT INTO audit_log (actor_role, actor_name, actor_number, action_type, description, branch_id) VALUES (?,?,?,?,?,?)")
+            ->execute([$role, $name, $number, $actionType, $description, $branchId]);
+    } catch (Throwable $e) {
+        // تجاهل فشل كتابة سجل التدقيق حتى لا تتعطل العملية الأساسية
+    }
+}
+
 function handle_upload(string $field, string $sub, array $allowedExt): ?string
 {
     if (empty($_FILES[$field]) || $_FILES[$field]['error'] !== UPLOAD_ERR_OK) {
@@ -682,6 +692,8 @@ if (isset($_GET['ajax'])) {
                 foreach ($uids->fetchAll(PDO::FETCH_COLUMN) as $uid) {
                     $pdo->prepare("INSERT INTO notifications (user_id, title, message) VALUES (?, 'رد على طلبك', ?)")->execute([$uid, $msg]);
                 }
+                $auditVerb = $decision === 'branch_approved' ? 'وافق' : 'رفض';
+                audit_log_write($pdo, 'branch_manager', $mgr['full_name'], $mgr['employee_number'] ?? null, 'request_review', $auditVerb . ' مدير الفرع طلب ' . request_type_ar($reqRow['type']) . ' (طلب #' . $id . ')', $branchId);
             }
             echo json_encode(['ok' => true]);
             exit;
@@ -775,6 +787,7 @@ if (isset($_GET['ajax'])) {
             $branchName = $pdo->prepare("SELECT name FROM branches WHERE id=?");
             $branchName->execute([$branchId]);
             $branchName = $branchName->fetchColumn();
+            audit_log_write($pdo, 'branch_manager', $mgr['full_name'], $mgr['employee_number'] ?? null, 'brief_create', 'نشر مدير فرع ' . $branchName . ' إيجاز اليوم', $branchId);
             $reviewerUids = $pdo->query("SELECT id FROM users WHERE role IN ('hr','general_manager')")->fetchAll(PDO::FETCH_COLUMN);
             foreach ($reviewerUids as $uid) {
                 $pdo->prepare("INSERT INTO notifications (user_id, title, message) VALUES (?, 'إيجاز جديد بانتظار المراجعة', ?)")
@@ -1114,7 +1127,7 @@ function branch_report_data(PDO $pdo, string $type, string $from, string $to, in
         .sidebar {
             width: var(--sidebar-width);
             height: 100vh;
-            background: linear-gradient(180deg, #4B5320 0%, #3A4019 100%);
+            background: linear-gradient(180deg, #006b73 0%, #004b52 100%);
             border-left: 1px solid rgba(0,0,0,0.08);
             box-shadow: 2px 0 20px rgba(0,0,0,0.08);
             position: fixed;
@@ -1834,7 +1847,7 @@ function branch_report_data(PDO $pdo, string $type, string $from, string $to, in
                 <div class="card" style="text-align:center;background:rgba(16,185,129,0.04);border-color:rgba(16,185,129,0.12);">
                     <div class="muted">نتيجة اليوم</div>
                     <h2 style="color:var(--green);font-size:28px;margin:8px 0;" id="briefProfitDisplay">0 د.ع</h2>
-                    <p class="muted" style="font-size:12px;">صافي ربح الأمس: <b id="previousDayProfit">0 د.ع</b></p>
+                    <p class="muted" style="font-size:12px;">صافي رصيد الأمس: <b id="previousDayProfit">0 د.ع</b></p>
                 </div>
 
                 <!-- ===== حالة اعتماد الإيجاز ===== -->
@@ -3246,7 +3259,7 @@ function branch_report_data(PDO $pdo, string $type, string $from, string $to, in
         }
         function reportBriefingTable(rows) {
             if (!rows || !rows.length) return '<p class="muted">لا توجد بيانات</p>';
-            return '<div class="table-wrap"><table class="table"><tr><th>التاريخ</th><th>كاتب الإيجاز</th><th>الإيراد</th><th>المصروف</th><th>المسافرون</th><th>الربح</th><th>الحالة</th><th>ملاحظة HR</th><th>ملاحظة المسؤول العام</th></tr>' +
+            return '<div class="table-wrap"><table class="table"><tr><th>التاريخ</th><th>كاتب الإيجاز</th><th>الإيراد</th><th>المصروف</th><th>المسافرون</th><th>الرصيد</th><th>الحالة</th><th>ملاحظة HR</th><th>ملاحظة المسؤول العام</th></tr>' +
                 rows.map(r => `<tr><td>${r.date}</td><td>${r.sender || '-'}</td><td>${r.revenue}</td><td>${r.expense}</td><td>${r.travelers}</td><td>${r.profit}</td><td>${r.statusText || '-'}</td><td>${r.hrNote || '-'}</td><td>${r.gmNote || '-'}</td></tr>`).join('') + '</table></div>';
         }
 

@@ -41,6 +41,16 @@ function db(): PDO
     return $pdo;
 }
 
+function audit_log_write(PDO $pdo, string $role, ?string $name, ?string $number, string $actionType, string $description, ?int $branchId = null): void
+{
+    try {
+        $pdo->prepare("INSERT INTO audit_log (actor_role, actor_name, actor_number, action_type, description, branch_id) VALUES (?,?,?,?,?,?)")
+            ->execute([$role, $name, $number, $actionType, $description, $branchId]);
+    } catch (Throwable $e) {
+        // تجاهل فشل كتابة سجل التدقيق حتى لا تتعطل العملية الأساسية
+    }
+}
+
 function attendance_status_ar(string $s): string
 {
     return ['present' => 'حاضر', 'late' => 'متأخر', 'absent' => 'غائب'][$s] ?? $s;
@@ -163,6 +173,7 @@ if (isset($_GET['ajax'])) {
                 'username' => $row['username'],
                 'role' => $row['role'],
                 'displayName' => $row['display_name'],
+                'employeeNumber' => $row['employee_number'],
             ];
             echo json_encode(['ok' => true, 'role' => $row['role']]);
         } else {
@@ -185,7 +196,7 @@ if (isset($_GET['ajax'])) {
     }
     $gmUser = $_SESSION['gm_user'];
     $isShareholder = $gmUser['role'] === 'shareholder';
-    $gmOnlyActions = ['brief_final_review', 'payroll_window_open', 'payroll_window_close', 'shareholders_list', 'shareholder_create', 'shareholder_toggle', 'payroll_adjustment_add'];
+    $gmOnlyActions = ['brief_final_review', 'payroll_window_open', 'payroll_window_close', 'shareholders_list', 'shareholder_create', 'shareholder_toggle', 'payroll_adjustment_add', 'gm_accounts_list', 'gm_account_create', 'gm_account_toggle', 'audit_log_list', 'honor_requests_list', 'honor_request_review', 'attendance_board_list'];
     if ($isShareholder && in_array($action, $gmOnlyActions, true)) {
         http_response_code(403);
         echo json_encode(['ok' => false, 'error' => 'هذه الصلاحية متاحة للمسؤول العام فقط']);
@@ -286,6 +297,7 @@ if (isset($_GET['ajax'])) {
                 foreach ($uidStmt->fetchAll(PDO::FETCH_COLUMN) as $uid) {
                     $pdo->prepare("INSERT INTO notifications (user_id, title, message) VALUES (?, 'صلاحية تسليم الرواتب مفتوحة', ?)")->execute([$uid, $msg]);
                 }
+                audit_log_write($pdo, $gmUser['role'], $gmUser['displayName'] ?? $gmUser['username'], $gmUser['employeeNumber'] ?? null, 'payroll_window_open', 'فتح المسؤول العام صلاحية تسليم الرواتب لفرع ' . $branchName . ' لشهر ' . $month . '/' . $year, $branchId);
             }
 
             echo json_encode(['ok' => true, 'expiresAt' => $expiresAt]);
@@ -349,6 +361,69 @@ if (isset($_GET['ajax'])) {
             $id = (int) ($_POST['id'] ?? 0);
             $pdo->prepare("UPDATE users SET status = IF(status='active','inactive','active') WHERE id=? AND role='shareholder'")->execute([$id]);
             echo json_encode(['ok' => true]);
+            exit;
+        }
+
+        case 'gm_accounts_list': {
+            $rows = $pdo->query("SELECT id, username, display_name, employee_number, status, created_at FROM users WHERE role='general_manager' ORDER BY created_at DESC")->fetchAll();
+            echo json_encode(['ok' => true, 'accounts' => $rows], JSON_UNESCAPED_UNICODE);
+            exit;
+        }
+
+        case 'gm_account_create': {
+            $name = trim($_POST['name'] ?? '');
+            $username = trim($_POST['username'] ?? '');
+            $password = (string) ($_POST['password'] ?? '');
+            $employeeNumber = trim($_POST['employeeNumber'] ?? '');
+            if ($name === '' || $username === '' || $employeeNumber === '' || strlen($password) < 6) {
+                echo json_encode(['ok' => false, 'error' => 'الرجاء تعبئة الاسم والبريد الإلكتروني والرقم الوظيفي (كلمة المرور 6 أحرف على الأقل)']);
+                exit;
+            }
+            if (!filter_var($username, FILTER_VALIDATE_EMAIL)) {
+                echo json_encode(['ok' => false, 'error' => 'الرجاء إدخال بريد إلكتروني صحيح لتسجيل الدخول']);
+                exit;
+            }
+            try {
+                $hash = password_hash($password, PASSWORD_DEFAULT);
+                $pdo->prepare("INSERT INTO users (role, username, password_hash, display_name, employee_number, status) VALUES ('general_manager', ?, ?, ?, ?, 'active')")
+                    ->execute([$username, $hash, $name, $employeeNumber]);
+                audit_log_write($pdo, $gmUser['role'], $gmUser['displayName'] ?? $gmUser['username'], $gmUser['employeeNumber'] ?? null, 'gm_account_create', 'أنشأ المسؤول العام حساب مسؤول عام جديد: ' . $name . ' (' . $username . ')');
+                echo json_encode(['ok' => true]);
+            } catch (Throwable $ex) {
+                echo json_encode(['ok' => false, 'error' => 'اسم الدخول مستخدم مسبقاً']);
+            }
+            exit;
+        }
+
+        case 'gm_account_toggle': {
+            $id = (int) ($_POST['id'] ?? 0);
+            $pdo->prepare("UPDATE users SET status = IF(status='active','inactive','active') WHERE id=? AND role='general_manager'")->execute([$id]);
+            echo json_encode(['ok' => true]);
+            exit;
+        }
+
+        case 'audit_log_list': {
+            $date = $_GET['date'] ?? '';
+            if ($date !== '' && !preg_match('/^\d{4}-\d{2}-\d{2}$/', $date)) $date = '';
+            $sql = "SELECT id, actor_role, actor_name, actor_number, action_type, description, branch_id, created_at FROM audit_log";
+            $params = [];
+            if ($date !== '') { $sql .= " WHERE DATE(created_at) = ?"; $params[] = $date; }
+            $sql .= " ORDER BY created_at DESC LIMIT 300";
+            $stmt = $pdo->prepare($sql);
+            $stmt->execute($params);
+            $roleAr = ['hr' => 'الموارد البشرية', 'branch_manager' => 'مدير فرع', 'employee' => 'موظف', 'general_manager' => 'مسؤول عام', 'shareholder' => 'مساهم'];
+            $rows = array_map(function ($r) use ($roleAr) {
+                return [
+                    'id' => (int) $r['id'],
+                    'actorRole' => $roleAr[$r['actor_role']] ?? $r['actor_role'],
+                    'actorName' => $r['actor_name'] ?: '-',
+                    'actorNumber' => $r['actor_number'],
+                    'description' => $r['description'],
+                    'date' => date('Y-m-d', strtotime($r['created_at'])),
+                    'time' => date('H:i', strtotime($r['created_at'])),
+                ];
+            }, $stmt->fetchAll());
+            echo json_encode(['ok' => true, 'entries' => $rows], JSON_UNESCAPED_UNICODE);
             exit;
         }
 
@@ -430,6 +505,7 @@ if (isset($_GET['ajax'])) {
             foreach ($notifyUids->fetchAll(PDO::FETCH_COLUMN) as $uid) {
                 $pdo->prepare("INSERT INTO notifications (user_id, title, message) VALUES (?, 'اعتماد نهائي للإيجاز', ?)")->execute([$uid, $msg]);
             }
+            audit_log_write($pdo, $gmUser['role'], $gmUser['displayName'] ?? $gmUser['username'], $gmUser['employeeNumber'] ?? null, 'brief_review', ($decision === 'approved' ? 'وافق' : 'رفض') . ' المسؤول العام على إيجاز (رقم ' . $id . ')', $briefBranchId);
 
             echo json_encode(['ok' => true]);
             exit;
@@ -531,6 +607,7 @@ if (isset($_GET['ajax'])) {
             foreach ($notifyUsers->fetchAll(PDO::FETCH_COLUMN) as $uid) {
                 $pdo->prepare("INSERT INTO notifications (user_id, title, message) VALUES (?, 'تحديث في الراتب', ?)")->execute([$uid, $msg]);
             }
+            audit_log_write($pdo, $gmUser['role'], $gmUser['displayName'] ?? $gmUser['username'], $gmUser['employeeNumber'] ?? null, 'payroll_adjustment', $typeLabel[$type] . ' بقيمة ' . number_format($amount) . ' للموظف ' . $emp['full_name'], $branchId);
 
             echo json_encode(['ok' => true]);
             exit;
@@ -778,7 +855,7 @@ try {
     .sidebar {
         width: var(--sidebar-width);
         height: 100vh;
-        background: linear-gradient(180deg, #4B5320 0%, #3A4019 100%);
+        background: linear-gradient(180deg, #006b73 0%, #004b52 100%);
         border-left: 1px solid rgba(0,0,0,0.08);
         box-shadow: 2px 0 20px rgba(0,0,0,0.08);
         position: fixed;
@@ -953,6 +1030,9 @@ try {
                 <button class="nav-item" id="sidenav-shareholders" onclick="switchTab('shareholders')">
                     <i class="fas fa-user-tie"></i> المساهمون
                 </button>
+                <button class="nav-item" id="sidenav-audit" onclick="switchTab('audit')">
+                    <i class="fas fa-clipboard-list"></i> تدقيق
+                </button>
             </nav>
 
             <div class="user-info">
@@ -1089,6 +1169,27 @@ try {
                     </div>
                 </div>
                 <div id="shareholdersList"></div>
+                <div class="brief-card" style="margin-top:16px;">
+                    <h4 style="margin-bottom:10px;"><i class="fas fa-user-shield"></i> إضافة حساب مسؤول عام جديد (نفس الصلاحيات الكاملة)</h4>
+                    <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr auto;gap:10px;">
+                        <input type="text" id="gmName" placeholder="الاسم" style="height:38px;padding:0 10px;border:1.5px solid #e2ebeb;border-radius:8px;font-family:var(--font-family);">
+                        <input type="email" id="gmUsername" placeholder="البريد الإلكتروني (لتسجيل الدخول)" style="height:38px;padding:0 10px;border:1.5px solid #e2ebeb;border-radius:8px;font-family:var(--font-family);">
+                        <input type="text" id="gmEmployeeNumber" placeholder="الرقم الوظيفي" style="height:38px;padding:0 10px;border:1.5px solid #e2ebeb;border-radius:8px;font-family:var(--font-family);">
+                        <input type="password" id="gmPassword" placeholder="كلمة المرور" style="height:38px;padding:0 10px;border:1.5px solid #e2ebeb;border-radius:8px;font-family:var(--font-family);">
+                        <button class="btn small" onclick="createGmAccount()"><i class="fas fa-save"></i> إنشاء</button>
+                    </div>
+                </div>
+                <div id="gmAccountsList"></div>
+            </div>
+            <div id="view-audit" class="hidden">
+                <div class="brief-card">
+                    <div style="display:flex;gap:10px;align-items:center;margin-bottom:4px;">
+                        <label style="font-size:12px;color:var(--text-muted);">تصفية حسب التاريخ:</label>
+                        <input type="date" id="auditDate" style="height:36px;padding:0 10px;border:1.5px solid #e2ebeb;border-radius:8px;font-family:var(--font-family);" onchange="loadAuditLog()">
+                        <button class="btn small" onclick="document.getElementById('auditDate').value=''; loadAuditLog();"><i class="fas fa-rotate"></i> عرض الكل</button>
+                    </div>
+                </div>
+                <div id="auditLogList"></div>
             </div>
             </div>
             </div>
@@ -1362,6 +1463,7 @@ try {
         const isShareholder = currentRole === 'shareholder';
         document.getElementById('roleBadge').textContent = isShareholder ? 'مساهم' : 'المسؤول العام';
         document.getElementById('sidenav-shareholders').style.display = isShareholder ? 'none' : '';
+        document.getElementById('sidenav-audit').style.display = isShareholder ? 'none' : '';
         document.getElementById('sidenav-payroll').style.display = isShareholder ? 'none' : '';
         document.getElementById('sidenav-payrollWindow').style.display = isShareholder ? 'none' : '';
         document.getElementById('pendingCard').style.display = isShareholder ? 'none' : '';
@@ -1460,11 +1562,12 @@ try {
         payroll: { title: 'الرواتب والمكافآت', sub: 'إدارة رواتب ومكافآت وخصومات الموظفين', icon: 'fa-money-check-dollar' },
         payrollWindow: { title: 'صلاحية رواتب', sub: 'تحديد الفروع المسموح لها بتسليم الرواتب لمدة 3 أيام', icon: 'fa-unlock-keyhole' },
         reports: { title: 'التقارير', sub: 'إنشاء وتصدير التقارير', icon: 'fa-chart-bar' },
-        shareholders: { title: 'المساهمون', sub: 'إدارة حسابات المساهمين', icon: 'fa-user-tie' },
+        shareholders: { title: 'المساهمون', sub: 'إدارة حسابات المساهمين والمسؤولين العامين', icon: 'fa-user-tie' },
+        audit: { title: 'تدقيق', sub: 'سجل زمني بكل عملية تمت في النظام ومن قام بها', icon: 'fa-clipboard-list' },
     };
 
     function switchTab(tab) {
-        ['pending', 'history', 'branches', 'payroll', 'payrollWindow', 'reports', 'shareholders'].forEach(t => {
+        ['pending', 'history', 'branches', 'payroll', 'payrollWindow', 'reports', 'shareholders', 'audit'].forEach(t => {
             document.getElementById('sidenav-' + t).classList.toggle('active', t === tab);
             document.getElementById('view-' + t).classList.toggle('hidden', t !== tab);
         });
@@ -1481,7 +1584,8 @@ try {
         else if (tab === 'history') loadHistory();
         else if (tab === 'branches') loadBranches();
         else if (tab === 'payroll') loadPayrollOverview();
-        else if (tab === 'shareholders') loadShareholders();
+        else if (tab === 'shareholders') { loadShareholders(); loadGmAccounts(); }
+        else if (tab === 'audit') loadAuditLog();
     }
 
     function renderBriefEntriesBlock(entries, prevDayNetProfit) {
@@ -1516,7 +1620,7 @@ try {
             ` : ''}
             ${hasPrev ? `
                 <div style="font-size:11px;color:var(--text-muted);">
-                    <i class="fas fa-calendar-day"></i> صافي ربح اليوم السابق:
+                    <i class="fas fa-calendar-day"></i> صافي رصيد اليوم السابق:
                     <b style="color:${prevDayNetProfit >= 0 ? '#059669' : '#DC2626'};">${prevDayNetProfit >= 0 ? '+' : ''}${Number(prevDayNetProfit).toLocaleString()}</b> د.ع
                 </div>
             ` : '<div style="font-size:11px;color:var(--text-muted);">لا يوجد إيجاز لليوم السابق للمقارنة</div>'}
@@ -1542,7 +1646,7 @@ try {
                         <div class="item"><div class="v">${b.revenue.toLocaleString()}</div><div class="l">الإيرادات</div></div>
                         <div class="item"><div class="v">${b.expenses.toLocaleString()}</div><div class="l">المصاريف</div></div>
                         <div class="item"><div class="v">${b.travelersCount}</div><div class="l">المسافرون</div></div>
-                        <div class="item"><div class="v" style="color:var(--green);">${b.netProfit.toLocaleString()}</div><div class="l">صافي الربح</div></div>
+                        <div class="item"><div class="v" style="color:var(--green);">${b.netProfit.toLocaleString()}</div><div class="l">صافي الرصيد</div></div>
                     </div>
                     <div class="muted" style="font-size:13px;margin:4px 0;">
                         <i class="fas ${b.hr_decision === 'approved' ? 'fa-circle-check' : 'fa-clock'}" style="color:${b.hr_decision === 'approved' ? 'var(--green)' : '#D97706'};"></i>
@@ -1595,7 +1699,7 @@ try {
                         <div class="item"><div class="v">${b.revenue.toLocaleString()}</div><div class="l">الإيرادات</div></div>
                         <div class="item"><div class="v">${b.expenses.toLocaleString()}</div><div class="l">المصاريف</div></div>
                         <div class="item"><div class="v">${b.travelersCount}</div><div class="l">المسافرون</div></div>
-                        <div class="item"><div class="v" style="color:var(--green);">${b.netProfit.toLocaleString()}</div><div class="l">صافي الربح</div></div>
+                        <div class="item"><div class="v" style="color:var(--green);">${b.netProfit.toLocaleString()}</div><div class="l">صافي الرصيد</div></div>
                     </div>
                     ${b.gmNote ? `<div class="brief-note"><b>ملاحظتك:</b> ${b.gmNote}</div>` : ''}
                 </div>
@@ -1636,7 +1740,7 @@ try {
                     <b>${b.briefsCount}</b>
                 </div>
                 <div style="margin-top:6px;padding:6px 8px;background:rgba(0,107,115,0.04);border-radius:8px;font-size:12px;">
-                    <div style="display:flex;justify-content:space-between;"><span>آخر إيجاز (صافي الربح)</span><b style="color:${b.lastBriefProfit >= 0 ? 'var(--green)' : 'var(--red)'};">${profitIqd}</b></div>
+                    <div style="display:flex;justify-content:space-between;"><span>آخر إيجاز (صافي الرصيد)</span><b style="color:${b.lastBriefProfit >= 0 ? 'var(--green)' : 'var(--red)'};">${profitIqd}</b></div>
                     ${profitUsd ? `<div style="text-align:left;font-size:11px;color:var(--text-muted);">${profitUsd}</div>` : ''}
                 </div>
             </div>
@@ -1694,7 +1798,7 @@ try {
         </table></div>` : '<p class="muted">لا يوجد موظفون</p>';
 
         const revenueTableHtml = data.briefs.length ? `<div style="overflow-x:auto;margin-bottom:14px;"><table style="width:100%;border-collapse:collapse;font-size:12px;">
-            <thead><tr style="background:var(--bg);"><th style="padding:6px;text-align:right;">التاريخ</th><th style="padding:6px;">الإيرادات</th><th style="padding:6px;">المصاريف</th><th style="padding:6px;">صافي الربح</th><th style="padding:6px;">الحالة</th></tr></thead>
+            <thead><tr style="background:var(--bg);"><th style="padding:6px;text-align:right;">التاريخ</th><th style="padding:6px;">الإيرادات</th><th style="padding:6px;">المصاريف</th><th style="padding:6px;">صافي الرصيد</th><th style="padding:6px;">الحالة</th></tr></thead>
             <tbody>${data.briefs.map(br => `
                 <tr style="border-bottom:1px solid #eee;">
                     <td style="padding:6px;">${br.date}${br.isToday ? ' (اليوم)' : ''}</td>
@@ -1727,7 +1831,7 @@ try {
                             <div class="item"><div class="v">${br.revenue.toLocaleString()}</div><div class="l">الإيرادات</div></div>
                             <div class="item"><div class="v">${br.expense.toLocaleString()}</div><div class="l">المصاريف</div></div>
                             <div class="item"><div class="v">${br.travelers}</div><div class="l">المسافرون</div></div>
-                            <div class="item"><div class="v" style="color:var(--green);">${br.profit.toLocaleString()}</div><div class="l">صافي الربح</div></div>
+                            <div class="item"><div class="v" style="color:var(--green);">${br.profit.toLocaleString()}</div><div class="l">صافي الرصيد</div></div>
                         </div>
                         ${renderBriefEntriesBlock(br.entries, br.prevDayNetProfit)}
                         ${br.note ? `<div class="brief-note"><b>ملاحظة المرسل:</b> ${br.note}</div>` : ''}
@@ -1777,7 +1881,7 @@ try {
     }
     function briefingTable(rows) {
         if (!rows || !rows.length) return '<p style="color:var(--text-muted);font-size:13px;">لا توجد بيانات</p>';
-        return '<div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font-size:12px;"><thead><tr style="background:var(--bg);"><th style="padding:6px;text-align:right;">الفرع</th><th style="padding:6px;">كاتب الإيجاز</th><th style="padding:6px;">التاريخ</th><th style="padding:6px;">الإيراد</th><th style="padding:6px;">المصروف</th><th style="padding:6px;">المسافرون</th><th style="padding:6px;">الربح</th><th style="padding:6px;">الحالة</th><th style="padding:6px;">ملاحظة HR</th><th style="padding:6px;">ملاحظة المسؤول العام</th></tr></thead><tbody>' +
+        return '<div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font-size:12px;"><thead><tr style="background:var(--bg);"><th style="padding:6px;text-align:right;">الفرع</th><th style="padding:6px;">كاتب الإيجاز</th><th style="padding:6px;">التاريخ</th><th style="padding:6px;">الإيراد</th><th style="padding:6px;">المصروف</th><th style="padding:6px;">المسافرون</th><th style="padding:6px;">الرصيد</th><th style="padding:6px;">الحالة</th><th style="padding:6px;">ملاحظة HR</th><th style="padding:6px;">ملاحظة المسؤول العام</th></tr></thead><tbody>' +
             rows.map(r => `<tr style="border-bottom:1px solid #eee;"><td style="padding:6px;">${r.branch}</td><td style="padding:6px;">${r.sender || '-'}</td><td style="padding:6px;">${r.date}</td><td style="padding:6px;">${r.revenue}</td><td style="padding:6px;">${r.expense}</td><td style="padding:6px;">${r.travelers}</td><td style="padding:6px;">${r.profit}</td><td style="padding:6px;">${r.statusText || '-'}</td><td style="padding:6px;">${r.hrNote || '-'}</td><td style="padding:6px;">${r.gmNote || '-'}</td></tr>`).join('') + '</tbody></table></div>';
     }
 
@@ -1870,6 +1974,80 @@ try {
             .then(r => r.json()).then(data => {
                 if (data.ok) loadShareholders();
             });
+    }
+
+    function loadGmAccounts() {
+        fetch('?ajax=gm_accounts_list').then(r => r.json()).then(data => {
+            if (!data.ok) return;
+            const view = document.getElementById('gmAccountsList');
+            if (!data.accounts.length) {
+                view.innerHTML = '<div class="empty-state"><i class="fas fa-user-shield"></i><p>لا توجد حسابات مسؤول عام إضافية بعد</p></div>';
+                return;
+            }
+            view.innerHTML = data.accounts.map(a => `
+                <div class="brief-card" style="display:flex;align-items:center;justify-content:space-between;">
+                    <div><b>${a.display_name || a.username}</b> <span style="color:var(--text-muted);font-size:12px;">(${a.username} — رقم وظيفي: ${a.employee_number || '-'})</span></div>
+                    <button class="btn small ${a.status === 'active' ? 'red' : 'green'}" onclick="toggleGmAccount(${a.id})">${a.status === 'active' ? 'تعطيل' : 'تفعيل'}</button>
+                </div>
+            `).join('');
+        });
+    }
+
+    function createGmAccount() {
+        const name = document.getElementById('gmName').value;
+        const username = document.getElementById('gmUsername').value;
+        const employeeNumber = document.getElementById('gmEmployeeNumber').value;
+        const password = document.getElementById('gmPassword').value;
+        if (!name || !username || !employeeNumber || password.length < 6) {
+            showToast('⚠️ تنبيه', 'الرجاء تعبئة الاسم والبريد الإلكتروني والرقم الوظيفي وكلمة مرور 6 أحرف على الأقل', 'warning');
+            return;
+        }
+        if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(username)) {
+            showToast('⚠️ تنبيه', 'الرجاء إدخال بريد إلكتروني صحيح', 'warning');
+            return;
+        }
+        fetch('?ajax=gm_account_create', { method: 'POST', body: new URLSearchParams({ name, username, employeeNumber, password }) })
+            .then(r => r.json()).then(data => {
+                if (!data.ok) { showToast('⚠️ خطأ', data.error || 'تعذر الإنشاء', 'error'); return; }
+                showToast('✅ تم الإنشاء', 'تم إنشاء حساب المسؤول العام بنجاح', 'success');
+                document.getElementById('gmName').value = '';
+                document.getElementById('gmUsername').value = '';
+                document.getElementById('gmEmployeeNumber').value = '';
+                document.getElementById('gmPassword').value = '';
+                loadGmAccounts();
+            }).catch(() => {
+                showToast('⚠️ خطأ', 'تعذر الاتصال بالخادم', 'error');
+            });
+    }
+
+    function toggleGmAccount(id) {
+        fetch('?ajax=gm_account_toggle', { method: 'POST', body: new URLSearchParams({ id }) })
+            .then(r => r.json()).then(data => {
+                if (data.ok) loadGmAccounts();
+            });
+    }
+
+    function loadAuditLog() {
+        const date = document.getElementById('auditDate').value;
+        fetch('?ajax=audit_log_list' + (date ? '&date=' + date : '')).then(r => r.json()).then(data => {
+            if (!data.ok) return;
+            const view = document.getElementById('auditLogList');
+            if (!data.entries.length) {
+                view.innerHTML = '<div class="empty-state"><i class="fas fa-clipboard-list"></i><p>لا توجد عمليات مسجّلة</p></div>';
+                return;
+            }
+            view.innerHTML = data.entries.map(e => `
+                <div class="brief-card" style="padding:12px 16px;margin-bottom:8px;">
+                    <div style="display:flex;justify-content:space-between;align-items:center;">
+                        <b style="font-size:13px;">${e.description}</b>
+                        <span style="font-size:11px;color:var(--text-muted);white-space:nowrap;">${e.date} — ${e.time}</span>
+                    </div>
+                    <div style="font-size:11.5px;color:var(--text-muted);margin-top:4px;">${e.actorRole} — ${e.actorName}${e.actorNumber ? ' (رقم وظيفي: ' + e.actorNumber + ')' : ''}</div>
+                </div>
+            `).join('');
+        }).catch(() => {
+            showToast('⚠️ خطأ', 'تعذر تحميل سجل التدقيق', 'error');
+        });
     }
 
     let toastId = 0;

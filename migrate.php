@@ -232,6 +232,98 @@ function migration_steps(): array
             'needed' => fn(PDO $pdo) => !column_exists($pdo, 'daily_ledger', 'brief_id'),
             'run' => fn(PDO $pdo) => $pdo->exec("ALTER TABLE daily_ledger ADD COLUMN brief_id INT DEFAULT NULL AFTER attachment"),
         ],
+        [
+            'label' => 'إضافة الشفت المسائي الثاني للموظف (راتب ووقت دوام منفصلان تماماً عن الشفت الأساسي)',
+            'needed' => fn(PDO $pdo) => !column_exists($pdo, 'employees', 'has_evening_shift'),
+            'run' => fn(PDO $pdo) => $pdo->exec("ALTER TABLE employees
+                ADD COLUMN has_evening_shift TINYINT(1) NOT NULL DEFAULT 0 AFTER base_salary,
+                ADD COLUMN evening_shift_start TIME DEFAULT NULL AFTER has_evening_shift,
+                ADD COLUMN evening_shift_end TIME DEFAULT NULL AFTER evening_shift_start,
+                ADD COLUMN evening_base_salary DECIMAL(12,2) NOT NULL DEFAULT 0 AFTER evening_shift_end"),
+        ],
+        [
+            'label' => 'إضافة عمود الرقم الوظيفي لحسابات المستخدمين (لإنشاء حسابات HR/مسؤول عام جديدة بنفس صلاحياتها)',
+            'needed' => fn(PDO $pdo) => !column_exists($pdo, 'users', 'employee_number'),
+            'run' => fn(PDO $pdo) => $pdo->exec("ALTER TABLE users ADD COLUMN employee_number VARCHAR(20) DEFAULT NULL AFTER branch_id"),
+        ],
+        [
+            'label' => 'فصل حضور الشفت الصباحي عن المسائي لنفس اليوم (بصمة مستقلة لكل شفت)',
+            'needed' => fn(PDO $pdo) => !column_exists($pdo, 'attendance', 'shift_period'),
+            'run' => function (PDO $pdo) {
+                $pdo->exec("ALTER TABLE attendance ADD COLUMN shift_period ENUM('morning','evening') NOT NULL DEFAULT 'morning' AFTER attendance_date");
+                $pdo->exec("ALTER TABLE attendance ADD UNIQUE KEY uniq_emp_date_period (employee_id, attendance_date, shift_period)");
+                $pdo->exec("ALTER TABLE attendance DROP INDEX uniq_emp_date");
+            },
+        ],
+        [
+            'label' => 'فصل تسليم راتب الشفت الصباحي عن المسائي (كل شفت له تسليم مستقل)',
+            'needed' => fn(PDO $pdo) => !column_exists($pdo, 'payroll', 'shift_period'),
+            'run' => function (PDO $pdo) {
+                $pdo->exec("ALTER TABLE payroll ADD COLUMN shift_period ENUM('morning','evening') NOT NULL DEFAULT 'morning' AFTER period_year");
+                $pdo->exec("ALTER TABLE payroll ADD UNIQUE KEY uniq_emp_period_shift (employee_id, period_month, period_year, shift_period)");
+                $pdo->exec("ALTER TABLE payroll DROP INDEX uniq_emp_period");
+            },
+        ],
+        [
+            'label' => 'توسيع جدول الطلبات: طلبات مسؤولي الفروع (سلفة/استقالة/مستلزمات) وطلب إجازة بالأيام أو الساعات بدون خصم',
+            'needed' => fn(PDO $pdo) => !column_exists($pdo, 'requests', 'requested_by_role'),
+            'run' => function (PDO $pdo) {
+                $pdo->exec("ALTER TABLE requests MODIFY COLUMN type ENUM('leave','advance','complaint','resignation','supplies') NOT NULL");
+                $pdo->exec("ALTER TABLE requests
+                    ADD COLUMN requested_by_role ENUM('employee','branch_manager') NOT NULL DEFAULT 'employee' AFTER type,
+                    ADD COLUMN leave_unit ENUM('days','hours') DEFAULT NULL AFTER date_to,
+                    ADD COLUMN leave_amount DECIMAL(6,2) DEFAULT NULL AFTER leave_unit");
+            },
+        ],
+        [
+            'label' => 'إنشاء جدول سجل التدقيق (تدقيق يشوفه كل المسؤولين العامين: من قام بماذا)',
+            'needed' => fn(PDO $pdo) => !table_exists($pdo, 'audit_log'),
+            'run' => fn(PDO $pdo) => $pdo->exec("CREATE TABLE IF NOT EXISTS audit_log (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                actor_role VARCHAR(30) NOT NULL,
+                actor_name VARCHAR(100) DEFAULT NULL,
+                actor_number VARCHAR(50) DEFAULT NULL,
+                action_type VARCHAR(50) NOT NULL,
+                description VARCHAR(500) NOT NULL,
+                branch_id INT DEFAULT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4"),
+        ],
+        [
+            'label' => 'إنشاء جدول لائحة الشرف (أفضل الموظفين حضوراً شهرياً)',
+            'needed' => fn(PDO $pdo) => !table_exists($pdo, 'honor_roll'),
+            'run' => fn(PDO $pdo) => $pdo->exec("CREATE TABLE IF NOT EXISTS honor_roll (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                employee_id INT NOT NULL,
+                period_month TINYINT NOT NULL,
+                period_year SMALLINT NOT NULL,
+                attendance_rate DECIMAL(5,2) NOT NULL DEFAULT 0,
+                reward_amount DECIMAL(12,2) NOT NULL DEFAULT 0,
+                approved_by INT DEFAULT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE KEY uniq_emp_period_honor (employee_id, period_month, period_year),
+                CONSTRAINT fk_honor_employee FOREIGN KEY (employee_id) REFERENCES employees(id) ON DELETE CASCADE
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4"),
+        ],
+        [
+            'label' => 'إنشاء جدول طلبات أفضل 3 موظفين حضوراً شهرياً (مراجعة تلقائية آخر الشهر ينتظر اعتماد المسؤول العام)',
+            'needed' => fn(PDO $pdo) => !table_exists($pdo, 'monthly_honor_requests'),
+            'run' => fn(PDO $pdo) => $pdo->exec("CREATE TABLE IF NOT EXISTS monthly_honor_requests (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                employee_id INT NOT NULL,
+                period_month TINYINT NOT NULL,
+                period_year SMALLINT NOT NULL,
+                attendance_rate DECIMAL(5,2) NOT NULL DEFAULT 0,
+                rank_no TINYINT NOT NULL DEFAULT 0,
+                status ENUM('pending','approved','rejected') NOT NULL DEFAULT 'pending',
+                reward_amount DECIMAL(12,2) DEFAULT NULL,
+                reviewed_by INT DEFAULT NULL,
+                reviewed_at TIMESTAMP NULL DEFAULT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE KEY uniq_emp_period_honorreq (employee_id, period_month, period_year),
+                CONSTRAINT fk_honorreq_employee FOREIGN KEY (employee_id) REFERENCES employees(id) ON DELETE CASCADE
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4"),
+        ],
     ];
 }
 

@@ -42,6 +42,16 @@ function db(): PDO
     return $pdo;
 }
 
+function audit_log_write(PDO $pdo, string $role, ?string $name, ?string $number, string $actionType, string $description, ?int $branchId = null): void
+{
+    try {
+        $pdo->prepare("INSERT INTO audit_log (actor_role, actor_name, actor_number, action_type, description, branch_id) VALUES (?,?,?,?,?,?)")
+            ->execute([$role, $name, $number, $actionType, $description, $branchId]);
+    } catch (Throwable $e) {
+        // تجاهل فشل كتابة سجل التدقيق حتى لا تتعطل العملية الأساسية
+    }
+}
+
 function handle_upload(string $field, string $sub, array $allowedExt): ?string
 {
     if (empty($_FILES[$field]) || $_FILES[$field]['error'] !== UPLOAD_ERR_OK) {
@@ -121,7 +131,7 @@ if (isset($_GET['ajax'])) {
         $stmt->execute([$username]);
         $row = $stmt->fetch();
         if ($row && password_verify($password, $row['password_hash'])) {
-            $_SESSION['hr_user'] = ['id' => (int) $row['id'], 'username' => $row['username']];
+            $_SESSION['hr_user'] = ['id' => (int) $row['id'], 'username' => $row['username'], 'displayName' => $row['display_name'], 'employeeNumber' => $row['employee_number']];
             echo json_encode(['ok' => true]);
         } else {
             echo json_encode(['ok' => false, 'error' => 'البريد الإلكتروني أو كلمة المرور غير صحيحة']);
@@ -848,6 +858,7 @@ if (isset($_GET['ajax'])) {
             foreach ($notifyUsers->fetchAll(PDO::FETCH_COLUMN) as $uid) {
                 $pdo->prepare("INSERT INTO notifications (user_id, title, message) VALUES (?, 'تم تسليم الراتب', ?)")->execute([$uid, $msg]);
             }
+            audit_log_write($pdo, 'hr', $hrUser['displayName'] ?? $hrUser['username'], $hrUser['employeeNumber'] ?? null, 'salary_deliver', 'سلّم HR راتب ' . $emp['full_name'] . ' عن ' . $month . '/' . $year . ' بصافي ' . number_format($net) . ' دينار', $branchId);
 
             echo json_encode(['ok' => true, 'net' => $net]);
             exit;
@@ -948,6 +959,7 @@ if (isset($_GET['ajax'])) {
                         ->execute([$uid, 'إيجاز فرع بانتظار اعتمادك النهائي بعد موافقة HR']);
                 }
             }
+            audit_log_write($pdo, 'hr', $hrUser['displayName'] ?? $hrUser['username'], $hrUser['employeeNumber'] ?? null, 'brief_review', ($decision === 'approved' ? 'وافقت' : 'رفضت') . ' الموارد البشرية على إيجاز (رقم ' . $id . ')', $briefBranchId);
 
             echo json_encode(['ok' => true]);
             exit;
@@ -1027,6 +1039,7 @@ if (isset($_GET['ajax'])) {
                 foreach ($uids->fetchAll(PDO::FETCH_COLUMN) as $uid) {
                     $pdo->prepare("INSERT INTO notifications (user_id, title, message) VALUES (?, 'رد نهائي على طلب', ?)")->execute([$uid, $msg]);
                 }
+                audit_log_write($pdo, 'hr', $hrUser['displayName'] ?? $hrUser['username'], $hrUser['employeeNumber'] ?? null, 'request_review', ($decision === 'approved' ? 'وافقت' : 'رفضت') . ' الموارد البشرية نهائياً على طلب ' . request_type_ar($empRow['type']) . ' (طلب #' . $id . ')', (int) $empRow['branch_id']);
             }
             echo json_encode(['ok' => true]);
             exit;
@@ -1066,6 +1079,43 @@ if (isset($_GET['ajax'])) {
                     ->execute([$companyName, $companyEmail, $workStart, $workEnd, $lateGrace, $lateDeduction]);
             }
             echo json_encode(['ok' => true, 'logo' => $logoPath]);
+            exit;
+        }
+
+        case 'hr_accounts_list': {
+            $rows = $pdo->query("SELECT id, username, display_name, status, created_at FROM users WHERE role='hr' ORDER BY created_at DESC")->fetchAll();
+            echo json_encode(['ok' => true, 'accounts' => $rows], JSON_UNESCAPED_UNICODE);
+            exit;
+        }
+
+        case 'hr_account_create': {
+            $name = trim($_POST['name'] ?? '');
+            $username = trim($_POST['username'] ?? '');
+            $password = (string) ($_POST['password'] ?? '');
+            if ($name === '' || $username === '' || strlen($password) < 6) {
+                echo json_encode(['ok' => false, 'error' => 'الرجاء تعبئة الاسم والبريد الإلكتروني (كلمة المرور 6 أحرف على الأقل)']);
+                exit;
+            }
+            if (!filter_var($username, FILTER_VALIDATE_EMAIL)) {
+                echo json_encode(['ok' => false, 'error' => 'الرجاء إدخال بريد إلكتروني صحيح لتسجيل الدخول']);
+                exit;
+            }
+            try {
+                $hash = password_hash($password, PASSWORD_DEFAULT);
+                $pdo->prepare("INSERT INTO users (role, username, password_hash, display_name, status) VALUES ('hr', ?, ?, ?, 'active')")
+                    ->execute([$username, $hash, $name]);
+                audit_log_write($pdo, 'hr', $hrUser['displayName'] ?? $hrUser['username'], $hrUser['employeeNumber'] ?? null, 'hr_account_create', 'أنشأت الموارد البشرية حساب موارد بشرية جديد: ' . $name . ' (' . $username . ')');
+                echo json_encode(['ok' => true]);
+            } catch (Throwable $ex) {
+                echo json_encode(['ok' => false, 'error' => 'اسم الدخول مستخدم مسبقاً']);
+            }
+            exit;
+        }
+
+        case 'hr_account_toggle': {
+            $id = (int) ($_POST['id'] ?? 0);
+            $pdo->prepare("UPDATE users SET status = IF(status='active','inactive','active') WHERE id=? AND role='hr'")->execute([$id]);
+            echo json_encode(['ok' => true]);
             exit;
         }
 
@@ -1264,7 +1314,7 @@ try {
         .sidebar {
             width: var(--sidebar-width);
             height: 100vh;
-            background: linear-gradient(180deg, #4B5320 0%, #3A4019 100%);
+            background: linear-gradient(180deg, #006b73 0%, #004b52 100%);
             border-left: 1px solid rgba(0,0,0,0.08);
             box-shadow: 2px 0 20px rgba(0,0,0,0.08);
             position: fixed;
@@ -1690,7 +1740,7 @@ try {
             justify-content: center;
             gap: 18px;
             height: 110px;
-            padding: 22px 4px 8px;
+            padding: 22px 4px 30px;
             overflow-x: auto;
         }
         .branch-bar-wrap {
@@ -1727,6 +1777,17 @@ try {
             font-weight: 500;
             white-space: nowrap;
             max-width: 70px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .branch-bar-value {
+            position: absolute;
+            bottom: -33px;
+            font-size: 9px;
+            color: var(--primary);
+            font-weight: 800;
+            white-space: nowrap;
+            max-width: 80px;
             overflow: hidden;
             text-overflow: ellipsis;
         }
@@ -2949,51 +3010,23 @@ try {
                             </div>
                         </div>
                         <div class="ring-stat-card">
-                            <div class="ring-chart" id="profitRing">
-                                <div class="ring-center">
-                                    <span id="ringProfitPct">0%</span>
-                                    <small>الربح</small>
-                                </div>
-                            </div>
-                            <div class="ring-info">
-                                <div class="ring-title"><i class="fas fa-percent"></i> نسبة الربح الشهرية</div>
-                                <div class="ring-legend">
-                                    <span class="legend-item"><i class="dot" style="background:#059669;"></i> ربح صافٍ من إجمالي الإيرادات</span>
+                            <div class="ring-info" style="width:100%;">
+                                <div class="ring-title"><i class="fas fa-medal"></i> لائحة الشرف — أفضل 3 حضوراً</div>
+                                <div class="top-employees" id="topEmployees" style="max-width:none;">
+                                    <!-- يتم التعبئة بواسطة JavaScript -->
                                 </div>
                             </div>
                         </div>
-                    </div>
-
-                    <!-- أفضل 3 موظفين حضور -->
-                    <div class="top-employees" id="topEmployees">
-                        <!-- يتم التعبئة بواسطة JavaScript -->
                     </div>
 
                     <!-- مقارنة إيرادات الفروع -->
                     <div class="stocks-section">
                         <div class="stocks-header">
-                            <h4><i class="fas fa-chart-column"></i> مقارنة إيرادات الفروع (الشهر الحالي)</h4>
+                            <h4><i class="fas fa-chart-column"></i> مقارنة أرصدة الفروع (الشهر الحالي)</h4>
                             <span class="update-time"><i class="fas fa-clock"></i> تحديث: <span id="stocksTime">15:30</span></span>
                         </div>
                         <div class="stocks-chart" id="stocksChart"></div>
                         <div class="stocks-summary" id="stocksSummary"></div>
-                    </div>
-
-                    <!-- صندوق سعر الصرف -->
-                    <div class="exchange-rate-box">
-                        <div class="rate-info">
-                            <div class="rate-icon"><i class="fas fa-dollar-sign"></i></div>
-                            <div>
-                                <div class="rate-label">سعر صرف الدولار</div>
-                                <div class="rate-value" id="exchangeRateDisplay">1,320</div>
-                            </div>
-                        </div>
-                        <div class="rate-actions">
-                            <input type="number" id="exchangeRateInput" value="1320" placeholder="سعر الصرف">
-                            <button class="btn-update" onclick="updateExchangeRate()">
-                                <i class="fas fa-save"></i> تحديث
-                            </button>
-                        </div>
                     </div>
                 </div>
 
@@ -3684,7 +3717,6 @@ try {
                 renderTopEmployees(data.topEmployees || []);
                 if (data.stats) {
                     renderAttendanceRing(data.stats.employees, data.stats.attendanceToday || {});
-                    renderProfitRing(data.stats.profitMarginPct || 0);
                 }
                 renderBranchRevenueBars(data.branchRevenueShares || []);
                 if (data.settings) {
@@ -3902,17 +3934,6 @@ try {
         }
 
         // ============================================================
-        // حلقة نسبة الربح الشهرية
-        // ============================================================
-        function renderProfitRing(pct) {
-            const ring = document.getElementById('profitRing');
-            const clamped = Math.max(0, Math.min(100, pct));
-            const color = pct < 0 ? '#DC2626' : '#059669';
-            ring.style.background = `conic-gradient(${color} 0% ${clamped}%, #E5E7EB ${clamped}% 100%)`;
-            document.getElementById('ringProfitPct').textContent = pct + '%';
-        }
-
-        // ============================================================
         // مقارنة إيرادات الفروع (يحل محل شريط الأسهم الوهمي)
         // ============================================================
         function renderBranchRevenueBars(shares) {
@@ -3931,6 +3952,7 @@ try {
                         <span class="branch-bar-pct">${s.pct}%</span>
                         <div class="branch-bar" style="height:${height}%;"></div>
                         <span class="branch-bar-label">${s.name}</span>
+                        <span class="branch-bar-value">${Number(s.revenue).toLocaleString()} د.ع</span>
                     </div>
                 `;
             });
@@ -3962,13 +3984,6 @@ try {
             });
         }
 
-        function updateExchangeRate() {
-            const input = document.getElementById('exchangeRateInput');
-            const val = parseFloat(input.value);
-            if (val > 0) { postExchangeRate(val); }
-            else { showToast('⚠️ تنبيه', 'الرجاء إدخال قيمة صحيحة', 'warning'); }
-        }
-
         function updateExchangeRate2() {
             const input = document.getElementById('exchangeRateInput2');
             const val = parseFloat(input.value);
@@ -3986,7 +4001,6 @@ try {
         }
 
         function updateExchangeRateDisplay() {
-            document.getElementById('exchangeRateDisplay').textContent = exchangeRate.toLocaleString();
             document.getElementById('exchangeRateDisplay2').textContent = exchangeRate.toLocaleString() + ' د.ع';
             const now = new Date();
             document.getElementById('exchangeRateLastUpdate').textContent = now.toLocaleDateString('ar-SA') + ' ' + now.toLocaleTimeString('ar-SA', { hour: '2-digit', minute: '2-digit' });
@@ -4260,7 +4274,7 @@ try {
                         <span><i class="fas fa-calendar" style="color:var(--text-muted);"></i> ${br.date}</span>
                         <span><i class="fas fa-pen" style="color:var(--text-muted);"></i> ${br.sender}</span>
                         <span>الإيراد: <b>${Number(br.revenue).toLocaleString()}</b></span>
-                        <span>الربح: <b style="color:#059669;">${Number(br.profit).toLocaleString()}</b></span>
+                        <span>الرصيد: <b style="color:#059669;">${Number(br.profit).toLocaleString()}</b></span>
                         <span class="bd-brief-status" style="background:${statusColors[br.status]}1A;color:${statusColors[br.status]};">${br.statusText}</span>
                         ${br.attachment ? `<a href="${br.attachment}" target="_blank" style="font-size:11px;"><i class="fas fa-paperclip"></i> الملف المرفق</a>` : ''}
                         <div style="width:100%;">${renderBriefEntriesBlock(br.entries, br.prevDayNetProfit)}</div>
@@ -4707,7 +4721,7 @@ try {
                 ` : ''}
                 ${hasPrev ? `
                     <div style="font-size:11px;color:var(--text-muted);">
-                        <i class="fas fa-calendar-day"></i> صافي ربح اليوم السابق:
+                        <i class="fas fa-calendar-day"></i> صافي رصيد اليوم السابق:
                         <b style="color:${prevDayNetProfit >= 0 ? '#059669' : '#DC2626'};">${prevDayNetProfit >= 0 ? '+' : ''}${Number(prevDayNetProfit).toLocaleString()}</b> د.ع
                     </div>
                 ` : '<div style="font-size:11px;color:var(--text-muted);">لا يوجد إيجاز لليوم السابق للمقارنة</div>'}
@@ -4750,7 +4764,7 @@ try {
                             <span class="value">${item.travelersCount}</span>
                         </div>
                         <div class="detail-item">
-                            <span class="label">💰 صافي الربح</span>
+                            <span class="label">💰 صافي الرصيد</span>
                             <span class="value" style="color:#059669;font-size:16px;">${item.netProfit.toLocaleString()}</span>
                         </div>
                     </div>
@@ -4933,7 +4947,7 @@ try {
         }
         function briefingTable(rows) {
             if (!rows || rows.length === 0) return '<p style="color:var(--text-muted);text-align:center;padding:12px;">لا توجد بيانات إيجاز ضمن هذا النطاق</p>';
-            let html = '<div class="table-wrap"><table class="table"><thead><tr><th>#</th><th>الفرع</th><th>كاتب الإيجاز</th><th>التاريخ</th><th>الإيرادات</th><th>المصاريف</th><th>صافي الربح</th><th>الحالة</th><th>ملاحظة HR</th><th>ملاحظة المسؤول العام</th></tr></thead><tbody>';
+            let html = '<div class="table-wrap"><table class="table"><thead><tr><th>#</th><th>الفرع</th><th>كاتب الإيجاز</th><th>التاريخ</th><th>الإيرادات</th><th>المصاريف</th><th>صافي الرصيد</th><th>الحالة</th><th>ملاحظة HR</th><th>ملاحظة المسؤول العام</th></tr></thead><tbody>';
             rows.forEach((item, i) => {
                 html += `<tr><td>${i+1}</td><td>${item.branch}</td><td>${item.sender || '-'}</td><td>${item.date}</td><td>${item.revenue}</td><td>${item.expense}</td><td style="color:#059669;">${item.profit}</td><td>${item.statusText || '-'}</td><td>${item.hrNote || '-'}</td><td>${item.gmNote || '-'}</td></tr>`;
             });

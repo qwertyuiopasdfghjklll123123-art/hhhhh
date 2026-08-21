@@ -59,6 +59,10 @@ function install_schema(PDO $pdo): void
             shift_start TIME DEFAULT NULL,
             shift_end TIME DEFAULT NULL,
             base_salary DECIMAL(12,2) NOT NULL DEFAULT 0,
+            has_evening_shift TINYINT(1) NOT NULL DEFAULT 0,
+            evening_shift_start TIME DEFAULT NULL,
+            evening_shift_end TIME DEFAULT NULL,
+            evening_base_salary DECIMAL(12,2) NOT NULL DEFAULT 0,
             rating DECIMAL(2,1) NOT NULL DEFAULT 0,
             photo VARCHAR(255) DEFAULT NULL,
             documents VARCHAR(255) DEFAULT NULL,
@@ -77,6 +81,7 @@ function install_schema(PDO $pdo): void
             password_hash VARCHAR(255) NOT NULL,
             employee_id INT DEFAULT NULL,
             branch_id INT DEFAULT NULL,
+            employee_number VARCHAR(20) DEFAULT NULL,
             status ENUM('active','inactive') NOT NULL DEFAULT 'active',
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             CONSTRAINT fk_user_employee FOREIGN KEY (employee_id) REFERENCES employees(id) ON DELETE CASCADE,
@@ -88,11 +93,12 @@ function install_schema(PDO $pdo): void
             employee_id INT NOT NULL,
             branch_id INT NOT NULL,
             attendance_date DATE NOT NULL,
+            shift_period ENUM('morning','evening') NOT NULL DEFAULT 'morning',
             check_in TIME DEFAULT NULL,
             check_out TIME DEFAULT NULL,
             status ENUM('present','late','absent') NOT NULL DEFAULT 'present',
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            UNIQUE KEY uniq_emp_date (employee_id, attendance_date),
+            UNIQUE KEY uniq_emp_date_period (employee_id, attendance_date, shift_period),
             CONSTRAINT fk_att_employee FOREIGN KEY (employee_id) REFERENCES employees(id) ON DELETE CASCADE,
             CONSTRAINT fk_att_branch FOREIGN KEY (branch_id) REFERENCES branches(id) ON DELETE CASCADE
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4",
@@ -103,13 +109,14 @@ function install_schema(PDO $pdo): void
             branch_id INT NOT NULL,
             period_month TINYINT NOT NULL,
             period_year SMALLINT NOT NULL,
+            shift_period ENUM('morning','evening') NOT NULL DEFAULT 'morning',
             base_salary DECIMAL(12,2) NOT NULL DEFAULT 0,
             bonus DECIMAL(12,2) NOT NULL DEFAULT 0,
             deduction DECIMAL(12,2) NOT NULL DEFAULT 0,
             late_deduction DECIMAL(12,2) NOT NULL DEFAULT 0,
             status ENUM('pending','delivered') NOT NULL DEFAULT 'pending',
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            UNIQUE KEY uniq_emp_period (employee_id, period_month, period_year),
+            UNIQUE KEY uniq_emp_period_shift (employee_id, period_month, period_year, shift_period),
             CONSTRAINT fk_pay_employee FOREIGN KEY (employee_id) REFERENCES employees(id) ON DELETE CASCADE,
             CONSTRAINT fk_pay_branch FOREIGN KEY (branch_id) REFERENCES branches(id) ON DELETE CASCADE
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4",
@@ -118,11 +125,14 @@ function install_schema(PDO $pdo): void
             id INT AUTO_INCREMENT PRIMARY KEY,
             employee_id INT NOT NULL,
             branch_id INT NOT NULL,
-            type ENUM('leave','advance','complaint','resignation') NOT NULL,
+            type ENUM('leave','advance','complaint','resignation','supplies') NOT NULL,
+            requested_by_role ENUM('employee','branch_manager') NOT NULL DEFAULT 'employee',
             details TEXT DEFAULT NULL,
             amount DECIMAL(12,2) DEFAULT NULL,
             date_from DATE DEFAULT NULL,
             date_to DATE DEFAULT NULL,
+            leave_unit ENUM('days','hours') DEFAULT NULL,
+            leave_amount DECIMAL(6,2) DEFAULT NULL,
             status ENUM('pending','branch_approved','approved','rejected') NOT NULL DEFAULT 'pending',
             branch_reviewed_by INT DEFAULT NULL,
             branch_review_note VARCHAR(255) DEFAULT NULL,
@@ -240,10 +250,50 @@ function install_schema(PDO $pdo): void
             message VARCHAR(500) NOT NULL,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4",
+
+        'audit_log' => "CREATE TABLE IF NOT EXISTS audit_log (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            actor_role VARCHAR(30) NOT NULL,
+            actor_name VARCHAR(100) DEFAULT NULL,
+            actor_number VARCHAR(50) DEFAULT NULL,
+            action_type VARCHAR(50) NOT NULL,
+            description VARCHAR(500) NOT NULL,
+            branch_id INT DEFAULT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4",
+
+        'honor_roll' => "CREATE TABLE IF NOT EXISTS honor_roll (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            employee_id INT NOT NULL,
+            period_month TINYINT NOT NULL,
+            period_year SMALLINT NOT NULL,
+            attendance_rate DECIMAL(5,2) NOT NULL DEFAULT 0,
+            reward_amount DECIMAL(12,2) NOT NULL DEFAULT 0,
+            approved_by INT DEFAULT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE KEY uniq_emp_period_honor (employee_id, period_month, period_year),
+            CONSTRAINT fk_honor_employee FOREIGN KEY (employee_id) REFERENCES employees(id) ON DELETE CASCADE
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4",
+
+        'monthly_honor_requests' => "CREATE TABLE IF NOT EXISTS monthly_honor_requests (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            employee_id INT NOT NULL,
+            period_month TINYINT NOT NULL,
+            period_year SMALLINT NOT NULL,
+            attendance_rate DECIMAL(5,2) NOT NULL DEFAULT 0,
+            rank_no TINYINT NOT NULL DEFAULT 0,
+            status ENUM('pending','approved','rejected') NOT NULL DEFAULT 'pending',
+            reward_amount DECIMAL(12,2) DEFAULT NULL,
+            reviewed_by INT DEFAULT NULL,
+            reviewed_at TIMESTAMP NULL DEFAULT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE KEY uniq_emp_period_honorreq (employee_id, period_month, period_year),
+            CONSTRAINT fk_honorreq_employee FOREIGN KEY (employee_id) REFERENCES employees(id) ON DELETE CASCADE
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4",
     ];
 
     // الترتيب مهم بسبب المفاتيح الأجنبية
-    foreach (['settings', 'branches', 'employees', 'users', 'attendance', 'payroll', 'requests', 'daily_ledger', 'delegations', 'daily_briefs', 'exchange_rate_history', 'notifications', 'payroll_windows', 'payroll_adjustments', 'error_log'] as $table) {
+    foreach (['settings', 'branches', 'employees', 'users', 'attendance', 'payroll', 'requests', 'daily_ledger', 'delegations', 'daily_briefs', 'exchange_rate_history', 'notifications', 'payroll_windows', 'payroll_adjustments', 'error_log', 'audit_log', 'honor_roll', 'monthly_honor_requests'] as $table) {
         $pdo->exec($tables[$table]);
     }
 }

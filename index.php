@@ -42,6 +42,16 @@ function db(): PDO
     return $pdo;
 }
 
+function audit_log_write(PDO $pdo, string $role, ?string $name, ?string $number, string $actionType, string $description, ?int $branchId = null): void
+{
+    try {
+        $pdo->prepare("INSERT INTO audit_log (actor_role, actor_name, actor_number, action_type, description, branch_id) VALUES (?,?,?,?,?,?)")
+            ->execute([$role, $name, $number, $actionType, $description, $branchId]);
+    } catch (Throwable $e) {
+        // تجاهل فشل كتابة سجل التدقيق حتى لا تتعطل العملية الأساسية
+    }
+}
+
 function handle_upload(string $field, string $sub, array $allowedExt): ?string
 {
     if (empty($_FILES[$field]) || $_FILES[$field]['error'] !== UPLOAD_ERR_OK) {
@@ -687,6 +697,7 @@ if (isset($_GET['ajax'])) {
             $branchName = $pdo->prepare("SELECT name FROM branches WHERE id=?");
             $branchName->execute([$branchId]);
             $branchName = $branchName->fetchColumn();
+            audit_log_write($pdo, 'employee', $emp['full_name'], $emp['employee_number'] ?? null, 'brief_create', 'نشر ' . $emp['full_name'] . ' (مفوّض) إيجاز فرع ' . $branchName, $branchId);
             $hrUids = $pdo->query("SELECT id FROM users WHERE role='hr'")->fetchAll(PDO::FETCH_COLUMN);
             foreach ($hrUids as $uid) {
                 $pdo->prepare("INSERT INTO notifications (user_id, title, message) VALUES (?, 'إيجاز جديد بانتظار المراجعة', ?)")
