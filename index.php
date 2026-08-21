@@ -538,12 +538,35 @@ if (isset($_GET['ajax'])) {
             $dateTo = null;
             $details = trim($_POST['reason'] ?? '');
 
+            $leaveUnit = null;
+            $leaveAmount = null;
             if ($type === 'leave') {
                 $leaveType = trim($_POST['leaveType'] ?? '');
-                $dateFrom = $_POST['startDate'] ?: null;
-                $dateTo = $_POST['endDate'] ?: null;
-                $details = 'إجازة ' . $leaveType . ($details ? (' — ' . $details) : '');
-                if (!$dateFrom || !$dateTo || $details === '') {
+                $unit = ($_POST['leaveUnit'] ?? 'days') === 'hours' ? 'hours' : 'days';
+                if ($unit === 'hours') {
+                    $hoursDate = $_POST['leaveHoursDate'] ?: null;
+                    $hoursCount = (float) ($_POST['leaveHoursCount'] ?? 0);
+                    if (!$hoursDate || $hoursCount <= 0) {
+                        echo json_encode(['ok' => false, 'error' => 'الرجاء تحديد التاريخ وعدد الساعات']);
+                        exit;
+                    }
+                    $dateFrom = $hoursDate;
+                    $dateTo = $hoursDate;
+                    $leaveUnit = 'hours';
+                    $leaveAmount = $hoursCount;
+                    $details = 'إجازة ' . $leaveType . ' (' . $hoursCount . ' ساعة بتاريخ ' . $hoursDate . ')' . ($details ? (' — ' . $details) : '');
+                } else {
+                    $dateFrom = $_POST['startDate'] ?: null;
+                    $dateTo = $_POST['endDate'] ?: null;
+                    $leaveUnit = 'days';
+                    $leaveAmount = ($dateFrom && $dateTo) ? ((strtotime($dateTo) - strtotime($dateFrom)) / 86400 + 1) : null;
+                    $details = 'إجازة ' . $leaveType . ($details ? (' — ' . $details) : '');
+                    if (!$dateFrom || !$dateTo) {
+                        echo json_encode(['ok' => false, 'error' => 'الرجاء تعبئة جميع الحقول المطلوبة']);
+                        exit;
+                    }
+                }
+                if ($details === '') {
                     echo json_encode(['ok' => false, 'error' => 'الرجاء تعبئة جميع الحقول المطلوبة']);
                     exit;
                 }
@@ -574,9 +597,9 @@ if (isset($_GET['ajax'])) {
                 }
             }
 
-            $stmt = $pdo->prepare("INSERT INTO requests (employee_id, branch_id, type, details, amount, date_from, date_to, status)
-                VALUES (?, ?, ?, ?, ?, ?, ?, 'pending')");
-            $stmt->execute([$employeeId, $branchId, $type, $details, $amount, $dateFrom, $dateTo]);
+            $stmt = $pdo->prepare("INSERT INTO requests (employee_id, branch_id, type, requested_by_role, details, amount, date_from, date_to, leave_unit, leave_amount, status)
+                VALUES (?, ?, ?, 'employee', ?, ?, ?, ?, ?, ?, 'pending')");
+            $stmt->execute([$employeeId, $branchId, $type, $details, $amount, $dateFrom, $dateTo, $leaveUnit, $leaveAmount]);
 
             $mgrUids = $pdo->prepare("SELECT id FROM users WHERE role='branch_manager' AND branch_id=?");
             $mgrUids->execute([$branchId]);
@@ -4198,7 +4221,15 @@ try {
                             <option value="اضطرارية">إجازة اضطرارية</option>
                         </select>
                     </div>
-                    <div class="form-row">
+                    <div class="form-group">
+                        <label>مدة الإجازة <span class="required">*</span></label>
+                        <select id="reqLeaveUnit" onchange="toggleLeaveUnitFields()">
+                            <option value="days">أيام</option>
+                            <option value="hours">ساعات</option>
+                        </select>
+                        <div class="muted" style="font-size:11px;margin-top:4px;">لا يُخصم أي مبلغ من راتبك عند الإجازة أياً كانت مدتها</div>
+                    </div>
+                    <div class="form-row" id="reqLeaveDaysFields">
                         <div class="form-group">
                             <label>تاريخ البداية <span class="required">*</span></label>
                             <input type="date" id="reqStartDate" value="${new Date().toISOString().split('T')[0]}">
@@ -4206,6 +4237,16 @@ try {
                         <div class="form-group">
                             <label>تاريخ النهاية <span class="required">*</span></label>
                             <input type="date" id="reqEndDate" value="${new Date(Date.now()+7*86400000).toISOString().split('T')[0]}">
+                        </div>
+                    </div>
+                    <div class="form-row hidden" id="reqLeaveHoursFields">
+                        <div class="form-group">
+                            <label>التاريخ <span class="required">*</span></label>
+                            <input type="date" id="reqLeaveHoursDate" value="${new Date().toISOString().split('T')[0]}">
+                        </div>
+                        <div class="form-group">
+                            <label>عدد الساعات <span class="required">*</span></label>
+                            <input type="number" id="reqLeaveHoursCount" placeholder="مثال: 3" min="1" max="12" step="0.5">
                         </div>
                     </div>
                     <div class="form-group">
@@ -4291,6 +4332,12 @@ try {
             document.body.style.overflow = '';
         }
 
+        function toggleLeaveUnitFields() {
+            const isHours = document.getElementById('reqLeaveUnit').value === 'hours';
+            document.getElementById('reqLeaveDaysFields').classList.toggle('hidden', isHours);
+            document.getElementById('reqLeaveHoursFields').classList.toggle('hidden', !isHours);
+        }
+
         function submitRequestForm(e) {
             e.preventDefault();
             const type = document.getElementById('requestType').value;
@@ -4299,8 +4346,14 @@ try {
             const params = { requestType: type, reason: val('reqReason') };
             if (type === 'إجازة') {
                 params.leaveType = val('reqLeaveType');
-                params.startDate = val('reqStartDate');
-                params.endDate = val('reqEndDate');
+                params.leaveUnit = val('reqLeaveUnit') || 'days';
+                if (params.leaveUnit === 'hours') {
+                    params.leaveHoursDate = val('reqLeaveHoursDate');
+                    params.leaveHoursCount = val('reqLeaveHoursCount');
+                } else {
+                    params.startDate = val('reqStartDate');
+                    params.endDate = val('reqEndDate');
+                }
             } else if (type === 'سلفة') {
                 params.loanAmount = val('reqLoanAmount');
                 params.installments = val('reqLoanInstallments');

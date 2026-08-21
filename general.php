@@ -196,7 +196,7 @@ if (isset($_GET['ajax'])) {
     }
     $gmUser = $_SESSION['gm_user'];
     $isShareholder = $gmUser['role'] === 'shareholder';
-    $gmOnlyActions = ['brief_final_review', 'payroll_window_open', 'payroll_window_close', 'shareholders_list', 'shareholder_create', 'shareholder_toggle', 'payroll_adjustment_add', 'gm_accounts_list', 'gm_account_create', 'gm_account_toggle', 'audit_log_list', 'honor_requests_list', 'honor_request_review', 'attendance_board_list'];
+    $gmOnlyActions = ['brief_final_review', 'payroll_window_open', 'payroll_window_close', 'shareholders_list', 'shareholder_create', 'shareholder_toggle', 'payroll_adjustment_add', 'gm_accounts_list', 'gm_account_create', 'gm_account_toggle', 'audit_log_list', 'honor_requests_list', 'honor_request_review', 'attendance_board_list', 'mgr_requests_list', 'mgr_request_review'];
     if ($isShareholder && in_array($action, $gmOnlyActions, true)) {
         http_response_code(403);
         echo json_encode(['ok' => false, 'error' => 'هذه الصلاحية متاحة للمسؤول العام فقط']);
@@ -610,6 +610,120 @@ if (isset($_GET['ajax'])) {
                 $pdo->prepare("INSERT INTO notifications (user_id, title, message) VALUES (?, 'تحديث في الراتب', ?)")->execute([$uid, $msg]);
             }
             audit_log_write($pdo, $gmUser['role'], $gmUser['displayName'] ?? $gmUser['username'], $gmUser['employeeNumber'] ?? null, 'payroll_adjustment', $typeLabel[$type] . ' بقيمة ' . number_format($amount) . ' للموظف ' . $emp['full_name'], $branchId);
+
+            echo json_encode(['ok' => true]);
+            exit;
+        }
+
+        case 'attendance_board_list': {
+            $date = $_GET['date'] ?? date('Y-m-d');
+            if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $date)) $date = date('Y-m-d');
+            $stmt = $pdo->prepare("
+                SELECT e.id, e.full_name AS name, e.employee_number AS code, e.is_branch_manager AS isManager,
+                       e.has_evening_shift AS hasEveningShift, b.name AS branch,
+                       am.check_in AS morningIn, am.check_out AS morningOut, am.status AS morningStatus,
+                       ae.check_in AS eveningIn, ae.check_out AS eveningOut, ae.status AS eveningStatus
+                FROM employees e
+                JOIN branches b ON b.id = e.branch_id
+                LEFT JOIN attendance am ON am.employee_id = e.id AND am.attendance_date = ? AND am.shift_period = 'morning'
+                LEFT JOIN attendance ae ON ae.employee_id = e.id AND ae.attendance_date = ? AND ae.shift_period = 'evening'
+                WHERE e.status = 'active'
+                ORDER BY b.name, e.is_branch_manager DESC, e.full_name
+            ");
+            $stmt->execute([$date, $date]);
+            $statusAr = ['present' => 'حاضر', 'late' => 'متأخر', 'absent' => 'غائب'];
+            $rows = array_map(function ($r) use ($statusAr) {
+                return [
+                    'id' => (int) $r['id'],
+                    'name' => $r['name'],
+                    'code' => $r['code'],
+                    'isManager' => (bool) $r['isManager'],
+                    'hasEveningShift' => (bool) $r['hasEveningShift'],
+                    'branch' => $r['branch'],
+                    'morningIn' => $r['morningIn'] ? substr($r['morningIn'], 0, 5) : null,
+                    'morningOut' => $r['morningOut'] ? substr($r['morningOut'], 0, 5) : null,
+                    'morningStatusText' => $r['morningStatus'] ? ($statusAr[$r['morningStatus']] ?? $r['morningStatus']) : 'لم يسجل',
+                    'eveningIn' => $r['eveningIn'] ? substr($r['eveningIn'], 0, 5) : null,
+                    'eveningOut' => $r['eveningOut'] ? substr($r['eveningOut'], 0, 5) : null,
+                    'eveningStatusText' => $r['hasEveningShift'] ? ($r['eveningStatus'] ? ($statusAr[$r['eveningStatus']] ?? $r['eveningStatus']) : 'لم يسجل') : null,
+                ];
+            }, $stmt->fetchAll());
+            echo json_encode(['ok' => true, 'rows' => $rows, 'date' => $date], JSON_UNESCAPED_UNICODE);
+            exit;
+        }
+
+        case 'mgr_requests_list': {
+            $typeAr = ['advance' => 'سلفة', 'resignation' => 'استقالة', 'supplies' => 'مستلزمات', 'leave' => 'إجازة'];
+            $stmt = $pdo->query("
+                SELECT r.id, e.full_name AS name, e.employee_number AS employeeNumber, b.name AS branch, r.type, r.details, r.amount,
+                       r.date_from, r.date_to, r.leave_unit, r.leave_amount, r.status, r.hr_review_note AS note,
+                       DATE_FORMAT(r.created_at, '%d/%m/%Y') AS date
+                FROM requests r JOIN employees e ON e.id = r.employee_id JOIN branches b ON b.id = r.branch_id
+                WHERE r.requested_by_role = 'branch_manager'
+                ORDER BY r.created_at DESC LIMIT 50
+            ");
+            $rows = array_map(function ($r) use ($typeAr) {
+                $details = $r['details'];
+                if ($r['type'] === 'advance' && $r['amount']) {
+                    $details = number_format((float) $r['amount']) . ' د.ع' . ($details ? ' - ' . $details : '');
+                } elseif ($r['type'] === 'leave' && $r['date_from']) {
+                    $unitText = $r['leave_unit'] === 'hours' ? ($r['leave_amount'] . ' ساعة بتاريخ ' . $r['date_from']) : ($r['date_from'] . ' إلى ' . $r['date_to']);
+                    $details = $unitText . ($details ? ' - ' . $details : '');
+                } elseif ($r['type'] === 'resignation' && $r['date_from']) {
+                    $details = 'تاريخ التقديم: ' . $r['date_from'] . ' — آخر يوم عمل: ' . $r['date_to'];
+                }
+                return [
+                    'id' => (int) $r['id'],
+                    'name' => $r['name'],
+                    'employeeNumber' => $r['employeeNumber'],
+                    'branch' => $r['branch'],
+                    'type' => $typeAr[$r['type']] ?? $r['type'],
+                    'rawType' => $r['type'],
+                    'details' => $details ?: '-',
+                    'status' => $r['status'],
+                    'canReview' => $r['status'] === 'pending',
+                    'note' => $r['note'],
+                    'date' => $r['date'],
+                ];
+            }, $stmt->fetchAll());
+            echo json_encode(['ok' => true, 'requests' => $rows], JSON_UNESCAPED_UNICODE);
+            exit;
+        }
+
+        case 'mgr_request_review': {
+            $id = (int) ($_POST['id'] ?? 0);
+            $decision = ($_POST['decision'] ?? '') === 'approved' ? 'approved' : 'rejected';
+            $note = trim($_POST['note'] ?? '');
+
+            $reqRow = $pdo->prepare("SELECT employee_id, branch_id, type, amount FROM requests WHERE id=? AND requested_by_role='branch_manager' AND status='pending'");
+            $reqRow->execute([$id]);
+            $reqRow = $reqRow->fetch();
+            if (!$reqRow) {
+                echo json_encode(['ok' => false, 'error' => 'هذا الطلب ليس بانتظار المراجعة']);
+                exit;
+            }
+
+            if ($decision === 'approved' && $reqRow['type'] === 'advance') {
+                $monthlyDeduction = (float) ($_POST['monthlyDeduction'] ?? 0);
+                if ($monthlyDeduction <= 0) {
+                    echo json_encode(['ok' => false, 'error' => 'الرجاء تحديد قيمة الخصم الشهري للسلفة قبل الموافقة']);
+                    exit;
+                }
+                $pdo->prepare("UPDATE requests SET status=?, hr_reviewed_by=?, hr_review_note=?, hr_reviewed_at=NOW(), approved_monthly_deduction=?, remaining_balance=? WHERE id=?")
+                    ->execute([$decision, $gmUser['id'], $note ?: null, $monthlyDeduction, $reqRow['amount'], $id]);
+            } else {
+                $pdo->prepare("UPDATE requests SET status=?, hr_reviewed_by=?, hr_review_note=?, hr_reviewed_at=NOW() WHERE id=?")
+                    ->execute([$decision, $gmUser['id'], $note ?: null, $id]);
+            }
+
+            $typeAr = ['advance' => 'سلفة', 'resignation' => 'استقالة', 'supplies' => 'مستلزمات', 'leave' => 'إجازة'];
+            $msg = ($decision === 'approved' ? 'وافق المسؤول العام على طلب ' : 'رفض المسؤول العام طلب ') . ($typeAr[$reqRow['type']] ?? $reqRow['type']) . ($note ? (' — ' . $note) : '');
+            $uids = $pdo->prepare("SELECT id FROM users WHERE employee_id=? AND role='branch_manager'");
+            $uids->execute([$reqRow['employee_id']]);
+            foreach ($uids->fetchAll(PDO::FETCH_COLUMN) as $uid) {
+                $pdo->prepare("INSERT INTO notifications (user_id, title, message) VALUES (?, 'رد على طلبك', ?)")->execute([$uid, $msg]);
+            }
+            audit_log_write($pdo, $gmUser['role'], $gmUser['displayName'] ?? $gmUser['username'], $gmUser['employeeNumber'] ?? null, 'mgr_request_review', ($decision === 'approved' ? 'وافق' : 'رفض') . ' المسؤول العام طلب ' . ($typeAr[$reqRow['type']] ?? $reqRow['type']) . ' من مدير فرع (طلب #' . $id . ')', (int) $reqRow['branch_id']);
 
             echo json_encode(['ok' => true]);
             exit;
@@ -1035,6 +1149,12 @@ try {
                 <button class="nav-item" id="sidenav-audit" onclick="switchTab('audit')">
                     <i class="fas fa-clipboard-list"></i> تدقيق
                 </button>
+                <button class="nav-item" id="sidenav-attendanceBoard" onclick="switchTab('attendanceBoard')">
+                    <i class="fas fa-fingerprint"></i> بصمة
+                </button>
+                <button class="nav-item" id="sidenav-mgrRequests" onclick="switchTab('mgrRequests')">
+                    <i class="fas fa-envelope-open-text"></i> طلبات مسؤولي الفروع
+                </button>
             </nav>
 
             <div class="user-info">
@@ -1192,6 +1312,19 @@ try {
                     </div>
                 </div>
                 <div id="auditLogList"></div>
+            </div>
+            <div id="view-attendanceBoard" class="hidden">
+                <div class="brief-card">
+                    <div style="display:flex;gap:10px;align-items:center;margin-bottom:4px;">
+                        <label style="font-size:12px;color:var(--text-muted);">التاريخ:</label>
+                        <input type="date" id="attendanceBoardDate" style="height:36px;padding:0 10px;border:1.5px solid #e2ebeb;border-radius:8px;font-family:var(--font-family);" onchange="loadAttendanceBoard()">
+                        <button class="btn small" onclick="document.getElementById('attendanceBoardDate').valueAsDate=new Date(); loadAttendanceBoard();"><i class="fas fa-calendar-day"></i> اليوم</button>
+                    </div>
+                </div>
+                <div id="attendanceBoardList"></div>
+            </div>
+            <div id="view-mgrRequests" class="hidden">
+                <div id="mgrRequestsList"></div>
             </div>
             </div>
             </div>
@@ -1466,6 +1599,8 @@ try {
         document.getElementById('roleBadge').textContent = isShareholder ? 'مساهم' : 'المسؤول العام';
         document.getElementById('sidenav-shareholders').style.display = isShareholder ? 'none' : '';
         document.getElementById('sidenav-audit').style.display = isShareholder ? 'none' : '';
+        document.getElementById('sidenav-attendanceBoard').style.display = isShareholder ? 'none' : '';
+        document.getElementById('sidenav-mgrRequests').style.display = isShareholder ? 'none' : '';
         document.getElementById('sidenav-payroll').style.display = isShareholder ? 'none' : '';
         document.getElementById('sidenav-payrollWindow').style.display = isShareholder ? 'none' : '';
         document.getElementById('pendingCard').style.display = isShareholder ? 'none' : '';
@@ -1566,10 +1701,12 @@ try {
         reports: { title: 'التقارير', sub: 'إنشاء وتصدير التقارير', icon: 'fa-chart-bar' },
         shareholders: { title: 'المساهمون', sub: 'إدارة حسابات المساهمين والمسؤولين العامين', icon: 'fa-user-tie' },
         audit: { title: 'تدقيق', sub: 'سجل زمني بكل عملية تمت في النظام ومن قام بها', icon: 'fa-clipboard-list' },
+        attendanceBoard: { title: 'بصمة', sub: 'حضور جميع الموظفين ومسؤولي الفروع حسب التاريخ', icon: 'fa-fingerprint' },
+        mgrRequests: { title: 'طلبات مسؤولي الفروع', sub: 'سلفة، استقالة، مستلزمات، إجازة — تصلك مباشرة دون المرور بالموارد البشرية', icon: 'fa-envelope-open-text' },
     };
 
     function switchTab(tab) {
-        ['pending', 'history', 'branches', 'payroll', 'payrollWindow', 'reports', 'shareholders', 'audit'].forEach(t => {
+        ['pending', 'history', 'branches', 'payroll', 'payrollWindow', 'reports', 'shareholders', 'audit', 'attendanceBoard', 'mgrRequests'].forEach(t => {
             document.getElementById('sidenav-' + t).classList.toggle('active', t === tab);
             document.getElementById('view-' + t).classList.toggle('hidden', t !== tab);
         });
@@ -1588,6 +1725,8 @@ try {
         else if (tab === 'payroll') loadPayrollOverview();
         else if (tab === 'shareholders') { loadShareholders(); loadGmAccounts(); }
         else if (tab === 'audit') loadAuditLog();
+        else if (tab === 'attendanceBoard') loadAttendanceBoard();
+        else if (tab === 'mgrRequests') loadMgrRequests();
     }
 
     function renderBriefEntriesBlock(entries, prevDayNetProfit) {
@@ -2081,6 +2220,87 @@ try {
             `).join('');
         }).catch(() => {
             showToast('⚠️ خطأ', 'تعذر تحميل سجل التدقيق', 'error');
+        });
+    }
+
+    function loadAttendanceBoard() {
+        const dateInput = document.getElementById('attendanceBoardDate');
+        if (dateInput && !dateInput.value) dateInput.valueAsDate = new Date();
+        const date = dateInput ? dateInput.value : '';
+        fetch('?ajax=attendance_board_list' + (date ? '&date=' + date : '')).then(r => r.json()).then(data => {
+            if (!data.ok) return;
+            const view = document.getElementById('attendanceBoardList');
+            if (!data.rows.length) {
+                view.innerHTML = '<div class="empty-state"><i class="fas fa-fingerprint"></i><p>لا يوجد موظفون نشطون</p></div>';
+                return;
+            }
+            const statusColor = t => t === 'حاضر' ? 'var(--green)' : (t === 'متأخر' ? '#D97706' : (t === 'غائب' ? 'var(--red)' : 'var(--text-muted)'));
+            view.innerHTML = `<div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font-size:12px;">
+                <thead><tr style="background:var(--bg);">
+                    <th style="padding:6px;text-align:right;">الاسم</th><th style="padding:6px;">الفرع</th>
+                    <th style="padding:6px;">دخول صباحي</th><th style="padding:6px;">خروج صباحي</th><th style="padding:6px;">حالة الصباحي</th>
+                    <th style="padding:6px;">دخول مسائي</th><th style="padding:6px;">خروج مسائي</th><th style="padding:6px;">حالة المسائي</th>
+                </tr></thead>
+                <tbody>${data.rows.map(r => `
+                    <tr style="border-bottom:1px solid #eee;">
+                        <td style="padding:6px;">${r.name}${r.isManager ? ' <span style="color:var(--accent);font-size:10px;">(مدير فرع)</span>' : ''}</td>
+                        <td style="padding:6px;">${r.branch}</td>
+                        <td style="padding:6px;">${r.morningIn || '--:--'}</td>
+                        <td style="padding:6px;">${r.morningOut || '--:--'}</td>
+                        <td style="padding:6px;color:${statusColor(r.morningStatusText)};font-weight:700;">${r.morningStatusText}</td>
+                        <td style="padding:6px;">${r.hasEveningShift ? (r.eveningIn || '--:--') : '-'}</td>
+                        <td style="padding:6px;">${r.hasEveningShift ? (r.eveningOut || '--:--') : '-'}</td>
+                        <td style="padding:6px;color:${r.hasEveningShift ? statusColor(r.eveningStatusText) : 'var(--text-muted)'};font-weight:700;">${r.hasEveningShift ? r.eveningStatusText : '-'}</td>
+                    </tr>
+                `).join('')}</tbody>
+            </table></div>`;
+        }).catch(() => {
+            showToast('⚠️ خطأ', 'تعذر تحميل بصمة الحضور', 'error');
+        });
+    }
+
+    function loadMgrRequests() {
+        fetch('?ajax=mgr_requests_list').then(r => r.json()).then(data => {
+            if (!data.ok) return;
+            const view = document.getElementById('mgrRequestsList');
+            if (!data.requests.length) {
+                view.innerHTML = '<div class="empty-state"><i class="fas fa-envelope-open-text"></i><p>لا توجد طلبات من مسؤولي الفروع بعد</p></div>';
+                return;
+            }
+            view.innerHTML = data.requests.map(r => `
+                <div class="brief-card">
+                    <div class="brief-top">
+                        <span class="branch"><i class="fas fa-user-tie"></i> ${r.name} — ${r.branch}</span>
+                        <span class="date">${r.date}</span>
+                    </div>
+                    <div style="font-size:13px;margin:6px 0;"><b>${r.type}</b> — ${r.details}</div>
+                    ${r.note ? `<div class="brief-note">${r.note}</div>` : ''}
+                    ${r.canReview ? `
+                        <div class="brief-actions">
+                            ${r.rawType === 'advance' ? `<input type="number" id="mgrReqDeduction_${r.id}" placeholder="الخصم الشهري">` : ''}
+                            <input type="text" id="mgrReqNote_${r.id}" placeholder="ملاحظة (اختياري)">
+                            <button class="btn small green" onclick="reviewMgrRequest(${r.id}, 'approved')"><i class="fas fa-check"></i> موافقة</button>
+                            <button class="btn small red" onclick="reviewMgrRequest(${r.id}, 'rejected')"><i class="fas fa-times"></i> رفض</button>
+                        </div>
+                    ` : `<span class="status-pill ${r.status === 'approved' ? 'approved' : (r.status === 'rejected' ? 'rejected' : 'pending')}">${r.status === 'approved' ? 'وافق المسؤول العام' : (r.status === 'rejected' ? 'مرفوض' : 'بانتظار المراجعة')}</span>`}
+                </div>
+            `).join('');
+        }).catch(() => {
+            showToast('⚠️ خطأ', 'تعذر تحميل طلبات مسؤولي الفروع', 'error');
+        });
+    }
+
+    function reviewMgrRequest(id, decision) {
+        const note = document.getElementById('mgrReqNote_' + id)?.value || '';
+        const deductionInput = document.getElementById('mgrReqDeduction_' + id);
+        const params = { id, decision, note };
+        if (deductionInput) params.monthlyDeduction = deductionInput.value;
+        fetch('?ajax=mgr_request_review', { method: 'POST', body: new URLSearchParams(params) }).then(r => r.json()).then(data => {
+            if (!data.ok) { showToast('⚠️ خطأ', data.error || 'تعذر تنفيذ العملية', 'error'); return; }
+            showToast(decision === 'approved' ? '✅ تمت الموافقة' : '❌ تم الرفض', '', decision === 'approved' ? 'success' : 'error');
+            loadMgrRequests();
+        }).catch(() => {
+            showToast('⚠️ خطأ', 'تعذر الاتصال بالخادم', 'error');
         });
     }
 

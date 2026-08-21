@@ -1000,7 +1000,7 @@ if (isset($_GET['ajax'])) {
                 SELECT r.id, e.full_name AS name, b.name AS branch, r.type, r.details, r.amount, r.date_from, r.date_to,
                        DATE_FORMAT(r.created_at, '%d/%m/%Y') AS date, r.status, r.branch_review_note AS branchNote
                 FROM requests r JOIN employees e ON e.id = r.employee_id JOIN branches b ON b.id = r.branch_id
-                WHERE r.status IN ('branch_approved','approved','rejected')
+                WHERE r.status IN ('branch_approved','approved','rejected') AND r.requested_by_role = 'employee'
                 ORDER BY r.created_at DESC LIMIT 50
             ");
             $rows = array_map(function ($r) {

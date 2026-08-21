@@ -124,7 +124,7 @@ function distance_meters(float $lat1, float $lon1, float $lat2, float $lon2): fl
 
 function request_type_ar(string $t): string
 {
-    return ['leave' => 'إجازة', 'advance' => 'سلفة', 'complaint' => 'شكوى', 'resignation' => 'استقالة'][$t] ?? $t;
+    return ['leave' => 'إجازة', 'advance' => 'سلفة', 'complaint' => 'شكوى', 'resignation' => 'استقالة', 'supplies' => 'مستلزمات'][$t] ?? $t;
 }
 function request_status_ar(string $s): string
 {
@@ -691,7 +691,7 @@ if (isset($_GET['ajax'])) {
                 SELECT r.id, e.full_name AS name, r.type, r.details, r.amount, r.date_from, r.date_to, r.status,
                        r.approved_monthly_deduction, r.remaining_balance
                 FROM requests r JOIN employees e ON e.id = r.employee_id
-                WHERE r.branch_id = ? ORDER BY r.created_at DESC LIMIT 50
+                WHERE r.branch_id = ? AND r.requested_by_role = 'employee' ORDER BY r.created_at DESC LIMIT 50
             ");
             $stmt->execute([$branchId]);
             $rows = array_map(function ($r) {
@@ -745,6 +745,99 @@ if (isset($_GET['ajax'])) {
                 audit_log_write($pdo, 'branch_manager', $mgr['full_name'], $mgr['employee_number'] ?? null, 'request_review', $auditVerb . ' مدير الفرع طلب ' . request_type_ar($reqRow['type']) . ' (طلب #' . $id . ')', $branchId);
             }
             echo json_encode(['ok' => true]);
+            exit;
+        }
+
+        case 'mgr_request_submit': {
+            $type = trim($_POST['type'] ?? '');
+            if (!in_array($type, ['advance', 'resignation', 'supplies', 'leave'], true)) {
+                echo json_encode(['ok' => false, 'error' => 'نوع الطلب غير صالح']);
+                exit;
+            }
+            $details = trim($_POST['details'] ?? '');
+            $amount = null;
+            $dateFrom = null;
+            $dateTo = null;
+            $leaveUnit = null;
+            $leaveAmount = null;
+
+            if ($type === 'advance') {
+                $amount = (float) ($_POST['amount'] ?? 0);
+                if ($amount <= 0) {
+                    echo json_encode(['ok' => false, 'error' => 'الرجاء إدخال مبلغ صحيح']);
+                    exit;
+                }
+            } elseif ($type === 'resignation') {
+                $dateFrom = $_POST['resignDate'] ?: null;
+                $dateTo = $_POST['lastDay'] ?: null;
+                if (!$dateFrom || !$dateTo) {
+                    echo json_encode(['ok' => false, 'error' => 'الرجاء تحديد تاريخ التقديم وآخر يوم عمل']);
+                    exit;
+                }
+            } elseif ($type === 'supplies') {
+                if ($details === '') {
+                    echo json_encode(['ok' => false, 'error' => 'الرجاء وصف المستلزمات المطلوبة']);
+                    exit;
+                }
+            } elseif ($type === 'leave') {
+                $unit = ($_POST['leaveUnit'] ?? 'days') === 'hours' ? 'hours' : 'days';
+                if ($unit === 'hours') {
+                    $hoursDate = $_POST['leaveHoursDate'] ?: null;
+                    $hoursCount = (float) ($_POST['leaveHoursCount'] ?? 0);
+                    if (!$hoursDate || $hoursCount <= 0) {
+                        echo json_encode(['ok' => false, 'error' => 'الرجاء تحديد التاريخ وعدد الساعات']);
+                        exit;
+                    }
+                    $dateFrom = $hoursDate;
+                    $dateTo = $hoursDate;
+                    $leaveUnit = 'hours';
+                    $leaveAmount = $hoursCount;
+                } else {
+                    $dateFrom = $_POST['startDate'] ?: null;
+                    $dateTo = $_POST['endDate'] ?: null;
+                    if (!$dateFrom || !$dateTo) {
+                        echo json_encode(['ok' => false, 'error' => 'الرجاء تحديد تاريخ البداية والنهاية']);
+                        exit;
+                    }
+                    $leaveUnit = 'days';
+                    $leaveAmount = (strtotime($dateTo) - strtotime($dateFrom)) / 86400 + 1;
+                }
+            }
+
+            $stmt = $pdo->prepare("INSERT INTO requests (employee_id, branch_id, type, requested_by_role, details, amount, date_from, date_to, leave_unit, leave_amount, status)
+                VALUES (?, ?, ?, 'branch_manager', ?, ?, ?, ?, ?, ?, 'pending')");
+            $stmt->execute([$mgr['employee_id'], $branchId, $type, $details ?: null, $amount, $dateFrom, $dateTo, $leaveUnit, $leaveAmount]);
+
+            $gmUids = $pdo->query("SELECT id FROM users WHERE role='general_manager'")->fetchAll(PDO::FETCH_COLUMN);
+            foreach ($gmUids as $uid) {
+                $pdo->prepare("INSERT INTO notifications (user_id, title, message) VALUES (?, 'طلب جديد من مسؤول فرع', ?)")
+                    ->execute([$uid, 'قدّم مدير فرع ' . $branch['name'] . ' طلب ' . request_type_ar($type) . ' بانتظار مراجعتك']);
+            }
+
+            echo json_encode(['ok' => true]);
+            exit;
+        }
+
+        case 'mgr_requests_mine': {
+            $mgrStatusAr = ['pending' => 'بانتظار موافقة المسؤول العام', 'approved' => 'مقبول نهائياً', 'rejected' => 'مرفوض'];
+            $stmt = $pdo->prepare("SELECT id, type, details, amount, date_from, date_to, leave_unit, leave_amount, status, hr_review_note, created_at FROM requests WHERE employee_id=? AND requested_by_role='branch_manager' ORDER BY created_at DESC LIMIT 30");
+            $stmt->execute([$mgr['employee_id']]);
+            $rows = array_map(function ($r) use ($mgrStatusAr) {
+                return [
+                    'id' => (int) $r['id'],
+                    'type' => request_type_ar($r['type']),
+                    'details' => $r['details'],
+                    'amount' => $r['amount'] !== null ? (float) $r['amount'] : null,
+                    'dateFrom' => $r['date_from'],
+                    'dateTo' => $r['date_to'],
+                    'leaveUnit' => $r['leave_unit'],
+                    'leaveAmount' => $r['leave_amount'] !== null ? (float) $r['leave_amount'] : null,
+                    'status' => $mgrStatusAr[$r['status']] ?? $r['status'],
+                    'note' => $r['hr_review_note'],
+                    'date' => date('d/m/Y', strtotime($r['created_at'])),
+                ];
+            }, $stmt->fetchAll());
+            echo json_encode(['ok' => true, 'requests' => $rows], JSON_UNESCAPED_UNICODE);
             exit;
         }
 
@@ -1554,6 +1647,7 @@ function branch_report_data(PDO $pdo, string $type, string $from, string $to, in
                 <button class="nav-item" id="sidenav-employees" onclick="navigateTo('employees')"><i class="fas fa-users"></i> الموظفون</button>
                 <button class="nav-item" id="sidenav-attendance" onclick="navigateTo('attendance')"><i class="fas fa-fingerprint"></i> البصمة والحضور</button>
                 <button class="nav-item" id="sidenav-requests" onclick="navigateTo('requests')"><i class="fas fa-file-pen"></i> طلبات الموظفين</button>
+                <button class="nav-item" id="sidenav-myRequests" onclick="navigateTo('myRequests')"><i class="fas fa-paper-plane"></i> تقديم طلب</button>
                 <button class="nav-item" id="sidenav-briefing" onclick="navigateTo('briefing')"><i class="fas fa-chart-simple"></i> الإيجاز اليومي</button>
                 <button class="nav-item" id="sidenav-delegation" onclick="navigateTo('delegation')"><i class="fas fa-user-check"></i> التفويضات</button>
                 <button class="nav-item" id="sidenav-payroll" onclick="navigateTo('payroll')"><i class="fas fa-money-bill-wave"></i> الرواتب</button>
@@ -1781,6 +1875,28 @@ function branch_report_data(PDO $pdo, string $type, string $from, string $to, in
                 <div class="card"><div class="flex-between"><b>💰 طلب سلفة</b><span class="badge wait">بانتظار موافقتك</span></div><p class="muted">أحمد حسن علي • 1,000,000 دينار</p><div class="flex gap-2 mt-2"><button class="btn green small" onclick="showToast('✅ تم الموافقة','تمت الموافقة على طلب السلفة','success')">موافقة</button><button class="btn red small" onclick="showToast('❌ تم الرفض','تم رفض طلب السلفة','error')">رفض</button></div></div>
                 <div class="card"><div class="flex-between"><b>🛒 طلب مشتريات</b><span class="badge ok">تمت الموافقة</span></div><p class="muted">محمد باسم كريم • 2,500,000 دينار</p></div>
                 <div class="card"><div class="flex-between"><b>📅 طلب إجازة</b><span class="badge danger">مرفوض</span></div><p class="muted">نور صباح أحمد • 5 أيام</p></div>
+            </div>
+
+            <!-- ==========================================================
+            تقديم طلب (مسؤول الفرع)
+            ========================================================== -->
+            <div id="page-myRequests" class="page-screen hidden">
+                <div class="page-title"><h2><i class="fas fa-paper-plane"></i> تقديم طلب</h2><button onclick="navigateTo('home')" class="back-btn"><i class="fas fa-arrow-right"></i> رجوع</button></div>
+                <div class="card">
+                    <div class="muted" style="margin-bottom:8px;">يصل طلبك مباشرة إلى المسؤول العام دون المرور بالموارد البشرية</div>
+                    <div class="form-group"><label>نوع الطلب</label>
+                        <select id="mgrReqType" onchange="renderMgrRequestFields()">
+                            <option value="advance">سلفة</option>
+                            <option value="resignation">استقالة</option>
+                            <option value="supplies">مستلزمات للفرع</option>
+                            <option value="leave">إجازة</option>
+                        </select>
+                    </div>
+                    <div id="mgrReqFields"></div>
+                    <button class="btn small" onclick="submitMgrRequest()"><i class="fas fa-paper-plane"></i> إرسال الطلب</button>
+                </div>
+                <div class="section-title"><i class="fas fa-history"></i> طلباتي السابقة</div>
+                <div id="mgrRequestsHistoryList"></div>
             </div>
 
             <!-- ==========================================================
@@ -2530,6 +2646,106 @@ function branch_report_data(PDO $pdo, string $type, string $from, string $to, in
             });
         }
 
+        // ============================================================
+        // تقديم طلب من مسؤول الفرع (سلفة / استقالة / مستلزمات / إجازة)
+        // ============================================================
+        function renderMgrRequestFields() {
+            const type = document.getElementById('mgrReqType').value;
+            const wrap = document.getElementById('mgrReqFields');
+            const today = new Date().toISOString().split('T')[0];
+            const weekLater = new Date(Date.now() + 7 * 86400000).toISOString().split('T')[0];
+            if (type === 'advance') {
+                wrap.innerHTML = `
+                    <div class="form-group"><label>مبلغ السلفة</label><input type="number" id="mgrReqAmount" placeholder="500000" min="10000" step="10000"></div>
+                    <div class="form-group"><label>السبب</label><textarea id="mgrReqDetails" placeholder="سبب طلب السلفة..."></textarea></div>
+                `;
+            } else if (type === 'resignation') {
+                wrap.innerHTML = `
+                    <div class="form-row">
+                        <div class="form-group"><label>تاريخ التقديم</label><input type="date" id="mgrReqResignDate" value="${today}"></div>
+                        <div class="form-group"><label>آخر يوم عمل</label><input type="date" id="mgrReqLastDay" value="${weekLater}"></div>
+                    </div>
+                    <div class="form-group"><label>السبب</label><textarea id="mgrReqDetails" placeholder="سبب الاستقالة..."></textarea></div>
+                `;
+            } else if (type === 'supplies') {
+                wrap.innerHTML = `
+                    <div class="form-group"><label>وصف المستلزمات المطلوبة</label><textarea id="mgrReqDetails" placeholder="مثال: طابعة جديدة، أوراق، أقلام..."></textarea></div>
+                `;
+            } else if (type === 'leave') {
+                wrap.innerHTML = `
+                    <div class="form-group"><label>مدة الإجازة</label>
+                        <select id="mgrReqLeaveUnit" onchange="toggleMgrLeaveUnitFields()">
+                            <option value="days">أيام</option>
+                            <option value="hours">ساعات</option>
+                        </select>
+                        <div class="muted" style="font-size:11px;margin-top:4px;">لا يُخصم أي مبلغ من راتبك عند الإجازة أياً كانت مدتها</div>
+                    </div>
+                    <div class="form-row" id="mgrReqLeaveDaysFields">
+                        <div class="form-group"><label>تاريخ البداية</label><input type="date" id="mgrReqStartDate" value="${today}"></div>
+                        <div class="form-group"><label>تاريخ النهاية</label><input type="date" id="mgrReqEndDate" value="${weekLater}"></div>
+                    </div>
+                    <div class="form-row hidden" id="mgrReqLeaveHoursFields">
+                        <div class="form-group"><label>التاريخ</label><input type="date" id="mgrReqLeaveHoursDate" value="${today}"></div>
+                        <div class="form-group"><label>عدد الساعات</label><input type="number" id="mgrReqLeaveHoursCount" placeholder="مثال: 3" min="1" max="12" step="0.5"></div>
+                    </div>
+                    <div class="form-group"><label>السبب</label><textarea id="mgrReqDetails" placeholder="سبب الإجازة..."></textarea></div>
+                `;
+            }
+        }
+
+        function toggleMgrLeaveUnitFields() {
+            const isHours = document.getElementById('mgrReqLeaveUnit').value === 'hours';
+            document.getElementById('mgrReqLeaveDaysFields').classList.toggle('hidden', isHours);
+            document.getElementById('mgrReqLeaveHoursFields').classList.toggle('hidden', !isHours);
+        }
+
+        function submitMgrRequest() {
+            const type = document.getElementById('mgrReqType').value;
+            const val = id => { const el = document.getElementById(id); return el ? el.value : ''; };
+            const params = { type, details: val('mgrReqDetails') };
+            if (type === 'advance') {
+                params.amount = val('mgrReqAmount');
+            } else if (type === 'resignation') {
+                params.resignDate = val('mgrReqResignDate');
+                params.lastDay = val('mgrReqLastDay');
+            } else if (type === 'leave') {
+                params.leaveUnit = val('mgrReqLeaveUnit') || 'days';
+                if (params.leaveUnit === 'hours') {
+                    params.leaveHoursDate = val('mgrReqLeaveHoursDate');
+                    params.leaveHoursCount = val('mgrReqLeaveHoursCount');
+                } else {
+                    params.startDate = val('mgrReqStartDate');
+                    params.endDate = val('mgrReqEndDate');
+                }
+            }
+            fetch('?ajax=mgr_request_submit', { method: 'POST', body: new URLSearchParams(params) }).then(r => r.json()).then(data => {
+                if (!data.ok) { showToast('⚠️ تنبيه', data.error || 'تعذر إرسال الطلب', 'warning'); return; }
+                showToast('✅ تم الإرسال', 'وصل طلبك إلى المسؤول العام', 'success');
+                document.getElementById('mgrReqFields').querySelectorAll('input, textarea').forEach(el => el.value = '');
+                loadMgrRequestsHistory();
+            }).catch(() => {
+                showToast('⚠️ خطأ', 'تعذر الاتصال بالخادم', 'error');
+            });
+        }
+
+        function loadMgrRequestsHistory() {
+            fetch('?ajax=mgr_requests_mine').then(r => r.json()).then(data => {
+                if (!data.ok) return;
+                const view = document.getElementById('mgrRequestsHistoryList');
+                if (!data.requests.length) {
+                    view.innerHTML = '<div class="card" style="text-align:center;padding:20px;color:var(--text-muted);">لا توجد طلبات سابقة</div>';
+                    return;
+                }
+                view.innerHTML = data.requests.map(r => `
+                    <div class="card">
+                        <div class="flex-between"><b>${r.type}</b><span class="badge ${r.status.includes('نهائي') ? 'ok' : (r.status === 'مرفوض' ? 'danger' : 'wait')}">${r.status}</span></div>
+                        <p class="muted">${r.date}${r.details ? ' — ' + r.details : ''}</p>
+                        ${r.note ? `<p class="muted">${r.note}</p>` : ''}
+                    </div>
+                `).join('');
+            });
+        }
+
         function renderRequests(requests) {
             const container = document.getElementById('page-requests');
             if (!requests.length) {
@@ -2718,6 +2934,7 @@ function branch_report_data(PDO $pdo, string $type, string $from, string $to, in
             employees: { title: 'الموظفون', sub: 'إدارة موظفي الفرع', icon: 'fa-users' },
             attendance: { title: 'البصمة والحضور', sub: 'تسجيل ومتابعة الحضور اليومي', icon: 'fa-fingerprint' },
             requests: { title: 'طلبات الموظفين', sub: 'مراجعة طلبات الموظفين', icon: 'fa-file-pen' },
+            myRequests: { title: 'تقديم طلب', sub: 'سلفة، استقالة، مستلزمات، أو إجازة — تصل مباشرة للمسؤول العام', icon: 'fa-paper-plane' },
             briefing: { title: 'الإيجاز اليومي', sub: 'كتابة ونشر إيجاز الفرع', icon: 'fa-chart-simple' },
             delegation: { title: 'التفويضات', sub: 'تفويض كتابة الإيجاز لموظف', icon: 'fa-user-check' },
             payroll: { title: 'الرواتب', sub: 'تسليم رواتب الموظفين', icon: 'fa-money-bill-wave' },
@@ -2752,6 +2969,7 @@ function branch_report_data(PDO $pdo, string $type, string $from, string $to, in
             if (page === 'employees') loadEmployees();
             else if (page === 'attendance') { loadAttendanceToday(); loadEmployees(); }
             else if (page === 'requests') loadRequests();
+            else if (page === 'myRequests') { renderMgrRequestFields(); loadMgrRequestsHistory(); }
             else if (page === 'payroll') loadPayroll();
             else if (page === 'delegation') loadEmployees();
             else if (page === 'home') loadHomeStats();
