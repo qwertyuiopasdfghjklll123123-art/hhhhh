@@ -1409,6 +1409,31 @@ function branch_report_data(PDO $pdo, string $type, string $from, string $to, in
             #reportPrintHeader h2 { font-size: 20px; margin-bottom: 4px; color: #173437; }
             #reportPrintHeader span { font-size: 12px; color: #555; }
         }
+
+        /* ============================================================
+           أزرار البصمة (نفس شكل نافذة الموظف)
+           ============================================================ */
+        .fingerprint-buttons { display: flex; gap: 16px; margin: 14px 0; }
+        .fingerprint-btn {
+            flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center;
+            padding: 20px 12px; border: none; border-radius: var(--radius-md); cursor: pointer;
+            transition: 0.2s ease; font-family: var(--font-family); position: relative; min-height: 130px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.06); color: #fff;
+        }
+        .fingerprint-btn .fingerprint-icon { font-size: 48px; margin-bottom: 6px; position: relative; z-index: 1; }
+        .fingerprint-btn .fingerprint-label { font-size: 14px; font-weight: 700; position: relative; z-index: 1; }
+        .fingerprint-btn .fingerprint-sub { font-size: 11px; font-weight: 400; opacity: 0.8; position: relative; z-index: 1; }
+        .fingerprint-btn .fingerprint-time { font-size: 12px; font-weight: 600; margin-top: 4px; position: relative; z-index: 1; }
+        .fingerprint-btn-checkin { background: linear-gradient(135deg, #10B981, #059669); box-shadow: 0 4px 16px rgba(16,185,129,0.3); }
+        .fingerprint-btn-checkin:hover:not(:disabled) { transform: translateY(-3px); box-shadow: 0 8px 28px rgba(16,185,129,0.4); }
+        .fingerprint-btn-checkout { background: linear-gradient(135deg, #EF4444, #DC2626); box-shadow: 0 4px 16px rgba(239,68,68,0.3); }
+        .fingerprint-btn-checkout:hover:not(:disabled) { transform: translateY(-3px); box-shadow: 0 8px 28px rgba(239,68,68,0.4); }
+        .fingerprint-btn:disabled { opacity: 0.6; cursor: not-allowed; transform: none !important; }
+        .fingerprint-btn .spinner-small {
+            display: inline-block; width: 20px; height: 20px; border: 2px solid rgba(255,255,255,0.3);
+            border-radius: 50%; border-top-color: #fff; animation: fpspin 0.8s linear infinite; position: relative; z-index: 1;
+        }
+        @keyframes fpspin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
     </style>
 </head>
 <body>
@@ -1628,9 +1653,19 @@ function branch_report_data(PDO $pdo, string $type, string $from, string $to, in
 
                 <div class="card">
                     <h3>تسجيل حضوري</h3>
-                    <div class="grid-2">
-                        <button type="button" class="btn green hidden" id="checkInBtn" onclick="recordManagerAttendance('in')"><i class="fas fa-sign-in-alt"></i> تسجيل دخول</button>
-                        <button type="button" class="btn red hidden" id="checkOutBtn" onclick="recordManagerAttendance('out')"><i class="fas fa-sign-out-alt"></i> تسجيل انصراف</button>
+                    <div class="fingerprint-buttons">
+                        <button type="button" class="fingerprint-btn fingerprint-btn-checkin hidden" id="checkInBtn" onclick="handleCheckIn()">
+                            <div class="fingerprint-icon"><i class="fas fa-fingerprint"></i></div>
+                            <span class="fingerprint-label">تسجيل حضور</span>
+                            <span class="fingerprint-sub">بصمة الدخول</span>
+                            <span class="fingerprint-time" id="timeToStart">09:00 ص</span>
+                        </button>
+                        <button type="button" class="fingerprint-btn fingerprint-btn-checkout hidden" id="checkOutBtn" onclick="handleCheckOut()">
+                            <div class="fingerprint-icon"><i class="fas fa-fingerprint"></i></div>
+                            <span class="fingerprint-label">تسجيل انصراف</span>
+                            <span class="fingerprint-sub">بصمة الخروج</span>
+                            <span class="fingerprint-time" id="timeToEnd">03:00 م</span>
+                        </button>
                     </div>
                     <div class="muted mt-2" id="attendanceWindowNote" style="text-align:center;"></div>
                     <div id="managerAttendanceStatus" class="mt-2 text-center muted"></div>
@@ -2676,6 +2711,20 @@ function branch_report_data(PDO $pdo, string $type, string $from, string $to, in
             inBtn.classList.toggle('hidden', !showIn);
             outBtn.classList.toggle('hidden', !showOut);
 
+            const timeToStart = document.getElementById('timeToStart');
+            const timeToEnd = document.getElementById('timeToEnd');
+            if (nowMinutes < shiftStartMin) {
+                const diff = shiftStartMin - nowMinutes;
+                if (timeToStart) timeToStart.textContent = `يبدأ بعد ${Math.floor(diff/60)}h ${diff%60}m`;
+                if (timeToEnd) timeToEnd.textContent = shiftInfo.end;
+            } else if (nowMinutes < shiftEndMin) {
+                if (timeToStart) timeToStart.textContent = todayAttendance.checkedIn ? '✅ تم تسجيل حضورك' : '⏱ اضغط الآن لتسجيل الحضور';
+                if (timeToEnd) timeToEnd.textContent = todayAttendance.checkedOut ? '✅ تم تسجيل انصرافك' : `ينتهي بعد ${Math.floor((shiftEndMin-nowMinutes)/60)}h ${(shiftEndMin-nowMinutes)%60}m`;
+            } else {
+                if (timeToStart) timeToStart.textContent = '✅ انتهى الدوام';
+                if (timeToEnd) timeToEnd.textContent = '✅ انتهى';
+            }
+
             if (note) {
                 if (showIn || showOut) {
                     note.style.color = '';
@@ -2772,36 +2821,171 @@ function branch_report_data(PDO $pdo, string $type, string $from, string $to, in
         }
 
         // ============================================================
-        // دوال الحضور
+        // دوال الحضور (نفس آلية نافذة الموظف تماماً)
         // ============================================================
-        function recordManagerAttendance(type) {
-            if (!gpsActive) { showToast('⚠️ تنبيه', 'يرجى تفعيل الموقع أولاً', 'warning');
-                getCurrentLocation(); return; }
-            if (!userLocation) { showToast('⚠️ تنبيه', 'لم يتم تحديد موقعك بعد', 'warning');
-                getCurrentLocation(); return; }
-            const distance = calculateDistance(userLocation.lat, userLocation.lng, branchLocation.lat, branchLocation.lng);
-            if (distance > branchLocation.radius) {
-                showToast('❌ خارج النطاق', 'أنت خارج نطاق الفرع (المسافة: ' + Math.round(distance) + 'م، النطاق المسموح: ' +
-                    branchLocation.radius + 'م)', 'error');
-                return;
-            }
-            const body = new URLSearchParams({ type, lat: userLocation.lat, lng: userLocation.lng, accuracy: userLocation.accuracy || 0 });
-            fetch('?ajax=attendance_self', { method: 'POST', body }).then(r => r.json()).then(data => {
-                const statusDiv = document.getElementById('managerAttendanceStatus');
-                if (!data.ok) {
-                    showToast('❌ فشل', data.error || 'تعذر تسجيل الحضور', 'error');
+        let mgrGpsEnabled = false;
+        let mgrGpsPosition = null;
+        let mgrGpsRequestInProgress = false;
+
+        function requestMgrGPS() {
+            return new Promise((resolve) => {
+                if (mgrGpsEnabled) { resolve(true); return; }
+                if (mgrGpsRequestInProgress) {
+                    showToast('⏳ جاري التفعيل', 'يتم تحديد الموقع حالياً...', 'info');
+                    resolve(false);
                     return;
                 }
-                if (type === 'in') {
-                    statusDiv.innerHTML = '✅ تم تسجيل الدخول في ' + data.time + ' (ضمن النطاق)';
-                    statusDiv.style.color = 'var(--green)';
-                    showToast('✅ تسجيل دخول', 'تم تسجيل دخولك في ' + data.time + '\nالموقع ضمن النطاق المسموح', 'success');
-                } else {
-                    statusDiv.innerHTML = '✅ تم تسجيل الانصراف في ' + data.time + ' (ضمن النطاق)';
-                    statusDiv.style.color = 'var(--red)';
-                    showToast('✅ تسجيل انصراف', 'تم تسجيل انصرافك في ' + data.time + '\nالموقع ضمن النطاق المسموح', 'success');
+                mgrGpsRequestInProgress = true;
+                if (!navigator.geolocation) {
+                    showToast('❌ غير مدعوم', 'متصفحك لا يدعم تحديد الموقع', 'error');
+                    mgrGpsRequestInProgress = false;
+                    resolve(false);
+                    return;
                 }
+                showToast('📍 طلب موقع', 'يرجى السماح بتحديد موقعك لتسجيل البصمة', 'info', 4000);
+                navigator.geolocation.getCurrentPosition(
+                    function(pos) {
+                        mgrGpsEnabled = true;
+                        mgrGpsPosition = { latitude: pos.coords.latitude, longitude: pos.coords.longitude, accuracy: pos.coords.accuracy };
+                        mgrGpsRequestInProgress = false;
+                        showToast('✅ تم التفعيل', 'تم تحديد موقعك بنجاح', 'success');
+                        resolve(true);
+                    },
+                    function(err) {
+                        mgrGpsEnabled = false;
+                        mgrGpsRequestInProgress = false;
+                        let errorMsg = 'يرجى تفعيل خدمة الموقع يدوياً';
+                        if (err.code === 1) errorMsg = 'تم رفض إذن الموقع. يرجى السماح بتحديد الموقع';
+                        else if (err.code === 2) errorMsg = 'الموقع غير متوفر حالياً. حاول مرة أخرى';
+                        else if (err.code === 3) errorMsg = 'انتهت مهلة تحديد الموقع. حاول مرة أخرى';
+                        showToast('❌ فشل التفعيل', errorMsg, 'error');
+                        resolve(false);
+                    }, { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
+                );
+            });
+        }
+
+        async function handleCheckIn() {
+            const btn = document.getElementById('checkInBtn');
+            if (mgrGpsEnabled) { performCheckIn(btn); return; }
+            btn.disabled = true;
+            btn.innerHTML = `
+                <div class="fingerprint-icon"><span class="spinner-small"></span></div>
+                <span class="fingerprint-label">جاري طلب الموقع...</span>
+                <span class="fingerprint-sub">يرجى الانتظار</span>
+            `;
+            const gpsOk = await requestMgrGPS();
+            btn.disabled = false;
+            if (gpsOk) {
+                performCheckIn(btn);
+            } else {
+                btn.innerHTML = `
+                    <div class="fingerprint-icon"><i class="fas fa-fingerprint"></i></div>
+                    <span class="fingerprint-label">تسجيل حضور</span>
+                    <span class="fingerprint-sub">بصمة الدخول</span>
+                    <span class="fingerprint-time" id="timeToStart">${document.getElementById('timeToStart')?.textContent || ''}</span>
+                `;
+                showToast('⚠️ غير مفعل', 'يجب تفعيل الموقع لتسجيل البصمة', 'warning');
+            }
+        }
+
+        function performCheckIn(btn) {
+            btn.disabled = true;
+            btn.innerHTML = `
+                <div class="fingerprint-icon"><span class="spinner-small"></span></div>
+                <span class="fingerprint-label">جاري التسجيل...</span>
+                <span class="fingerprint-sub">التحقق من الموقع</span>
+            `;
+            const body = new URLSearchParams({ type: 'in', lat: mgrGpsPosition ? mgrGpsPosition.latitude : 0, lng: mgrGpsPosition ? mgrGpsPosition.longitude : 0, accuracy: mgrGpsPosition ? mgrGpsPosition.accuracy : 0 });
+            fetch('?ajax=attendance_self', { method: 'POST', body }).then(r => r.json()).then(data => {
+                if (!data.ok) {
+                    btn.disabled = false;
+                    btn.innerHTML = `
+                        <div class="fingerprint-icon"><i class="fas fa-fingerprint"></i></div>
+                        <span class="fingerprint-label">تسجيل حضور</span>
+                        <span class="fingerprint-sub">بصمة الدخول</span>
+                        <span class="fingerprint-time" id="timeToStart">${document.getElementById('timeToStart')?.textContent || ''}</span>
+                    `;
+                    showToast('❌ فشل التسجيل', data.error || 'تعذر تسجيل الحضور', 'error');
+                    return;
+                }
+                btn.innerHTML = `
+                    <div class="fingerprint-icon"><i class="fas fa-fingerprint"></i></div>
+                    <span class="fingerprint-label">✅ تم الحضور</span>
+                    <span class="fingerprint-sub">${data.time}</span>
+                `;
+                btn.style.background = 'linear-gradient(135deg, #059669, #047857)';
+                showToast('✅ تم تسجيل الدخول', 'بصمة الدخول مسجلة بنجاح', 'success');
                 loadHomeStats();
+                setTimeout(() => {
+                    btn.disabled = false;
+                    btn.style.background = 'linear-gradient(135deg, #10B981, #059669)';
+                }, 3000);
+            }).catch(() => {
+                btn.disabled = false;
+                showToast('❌ فشل التسجيل', 'تعذر الاتصال بالخادم', 'error');
+            });
+        }
+
+        async function handleCheckOut() {
+            const btn = document.getElementById('checkOutBtn');
+            if (mgrGpsEnabled) { performCheckOut(btn); return; }
+            btn.disabled = true;
+            btn.innerHTML = `
+                <div class="fingerprint-icon"><span class="spinner-small"></span></div>
+                <span class="fingerprint-label">جاري طلب الموقع...</span>
+                <span class="fingerprint-sub">يرجى الانتظار</span>
+            `;
+            const gpsOk = await requestMgrGPS();
+            btn.disabled = false;
+            if (gpsOk) {
+                performCheckOut(btn);
+            } else {
+                btn.innerHTML = `
+                    <div class="fingerprint-icon"><i class="fas fa-fingerprint"></i></div>
+                    <span class="fingerprint-label">تسجيل انصراف</span>
+                    <span class="fingerprint-sub">بصمة الخروج</span>
+                    <span class="fingerprint-time" id="timeToEnd">${document.getElementById('timeToEnd')?.textContent || ''}</span>
+                `;
+                showToast('⚠️ غير مفعل', 'يجب تفعيل الموقع لتسجيل البصمة', 'warning');
+            }
+        }
+
+        function performCheckOut(btn) {
+            btn.disabled = true;
+            btn.innerHTML = `
+                <div class="fingerprint-icon"><span class="spinner-small"></span></div>
+                <span class="fingerprint-label">جاري التسجيل...</span>
+                <span class="fingerprint-sub">التحقق من الموقع</span>
+            `;
+            const body = new URLSearchParams({ type: 'out', lat: mgrGpsPosition ? mgrGpsPosition.latitude : 0, lng: mgrGpsPosition ? mgrGpsPosition.longitude : 0, accuracy: mgrGpsPosition ? mgrGpsPosition.accuracy : 0 });
+            fetch('?ajax=attendance_self', { method: 'POST', body }).then(r => r.json()).then(data => {
+                if (!data.ok) {
+                    btn.disabled = false;
+                    btn.innerHTML = `
+                        <div class="fingerprint-icon"><i class="fas fa-fingerprint"></i></div>
+                        <span class="fingerprint-label">تسجيل انصراف</span>
+                        <span class="fingerprint-sub">بصمة الخروج</span>
+                        <span class="fingerprint-time" id="timeToEnd">${document.getElementById('timeToEnd')?.textContent || ''}</span>
+                    `;
+                    showToast('❌ فشل التسجيل', data.error || 'تعذر تسجيل الانصراف', 'error');
+                    return;
+                }
+                btn.innerHTML = `
+                    <div class="fingerprint-icon"><i class="fas fa-fingerprint"></i></div>
+                    <span class="fingerprint-label">✅ تم الانصراف</span>
+                    <span class="fingerprint-sub">${data.time}</span>
+                `;
+                btn.style.background = 'linear-gradient(135deg, #DC2626, #B91C1C)';
+                showToast('✅ تم تسجيل الانصراف', 'بصمة الخروج مسجلة بنجاح', 'success');
+                loadHomeStats();
+                setTimeout(() => {
+                    btn.disabled = false;
+                    btn.style.background = 'linear-gradient(135deg, #EF4444, #DC2626)';
+                }, 3000);
+            }).catch(() => {
+                btn.disabled = false;
+                showToast('❌ فشل التسجيل', 'تعذر الاتصال بالخادم', 'error');
             });
         }
 
@@ -3303,7 +3487,8 @@ function branch_report_data(PDO $pdo, string $type, string $from, string $to, in
         window.handleLogout = handleLogout;
         window.showToast = showToast;
         window.handleLogin = handleLogin;
-        window.recordManagerAttendance = recordManagerAttendance;
+        window.handleCheckIn = handleCheckIn;
+        window.handleCheckOut = handleCheckOut;
         window.manualAttendance = manualAttendance;
         window.paySalary = paySalary;
         window.saveBranchLocation = saveBranchLocation;
