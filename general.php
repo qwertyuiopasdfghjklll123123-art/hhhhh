@@ -428,6 +428,10 @@ if (isset($_GET['ajax'])) {
 
         case 'gm_account_toggle': {
             $id = (int) ($_POST['id'] ?? 0);
+            if ($id === (int) $gmUser['id']) {
+                echo json_encode(['ok' => false, 'error' => 'لا يمكنك تعطيل حسابك الحالي']);
+                exit;
+            }
             $pdo->prepare("UPDATE users SET status = IF(status='active','inactive','active') WHERE id=? AND role='general_manager'")->execute([$id]);
             echo json_encode(['ok' => true]);
             exit;
@@ -2387,6 +2391,7 @@ try {
         fetch('?ajax=gm_account_toggle', { method: 'POST', body: new URLSearchParams({ id }) })
             .then(r => r.json()).then(data => {
                 if (data.ok) loadGmAccounts();
+                else showToast('⚠️ تنبيه', data.error || 'تعذر تنفيذ العملية', 'warning');
             });
     }
 

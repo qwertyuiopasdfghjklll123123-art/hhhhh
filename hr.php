@@ -1143,6 +1143,10 @@ if (isset($_GET['ajax'])) {
 
         case 'hr_account_toggle': {
             $id = (int) ($_POST['id'] ?? 0);
+            if ($id === (int) $hrUser['id']) {
+                echo json_encode(['ok' => false, 'error' => 'لا يمكنك تعطيل حسابك الحالي']);
+                exit;
+            }
             $pdo->prepare("UPDATE users SET status = IF(status='active','inactive','active') WHERE id=? AND role='hr'")->execute([$id]);
             echo json_encode(['ok' => true]);
             exit;
@@ -3546,6 +3550,19 @@ try {
                             </button>
                         </div>
                     </div>
+
+                    <div class="content-card" style="margin-top:16px;">
+                        <div class="card-header"><h4><i class="fas fa-user-plus"></i> إنشاء حساب موارد بشرية جديد</h4></div>
+                        <div class="card-body">
+                            <div style="display:grid;grid-template-columns:1fr 1fr 1fr auto;gap:10px;">
+                                <input type="text" id="hrAccName" placeholder="الاسم" style="height:38px;padding:0 10px;border:2px solid rgba(0,107,115,0.06);border-radius:var(--radius-sm);font-family:var(--font-family);">
+                                <input type="email" id="hrAccUsername" placeholder="البريد الإلكتروني (لتسجيل الدخول)" style="height:38px;padding:0 10px;border:2px solid rgba(0,107,115,0.06);border-radius:var(--radius-sm);font-family:var(--font-family);">
+                                <input type="password" id="hrAccPassword" placeholder="كلمة المرور" style="height:38px;padding:0 10px;border:2px solid rgba(0,107,115,0.06);border-radius:var(--radius-sm);font-family:var(--font-family);">
+                                <button class="btn-primary" onclick="createHrAccount()"><i class="fas fa-save"></i> إنشاء</button>
+                            </div>
+                            <div id="hrAccountsList" style="margin-top:14px;"></div>
+                        </div>
+                    </div>
                 </div>
 
             </div>
@@ -3834,6 +3851,8 @@ try {
                 document.getElementById('sidebar').classList.remove('open');
                 document.getElementById('sidebarOverlay').classList.remove('show');
             }
+
+            if (page === 'settings') loadHrAccounts();
         }
 
         function getPageTitle(page) {
@@ -4053,6 +4072,52 @@ try {
             }).catch(() => {
                 showToast('⚠️ خطأ', 'تعذر الاتصال بالخادم', 'error');
             });
+        }
+
+        function loadHrAccounts() {
+            fetch('?ajax=hr_accounts_list').then(r => r.json()).then(data => {
+                if (!data.ok) return;
+                const view = document.getElementById('hrAccountsList');
+                if (!data.accounts.length) {
+                    view.innerHTML = '<div class="muted" style="font-size:12px;">لا توجد حسابات موارد بشرية إضافية بعد</div>';
+                    return;
+                }
+                view.innerHTML = data.accounts.map(a => `
+                    <div style="display:flex;align-items:center;justify-content:space-between;padding:8px 0;border-bottom:1px solid rgba(0,107,115,0.06);">
+                        <div><b>${a.display_name || a.username}</b> <span style="color:var(--text-muted);font-size:12px;">(${a.username})</span></div>
+                        <button class="btn-outline" style="padding:4px 12px;font-size:12px;" onclick="toggleHrAccount(${a.id})">${a.status === 'active' ? 'تعطيل' : 'تفعيل'}</button>
+                    </div>
+                `).join('');
+            });
+        }
+
+        function createHrAccount() {
+            const name = document.getElementById('hrAccName').value;
+            const username = document.getElementById('hrAccUsername').value;
+            const password = document.getElementById('hrAccPassword').value;
+            if (!name || !username || password.length < 6) {
+                showToast('⚠️ تنبيه', 'الرجاء تعبئة الاسم والبريد الإلكتروني وكلمة مرور 6 أحرف على الأقل', 'warning');
+                return;
+            }
+            fetch('?ajax=hr_account_create', { method: 'POST', body: new URLSearchParams({ name, username, password }) })
+                .then(r => r.json()).then(data => {
+                    if (!data.ok) { showToast('⚠️ خطأ', data.error || 'تعذر الإنشاء', 'error'); return; }
+                    showToast('✅ تم الإنشاء', 'تم إنشاء حساب الموارد البشرية بنجاح', 'success');
+                    document.getElementById('hrAccName').value = '';
+                    document.getElementById('hrAccUsername').value = '';
+                    document.getElementById('hrAccPassword').value = '';
+                    loadHrAccounts();
+                }).catch(() => {
+                    showToast('⚠️ خطأ', 'تعذر الاتصال بالخادم', 'error');
+                });
+        }
+
+        function toggleHrAccount(id) {
+            fetch('?ajax=hr_account_toggle', { method: 'POST', body: new URLSearchParams({ id }) })
+                .then(r => r.json()).then(data => {
+                    if (data.ok) loadHrAccounts();
+                    else showToast('⚠️ تنبيه', data.error || 'تعذر تنفيذ العملية', 'warning');
+                });
         }
 
         // ============================================================
