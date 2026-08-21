@@ -2,14 +2,14 @@
 name: فيترين (Vitrine)
 description: A boutique display-case system for showcasing phones as objects worth wanting, not rows in a marketplace list.
 colors:
-  emerald-abyss: "#07231A"
-  emerald-deep: "#0B3D2E"
-  emerald-shade: "#0E2A20"
-  emerald-signal: "#145C43"
-  emerald-signal-hover: "#0F6B4E"
+  emerald-abyss: "#124A38"
+  emerald-deep: "#176D54"
+  emerald-shade: "#1B5C46"
+  emerald-signal: "#1B7A54"
+  emerald-signal-hover: "#145C43"
   emerald-bright: "#1F8A5F"
   emerald-brightest: "#2FA36F"
-  emerald-line: "#3F6A57"
+  emerald-line: "#4C8A70"
   gold-foil: "#C9A96A"
   cream-paper: "#FAF9F4"
   cream-deep: "#F2EFE6"
@@ -17,6 +17,7 @@ colors:
   ink-soft: "#33473F"
   ink-faint: "#5B6D65"
   paper-on-dark: "#F3F6F1"
+  paper-on-dark-soft: "#D7E6DE"
 typography:
   display:
     fontFamily: "Reem Kufi, Segoe UI, Tahoma, sans-serif"
@@ -64,33 +65,37 @@ No visual rejection was pinned by the brief beyond "green and white, professiona
 
 **Key Characteristics:**
 - One object at a time, lit and labeled, never a dense grid of thumbnails.
-- Deep emerald grounds carry roughly half the page; cream/white "label card" surfaces carry the rest.
+- Medium-emerald grounds carry roughly half the page; cream/white "label card" surfaces carry the rest — lightened from the original near-black draft on direct request, not a fade toward gray.
 - Gold-foil hairlines and dotted rings stand in for ornament — never gradients or drop shadows as decoration.
 - Arabic-first, RTL-native; no tracking/letter-spacing is applied to Arabic type (it would break letterform joining).
+- Motion is deliberately loud and constant, not a single restrained moment: something is always moving somewhere on the page (see each component's entry below), per an explicit request to amplify it past the first draft's restraint.
 
 ## Colors
 
-A committed, saturated-green strategy (not a neutral palette with a green accent) — emerald grounds carry whole sections, white/cream label-card surfaces interrupt them for contrast and pacing.
+A committed, saturated-green strategy (not a neutral palette with a green accent) — emerald grounds carry whole sections, white/cream label-card surfaces interrupt them for contrast and pacing. The whole scale was lightened one pass from the original near-black-emerald draft on direct request; the two tones below (signal vs. deep) exist specifically because a single "make it lighter" value couldn't satisfy both roles without breaking contrast (see the Named Rule).
 
 ### Primary
-- **Emerald Signal** (#145C43): every interactive surface — button fills, the WhatsApp FAB, link/price color, text selection. Chosen (over the brighter #1F8A5F first drafted) because the brighter shade fails 4.5:1 text contrast against both white cards and near-white text on dark; Signal holds ~7:1 in both directions.
-- **Emerald Signal Hover** (#0F6B4E): the hover/active state for every Emerald Signal surface — brighter than rest state for feedback, still ≥5.9:1 against white or near-white text.
+- **Emerald Signal** (#1B7A54): every interactive surface — button fills, the WhatsApp FAB, link/price color, text selection. This is the lightened, "أقل درجة" green; it still holds 4.86:1 against near-white text and 5.1:1 against white card backgrounds, right at the edge of comfortable AA compliance.
+- **Emerald Signal Hover** (#145C43): the hover/active state — this is the *original* darker draft value, repurposed as a press-down/darken feedback once the resting state got lighter, rather than trying to find an even-lighter hover tone (there isn't contrast headroom left above Signal for that direction).
 
 ### Secondary
-- **Emerald Bright** (#1F8A5F) / **Emerald Brightest** (#2FA36F): decorative only now — gradient stops inside the drawn phone-silhouette SVGs and the hero's breathing spotlight glow. Never used as a text or background color behind text, since neither clears body-text contrast.
+- **Emerald Bright** (#1F8A5F) / **Emerald Brightest** (#2FA36F): decorative only — gradient stops inside the drawn phone-silhouette SVGs. Never used as a text or background color behind text, since neither clears body-text contrast.
 
 ### Neutral
-- **Emerald Abyss** (#07231A): the darkest ground — footer, deepest gradient stop.
-- **Emerald Deep** (#0B3D2E): the primary dark section ground (hero, commitment, contact gradients start here).
-- **Emerald Shade** (#0E2A20): the phone-silhouette body color and the trust-ticker's text-on-cream color.
-- **Emerald Line** (#3F6A57): hairline strokes on dark surfaces (phone silhouette outline, ghost-button borders).
+- **Emerald Abyss** (#124A38): the darkest ground — footer, and the outer stop of every full-bleed section gradient.
+- **Emerald Deep** (#176D54): the primary dark section ground and the *brightest* stop those gradients are allowed to reach — deliberately one step darker than Emerald Signal (see Named Rule).
+- **Emerald Shade** (#1B5C46): the phone-silhouette body color and the trust-ticker's text-on-cream color.
+- **Emerald Line** (#4C8A70): hairline strokes on dark surfaces (phone silhouette outline, ghost-button borders).
 - **Gold Foil** (#C9A96A): the one non-green hue — nav underline, ticker dots, seal rings, brand mark. Used only as thin lines, rings, and small marks, never as a fill behind text or a gradient.
 - **Cream Paper** (#FAF9F4) / **Cream Deep** (#F2EFE6): light-section grounds and the trust-ticker band.
 - **Ink Deep** (#12231C) / **Ink Soft** (#33473F) / **Ink Faint** (#5B6D65): text on light surfaces, darkest to lightest, all tinted green rather than true gray.
-- **Paper on Dark** (#F3F6F1, and at 74% alpha for secondary text): text on every dark ground.
+- **Paper on Dark** (#F3F6F1): primary text on every dark ground.
+- **Paper on Dark Soft** (#D7E6DE): secondary/muted text on dark grounds — a *solid* pale sage, not a translucent white. An alpha-reduced white was the original approach, but once the background lightened, a 74%-opacity white against the lightest gradient stop measured only ~3.4:1 against WCAG's 4.5:1 floor; a solid, deliberately-tinted color was the fix, matching the craft rule that secondary text on a color should be tinted from that hue, never just faded.
 
 ### Named Rules
 **The One Hue Rule.** Gold never fills a shape or sits behind text — hairlines, rings, and small marks only. The moment it becomes a background or a gradient stop, it stops reading as foil and starts reading as decoration.
+
+**The Brightest-Is-Interactive Rule.** Emerald Signal (#1B7A54) is the lightest tone allowed to carry body text or sit behind it at scale. Section backgrounds cap out one step darker (Emerald Deep, #176D54) specifically so that secondary on-dark text keeps a real contrast margin. Don't reach for Signal as a full-bleed background fill — that was tried and it broke Paper on Dark Soft's contrast.
 
 ## Typography
 
@@ -130,8 +135,12 @@ Cards round at 16px (`--radius-card`); small controls (buttons, the WhatsApp FAB
 ### Buttons
 - **Shape:** full pill (`border-radius: 999px`).
 - **Primary:** Emerald Signal fill, Paper-on-Dark text, soft green-tinted glow shadow.
-- **Hover:** background steps to Emerald Signal Hover; a `-2px` lift on every button variant.
+- **Hover:** background steps *darker* to Emerald Signal Hover (not brighter — see Colors); lifts and scales up slightly (`translateY(-2px) scale(1.04)`).
 - **Outline / Ghost:** transparent fill, Emerald Signal or Paper-on-Dark border and text depending on the ground it sits on; inverts to a filled Emerald Deep on hover.
+- **Motion:** the hero's primary CTA additionally carries a slow (2.6s) breathing glow on its shadow — the only button that pulses at rest, to draw the eye to the one action that matters most on first paint.
+
+### Hero device (signature component)
+A CSS-drawn phone frame (rounded body, top notch, bottom home-indicator bar) standing on the pedestal, its screen filled by an actual screenshot of this site (`img/site-preview.png`) rather than an abstract silhouette or generated art — a literal "phone browsing our site," per direct request. The frame floats on a continuous 5s up/down cycle; the pedestal shadow beneath it pulses in sync-adjacent rhythm (3.6s) rather than identically, so the two don't read as one mechanical loop.
 
 ### Cards (specimen / product / voice)
 - **Corner:** 16px.
@@ -139,27 +148,32 @@ Cards round at 16px (`--radius-card`); small controls (buttons, the WhatsApp FAB
 - **Shadow:** see Elevation & Depth; no border.
 - **Internal padding:** 1.4–1.75rem.
 - **Distinctive behavior:** the "specimen label" pattern — a small eyebrow line, a bold name, one line of specs, then a price/action row pinned to the card's bottom edge via flex.
+- **Motion:** product cards lift, scale up slightly, and zoom their device icon on hover; voice cards lift and tilt a degree (alternating left/right by position) rather than lifting flat. All cards, plus every section heading, fade and rise into place once on scroll, staggered a fraction of a second apart rather than arriving together.
 
 ### Seals (signature component)
-A certificate-style trust badge: a dashed gold ring behind short heading+paragraph text, no card background at all. Arranged in an explicit 2-column grid with staggered `margin-top` per item rather than a uniform row, so the four trust claims read as a considered arrangement instead of a repeated icon-card template.
+A certificate-style trust badge: a dashed gold ring behind short heading+paragraph text, no card background at all. Arranged in an explicit 2-column grid with staggered `margin-top` per item rather than a uniform row, so the four trust claims read as a considered arrangement instead of a repeated icon-card template. The dashed ring spins continuously and slowly (18s per rotation, like a second hand's cousin), speeding up on hover — a "living certificate" rather than a static badge.
 
 ### Navigation
-Sticky header, transparent over the hero until scrolled (then solid Emerald Deep with a shadow). Links get a gold underline that grows from 0 width on hover. Below 980px, links move into a full-width dropdown panel opened by a three-line toggle that morphs into an X.
+Sticky header, transparent over the hero until scrolled (then solid Emerald Deep with a shadow). Links get a gold underline that grows from 0 width on hover. Below 980px, links move into a full-width dropdown panel opened by a three-line toggle that morphs into an X, dropping in with a small overshoot bounce rather than simply appearing.
 
 ### WhatsApp FAB
-Fixed circular pill, Emerald Signal fill, hidden (opacity 0, `pointer-events: none`) until the visitor scrolls roughly 60% past the hero — added specifically because it otherwise overlaps the hero's own specimen card on small screens at first paint.
+Fixed circular pill, Emerald Signal fill, hidden (opacity 0, `pointer-events: none`) until the visitor scrolls roughly 60% past the hero — added specifically because it otherwise overlaps the hero's own specimen card on small screens at first paint. Once visible, a soft ring pulses outward from it every ~2.2s (a "ping"), so it keeps calling attention to itself as a standing invitation to message the shop, not just a static icon.
 
 ## Do's and Don'ts
 
 ### Do:
 - **Do** keep gold to hairlines, rings, and marks — never a fill, never a gradient stop.
-- **Do** use Emerald Signal (#145C43), not Emerald Bright (#1F8A5F), for any new text-on-white or text-on-dark interactive surface; Bright is decorative-only per the contrast failure noted under Colors.
+- **Do** use Emerald Signal (#1B7A54), not Emerald Bright (#1F8A5F), for any new text-on-white or text-on-dark interactive surface; Bright is decorative-only per the contrast failure noted under Colors.
 - **Do** vary card/section sizing (the feature product card, the staggered seals) rather than repeating a uniform grid — the single-object "vitrine" premise is the whole differentiator.
+- **Do** give every new section at least one animated moment (an entrance, a hover response, or a continuous idle loop) — per this project's explicit direction, stillness is the exception here, not the default.
+- **Do** respect `prefers-reduced-motion`: every animation and transition in this system collapses to near-zero duration under that media query. A new animation that skips this check breaks the one accessibility guarantee the rest of the system relies on.
 
 ### Don't:
 - **Don't** add letter-spacing/tracking to Arabic text.
 - **Don't** reach for an icon-on-top/heading/one-line-text card grid for a new trust or feature section — use the seal/certificate pattern instead.
 - **Don't** treat the product catalog, prices, contact number, or testimonials as real — every one is an authored placeholder (see PRODUCT.md's Capabilities and Constraints) until the shop owner supplies real data.
+- **Don't** use Emerald Signal (or anything lighter) as a full-bleed section background — see The Brightest-Is-Interactive Rule under Colors.
+- **Don't** animate a static `transform` and a keyframe `animation` on the same element without checking for conflicts — this system uses the standalone `translate` property (not `transform`) for the specimen card's rise/drift specifically because the card also needs a static `transform: translateX(50%)` for centering on mobile; the two would otherwise silently fight over the same property.
 
 ---
 

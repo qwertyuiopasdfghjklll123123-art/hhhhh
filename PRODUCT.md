@@ -30,11 +30,11 @@ Single page, no backend, deployable anywhere static files can be hosted. Orderin
 
 - No real shop name, phone number, address, or social links were supplied yet. The shipped page uses clearly-labeled placeholder contact details and a placeholder shop name that must be swapped before going live.
 - No real product catalog, prices, or photography were supplied. The shipped page uses an authored placeholder catalog (fictional model names, illustrative specs/prices) built as real design material, not lorem ipsum, but explicitly not real inventory — replace before launch.
-- No image-generation tool is available in this environment, so all imagery is built from CSS/SVG rather than generated or stock photography.
+- No image-generation tool is available in this environment, so all imagery is built from CSS/SVG rather than generated or stock photography, with one exception: the hero's phone-frame screen shows a real screenshot of this site (`img/site-preview.png`), captured directly rather than generated, per a request for "a phone browsing our website."
 
 ## Brand Commitments
 
-Color identity is pinned by the user: green and white, "professional" in tone. Everything else (name, exact palette values, typography, product photography) was left to be designed.
+Color identity is pinned by the user: green (a lighter/softer shade specifically, per direct feedback on the first draft) and white, "professional" in tone, with strong/prominent motion throughout rather than restrained. Everything else (name, exact palette values, typography, product photography) was left to be designed.
 
 ## Evidence on Hand
 

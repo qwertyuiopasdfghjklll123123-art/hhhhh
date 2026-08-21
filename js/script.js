@@ -31,7 +31,7 @@
     });
   }
 
-  var revealTargets = document.querySelectorAll(".product, .seal, .voice-card");
+  var revealTargets = document.querySelectorAll(".product, .seal, .voice-card, .section-head");
   revealTargets.forEach(function (el) { el.classList.add("reveal"); });
 
   var prefersReducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
