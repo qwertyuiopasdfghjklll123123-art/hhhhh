@@ -748,20 +748,24 @@ if (isset($_GET['ajax'])) {
             $year = (int) ($_GET['year'] ?? date('Y'));
             $stmt = $pdo->prepare("
                 SELECT e.id AS employeeId, e.full_name AS name, b.id AS branchId, b.name AS branch, e.is_branch_manager AS isManager,
+                       e.has_evening_shift AS hasEveningShift, e.evening_base_salary AS eveningBaseSalary,
                        p.id AS payrollId, COALESCE(p.base_salary, e.base_salary) AS base, COALESCE(p.bonus,0) AS bonus, COALESCE(p.deduction,0) AS deduction,
                        (COALESCE(p.base_salary, e.base_salary) + COALESCE(p.bonus,0) - COALESCE(p.deduction,0)) AS net,
                        COALESCE(p.status, 'pending') AS status,
+                       pe.base_salary AS eveningPaidBase, pe.bonus AS eveningBonus, pe.deduction AS eveningDeduction,
+                       COALESCE(pe.status, 'pending') AS eveningStatus,
                        adv.approved_monthly_deduction AS advanceMonthly, adv.remaining_balance AS advanceRemaining,
                        pw.expires_at AS windowExpiresAt
                 FROM employees e
                 JOIN branches b ON b.id = e.branch_id
-                LEFT JOIN payroll p ON p.employee_id = e.id AND p.period_month=? AND p.period_year=?
+                LEFT JOIN payroll p ON p.employee_id = e.id AND p.period_month=? AND p.period_year=? AND p.shift_period='morning'
+                LEFT JOIN payroll pe ON pe.employee_id = e.id AND pe.period_month=? AND pe.period_year=? AND pe.shift_period='evening'
                 LEFT JOIN requests adv ON adv.employee_id = e.id AND adv.type='advance' AND adv.status='approved' AND adv.remaining_balance > 0
                 LEFT JOIN payroll_windows pw ON pw.branch_id = e.branch_id AND pw.period_month=? AND pw.period_year=? AND pw.expires_at > NOW()
                 WHERE e.status='active'
                 ORDER BY (COALESCE(p.status, 'pending') = 'delivered') ASC, e.full_name
             ");
-            $stmt->execute([$month, $year, $month, $year]);
+            $stmt->execute([$month, $year, $month, $year, $month, $year]);
             $rows = array_map(function ($r) {
                 $r['base'] = (float) $r['base'];
                 $r['bonus'] = (float) $r['bonus'];
@@ -774,6 +778,21 @@ if (isset($_GET['ajax'])) {
                 $r['status'] = payroll_status_ar($r['status']);
                 $r['windowOpen'] = $r['windowExpiresAt'] !== null;
                 unset($r['windowExpiresAt']);
+                $r['hasEveningShift'] = (bool) $r['hasEveningShift'];
+                if ($r['hasEveningShift']) {
+                    $eveningBase = $r['eveningPaidBase'] !== null ? (float) $r['eveningPaidBase'] : (float) $r['eveningBaseSalary'];
+                    $eveningBonus = (float) ($r['eveningBonus'] ?? 0);
+                    $eveningDeduction = (float) ($r['eveningDeduction'] ?? 0);
+                    $r['eveningBase'] = $eveningBase;
+                    $r['eveningNet'] = $eveningBase + $eveningBonus - $eveningDeduction;
+                    $r['eveningStatusRaw'] = $r['eveningStatus'];
+                    $r['eveningStatus'] = payroll_status_ar($r['eveningStatus']);
+                } else {
+                    $r['eveningBase'] = null;
+                    $r['eveningNet'] = null;
+                    $r['eveningStatusRaw'] = null;
+                }
+                unset($r['eveningBaseSalary'], $r['eveningPaidBase'], $r['eveningBonus'], $r['eveningDeduction']);
                 return $r;
             }, $stmt->fetchAll());
             echo json_encode(['ok' => true, 'salaries' => $rows], JSON_UNESCAPED_UNICODE);
@@ -784,12 +803,17 @@ if (isset($_GET['ajax'])) {
             $employeeId = (int) ($_POST['employeeId'] ?? 0);
             $month = (int) date('n');
             $year = (int) date('Y');
+            $period = ($_POST['period'] ?? '') === 'evening' ? 'evening' : 'morning';
 
-            $empStmt = $pdo->prepare("SELECT branch_id, full_name, base_salary, shift_start FROM employees WHERE id=?");
+            $empStmt = $pdo->prepare("SELECT branch_id, full_name, base_salary, shift_start, has_evening_shift, evening_shift_start, evening_base_salary FROM employees WHERE id=?");
             $empStmt->execute([$employeeId]);
             $emp = $empStmt->fetch();
             if (!$emp) {
                 echo json_encode(['ok' => false, 'error' => 'الموظف غير موجود']);
+                exit;
+            }
+            if ($period === 'evening' && !$emp['has_evening_shift']) {
+                echo json_encode(['ok' => false, 'error' => 'لا يوجد لهذا الموظف شفت مسائي مفعّل']);
                 exit;
             }
             $branchId = (int) $emp['branch_id'];
@@ -802,26 +826,28 @@ if (isset($_GET['ajax'])) {
                 exit;
             }
 
-            $existing = $pdo->prepare("SELECT * FROM payroll WHERE employee_id=? AND period_month=? AND period_year=?");
-            $existing->execute([$employeeId, $month, $year]);
+            $existing = $pdo->prepare("SELECT * FROM payroll WHERE employee_id=? AND period_month=? AND period_year=? AND shift_period=?");
+            $existing->execute([$employeeId, $month, $year, $period]);
             $existing = $existing->fetch();
             if ($existing && $existing['status'] === 'delivered') {
                 echo json_encode(['ok' => false, 'error' => 'تم تسليم راتب هذا الموظف عن هذا الشهر مسبقاً']);
                 exit;
             }
 
-            $baseSalary = $existing ? (float) $existing['base_salary'] : (float) $emp['base_salary'];
+            $defaultBase = $period === 'evening' ? (float) $emp['evening_base_salary'] : (float) $emp['base_salary'];
+            $baseSalary = $existing ? (float) $existing['base_salary'] : $defaultBase;
             $bonus = $existing ? (float) $existing['bonus'] : 0.0;
             $deduction = $existing ? (float) $existing['deduction'] : 0.0;
 
-            // خصم التأخير عن الشهر الحالي
+            // خصم التأخير عن الشهر الحالي (لنفس الشفت المسلَّم فقط)
             $lateDeduction = 0.0;
             $settingsRow = $pdo->query("SELECT late_grace_minutes, late_deduction_per_hour, work_start_time FROM settings ORDER BY id DESC LIMIT 1")->fetch();
-            if ($emp['shift_start']) { $settingsRow['work_start_time'] = $emp['shift_start']; }
+            $effectiveShiftStart = $period === 'evening' ? $emp['evening_shift_start'] : $emp['shift_start'];
+            if ($effectiveShiftStart) { $settingsRow['work_start_time'] = $effectiveShiftStart; }
             if ($settingsRow && (float) $settingsRow['late_deduction_per_hour'] > 0 && $settingsRow['work_start_time']) {
-                $lateStmt = $pdo->prepare("SELECT check_in FROM attendance WHERE employee_id=? AND status='late' AND attendance_date >= ? AND attendance_date < DATE_ADD(?, INTERVAL 1 MONTH)");
+                $lateStmt = $pdo->prepare("SELECT check_in FROM attendance WHERE employee_id=? AND shift_period=? AND status='late' AND attendance_date >= ? AND attendance_date < DATE_ADD(?, INTERVAL 1 MONTH)");
                 $monthStart = sprintf('%04d-%02d-01', $year, $month);
-                $lateStmt->execute([$employeeId, $monthStart, $monthStart]);
+                $lateStmt->execute([$employeeId, $period, $monthStart, $monthStart]);
                 $grace = (int) $settingsRow['late_grace_minutes'];
                 $deadline = strtotime($settingsRow['work_start_time']) + $grace * 60;
                 $lateMinutes = 0;
@@ -836,29 +862,32 @@ if (isset($_GET['ajax'])) {
                 }
             }
 
-            // خصم السلفة الشهري النشط
-            $advStmt = $pdo->prepare("SELECT id, approved_monthly_deduction, remaining_balance FROM requests WHERE employee_id=? AND type='advance' AND status='approved' AND remaining_balance > 0 ORDER BY id ASC LIMIT 1");
-            $advStmt->execute([$employeeId]);
-            $adv = $advStmt->fetch();
-            if ($adv) {
-                $advanceCut = min((float) $adv['approved_monthly_deduction'], (float) $adv['remaining_balance']);
-                $deduction += $advanceCut;
-                $pdo->prepare("UPDATE requests SET remaining_balance = remaining_balance - ? WHERE id=?")->execute([$advanceCut, $adv['id']]);
+            // خصم السلفة الشهري النشط (يُخصم مرة واحدة فقط، من الشفت الصباحي إن وُجد)
+            if ($period === 'morning') {
+                $advStmt = $pdo->prepare("SELECT id, approved_monthly_deduction, remaining_balance FROM requests WHERE employee_id=? AND type='advance' AND status='approved' AND remaining_balance > 0 ORDER BY id ASC LIMIT 1");
+                $advStmt->execute([$employeeId]);
+                $adv = $advStmt->fetch();
+                if ($adv) {
+                    $advanceCut = min((float) $adv['approved_monthly_deduction'], (float) $adv['remaining_balance']);
+                    $deduction += $advanceCut;
+                    $pdo->prepare("UPDATE requests SET remaining_balance = remaining_balance - ? WHERE id=?")->execute([$advanceCut, $adv['id']]);
+                }
             }
 
-            $stmt = $pdo->prepare("INSERT INTO payroll (employee_id, branch_id, period_month, period_year, base_salary, bonus, deduction, late_deduction, status)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'delivered')
+            $stmt = $pdo->prepare("INSERT INTO payroll (employee_id, branch_id, period_month, period_year, shift_period, base_salary, bonus, deduction, late_deduction, status)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'delivered')
                 ON DUPLICATE KEY UPDATE base_salary=VALUES(base_salary), bonus=VALUES(bonus), deduction=VALUES(deduction), late_deduction=VALUES(late_deduction), status='delivered'");
-            $stmt->execute([$employeeId, $branchId, $month, $year, $baseSalary, $bonus, $deduction, $lateDeduction]);
+            $stmt->execute([$employeeId, $branchId, $month, $year, $period, $baseSalary, $bonus, $deduction, $lateDeduction]);
 
             $net = $baseSalary + $bonus - $deduction;
-            $msg = 'تم تسليم راتب شهر ' . $month . '/' . $year . ' بصافي ' . number_format($net) . ' دينار للموظف ' . $emp['full_name'];
+            $periodLabel = $period === 'evening' ? ' (الشفت المسائي)' : '';
+            $msg = 'تم تسليم راتب شهر ' . $month . '/' . $year . $periodLabel . ' بصافي ' . number_format($net) . ' دينار للموظف ' . $emp['full_name'];
             $notifyUsers = $pdo->prepare("SELECT id FROM users WHERE employee_id=? UNION SELECT id FROM users WHERE branch_id=? AND role='branch_manager' UNION SELECT id FROM users WHERE role='hr'");
             $notifyUsers->execute([$employeeId, $branchId]);
             foreach ($notifyUsers->fetchAll(PDO::FETCH_COLUMN) as $uid) {
                 $pdo->prepare("INSERT INTO notifications (user_id, title, message) VALUES (?, 'تم تسليم الراتب', ?)")->execute([$uid, $msg]);
             }
-            audit_log_write($pdo, 'hr', $hrUser['displayName'] ?? $hrUser['username'], $hrUser['employeeNumber'] ?? null, 'salary_deliver', 'سلّم HR راتب ' . $emp['full_name'] . ' عن ' . $month . '/' . $year . ' بصافي ' . number_format($net) . ' دينار', $branchId);
+            audit_log_write($pdo, 'hr', $hrUser['displayName'] ?? $hrUser['username'], $hrUser['employeeNumber'] ?? null, 'salary_deliver', 'سلّم HR راتب ' . $emp['full_name'] . $periodLabel . ' عن ' . $month . '/' . $year . ' بصافي ' . number_format($net) . ' دينار', $branchId);
 
             echo json_encode(['ok' => true, 'net' => $net]);
             exit;
@@ -4397,12 +4426,15 @@ try {
             });
         }
 
-        function deliverSalary(employeeId, name) {
-            showConfirmSheet('تسليم الراتب', `تأكيد تسليم راتب ${name} لهذا الشهر؟`, function() { doDeliverSalary(employeeId, name); });
+        function deliverSalary(employeeId, name, period) {
+            period = period || 'morning';
+            const label = period === 'evening' ? ' (الشفت المسائي)' : '';
+            showConfirmSheet('تسليم الراتب', `تأكيد تسليم راتب ${name}${label} لهذا الشهر؟`, function() { doDeliverSalary(employeeId, name, period); });
         }
 
-        function doDeliverSalary(employeeId, name) {
-            const body = new URLSearchParams({ employeeId });
+        function doDeliverSalary(employeeId, name, period) {
+            period = period || 'morning';
+            const body = new URLSearchParams({ employeeId, period });
             fetch('?ajax=salary_deliver', { method: 'POST', body }).then(r => r.json()).then(data => {
                 if (!data.ok) { showToast('⚠️ تنبيه', data.error || 'تعذر التسليم', 'warning'); return; }
                 loadSalaries();
@@ -4430,13 +4462,34 @@ try {
                         <td><span class="status-badge ${statusClass}">${item.status}</span></td>
                         <td>
                             ${item.statusRaw !== 'delivered' ? (item.windowOpen ? `
-                                <button class="action-btn approve" onclick="deliverSalary(${item.employeeId}, '${item.name}')" title="تسليم">
-                                    <i class="fas fa-check"></i> تسليم
+                                <button class="action-btn approve" onclick="deliverSalary(${item.employeeId}, '${item.name}', 'morning')" title="تسليم">
+                                    <i class="fas fa-check"></i> تسليم${item.hasEveningShift ? ' (صباحي)' : ''}
                                 </button>
-                            ` : `<span style="font-size:10.5px;color:var(--text-muted);"><i class="fas fa-lock"></i> الصلاحية مغلقة لفرع ${item.branch}</span>`) : '<span style="font-size:11px;color:var(--text-muted);">تم التسليم</span>'}
+                            ` : `<span style="font-size:10.5px;color:var(--text-muted);"><i class="fas fa-lock"></i> الصلاحية مغلقة لفرع ${item.branch}</span>`) : '<span style="font-size:11px;color:var(--text-muted);">تم التسليم${item.hasEveningShift ? " (صباحي)" : ""}</span>'}
                         </td>
                     </tr>
                 `;
+                if (item.hasEveningShift) {
+                    html += `
+                    <tr style="background:rgba(0,107,115,0.02);">
+                        <td></td>
+                        <td colspan="1" style="font-size:11px;color:var(--text-muted);"><i class="fas fa-moon"></i> ${item.name} — الشفت المسائي</td>
+                        <td>${item.branch}</td>
+                        <td>${Number(item.eveningBase || 0).toLocaleString()}</td>
+                        <td>-</td>
+                        <td>-</td>
+                        <td><strong>${Number(item.eveningNet || 0).toLocaleString()}</strong></td>
+                        <td><span class="status-badge ${item.eveningStatus === 'مدفوع' ? 'approved' : 'pending'}">${item.eveningStatus}</span></td>
+                        <td>
+                            ${item.eveningStatusRaw !== 'delivered' ? (item.windowOpen ? `
+                                <button class="action-btn approve" onclick="deliverSalary(${item.employeeId}, '${item.name}', 'evening')" title="تسليم">
+                                    <i class="fas fa-check"></i> تسليم (مسائي)
+                                </button>
+                            ` : `<span style="font-size:10.5px;color:var(--text-muted);"><i class="fas fa-lock"></i> الصلاحية مغلقة</span>`) : '<span style="font-size:11px;color:var(--text-muted);">تم التسليم (مسائي)</span>'}
+                        </td>
+                    </tr>
+                    `;
+                }
             });
             tbody.innerHTML = html;
         }
