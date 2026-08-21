@@ -428,6 +428,7 @@ if (isset($_GET['ajax'])) {
         }
 
         case 'briefs_pending': {
+            $rate = (float) ($pdo->query("SELECT usd_exchange_rate FROM settings ORDER BY id DESC LIMIT 1")->fetchColumn() ?: 0);
             $stmt = $pdo->query("
                 SELECT db.id, db.branch_id, b.name AS branch, DATE_FORMAT(db.brief_date, '%d/%m/%Y') AS date, db.brief_date AS rawDate,
                        db.total_income AS revenue, db.total_expense AS expenses, db.travelers_count AS travelersCount,
@@ -438,11 +439,12 @@ if (isset($_GET['ajax'])) {
             ");
             $entriesStmt = $pdo->prepare("SELECT id, entry_type, amount, description, attachment FROM daily_ledger WHERE branch_id=? AND entry_date=? ORDER BY created_at ASC");
             $prevStmt = $pdo->prepare("SELECT total_income, total_expense FROM daily_briefs WHERE branch_id=? AND brief_date=?");
-            $rows = array_map(function ($r) use ($entriesStmt, $prevStmt) {
+            $rows = array_map(function ($r) use ($entriesStmt, $prevStmt, $rate) {
                 $r['revenue'] = (float) $r['revenue'];
                 $r['expenses'] = (float) $r['expenses'];
                 $r['travelersCount'] = (int) $r['travelersCount'];
                 $r['netProfit'] = $r['revenue'] - $r['expenses'];
+                $r['netProfitUsd'] = $rate > 0 ? round($r['netProfit'] / $rate, 2) : null;
                 $r['hrStatusText'] = $r['hr_decision'] === 'approved' ? 'وافقت عليه الموارد البشرية' : 'بانتظار مراجعة الموارد البشرية أيضاً';
                 $entriesStmt->execute([$r['branch_id'], $r['rawDate']]);
                 $r['entries'] = array_map(fn($e) => ['id' => (int) $e['id'], 'type' => $e['entry_type'], 'amount' => (float) $e['amount'], 'note' => $e['description'], 'attachment' => $e['attachment']], $entriesStmt->fetchAll());
@@ -1628,44 +1630,75 @@ try {
         return `<div style="margin:8px 0;border-radius:8px;overflow:hidden;border:1px solid rgba(0,107,115,0.06);">${inner}</div>`;
     }
 
+    let pendingBriefsData = [];
+    let pendingOpenId = null;
+
     function loadPending() {
         fetch('?ajax=briefs_pending').then(r => r.json()).then(data => {
             if (!data.ok) return;
-            const view = document.getElementById('view-pending');
-            if (!data.briefs.length) {
-                view.innerHTML = '<div class="empty-state"><i class="fas fa-inbox"></i><p>لا توجد إيجازات بانتظار الاعتماد النهائي حالياً</p></div>';
-                return;
-            }
-            view.innerHTML = data.briefs.map(b => `
-                <div class="brief-card">
-                    <div class="brief-top">
-                        <span class="branch"><i class="fas fa-building"></i> ${b.branch}</span>
-                        <span class="date">${b.date}</span>
-                    </div>
-                    <div class="brief-details">
-                        <div class="item"><div class="v">${b.revenue.toLocaleString()}</div><div class="l">الإيرادات</div></div>
-                        <div class="item"><div class="v">${b.expenses.toLocaleString()}</div><div class="l">المصاريف</div></div>
-                        <div class="item"><div class="v">${b.travelersCount}</div><div class="l">المسافرون</div></div>
-                        <div class="item"><div class="v" style="color:var(--green);">${b.netProfit.toLocaleString()}</div><div class="l">صافي الرصيد</div></div>
-                    </div>
-                    <div class="muted" style="font-size:13px;margin:4px 0;">
-                        <i class="fas ${b.hr_decision === 'approved' ? 'fa-circle-check' : 'fa-clock'}" style="color:${b.hr_decision === 'approved' ? 'var(--green)' : '#D97706'};"></i>
-                        ${b.hrStatusText}
-                    </div>
-                    ${renderBriefEntriesBlock(b.entries, b.prevDayNetProfit)}
-                    ${b.note ? `<div class="brief-note"><b>ملاحظة المرسل:</b> ${b.note}</div>` : ''}
-                    ${b.attachment ? `<div class="brief-note"><a href="${b.attachment}" target="_blank"><i class="fas fa-paperclip"></i> عرض الملف المرفق مع الإيجاز</a></div>` : ''}
-                    ${b.hrNote ? `<div class="brief-note"><b>ملاحظة HR:</b> ${b.hrNote}</div>` : ''}
-                    ${currentRole !== 'shareholder' ? `
-                        <div class="brief-actions">
-                            <input type="text" id="gmNote_${b.id}" placeholder="ملاحظة الاعتماد النهائي (اختياري)">
-                            <button class="btn small green" onclick="finalReview(${b.id}, 'approved')"><i class="fas fa-check"></i> اعتماد نهائي</button>
-                            <button class="btn small red" onclick="finalReview(${b.id}, 'rejected')"><i class="fas fa-times"></i> رفض</button>
-                        </div>
-                    ` : ''}
-                </div>
-            `).join('');
+            pendingBriefsData = data.briefs;
+            renderPendingCards();
         });
+    }
+
+    function renderPendingCards() {
+        const view = document.getElementById('view-pending');
+        if (!pendingBriefsData.length) {
+            view.innerHTML = '<div class="empty-state"><i class="fas fa-inbox"></i><p>لا توجد إيجازات بانتظار الاعتماد النهائي حالياً</p></div>';
+            return;
+        }
+        view.innerHTML = '<div class="branches-grid" style="margin-bottom:14px;">' + pendingBriefsData.map(b => `
+            <div class="branch-card" style="cursor:pointer;" onclick="togglePendingBrief(${b.id})">
+                <div class="name"><i class="fas fa-building" style="color:var(--primary);"></i> ${b.branch}</div>
+                <div class="muted">${b.date}</div>
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-top:8px;padding-top:8px;border-top:1px solid #eef2f4;font-size:13px;">
+                    <span>صافي الرصيد</span>
+                    <b style="color:${b.netProfit >= 0 ? 'var(--green)' : 'var(--red)'};">${(b.netProfit >= 0 ? '+' : '') + Number(b.netProfit).toLocaleString()} د.ع</b>
+                </div>
+                ${b.netProfitUsd !== null ? `<div style="text-align:left;font-size:11px;color:var(--text-muted);">${(b.netProfitUsd >= 0 ? '+' : '') + Number(b.netProfitUsd).toLocaleString()} $</div>` : ''}
+            </div>
+        `).join('') + '</div>' + (pendingOpenId !== null ? renderPendingDetail(pendingBriefsData.find(b => b.id === pendingOpenId)) : '');
+    }
+
+    function togglePendingBrief(id) {
+        pendingOpenId = (pendingOpenId === id) ? null : id;
+        renderPendingCards();
+        if (pendingOpenId !== null) {
+            document.getElementById('pendingDetailBlock')?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        }
+    }
+
+    function renderPendingDetail(b) {
+        if (!b) return '';
+        return `
+            <div class="brief-card" id="pendingDetailBlock">
+                <div class="brief-top">
+                    <span class="branch"><i class="fas fa-building"></i> ${b.branch}</span>
+                    <span class="date">${b.date}</span>
+                </div>
+                <div class="brief-details">
+                    <div class="item"><div class="v">${b.revenue.toLocaleString()}</div><div class="l">الإيرادات</div></div>
+                    <div class="item"><div class="v">${b.expenses.toLocaleString()}</div><div class="l">المصاريف</div></div>
+                    <div class="item"><div class="v">${b.travelersCount}</div><div class="l">المسافرون</div></div>
+                    <div class="item"><div class="v" style="color:var(--green);">${b.netProfit.toLocaleString()}</div><div class="l">صافي الرصيد</div></div>
+                </div>
+                <div class="muted" style="font-size:13px;margin:4px 0;">
+                    <i class="fas ${b.hr_decision === 'approved' ? 'fa-circle-check' : 'fa-clock'}" style="color:${b.hr_decision === 'approved' ? 'var(--green)' : '#D97706'};"></i>
+                    ${b.hrStatusText}
+                </div>
+                ${renderBriefEntriesBlock(b.entries, b.prevDayNetProfit)}
+                ${b.note ? `<div class="brief-note" style="font-size:15px;"><b>ملاحظة المرسل:</b> ${b.note}</div>` : ''}
+                ${b.attachment ? `<div class="brief-note"><a href="${b.attachment}" target="_blank"><i class="fas fa-paperclip"></i> عرض الملف المرفق مع الإيجاز</a></div>` : ''}
+                ${b.hrNote ? `<div class="brief-note" style="font-size:15px;"><b>ملاحظة HR:</b> ${b.hrNote}</div>` : ''}
+                ${currentRole !== 'shareholder' ? `
+                    <div class="brief-actions">
+                        <input type="text" id="gmNote_${b.id}" placeholder="ملاحظة الاعتماد النهائي (اختياري)">
+                        <button class="btn small green" onclick="finalReview(${b.id}, 'approved')"><i class="fas fa-check"></i> اعتماد نهائي</button>
+                        <button class="btn small red" onclick="finalReview(${b.id}, 'rejected')"><i class="fas fa-times"></i> رفض</button>
+                    </div>
+                ` : ''}
+            </div>
+        `;
     }
 
     function finalReview(id, decision) {
@@ -1675,6 +1708,7 @@ try {
                 if (!data.ok) { showToast('⚠️ خطأ', data.error || 'تعذر تنفيذ العملية', 'error'); return; }
                 showToast(decision === 'approved' ? '✅ تم الاعتماد النهائي' : '❌ تم الرفض',
                     decision === 'approved' ? 'تم اعتماد الإيجاز نهائياً' : 'تم رفض الإيجاز', decision === 'approved' ? 'success' : 'error');
+                pendingOpenId = null;
                 loadPending();
                 loadBootstrap();
             });
@@ -1834,10 +1868,10 @@ try {
                             <div class="item"><div class="v" style="color:var(--green);">${br.profit.toLocaleString()}</div><div class="l">صافي الرصيد</div></div>
                         </div>
                         ${renderBriefEntriesBlock(br.entries, br.prevDayNetProfit)}
-                        ${br.note ? `<div class="brief-note"><b>ملاحظة المرسل:</b> ${br.note}</div>` : ''}
+                        ${br.note ? `<div class="brief-note" style="font-size:15px;"><b>ملاحظة المرسل:</b> ${br.note}</div>` : ''}
                         ${br.attachment ? `<div class="brief-note"><a href="${br.attachment}" target="_blank"><i class="fas fa-paperclip"></i> عرض الملف المرفق مع الإيجاز</a></div>` : ''}
-                        ${br.hrNote ? `<div class="brief-note"><b>ملاحظة HR:</b> ${br.hrNote}</div>` : ''}
-                        ${br.gmNote ? `<div class="brief-note"><b>ملاحظتك:</b> ${br.gmNote}</div>` : ''}
+                        ${br.hrNote ? `<div class="brief-note" style="font-size:15px;"><b>ملاحظة HR:</b> ${br.hrNote}</div>` : ''}
+                        ${br.gmNote ? `<div class="brief-note" style="font-size:15px;"><b>ملاحظتك:</b> ${br.gmNote}</div>` : ''}
                     </div>
                 `;
             });

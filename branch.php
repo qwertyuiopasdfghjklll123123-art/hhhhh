@@ -82,7 +82,7 @@ function is_late(string $now, ?array $settingsRow): bool
     return $now > $deadline;
 }
 
-function notify_attendance_window(PDO $pdo, int $userId, string $shiftStart, string $shiftEnd, int $graceMinutes, $todayAtt): void
+function notify_attendance_window(PDO $pdo, int $userId, string $shiftStart, string $shiftEnd, int $graceMinutes, $todayAtt, string $period = 'morning'): void
 {
     $nowMinutes = (int) date('H') * 60 + (int) date('i');
     [$shH, $shM] = array_map('intval', explode(':', $shiftStart));
@@ -91,21 +91,24 @@ function notify_attendance_window(PDO $pdo, int $userId, string $shiftStart, str
     $shiftEndMin = $eH * 60 + $eM;
     $inWindowOpen = $nowMinutes >= ($shiftStartMin - 15) && $nowMinutes <= ($shiftStartMin + $graceMinutes);
     $outWindowOpen = $nowMinutes >= $shiftEndMin && $nowMinutes <= ($shiftEndMin + 15);
+    $periodLabel = $period === 'evening' ? ' (الشفت المسائي)' : '';
 
     $dupStmt = $pdo->prepare("SELECT COUNT(*) FROM notifications WHERE user_id=? AND title=? AND DATE(created_at)=CURDATE()");
 
     if ($inWindowOpen && !$todayAtt) {
-        $dupStmt->execute([$userId, 'فُتحت فترة تسجيل الحضور']);
+        $title = 'فُتحت فترة تسجيل الحضور' . $periodLabel;
+        $dupStmt->execute([$userId, $title]);
         if (!$dupStmt->fetchColumn()) {
-            $pdo->prepare("INSERT INTO notifications (user_id, title, message) VALUES (?, 'فُتحت فترة تسجيل الحضور', ?)")
-                ->execute([$userId, 'يمكنك الآن تسجيل حضورك، بادر قبل انتهاء الفترة']);
+            $pdo->prepare("INSERT INTO notifications (user_id, title, message) VALUES (?, ?, ?)")
+                ->execute([$userId, $title, 'يمكنك الآن تسجيل حضورك، بادر قبل انتهاء الفترة']);
         }
     }
     if ($outWindowOpen && $todayAtt && $todayAtt['check_in'] && !$todayAtt['check_out']) {
-        $dupStmt->execute([$userId, 'فُتحت فترة تسجيل الانصراف']);
+        $title = 'فُتحت فترة تسجيل الانصراف' . $periodLabel;
+        $dupStmt->execute([$userId, $title]);
         if (!$dupStmt->fetchColumn()) {
-            $pdo->prepare("INSERT INTO notifications (user_id, title, message) VALUES (?, 'فُتحت فترة تسجيل الانصراف', ?)")
-                ->execute([$userId, 'انتهى دوامك، يمكنك الآن تسجيل انصرافك خلال 15 دقيقة']);
+            $pdo->prepare("INSERT INTO notifications (user_id, title, message) VALUES (?, ?, ?)")
+                ->execute([$userId, $title, 'انتهى دوامك، يمكنك الآن تسجيل انصرافك خلال 15 دقيقة']);
         }
     }
 }
@@ -210,7 +213,7 @@ if (isset($_GET['ajax'])) {
             $branch->execute([$branchId]);
             $branch = $branch->fetch();
 
-            $mgrPhotoStmt = $pdo->prepare("SELECT photo, shift_start, shift_end FROM employees WHERE id = ?");
+            $mgrPhotoStmt = $pdo->prepare("SELECT photo, shift_start, shift_end, has_evening_shift, evening_shift_start, evening_shift_end FROM employees WHERE id = ?");
             $mgrPhotoStmt->execute([$mgr['employee_id']]);
             $mgrRow = $mgrPhotoStmt->fetch();
             $mgrPhoto = $mgrRow['photo'] ?? null;
@@ -219,12 +222,21 @@ if (isset($_GET['ajax'])) {
             $shiftStart = $mgrRow['shift_start'] ?: ($settingsRow['work_start_time'] ?? '09:00:00');
             $shiftEnd = $mgrRow['shift_end'] ?: ($settingsRow['work_end_time'] ?? '17:00:00');
             $graceMinutes = (int) ($settingsRow['late_grace_minutes'] ?? 15);
+            $hasEveningShift = (bool) $mgrRow['has_evening_shift'];
 
-            $todayAttStmt = $pdo->prepare("SELECT check_in, check_out FROM attendance WHERE employee_id=? AND attendance_date=CURDATE()");
+            $todayAttStmt = $pdo->prepare("SELECT check_in, check_out FROM attendance WHERE employee_id=? AND attendance_date=CURDATE() AND shift_period='morning'");
             $todayAttStmt->execute([$mgr['employee_id']]);
             $todayAtt = $todayAttStmt->fetch();
 
             notify_attendance_window($pdo, $mgr['id'], $shiftStart, $shiftEnd, $graceMinutes, $todayAtt);
+
+            $todayAttEvening = null;
+            if ($hasEveningShift && $mgrRow['evening_shift_start'] && $mgrRow['evening_shift_end']) {
+                $todayAttEveningStmt = $pdo->prepare("SELECT check_in, check_out FROM attendance WHERE employee_id=? AND attendance_date=CURDATE() AND shift_period='evening'");
+                $todayAttEveningStmt->execute([$mgr['employee_id']]);
+                $todayAttEvening = $todayAttEveningStmt->fetch();
+                notify_attendance_window($pdo, $mgr['id'], $mgrRow['evening_shift_start'], $mgrRow['evening_shift_end'], $graceMinutes, $todayAttEvening, 'evening');
+            }
 
             $empCount = $pdo->prepare("SELECT COUNT(*) FROM employees WHERE branch_id=? AND status='active' AND is_branch_manager=0");
             $empCount->execute([$branchId]);
@@ -286,6 +298,15 @@ if (isset($_GET['ajax'])) {
                     'checkedIn' => (bool) ($todayAtt['check_in'] ?? false),
                     'checkedOut' => (bool) ($todayAtt['check_out'] ?? false),
                 ],
+                'hasEveningShift' => $hasEveningShift,
+                'eveningShift' => $hasEveningShift ? [
+                    'start' => $mgrRow['evening_shift_start'] ? substr($mgrRow['evening_shift_start'], 0, 5) : null,
+                    'end' => $mgrRow['evening_shift_end'] ? substr($mgrRow['evening_shift_end'], 0, 5) : null,
+                ] : null,
+                'todayAttendanceEvening' => $hasEveningShift ? [
+                    'checkedIn' => (bool) ($todayAttEvening['check_in'] ?? false),
+                    'checkedOut' => (bool) ($todayAttEvening['check_out'] ?? false),
+                ] : null,
             ], JSON_UNESCAPED_UNICODE);
             exit;
         }
@@ -342,8 +363,16 @@ if (isset($_GET['ajax'])) {
             $shiftType = ($_POST['shiftType'] ?? '') === 'evening' ? 'evening' : 'morning';
             $shiftStart = $_POST['shiftStart'] ?: null;
             $shiftEnd = $_POST['shiftEnd'] ?: null;
+            $hasEveningShift = ($_POST['hasEveningShift'] ?? '') === '1' ? 1 : 0;
+            $eveningShiftStart = $hasEveningShift ? ($_POST['eveningShiftStart'] ?: null) : null;
+            $eveningShiftEnd = $hasEveningShift ? ($_POST['eveningShiftEnd'] ?: null) : null;
+            $eveningSalary = $hasEveningShift ? (float) ($_POST['eveningSalary'] ?? 0) : 0;
             if ($name === '' || $position === '' || $salary <= 0 || strlen($password) < 6 || $phone === '') {
                 echo json_encode(['ok' => false, 'error' => 'الرجاء تعبئة جميع الحقول المطلوبة (رقم الهاتف مطلوب، وكلمة المرور 6 أحرف على الأقل)']);
+                exit;
+            }
+            if ($hasEveningShift && (!$eveningShiftStart || !$eveningShiftEnd || $eveningSalary <= 0)) {
+                echo json_encode(['ok' => false, 'error' => 'الرجاء تحديد وقت دوام الشفت المسائي وراتبه']);
                 exit;
             }
             $photoPath = handle_upload('photo', 'photos', ['jpg', 'jpeg', 'png', 'webp']);
@@ -357,9 +386,9 @@ if (isset($_GET['ajax'])) {
                 $numStmt = $pdo->query("SELECT MAX(CAST(employee_number AS UNSIGNED)) FROM employees WHERE employee_number REGEXP '^[0-9]+$'");
                 $empNumber = (string) max(1001, (int) $numStmt->fetchColumn() + 1);
                 $stmt = $pdo->prepare("INSERT INTO employees
-                    (branch_id, employee_number, full_name, mother_name, national_id, phone_number, birth_date, hire_date, job_title, shift_type, shift_start, shift_end, photo, documents, base_salary, is_branch_manager, status)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 'active')");
-                $stmt->execute([$branchId, $empNumber, $name, $motherName ?: null, $nationalId ?: null, $phone, $birthDate, $hireDate, $position, $shiftType, $shiftStart, $shiftEnd, $photoPath, $docsPath, $salary]);
+                    (branch_id, employee_number, full_name, mother_name, national_id, phone_number, birth_date, hire_date, job_title, shift_type, shift_start, shift_end, has_evening_shift, evening_shift_start, evening_shift_end, evening_base_salary, photo, documents, base_salary, is_branch_manager, status)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 'active')");
+                $stmt->execute([$branchId, $empNumber, $name, $motherName ?: null, $nationalId ?: null, $phone, $birthDate, $hireDate, $position, $shiftType, $shiftStart, $shiftEnd, $hasEveningShift, $eveningShiftStart, $eveningShiftEnd, $eveningSalary, $photoPath, $docsPath, $salary]);
                 $employeeId = (int) $pdo->lastInsertId();
 
                 $hash = password_hash($password, PASSWORD_DEFAULT);
@@ -380,6 +409,7 @@ if (isset($_GET['ajax'])) {
             $stmt = $pdo->prepare("SELECT id, full_name AS name, mother_name AS motherName, national_id AS nationalId,
                        phone_number AS phone, job_title AS position, birth_date AS birthDate, hire_date AS hireDate,
                        shift_type AS shiftType, shift_start AS shiftStart, shift_end AS shiftEnd, base_salary AS salary,
+                       has_evening_shift AS hasEveningShift, evening_shift_start AS eveningShiftStart, evening_shift_end AS eveningShiftEnd, evening_base_salary AS eveningSalary,
                        photo, documents
                 FROM employees WHERE id=? AND branch_id=? AND is_branch_manager=0");
             $stmt->execute([$employeeId, $branchId]);
@@ -391,6 +421,10 @@ if (isset($_GET['ajax'])) {
             $emp['salary'] = (float) $emp['salary'];
             $emp['shiftStart'] = $emp['shiftStart'] ? substr($emp['shiftStart'], 0, 5) : null;
             $emp['shiftEnd'] = $emp['shiftEnd'] ? substr($emp['shiftEnd'], 0, 5) : null;
+            $emp['hasEveningShift'] = (bool) $emp['hasEveningShift'];
+            $emp['eveningShiftStart'] = $emp['eveningShiftStart'] ? substr($emp['eveningShiftStart'], 0, 5) : null;
+            $emp['eveningShiftEnd'] = $emp['eveningShiftEnd'] ? substr($emp['eveningShiftEnd'], 0, 5) : null;
+            $emp['eveningSalary'] = (float) $emp['eveningSalary'];
             echo json_encode(['ok' => true, 'employee' => $emp], JSON_UNESCAPED_UNICODE);
             exit;
         }
@@ -409,8 +443,16 @@ if (isset($_GET['ajax'])) {
             $shiftType = ($_POST['shiftType'] ?? '') === 'evening' ? 'evening' : 'morning';
             $shiftStart = $_POST['shiftStart'] ?: null;
             $shiftEnd = $_POST['shiftEnd'] ?: null;
+            $hasEveningShift = ($_POST['hasEveningShift'] ?? '') === '1' ? 1 : 0;
+            $eveningShiftStart = $hasEveningShift ? ($_POST['eveningShiftStart'] ?: null) : null;
+            $eveningShiftEnd = $hasEveningShift ? ($_POST['eveningShiftEnd'] ?: null) : null;
+            $eveningSalary = $hasEveningShift ? (float) ($_POST['eveningSalary'] ?? 0) : 0;
             if ($employeeId <= 0 || $name === '' || $position === '' || $salary <= 0 || $phone === '') {
                 echo json_encode(['ok' => false, 'error' => 'الرجاء تعبئة جميع الحقول المطلوبة']);
+                exit;
+            }
+            if ($hasEveningShift && (!$eveningShiftStart || !$eveningShiftEnd || $eveningSalary <= 0)) {
+                echo json_encode(['ok' => false, 'error' => 'الرجاء تحديد وقت دوام الشفت المسائي وراتبه']);
                 exit;
             }
             $ownerStmt = $pdo->prepare("SELECT id FROM employees WHERE id=? AND branch_id=? AND is_branch_manager=0");
@@ -423,8 +465,8 @@ if (isset($_GET['ajax'])) {
             $photoPath = handle_upload('photo', 'photos', ['jpg', 'jpeg', 'png', 'webp']);
             $docsPath = handle_upload('documents', 'documents', ['jpg', 'jpeg', 'png', 'pdf', 'doc', 'docx']);
 
-            $sql = "UPDATE employees SET full_name=?, mother_name=?, national_id=?, phone_number=?, birth_date=?, hire_date=?, job_title=?, shift_type=?, shift_start=?, shift_end=?, base_salary=?";
-            $params = [$name, $motherName ?: null, $nationalId ?: null, $phone, $birthDate, $hireDate, $position, $shiftType, $shiftStart, $shiftEnd, $salary];
+            $sql = "UPDATE employees SET full_name=?, mother_name=?, national_id=?, phone_number=?, birth_date=?, hire_date=?, job_title=?, shift_type=?, shift_start=?, shift_end=?, base_salary=?, has_evening_shift=?, evening_shift_start=?, evening_shift_end=?, evening_base_salary=?";
+            $params = [$name, $motherName ?: null, $nationalId ?: null, $phone, $birthDate, $hireDate, $position, $shiftType, $shiftStart, $shiftEnd, $salary, $hasEveningShift, $eveningShiftStart, $eveningShiftEnd, $eveningSalary];
             if ($photoPath) { $sql .= ", photo=?"; $params[] = $photoPath; }
             if ($docsPath) { $sql .= ", documents=?"; $params[] = $docsPath; }
             $sql .= " WHERE id=?";
@@ -455,9 +497,19 @@ if (isset($_GET['ajax'])) {
 
         case 'attendance_self': {
             $type = ($_POST['type'] ?? '') === 'out' ? 'out' : 'in';
+            $period = ($_POST['period'] ?? '') === 'evening' ? 'evening' : 'morning';
             $lat = (float) ($_POST['lat'] ?? 0);
             $lng = (float) ($_POST['lng'] ?? 0);
             $accuracy = min(150.0, max(0.0, (float) ($_POST['accuracy'] ?? 0)));
+            $employeeId = $mgr['employee_id'];
+
+            $empShiftRow = $pdo->prepare("SELECT shift_start, has_evening_shift, evening_shift_start FROM employees WHERE id=?");
+            $empShiftRow->execute([$employeeId]);
+            $empShiftRow = $empShiftRow->fetch();
+            if ($period === 'evening' && !$empShiftRow['has_evening_shift']) {
+                echo json_encode(['ok' => false, 'error' => 'لا يوجد لديك شفت مسائي مفعّل']);
+                exit;
+            }
 
             $branch = $pdo->prepare("SELECT latitude, longitude, geofence_radius FROM branches WHERE id=?");
             $branch->execute([$branchId]);
@@ -475,26 +527,23 @@ if (isset($_GET['ajax'])) {
 
             $today = date('Y-m-d');
             $now = date('H:i:s');
-            $employeeId = $mgr['employee_id'];
             if ($type === 'in') {
-                $existing = $pdo->prepare("SELECT check_in FROM attendance WHERE employee_id=? AND attendance_date=?");
-                $existing->execute([$employeeId, $today]);
+                $existing = $pdo->prepare("SELECT check_in FROM attendance WHERE employee_id=? AND attendance_date=? AND shift_period=?");
+                $existing->execute([$employeeId, $today, $period]);
                 if ($existing->fetchColumn()) {
                     echo json_encode(['ok' => false, 'error' => 'تم تسجيل حضورك اليوم مسبقاً']);
                     exit;
                 }
                 $settingsRow = $pdo->query("SELECT work_start_time, late_grace_minutes FROM settings ORDER BY id DESC LIMIT 1")->fetch();
-                $empShiftStart = $pdo->prepare("SELECT shift_start FROM employees WHERE id=?");
-                $empShiftStart->execute([$employeeId]);
-                $empShiftStart = $empShiftStart->fetchColumn();
-                if ($empShiftStart) { $settingsRow['work_start_time'] = $empShiftStart; }
+                $effectiveShiftStart = $period === 'evening' ? $empShiftRow['evening_shift_start'] : $empShiftRow['shift_start'];
+                if ($effectiveShiftStart) { $settingsRow['work_start_time'] = $effectiveShiftStart; }
                 $status = is_late($now, $settingsRow) ? 'late' : 'present';
-                $stmt = $pdo->prepare("INSERT INTO attendance (employee_id, branch_id, attendance_date, check_in, status)
-                    VALUES (?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE check_in=VALUES(check_in), status=VALUES(status)");
-                $stmt->execute([$employeeId, $branchId, $today, $now, $status]);
+                $stmt = $pdo->prepare("INSERT INTO attendance (employee_id, branch_id, attendance_date, shift_period, check_in, status)
+                    VALUES (?, ?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE check_in=VALUES(check_in), status=VALUES(status)");
+                $stmt->execute([$employeeId, $branchId, $today, $period, $now, $status]);
             } else {
-                $checkedIn = $pdo->prepare("SELECT check_in, check_out FROM attendance WHERE employee_id=? AND attendance_date=?");
-                $checkedIn->execute([$employeeId, $today]);
+                $checkedIn = $pdo->prepare("SELECT check_in, check_out FROM attendance WHERE employee_id=? AND attendance_date=? AND shift_period=?");
+                $checkedIn->execute([$employeeId, $today, $period]);
                 $checkedIn = $checkedIn->fetch();
                 if (!$checkedIn || !$checkedIn['check_in']) {
                     echo json_encode(['ok' => false, 'error' => 'يجب تسجيل الحضور أولاً']);
@@ -504,7 +553,7 @@ if (isset($_GET['ajax'])) {
                     echo json_encode(['ok' => false, 'error' => 'تم تسجيل انصرافك اليوم مسبقاً']);
                     exit;
                 }
-                $pdo->prepare("UPDATE attendance SET check_out=? WHERE employee_id=? AND attendance_date=?")->execute([$now, $employeeId, $today]);
+                $pdo->prepare("UPDATE attendance SET check_out=? WHERE employee_id=? AND attendance_date=? AND shift_period=?")->execute([$now, $employeeId, $today, $period]);
             }
             echo json_encode(['ok' => true, 'time' => substr($now, 0, 5)]);
             exit;
@@ -1684,6 +1733,23 @@ function branch_report_data(PDO $pdo, string $type, string $from, string $to, in
                     <div id="managerAttendanceStatus" class="mt-2 text-center muted"></div>
                 </div>
 
+                <div class="card hidden" id="mgrEveningShiftSection">
+                    <h3>تسجيل حضوري — الشفت المسائي</h3>
+                    <div class="fingerprint-buttons">
+                        <button type="button" class="fingerprint-btn fingerprint-btn-checkin hidden" id="checkInBtnEvening" onclick="handleCheckIn('evening')">
+                            <div class="fingerprint-icon"><i class="fas fa-fingerprint"></i></div>
+                            <span class="fingerprint-label">تسجيل حضور</span>
+                            <span class="fingerprint-sub">بصمة الدخول — مسائي</span>
+                        </button>
+                        <button type="button" class="fingerprint-btn fingerprint-btn-checkout hidden" id="checkOutBtnEvening" onclick="handleCheckOut('evening')">
+                            <div class="fingerprint-icon"><i class="fas fa-fingerprint"></i></div>
+                            <span class="fingerprint-label">تسجيل انصراف</span>
+                            <span class="fingerprint-sub">بصمة الخروج — مسائي</span>
+                        </button>
+                    </div>
+                    <div id="managerAttendanceStatusEvening" class="mt-2 text-center muted"></div>
+                </div>
+
                 <div class="card">
                     <h3>حضور اليوم - <span id="todayDate">15 مايو 2024</span></h3>
                     <div class="table-wrap">
@@ -2096,9 +2162,17 @@ function branch_report_data(PDO $pdo, string $type, string $from, string $to, in
                             <div class="form-group"><label>وقت بداية الدوام</label><input type="time" id="reqShiftStart"></div>
                             <div class="form-group"><label>وقت انتهاء الدوام</label><input type="time" id="reqShiftEnd"></div>
                         </div>
+                        <div class="form-group"><label style="display:flex;align-items:center;gap:8px;cursor:pointer;"><input type="checkbox" id="reqHasEveningShift" onchange="toggleEveningShiftFields()" style="width:auto;"> يعمل شفتين (صباحي ومسائي)</label></div>
+                        <div id="eveningShiftFields" class="hidden">
+                            <div class="form-row">
+                                <div class="form-group"><label>وقت بداية الشفت المسائي</label><input type="time" id="reqEveningShiftStart"></div>
+                                <div class="form-group"><label>وقت انتهاء الشفت المسائي</label><input type="time" id="reqEveningShiftEnd"></div>
+                            </div>
+                            <div class="form-group"><label>راتب الشفت المسائي</label><input type="number" id="reqEveningSalary" placeholder="300000"></div>
+                        </div>
                         <div class="form-group"><label>صورة الموظف <span style="color:var(--red);">*</span></label><input type="file" id="reqPhoto" accept="image/*" required></div>
                         <div class="form-group"><label>المستمسكات (ملف)</label><input type="file" id="reqDocuments" accept=".jpg,.jpeg,.png,.pdf,.doc,.docx"></div>
-                        <div class="form-group"><label>الراتب الأساسي <span style="color:var(--red);">*</span></label><input type="number" id="reqSalary" placeholder="500000" required></div>
+                        <div class="form-group"><label>الراتب الأساسي (الشفت الصباحي) <span style="color:var(--red);">*</span></label><input type="number" id="reqSalary" placeholder="500000" required></div>
                         <div class="form-group"><label>كلمة المرور <span style="color:var(--red);">*</span></label><input type="password" id="reqPassword" placeholder="أدخل كلمة المرور" minlength="6" required></div>
                         <div style="background:#eaf7ef;padding:10px;border-radius:8px;">
                             <div style="font-size:12px;color:var(--text-muted);"><i class="fas fa-info-circle"></i> سيتم إنشاء رقم الموظف تلقائياً بعد الحفظ</div>
@@ -2370,6 +2444,13 @@ function branch_report_data(PDO $pdo, string $type, string $from, string $to, in
 
                 shiftInfo = data.shift;
                 todayAttendance = data.todayAttendance;
+                mgrHasEveningShift = !!data.hasEveningShift;
+                const mgrEveningSection = document.getElementById('mgrEveningShiftSection');
+                if (mgrEveningSection) mgrEveningSection.classList.toggle('hidden', !mgrHasEveningShift);
+                if (mgrHasEveningShift && data.eveningShift) {
+                    eveningShiftInfo = data.eveningShift;
+                    todayAttendanceEvening = data.todayAttendanceEvening || { checkedIn: false, checkedOut: false };
+                }
                 updateAttendanceButtonVisibility();
                 const statusDiv = document.getElementById('managerAttendanceStatus');
                 if (statusDiv && !statusDiv.innerHTML) {
@@ -2702,6 +2783,9 @@ function branch_report_data(PDO $pdo, string $type, string $from, string $to, in
         let branchLocation = { lat: 33.3152, lng: 44.3661, radius: 100 };
         let shiftInfo = null;
         let todayAttendance = { checkedIn: false, checkedOut: false };
+        let mgrHasEveningShift = false;
+        let eveningShiftInfo = { start: '18:00', end: '23:00' };
+        let todayAttendanceEvening = { checkedIn: false, checkedOut: false };
 
         function updateAttendanceButtonVisibility() {
             const inBtn = document.getElementById('checkInBtn');
@@ -2758,8 +2842,50 @@ function branch_report_data(PDO $pdo, string $type, string $from, string $to, in
                     note.textContent = 'يظهر زر تسجيل الانصراف عند نهاية الدوام (' + shiftInfo.end + ') لمدة 15 دقيقة فقط';
                 }
             }
+            if (mgrHasEveningShift) updateEveningAttendanceButtonVisibility();
         }
         setInterval(updateAttendanceButtonVisibility, 30000);
+
+        function updateEveningAttendanceButtonVisibility() {
+            const inBtn = document.getElementById('checkInBtnEvening');
+            const outBtn = document.getElementById('checkOutBtnEvening');
+            if (!inBtn || !outBtn) return;
+
+            const now = new Date();
+            const nowMinutes = now.getHours() * 60 + now.getMinutes();
+            const [startH, startM] = eveningShiftInfo.start.split(':').map(Number);
+            const [endH, endM] = eveningShiftInfo.end.split(':').map(Number);
+            const shiftStartMin = startH * 60 + startM;
+            const shiftEndMin = endH * 60 + endM;
+            const grace = (shiftInfo && shiftInfo.graceMinutes) || 15;
+
+            const inWindowOpen = nowMinutes >= (shiftStartMin - 15) && nowMinutes <= (shiftStartMin + grace);
+            const outWindowOpen = nowMinutes >= shiftEndMin && nowMinutes <= (shiftEndMin + 15);
+
+            const showIn = !todayAttendanceEvening.checkedIn && inWindowOpen;
+            const showOut = todayAttendanceEvening.checkedIn && !todayAttendanceEvening.checkedOut && outWindowOpen;
+
+            inBtn.classList.toggle('hidden', !showIn);
+            outBtn.classList.toggle('hidden', !showOut);
+
+            const statusDiv = document.getElementById('managerAttendanceStatusEvening');
+            if (statusDiv) {
+                if (todayAttendanceEvening.checkedIn && todayAttendanceEvening.checkedOut) {
+                    statusDiv.textContent = 'تم تسجيل حضورك وانصرافك للشفت المسائي اليوم';
+                } else if (!showIn && !todayAttendanceEvening.checkedIn && nowMinutes > shiftStartMin + grace) {
+                    statusDiv.style.color = '#DC2626';
+                    statusDiv.textContent = '✕ غياب — انتهت فترة تسجيل حضور الشفت المسائي دون تسجيلك';
+                } else if (!showIn && !showOut && !todayAttendanceEvening.checkedIn) {
+                    statusDiv.style.color = '';
+                    statusDiv.textContent = 'يظهر زر تسجيل الدخول من ' + eveningShiftInfo.start + ' حتى مضي ' + grace + ' دقيقة';
+                } else if (!showIn && !showOut && todayAttendanceEvening.checkedIn) {
+                    statusDiv.style.color = '';
+                    statusDiv.textContent = 'يظهر زر تسجيل الانصراف عند نهاية الشفت المسائي (' + eveningShiftInfo.end + ') لمدة 15 دقيقة فقط';
+                } else {
+                    statusDiv.textContent = '';
+                }
+            }
+        }
         let userLocation = null;
         let gpsActive = false;
 
@@ -2880,9 +3006,19 @@ function branch_report_data(PDO $pdo, string $type, string $from, string $to, in
             });
         }
 
-        async function handleCheckIn() {
-            const btn = document.getElementById('checkInBtn');
-            if (mgrGpsEnabled) { performCheckIn(btn); return; }
+        function getMgrCheckInBtn(period) {
+            return period === 'evening' ? document.getElementById('checkInBtnEvening') : document.getElementById('checkInBtn');
+        }
+        function getMgrCheckOutBtn(period) {
+            return period === 'evening' ? document.getElementById('checkOutBtnEvening') : document.getElementById('checkOutBtn');
+        }
+
+        async function handleCheckIn(period) {
+            period = period || 'morning';
+            const btn = getMgrCheckInBtn(period);
+            if (!btn) return;
+            const timeLabelId = period === 'evening' ? null : 'timeToStart';
+            if (mgrGpsEnabled) { performCheckIn(btn, period); return; }
             btn.disabled = true;
             btn.innerHTML = `
                 <div class="fingerprint-icon"><span class="spinner-small"></span></div>
@@ -2892,34 +3028,36 @@ function branch_report_data(PDO $pdo, string $type, string $from, string $to, in
             const gpsOk = await requestMgrGPS();
             btn.disabled = false;
             if (gpsOk) {
-                performCheckIn(btn);
+                performCheckIn(btn, period);
             } else {
                 btn.innerHTML = `
                     <div class="fingerprint-icon"><i class="fas fa-fingerprint"></i></div>
                     <span class="fingerprint-label">تسجيل حضور</span>
-                    <span class="fingerprint-sub">بصمة الدخول</span>
-                    <span class="fingerprint-time" id="timeToStart">${document.getElementById('timeToStart')?.textContent || ''}</span>
+                    <span class="fingerprint-sub">بصمة الدخول${period === 'evening' ? ' — مسائي' : ''}</span>
+                    <span class="fingerprint-time">${timeLabelId ? (document.getElementById(timeLabelId)?.textContent || '') : ''}</span>
                 `;
                 showToast('⚠️ غير مفعل', 'يجب تفعيل الموقع لتسجيل البصمة', 'warning');
             }
         }
 
-        function performCheckIn(btn) {
+        function performCheckIn(btn, period) {
+            period = period || 'morning';
+            const timeLabelId = period === 'evening' ? null : 'timeToStart';
             btn.disabled = true;
             btn.innerHTML = `
                 <div class="fingerprint-icon"><span class="spinner-small"></span></div>
                 <span class="fingerprint-label">جاري التسجيل...</span>
                 <span class="fingerprint-sub">التحقق من الموقع</span>
             `;
-            const body = new URLSearchParams({ type: 'in', lat: mgrGpsPosition ? mgrGpsPosition.latitude : 0, lng: mgrGpsPosition ? mgrGpsPosition.longitude : 0, accuracy: mgrGpsPosition ? mgrGpsPosition.accuracy : 0 });
+            const body = new URLSearchParams({ type: 'in', period, lat: mgrGpsPosition ? mgrGpsPosition.latitude : 0, lng: mgrGpsPosition ? mgrGpsPosition.longitude : 0, accuracy: mgrGpsPosition ? mgrGpsPosition.accuracy : 0 });
             fetch('?ajax=attendance_self', { method: 'POST', body }).then(r => r.json()).then(data => {
                 if (!data.ok) {
                     btn.disabled = false;
                     btn.innerHTML = `
                         <div class="fingerprint-icon"><i class="fas fa-fingerprint"></i></div>
                         <span class="fingerprint-label">تسجيل حضور</span>
-                        <span class="fingerprint-sub">بصمة الدخول</span>
-                        <span class="fingerprint-time" id="timeToStart">${document.getElementById('timeToStart')?.textContent || ''}</span>
+                        <span class="fingerprint-sub">بصمة الدخول${period === 'evening' ? ' — مسائي' : ''}</span>
+                        <span class="fingerprint-time">${timeLabelId ? (document.getElementById(timeLabelId)?.textContent || '') : ''}</span>
                     `;
                     showToast('❌ فشل التسجيل', data.error || 'تعذر تسجيل الحضور', 'error');
                     return;
@@ -2942,9 +3080,12 @@ function branch_report_data(PDO $pdo, string $type, string $from, string $to, in
             });
         }
 
-        async function handleCheckOut() {
-            const btn = document.getElementById('checkOutBtn');
-            if (mgrGpsEnabled) { performCheckOut(btn); return; }
+        async function handleCheckOut(period) {
+            period = period || 'morning';
+            const btn = getMgrCheckOutBtn(period);
+            if (!btn) return;
+            const timeLabelId = period === 'evening' ? null : 'timeToEnd';
+            if (mgrGpsEnabled) { performCheckOut(btn, period); return; }
             btn.disabled = true;
             btn.innerHTML = `
                 <div class="fingerprint-icon"><span class="spinner-small"></span></div>
@@ -2954,34 +3095,36 @@ function branch_report_data(PDO $pdo, string $type, string $from, string $to, in
             const gpsOk = await requestMgrGPS();
             btn.disabled = false;
             if (gpsOk) {
-                performCheckOut(btn);
+                performCheckOut(btn, period);
             } else {
                 btn.innerHTML = `
                     <div class="fingerprint-icon"><i class="fas fa-fingerprint"></i></div>
                     <span class="fingerprint-label">تسجيل انصراف</span>
-                    <span class="fingerprint-sub">بصمة الخروج</span>
-                    <span class="fingerprint-time" id="timeToEnd">${document.getElementById('timeToEnd')?.textContent || ''}</span>
+                    <span class="fingerprint-sub">بصمة الخروج${period === 'evening' ? ' — مسائي' : ''}</span>
+                    <span class="fingerprint-time">${timeLabelId ? (document.getElementById(timeLabelId)?.textContent || '') : ''}</span>
                 `;
                 showToast('⚠️ غير مفعل', 'يجب تفعيل الموقع لتسجيل البصمة', 'warning');
             }
         }
 
-        function performCheckOut(btn) {
+        function performCheckOut(btn, period) {
+            period = period || 'morning';
+            const timeLabelId = period === 'evening' ? null : 'timeToEnd';
             btn.disabled = true;
             btn.innerHTML = `
                 <div class="fingerprint-icon"><span class="spinner-small"></span></div>
                 <span class="fingerprint-label">جاري التسجيل...</span>
                 <span class="fingerprint-sub">التحقق من الموقع</span>
             `;
-            const body = new URLSearchParams({ type: 'out', lat: mgrGpsPosition ? mgrGpsPosition.latitude : 0, lng: mgrGpsPosition ? mgrGpsPosition.longitude : 0, accuracy: mgrGpsPosition ? mgrGpsPosition.accuracy : 0 });
+            const body = new URLSearchParams({ type: 'out', period, lat: mgrGpsPosition ? mgrGpsPosition.latitude : 0, lng: mgrGpsPosition ? mgrGpsPosition.longitude : 0, accuracy: mgrGpsPosition ? mgrGpsPosition.accuracy : 0 });
             fetch('?ajax=attendance_self', { method: 'POST', body }).then(r => r.json()).then(data => {
                 if (!data.ok) {
                     btn.disabled = false;
                     btn.innerHTML = `
                         <div class="fingerprint-icon"><i class="fas fa-fingerprint"></i></div>
                         <span class="fingerprint-label">تسجيل انصراف</span>
-                        <span class="fingerprint-sub">بصمة الخروج</span>
-                        <span class="fingerprint-time" id="timeToEnd">${document.getElementById('timeToEnd')?.textContent || ''}</span>
+                        <span class="fingerprint-sub">بصمة الخروج${period === 'evening' ? ' — مسائي' : ''}</span>
+                        <span class="fingerprint-time">${timeLabelId ? (document.getElementById(timeLabelId)?.textContent || '') : ''}</span>
                     `;
                     showToast('❌ فشل التسجيل', data.error || 'تعذر تسجيل الانصراف', 'error');
                     return;
@@ -3334,6 +3477,7 @@ function branch_report_data(PDO $pdo, string $type, string $from, string $to, in
                 document.getElementById('reqPhoto').required = true;
                 document.getElementById('reqPassword').required = true;
                 document.getElementById('reqPassword').placeholder = 'أدخل كلمة المرور';
+                toggleEveningShiftFields();
             }
         }
 
@@ -3356,6 +3500,11 @@ function branch_report_data(PDO $pdo, string $type, string $from, string $to, in
                 document.getElementById('reqShiftStart').value = emp.shiftStart || '';
                 document.getElementById('reqShiftEnd').value = emp.shiftEnd || '';
                 document.getElementById('reqSalary').value = emp.salary || '';
+                document.getElementById('reqHasEveningShift').checked = !!emp.hasEveningShift;
+                document.getElementById('reqEveningShiftStart').value = emp.eveningShiftStart || '';
+                document.getElementById('reqEveningShiftEnd').value = emp.eveningShiftEnd || '';
+                document.getElementById('reqEveningSalary').value = emp.eveningSalary || '';
+                toggleEveningShiftFields();
                 document.getElementById('reqPhoto').required = false;
                 document.getElementById('reqPassword').required = false;
                 document.getElementById('reqPassword').placeholder = 'اتركه فارغاً للإبقاء على كلمة المرور الحالية';
@@ -3368,6 +3517,11 @@ function branch_report_data(PDO $pdo, string $type, string $from, string $to, in
             document.getElementById('requestModal').style.display = 'none';
             document.body.style.overflow = '';
             editingEmployeeId = null;
+        }
+
+        function toggleEveningShiftFields() {
+            const checked = document.getElementById('reqHasEveningShift').checked;
+            document.getElementById('eveningShiftFields').classList.toggle('hidden', !checked);
         }
 
         function submitRequestForm(e) {
@@ -3387,6 +3541,11 @@ function branch_report_data(PDO $pdo, string $type, string $from, string $to, in
             formData.append('shiftStart', document.getElementById('reqShiftStart').value);
             formData.append('shiftEnd', document.getElementById('reqShiftEnd').value);
             formData.append('salary', document.getElementById('reqSalary').value);
+            const hasEveningShift = document.getElementById('reqHasEveningShift').checked;
+            formData.append('hasEveningShift', hasEveningShift ? '1' : '0');
+            formData.append('eveningShiftStart', document.getElementById('reqEveningShiftStart').value);
+            formData.append('eveningShiftEnd', document.getElementById('reqEveningShiftEnd').value);
+            formData.append('eveningSalary', document.getElementById('reqEveningSalary').value);
             formData.append('password', document.getElementById('reqPassword').value);
             const photoInput = document.getElementById('reqPhoto');
             if (photoInput.files && photoInput.files.length > 0) {
