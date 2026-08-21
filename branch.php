@@ -330,12 +330,12 @@ if (isset($_GET['ajax'])) {
         case 'employees': {
             $stmt = $pdo->prepare("
                 SELECT e.id, e.employee_number AS code, e.full_name AS name, e.job_title AS title,
-                       e.base_salary AS salary, e.rating, e.status, e.shift_type AS shiftType,
+                       e.base_salary AS salary, e.rating, e.status, e.shift_type AS shiftType, e.has_evening_shift AS hasEveningShift,
                        ROUND(SUM(a.status IN ('present','late')) / GREATEST(COUNT(a.id),1) * 100) AS attendancePct
                 FROM employees e
                 LEFT JOIN attendance a ON a.employee_id=e.id AND a.attendance_date >= DATE_FORMAT(CURDATE(), '%Y-%m-01')
                 WHERE e.branch_id=? AND e.is_branch_manager=0
-                GROUP BY e.id, e.employee_number, e.full_name, e.job_title, e.base_salary, e.rating, e.status, e.shift_type
+                GROUP BY e.id, e.employee_number, e.full_name, e.job_title, e.base_salary, e.rating, e.status, e.shift_type, e.has_evening_shift
                 ORDER BY e.created_at DESC
             ");
             $stmt->execute([$branchId]);
@@ -343,7 +343,8 @@ if (isset($_GET['ajax'])) {
                 $r['attendancePct'] = (int) ($r['attendancePct'] ?? 0);
                 $r['salary'] = (float) $r['salary'];
                 $r['rating'] = (float) $r['rating'];
-                $r['shiftTypeText'] = $r['shiftType'] === 'evening' ? 'مسائي' : 'صباحي';
+                $r['shiftTypeText'] = $r['hasEveningShift'] ? 'صباحي ومسائي' : ($r['shiftType'] === 'evening' ? 'مسائي' : 'صباحي');
+                unset($r['hasEveningShift']);
                 return $r;
             }, $stmt->fetchAll());
             echo json_encode(['ok' => true, 'employees' => $rows], JSON_UNESCAPED_UNICODE);
@@ -606,7 +607,7 @@ if (isset($_GET['ajax'])) {
         }
 
         case 'my_profile': {
-            $meRow = $pdo->prepare("SELECT e.full_name, e.employee_number, e.base_salary, e.documents, e.shift_type, b.name AS branch_name
+            $meRow = $pdo->prepare("SELECT e.full_name, e.employee_number, e.base_salary, e.documents, e.shift_type, e.has_evening_shift, b.name AS branch_name
                 FROM employees e JOIN branches b ON b.id = e.branch_id WHERE e.id = ?");
             $meRow->execute([$mgr['employee_id']]);
             $meRow = $meRow->fetch();
@@ -629,7 +630,7 @@ if (isset($_GET['ajax'])) {
                 'code' => $meRow['employee_number'],
                 'branch' => $meRow['branch_name'],
                 'baseSalary' => (float) $meRow['base_salary'],
-                'shiftTypeText' => $meRow['shift_type'] === 'evening' ? 'مسائي' : 'صباحي',
+                'shiftTypeText' => $meRow['has_evening_shift'] ? 'صباحي ومسائي' : ($meRow['shift_type'] === 'evening' ? 'مسائي' : 'صباحي'),
                 'documents' => $meRow['documents'] ?: null,
                 'salary' => ['base' => $base, 'bonus' => $bonus, 'deduction' => $deduction, 'net' => $net, 'statusText' => $statusText],
             ], JSON_UNESCAPED_UNICODE);
@@ -783,15 +784,22 @@ if (isset($_GET['ajax'])) {
                 $unit = ($_POST['leaveUnit'] ?? 'days') === 'hours' ? 'hours' : 'days';
                 if ($unit === 'hours') {
                     $hoursDate = $_POST['leaveHoursDate'] ?: null;
-                    $hoursCount = (float) ($_POST['leaveHoursCount'] ?? 0);
-                    if (!$hoursDate || $hoursCount <= 0) {
-                        echo json_encode(['ok' => false, 'error' => 'الرجاء تحديد التاريخ وعدد الساعات']);
+                    $startTime = $_POST['leaveStartTime'] ?: null;
+                    $endTime = $_POST['leaveEndTime'] ?: null;
+                    if (!$hoursDate || !$startTime || !$endTime) {
+                        echo json_encode(['ok' => false, 'error' => 'الرجاء تحديد التاريخ ووقت البداية والنهاية']);
+                        exit;
+                    }
+                    $hoursCount = (strtotime("$hoursDate $endTime") - strtotime("$hoursDate $startTime")) / 3600;
+                    if ($hoursCount <= 0) {
+                        echo json_encode(['ok' => false, 'error' => 'وقت النهاية يجب أن يكون بعد وقت البداية']);
                         exit;
                     }
                     $dateFrom = $hoursDate;
                     $dateTo = $hoursDate;
                     $leaveUnit = 'hours';
                     $leaveAmount = $hoursCount;
+                    $details = ($details !== '' ? $details . ' — ' : '') . 'من ' . $startTime . ' إلى ' . $endTime;
                 } else {
                     $dateFrom = $_POST['startDate'] ?: null;
                     $dateTo = $_POST['endDate'] ?: null;
@@ -1156,6 +1164,15 @@ function branch_report_data(PDO $pdo, string $type, string $from, string $to, in
             $r['statusText'] = $briefStatusAr[$r['status']] ?? $r['status'];
             return $r;
         }, $stmt->fetchAll());
+    }
+
+    if ($type === 'travelers' || $type === 'all') {
+        $stmt = $pdo->prepare("SELECT DATE_FORMAT(db.brief_date,'%d/%m/%Y') AS date, db.travelers_count AS travelers
+                FROM daily_briefs db
+                WHERE db.branch_id = ? AND db.brief_date BETWEEN ? AND ? ORDER BY db.brief_date DESC");
+        $stmt->execute([$branchId, $from, $to]);
+        $rows = array_map(fn($r) => ['date' => $r['date'], 'travelers' => (int) $r['travelers']], $stmt->fetchAll());
+        $result['travelers'] = $rows;
     }
 
     return $result;
@@ -2108,6 +2125,7 @@ function branch_report_data(PDO $pdo, string $type, string $from, string $to, in
                             <option value="attendance">تقرير الحضور</option>
                             <option value="salaries">تقرير الرواتب</option>
                             <option value="briefing">تقرير الإيجاز اليومي</option>
+                            <option value="travelers">تقرير المسافرين</option>
                         </select>
                     </div>
                     <div class="form-row">
@@ -2686,7 +2704,8 @@ function branch_report_data(PDO $pdo, string $type, string $from, string $to, in
                     </div>
                     <div class="form-row hidden" id="mgrReqLeaveHoursFields">
                         <div class="form-group"><label>التاريخ</label><input type="date" id="mgrReqLeaveHoursDate" value="${today}"></div>
-                        <div class="form-group"><label>عدد الساعات</label><input type="number" id="mgrReqLeaveHoursCount" placeholder="مثال: 3" min="1" max="12" step="0.5"></div>
+                        <div class="form-group"><label>وقت البداية</label><input type="time" id="mgrReqLeaveStartTime"></div>
+                        <div class="form-group"><label>وقت النهاية</label><input type="time" id="mgrReqLeaveEndTime"></div>
                     </div>
                     <div class="form-group"><label>السبب</label><textarea id="mgrReqDetails" placeholder="سبب الإجازة..."></textarea></div>
                 `;
@@ -2712,7 +2731,8 @@ function branch_report_data(PDO $pdo, string $type, string $from, string $to, in
                 params.leaveUnit = val('mgrReqLeaveUnit') || 'days';
                 if (params.leaveUnit === 'hours') {
                     params.leaveHoursDate = val('mgrReqLeaveHoursDate');
-                    params.leaveHoursCount = val('mgrReqLeaveHoursCount');
+                    params.leaveStartTime = val('mgrReqLeaveStartTime');
+                    params.leaveEndTime = val('mgrReqLeaveEndTime');
                 } else {
                     params.startDate = val('mgrReqStartDate');
                     params.endDate = val('mgrReqEndDate');
@@ -3624,7 +3644,15 @@ function branch_report_data(PDO $pdo, string $type, string $from, string $to, in
                 rows.map(r => `<tr><td>${r.date}</td><td>${r.sender || '-'}</td><td>${r.revenue}</td><td>${r.expense}</td><td>${r.travelers}</td><td>${r.profit}</td><td>${r.statusText || '-'}</td><td>${r.hrNote || '-'}</td><td>${r.gmNote || '-'}</td></tr>`).join('') + '</table></div>';
         }
 
-        const reportTypeNames = { 'attendance': 'تقرير الحضور', 'salaries': 'تقرير الرواتب', 'briefing': 'تقرير الإيجاز اليومي', 'all': 'تقرير شامل' };
+        function reportTravelersTable(rows) {
+            if (!rows || !rows.length) return '<p class="muted">لا توجد بيانات</p>';
+            const total = rows.reduce((s, r) => s + Number(r.travelers), 0);
+            return '<div class="table-wrap"><table class="table"><tr><th>التاريخ</th><th>عدد المسافرين</th></tr>' +
+                rows.map(r => `<tr><td>${r.date}</td><td>${r.travelers}</td></tr>`).join('') +
+                `<tr style="font-weight:800;"><td>الإجمالي</td><td>${total}</td></tr></table></div>`;
+        }
+
+        const reportTypeNames = { 'attendance': 'تقرير الحضور', 'salaries': 'تقرير الرواتب', 'briefing': 'تقرير الإيجاز اليومي', 'travelers': 'تقرير المسافرين', 'all': 'تقرير شامل' };
 
         function generateReport() {
             const type = document.getElementById('reportType').value;
@@ -3637,6 +3665,7 @@ function branch_report_data(PDO $pdo, string $type, string $from, string $to, in
                 if (type === 'attendance' || type === 'all') html += '<h3><i class="fas fa-clock"></i> الحضور</h3>' + reportAttendanceTable(data.attendance);
                 if (type === 'salaries' || type === 'all') html += '<h3 style="margin-top:14px;"><i class="fas fa-wallet"></i> الرواتب</h3>' + reportSalariesTable(data.salaries);
                 if (type === 'briefing' || type === 'all') html += '<h3 style="margin-top:14px;"><i class="fas fa-chart-simple"></i> الإيجاز</h3>' + reportBriefingTable(data.briefing);
+                if (type === 'travelers' || type === 'all') html += '<h3 style="margin-top:14px;"><i class="fas fa-plane"></i> المسافرون</h3>' + reportTravelersTable(data.travelers);
                 html += '</div>';
                 document.getElementById('reportResult').innerHTML = html;
                 document.getElementById('reportPrintCompany').textContent = companyNameForPrint;

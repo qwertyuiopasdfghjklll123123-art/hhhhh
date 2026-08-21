@@ -545,16 +545,22 @@ if (isset($_GET['ajax'])) {
                 $unit = ($_POST['leaveUnit'] ?? 'days') === 'hours' ? 'hours' : 'days';
                 if ($unit === 'hours') {
                     $hoursDate = $_POST['leaveHoursDate'] ?: null;
-                    $hoursCount = (float) ($_POST['leaveHoursCount'] ?? 0);
-                    if (!$hoursDate || $hoursCount <= 0) {
-                        echo json_encode(['ok' => false, 'error' => 'الرجاء تحديد التاريخ وعدد الساعات']);
+                    $startTime = $_POST['leaveStartTime'] ?: null;
+                    $endTime = $_POST['leaveEndTime'] ?: null;
+                    if (!$hoursDate || !$startTime || !$endTime) {
+                        echo json_encode(['ok' => false, 'error' => 'الرجاء تحديد التاريخ ووقت البداية والنهاية']);
+                        exit;
+                    }
+                    $hoursCount = (strtotime("$hoursDate $endTime") - strtotime("$hoursDate $startTime")) / 3600;
+                    if ($hoursCount <= 0) {
+                        echo json_encode(['ok' => false, 'error' => 'وقت النهاية يجب أن يكون بعد وقت البداية']);
                         exit;
                     }
                     $dateFrom = $hoursDate;
                     $dateTo = $hoursDate;
                     $leaveUnit = 'hours';
                     $leaveAmount = $hoursCount;
-                    $details = 'إجازة ' . $leaveType . ' (' . $hoursCount . ' ساعة بتاريخ ' . $hoursDate . ')' . ($details ? (' — ' . $details) : '');
+                    $details = 'إجازة ' . $leaveType . ' (' . $hoursCount . ' ساعة من ' . $startTime . ' إلى ' . $endTime . ' بتاريخ ' . $hoursDate . ')' . ($details ? (' — ' . $details) : '');
                 } else {
                     $dateFrom = $_POST['startDate'] ?: null;
                     $dateTo = $_POST['endDate'] ?: null;
@@ -4245,8 +4251,12 @@ try {
                             <input type="date" id="reqLeaveHoursDate" value="${new Date().toISOString().split('T')[0]}">
                         </div>
                         <div class="form-group">
-                            <label>عدد الساعات <span class="required">*</span></label>
-                            <input type="number" id="reqLeaveHoursCount" placeholder="مثال: 3" min="1" max="12" step="0.5">
+                            <label>وقت البداية <span class="required">*</span></label>
+                            <input type="time" id="reqLeaveStartTime">
+                        </div>
+                        <div class="form-group">
+                            <label>وقت النهاية <span class="required">*</span></label>
+                            <input type="time" id="reqLeaveEndTime">
                         </div>
                     </div>
                     <div class="form-group">
@@ -4349,7 +4359,8 @@ try {
                 params.leaveUnit = val('reqLeaveUnit') || 'days';
                 if (params.leaveUnit === 'hours') {
                     params.leaveHoursDate = val('reqLeaveHoursDate');
-                    params.leaveHoursCount = val('reqLeaveHoursCount');
+                    params.leaveStartTime = val('reqLeaveStartTime');
+                    params.leaveEndTime = val('reqLeaveEndTime');
                 } else {
                     params.startDate = val('reqStartDate');
                     params.endDate = val('reqEndDate');

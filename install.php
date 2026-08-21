@@ -82,6 +82,7 @@ function install_schema(PDO $pdo): void
             employee_id INT DEFAULT NULL,
             branch_id INT DEFAULT NULL,
             employee_number VARCHAR(20) DEFAULT NULL,
+            phone_number VARCHAR(30) DEFAULT NULL,
             status ENUM('active','inactive') NOT NULL DEFAULT 'active',
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             CONSTRAINT fk_user_employee FOREIGN KEY (employee_id) REFERENCES employees(id) ON DELETE CASCADE,

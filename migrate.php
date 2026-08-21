@@ -324,6 +324,11 @@ function migration_steps(): array
                 CONSTRAINT fk_honorreq_employee FOREIGN KEY (employee_id) REFERENCES employees(id) ON DELETE CASCADE
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4"),
         ],
+        [
+            'label' => 'إضافة رقم الهاتف لحسابات المستخدمين (إلزامي عند إنشاء حساب HR أو مسؤول عام جديد)',
+            'needed' => fn(PDO $pdo) => !column_exists($pdo, 'users', 'phone_number'),
+            'run' => fn(PDO $pdo) => $pdo->exec("ALTER TABLE users ADD COLUMN phone_number VARCHAR(30) DEFAULT NULL AFTER employee_number"),
+        ],
     ];
 }
 

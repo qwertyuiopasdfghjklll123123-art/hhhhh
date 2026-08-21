@@ -52,6 +52,15 @@ function audit_log_write(PDO $pdo, string $role, ?string $name, ?string $number,
     }
 }
 
+function next_staff_account_number(PDO $pdo, string $role): string
+{
+    $base = $role === 'general_manager' ? 9000 : 8000;
+    $stmt = $pdo->prepare("SELECT COUNT(*) FROM users WHERE role=?");
+    $stmt->execute([$role]);
+    $seq = (int) $stmt->fetchColumn() + 1;
+    return (string) ($base + $seq);
+}
+
 function handle_upload(string $field, string $sub, array $allowedExt): ?string
 {
     if (empty($_FILES[$field]) || $_FILES[$field]['error'] !== UPLOAD_ERR_OK) {
@@ -242,22 +251,12 @@ if (isset($_GET['ajax'])) {
             $branchRevenueTotal = array_sum(array_column($branchRevenueRows, 'revenue'));
             $branchRevenueShares = array_map(function ($r) use ($branchRevenueTotal) {
                 return [
+                    'id' => (int) $r['id'],
                     'name' => $r['name'],
                     'revenue' => (float) $r['revenue'],
                     'pct' => $branchRevenueTotal > 0 ? round(((float) $r['revenue'] / $branchRevenueTotal) * 100, 1) : 0,
                 ];
             }, $branchRevenueRows);
-
-            // إجمالي الرصيد الكلي المتراكم لكل فرع (كل الإيجازات المعتمدة نهائياً منذ بداية العمل)
-            $branchTotalBalances = $pdo->query("
-                SELECT b.id, b.name, COALESCE(SUM(db.total_income - db.total_expense),0) AS balance
-                FROM branches b
-                LEFT JOIN daily_briefs db ON db.branch_id = b.id AND db.status = 'approved'
-                WHERE b.status = 'active'
-                GROUP BY b.id, b.name
-                ORDER BY balance DESC
-            ")->fetchAll();
-            $branchTotalBalances = array_map(fn($r) => ['name' => $r['name'], 'balance' => (float) $r['balance']], $branchTotalBalances);
 
             echo json_encode([
                 'ok' => true,
@@ -266,7 +265,6 @@ if (isset($_GET['ajax'])) {
                 'settings' => $settingsRow,
                 'topEmployees' => $topEmployees,
                 'branchRevenueShares' => $branchRevenueShares,
-                'branchTotalBalances' => $branchTotalBalances,
                 'stats' => [
                     'employees' => $totalActive,
                     'attendanceToday' => [
@@ -520,7 +518,7 @@ if (isset($_GET['ajax'])) {
             $rows = $pdo->prepare("
                 SELECT e.id, e.full_name AS name, b.name AS branch, e.job_title, e.employee_number,
                        e.rating, e.status, e.is_branch_manager AS isManager, e.base_salary AS baseSalary,
-                       e.shift_type AS shiftType,
+                       e.shift_type AS shiftType, e.has_evening_shift AS hasEveningShift,
                        COALESCE(p.bonus, 0) AS bonus, COALESCE(p.deduction, 0) AS deduction, COALESCE(p.late_deduction, 0) AS lateDeduction,
                        (SELECT COUNT(*) FROM requests r2 WHERE r2.employee_id = e.id AND r2.type = 'advance' AND r2.status = 'approved' AND r2.remaining_balance > 0) AS activeAdvanceCount,
                        (SELECT GROUP_CONCAT(padj.note SEPARATOR ' | ') FROM payroll_adjustments padj WHERE padj.employee_id = e.id AND padj.period_month = ? AND padj.period_year = ? AND padj.type = 'deduction' AND padj.note IS NOT NULL) AS adjustmentNote
@@ -535,7 +533,8 @@ if (isset($_GET['ajax'])) {
                 $r['baseSalary'] = (float) $r['baseSalary'];
                 $r['bonus'] = (float) $r['bonus'];
                 $r['deduction'] = (float) $r['deduction'];
-                $r['shiftTypeText'] = $shiftAr[$r['shiftType']] ?? $r['shiftType'];
+                $r['shiftTypeText'] = $r['hasEveningShift'] ? 'صباحي ومسائي' : ($shiftAr[$r['shiftType']] ?? $r['shiftType']);
+                unset($r['hasEveningShift']);
                 $reasons = [];
                 if ((float) $r['lateDeduction'] > 0) $reasons[] = 'تأخير';
                 if ((int) $r['activeAdvanceCount'] > 0) $reasons[] = 'سلفة';
@@ -562,6 +561,18 @@ if (isset($_GET['ajax'])) {
                 exit;
             }
             $shiftAr = ['morning' => 'صباحي', 'evening' => 'مسائي'];
+
+            $curMonth = (int) date('n');
+            $curYear = (int) date('Y');
+            $payStmt = $pdo->prepare("SELECT shift_period, status, (base_salary + bonus - deduction) AS net FROM payroll WHERE employee_id=? AND period_month=? AND period_year=?");
+            $payStmt->execute([$employeeId, $curMonth, $curYear]);
+            $morningPay = null;
+            $eveningPay = null;
+            foreach ($payStmt->fetchAll() as $pr) {
+                $info = ['delivered' => $pr['status'] === 'delivered', 'net' => (float) $pr['net']];
+                if ($pr['shift_period'] === 'evening') { $eveningPay = $info; } else { $morningPay = $info; }
+            }
+
             echo json_encode(['ok' => true, 'employee' => [
                 'id' => (int) $emp['id'],
                 'name' => $emp['full_name'],
@@ -577,6 +588,12 @@ if (isset($_GET['ajax'])) {
                 'shiftStart' => $emp['shift_start'] ? substr($emp['shift_start'], 0, 5) : null,
                 'shiftEnd' => $emp['shift_end'] ? substr($emp['shift_end'], 0, 5) : null,
                 'baseSalary' => (float) $emp['base_salary'],
+                'hasEveningShift' => (bool) $emp['has_evening_shift'],
+                'eveningShiftStart' => $emp['evening_shift_start'] ? substr($emp['evening_shift_start'], 0, 5) : null,
+                'eveningShiftEnd' => $emp['evening_shift_end'] ? substr($emp['evening_shift_end'], 0, 5) : null,
+                'eveningBaseSalary' => (float) $emp['evening_base_salary'],
+                'morningPayroll' => $morningPay,
+                'eveningPayroll' => $eveningPay,
                 'rating' => (float) $emp['rating'],
                 'status' => $emp['status'],
                 'isManager' => (bool) $emp['is_branch_manager'],
@@ -1124,7 +1141,7 @@ if (isset($_GET['ajax'])) {
         }
 
         case 'hr_accounts_list': {
-            $rows = $pdo->query("SELECT id, username, display_name, status, created_at FROM users WHERE role='hr' ORDER BY created_at DESC")->fetchAll();
+            $rows = $pdo->query("SELECT id, username, display_name, phone_number, employee_number, status, created_at FROM users WHERE role='hr' ORDER BY created_at DESC")->fetchAll();
             echo json_encode(['ok' => true, 'accounts' => $rows], JSON_UNESCAPED_UNICODE);
             exit;
         }
@@ -1132,9 +1149,10 @@ if (isset($_GET['ajax'])) {
         case 'hr_account_create': {
             $name = trim($_POST['name'] ?? '');
             $username = trim($_POST['username'] ?? '');
+            $phone = trim($_POST['phone'] ?? '');
             $password = (string) ($_POST['password'] ?? '');
-            if ($name === '' || $username === '' || strlen($password) < 6) {
-                echo json_encode(['ok' => false, 'error' => 'الرجاء تعبئة الاسم والبريد الإلكتروني (كلمة المرور 6 أحرف على الأقل)']);
+            if ($name === '' || $username === '' || $phone === '' || strlen($password) < 6) {
+                echo json_encode(['ok' => false, 'error' => 'الرجاء تعبئة الاسم والبريد الإلكتروني ورقم الهاتف (كلمة المرور 6 أحرف على الأقل)']);
                 exit;
             }
             if (!filter_var($username, FILTER_VALIDATE_EMAIL)) {
@@ -1143,10 +1161,11 @@ if (isset($_GET['ajax'])) {
             }
             try {
                 $hash = password_hash($password, PASSWORD_DEFAULT);
-                $pdo->prepare("INSERT INTO users (role, username, password_hash, display_name, status) VALUES ('hr', ?, ?, ?, 'active')")
-                    ->execute([$username, $hash, $name]);
-                audit_log_write($pdo, 'hr', $hrUser['displayName'] ?? $hrUser['username'], $hrUser['employeeNumber'] ?? null, 'hr_account_create', 'أنشأت الموارد البشرية حساب موارد بشرية جديد: ' . $name . ' (' . $username . ')');
-                echo json_encode(['ok' => true]);
+                $employeeNumber = next_staff_account_number($pdo, 'hr');
+                $pdo->prepare("INSERT INTO users (role, username, password_hash, display_name, phone_number, employee_number, status) VALUES ('hr', ?, ?, ?, ?, ?, 'active')")
+                    ->execute([$username, $hash, $name, $phone, $employeeNumber]);
+                audit_log_write($pdo, 'hr', $hrUser['displayName'] ?? $hrUser['username'], $hrUser['employeeNumber'] ?? null, 'hr_account_create', 'أنشأت الموارد البشرية حساب موارد بشرية جديد: ' . $name . ' (' . $username . ') برقم وظيفي ' . $employeeNumber);
+                echo json_encode(['ok' => true, 'employeeNumber' => $employeeNumber]);
             } catch (Throwable $ex) {
                 echo json_encode(['ok' => false, 'error' => 'اسم الدخول مستخدم مسبقاً']);
             }
@@ -1284,6 +1303,23 @@ function report_data(PDO $pdo, string $type, string $from, string $to, int $bran
             return $r;
         }, $stmt->fetchAll());
         $result['briefing'] = $rows;
+    }
+
+    if ($type === 'travelers' || $type === 'all') {
+        $sql = "SELECT b.name AS branch, COALESCE(SUM(db.travelers_count),0) AS travelers, COUNT(*) AS briefsCount
+                FROM daily_briefs db JOIN branches b ON b.id = db.branch_id
+                WHERE db.brief_date BETWEEN ? AND ?";
+        $params = [$from, $to];
+        if ($branch > 0) { $sql .= " AND db.branch_id = ?"; $params[] = $branch; }
+        $sql .= " GROUP BY b.id, b.name ORDER BY travelers DESC";
+        $stmt = $pdo->prepare($sql);
+        $stmt->execute($params);
+        $rows = array_map(function ($r) {
+            $r['travelers'] = (int) $r['travelers'];
+            $r['briefsCount'] = (int) $r['briefsCount'];
+            return $r;
+        }, $stmt->fetchAll());
+        $result['travelers'] = $rows;
     }
 
     return $result;
@@ -1784,19 +1820,21 @@ try {
             align-items: flex-end;
             justify-content: center;
             gap: 18px;
-            height: 110px;
+            row-gap: 40px;
+            height: auto;
+            min-height: 110px;
             padding: 22px 4px 30px;
-            overflow-x: auto;
+            flex-wrap: wrap;
         }
         .branch-bar-wrap {
             display: flex;
             flex-direction: column;
             align-items: center;
             justify-content: flex-end;
-            height: 100%;
+            height: 100px;
             min-width: 60px;
             position: relative;
-            cursor: default;
+            cursor: pointer;
         }
         .branch-bar {
             width: 20px;
@@ -3073,12 +3111,6 @@ try {
                         <div class="stocks-chart" id="stocksChart"></div>
                         <div class="stocks-summary" id="stocksSummary"></div>
                     </div>
-
-                    <!-- بطاقة الرصيد الكلي التراكمي لكل فرع -->
-                    <div class="content-card" style="margin-top:16px;">
-                        <div class="card-header"><h4><i class="fas fa-wallet"></i> الرصيد الكلي التراكمي لكل فرع</h4></div>
-                        <div class="card-body" id="branchTotalBalancesCard"></div>
-                    </div>
                 </div>
 
                 <!-- ==========================================================
@@ -3215,6 +3247,9 @@ try {
                             </div>
                             <small>نسبة الحضور الشهرية</small>
                         </div>
+                        <button class="btn-primary" style="margin-right:auto;" onclick="editBranchFromDetail()">
+                            <i class="fas fa-edit"></i> تعديل الفرع
+                        </button>
                     </div>
 
                     <div class="section-subtitle"><i class="fas fa-users"></i> موظفو الفرع</div>
@@ -3446,6 +3481,7 @@ try {
                                         <option value="attendance">تقرير الحضور</option>
                                         <option value="salaries">تقرير الرواتب</option>
                                         <option value="briefing">تقرير الإيجاز</option>
+                                        <option value="travelers">تقرير المسافرين</option>
                                         <option value="all">تقرير شامل</option>
                                     </select>
                                 </div>
@@ -3572,9 +3608,10 @@ try {
                     <div class="content-card" style="margin-top:16px;">
                         <div class="card-header"><h4><i class="fas fa-user-plus"></i> إنشاء حساب موارد بشرية جديد</h4></div>
                         <div class="card-body">
-                            <div style="display:grid;grid-template-columns:1fr 1fr 1fr auto;gap:10px;">
+                            <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr auto;gap:10px;">
                                 <input type="text" id="hrAccName" placeholder="الاسم" style="height:38px;padding:0 10px;border:2px solid rgba(0,107,115,0.06);border-radius:var(--radius-sm);font-family:var(--font-family);">
                                 <input type="email" id="hrAccUsername" placeholder="البريد الإلكتروني (لتسجيل الدخول)" style="height:38px;padding:0 10px;border:2px solid rgba(0,107,115,0.06);border-radius:var(--radius-sm);font-family:var(--font-family);">
+                                <input type="text" id="hrAccPhone" placeholder="رقم الهاتف" style="height:38px;padding:0 10px;border:2px solid rgba(0,107,115,0.06);border-radius:var(--radius-sm);font-family:var(--font-family);">
                                 <input type="password" id="hrAccPassword" placeholder="كلمة المرور" style="height:38px;padding:0 10px;border:2px solid rgba(0,107,115,0.06);border-radius:var(--radius-sm);font-family:var(--font-family);">
                                 <button class="btn-primary" onclick="createHrAccount()"><i class="fas fa-save"></i> إنشاء</button>
                             </div>
@@ -3724,6 +3761,7 @@ try {
         let exchangeRate = 1320;
         let branchIdCounter = 1;
         let editingBranchId = null;
+        let bdCurrentBranchId = null;
 
         // ============================================================
         // دوال تسجيل الدخول
@@ -3783,7 +3821,6 @@ try {
                     renderAttendanceRing(data.stats.employees, data.stats.attendanceToday || {});
                 }
                 renderBranchRevenueBars(data.branchRevenueShares || []);
-                renderBranchTotalBalances(data.branchTotalBalances || []);
                 if (data.settings) {
                     const s = data.settings;
                     const byId = id => document.getElementById(id);
@@ -4015,7 +4052,7 @@ try {
             shares.forEach(s => {
                 const height = Math.max(s.pct, 3);
                 html += `
-                    <div class="branch-bar-wrap" title="${s.name}: ${s.pct}% (${Number(s.revenue).toLocaleString()} د.ع)">
+                    <div class="branch-bar-wrap" title="${s.name}: ${s.pct}% (${Number(s.revenue).toLocaleString()} د.ع) — اضغط لعرض تفاصيل الفرع" onclick="viewBranch(${s.id})">
                         <span class="branch-bar-pct">${s.pct}%</span>
                         <div class="branch-bar" style="height:${height}%;"></div>
                         <span class="branch-bar-label">${s.name}</span>
@@ -4032,21 +4069,6 @@ try {
                     ${best && best.revenue > 0 ? `<span class="summary-item"><i class="fas fa-trophy" style="color:var(--accent);"></i> الأعلى: <span class="value">${best.name}</span></span>` : ''}
                 `;
             }
-        }
-
-        function renderBranchTotalBalances(balances) {
-            const view = document.getElementById('branchTotalBalancesCard');
-            if (!view) return;
-            if (!balances || !balances.length) {
-                view.innerHTML = '<div class="muted" style="font-size:12px;">لا توجد بيانات كافية بعد</div>';
-                return;
-            }
-            view.innerHTML = balances.map(b => `
-                <div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid rgba(0,107,115,0.06);">
-                    <span style="font-size:13px;font-weight:700;"><i class="fas fa-building" style="color:var(--primary);"></i> ${b.name}</span>
-                    <b style="color:${b.balance >= 0 ? '#059669' : '#DC2626'};">${Number(b.balance).toLocaleString()} د.ع</b>
-                </div>
-            `).join('');
         }
 
         // ============================================================
@@ -4118,7 +4140,7 @@ try {
                 }
                 view.innerHTML = data.accounts.map(a => `
                     <div style="display:flex;align-items:center;justify-content:space-between;padding:8px 0;border-bottom:1px solid rgba(0,107,115,0.06);">
-                        <div><b>${a.display_name || a.username}</b> <span style="color:var(--text-muted);font-size:12px;">(${a.username})</span></div>
+                        <div><b>${a.display_name || a.username}</b> <span style="color:var(--text-muted);font-size:12px;">(${a.username}${a.phone_number ? ' — ' + a.phone_number : ''}) — رقم وظيفي: ${a.employee_number || '—'}</span></div>
                         <button class="btn-outline" style="padding:4px 12px;font-size:12px;" onclick="toggleHrAccount(${a.id})">${a.status === 'active' ? 'تعطيل' : 'تفعيل'}</button>
                     </div>
                 `).join('');
@@ -4128,17 +4150,19 @@ try {
         function createHrAccount() {
             const name = document.getElementById('hrAccName').value;
             const username = document.getElementById('hrAccUsername').value;
+            const phone = document.getElementById('hrAccPhone').value;
             const password = document.getElementById('hrAccPassword').value;
-            if (!name || !username || password.length < 6) {
-                showToast('⚠️ تنبيه', 'الرجاء تعبئة الاسم والبريد الإلكتروني وكلمة مرور 6 أحرف على الأقل', 'warning');
+            if (!name || !username || !phone || password.length < 6) {
+                showToast('⚠️ تنبيه', 'الرجاء تعبئة الاسم والبريد الإلكتروني ورقم الهاتف وكلمة مرور 6 أحرف على الأقل', 'warning');
                 return;
             }
-            fetch('?ajax=hr_account_create', { method: 'POST', body: new URLSearchParams({ name, username, password }) })
+            fetch('?ajax=hr_account_create', { method: 'POST', body: new URLSearchParams({ name, username, phone, password }) })
                 .then(r => r.json()).then(data => {
                     if (!data.ok) { showToast('⚠️ خطأ', data.error || 'تعذر الإنشاء', 'error'); return; }
-                    showToast('✅ تم الإنشاء', 'تم إنشاء حساب الموارد البشرية بنجاح', 'success');
+                    showToast('✅ تم الإنشاء', 'تم إنشاء حساب الموارد البشرية بنجاح — الرقم الوظيفي: ' + data.employeeNumber, 'success');
                     document.getElementById('hrAccName').value = '';
                     document.getElementById('hrAccUsername').value = '';
+                    document.getElementById('hrAccPhone').value = '';
                     document.getElementById('hrAccPassword').value = '';
                     loadHrAccounts();
                 }).catch(() => {
@@ -4347,7 +4371,15 @@ try {
             window.scrollTo({ top: document.getElementById('branchForm').offsetTop - 100, behavior: 'smooth' });
         }
 
+        function editBranchFromDetail() {
+            if (bdCurrentBranchId === null) return;
+            const id = bdCurrentBranchId;
+            navigateTo('branches');
+            editBranch(id);
+        }
+
         function viewBranch(id) {
+            bdCurrentBranchId = id;
             navigateTo('branchDetail');
             document.getElementById('bdEmployeesList').innerHTML = '<p style="color:var(--text-muted);font-size:12px;">جاري التحميل...</p>';
             document.getElementById('bdBriefsList').innerHTML = '';
@@ -4644,11 +4676,25 @@ try {
                         <div><span style="color:var(--text-muted);">المسمى الوظيفي:</span> <b>${e.jobTitle || '-'}</b></div>
                         <div><span style="color:var(--text-muted);">تاريخ الولادة:</span> <b>${e.birthDate || '-'}</b></div>
                         <div><span style="color:var(--text-muted);">تاريخ التعيين:</span> <b>${e.hireDate || '-'}</b></div>
-                        <div><span style="color:var(--text-muted);">الشفت:</span> <b>${e.shiftType || '-'}</b></div>
-                        <div><span style="color:var(--text-muted);">دوام:</span> <b>${e.shiftStart || '-'} — ${e.shiftEnd || '-'}</b></div>
-                        <div><span style="color:var(--text-muted);">الراتب الأساسي:</span> <b>${Number(e.baseSalary).toLocaleString()}</b></div>
                         <div><span style="color:var(--text-muted);">الحالة:</span> <b>${e.status === 'active' ? 'نشط' : 'غير نشط'}</b></div>
                         ${e.documents ? `<div><span style="color:var(--text-muted);">المستمسكات:</span> <a href="${e.documents}" target="_blank">عرض الملف</a></div>` : ''}
+                    </div>
+
+                    <div style="border-top:1px solid #e2ebeb;padding-top:14px;margin-bottom:18px;">
+                        <label style="font-size:12px;font-weight:700;color:var(--text-muted);display:block;margin-bottom:8px;">الدوام والراتب — الشفت الصباحي</label>
+                        <div style="display:flex;flex-wrap:wrap;gap:10px 22px;font-size:13px;margin-bottom:${e.hasEveningShift ? '14px' : '0'};">
+                            <span><b style="color:var(--text-muted);">الدوام:</b> ${e.shiftStart || '-'} — ${e.shiftEnd || '-'}</span>
+                            <span><b style="color:var(--text-muted);">الراتب:</b> ${Number(e.baseSalary).toLocaleString()}</span>
+                            <span><b style="color:var(--text-muted);">حالة الراتب هذا الشهر:</b> ${e.morningPayroll && e.morningPayroll.delivered ? `<span style="color:#059669;font-weight:700;"><i class="fas fa-check-circle"></i> استلم راتب (${Number(e.morningPayroll.net).toLocaleString()})</span>` : '<span style="color:#D97706;font-weight:700;">لم يستلم بعد</span>'}</span>
+                        </div>
+                        ${e.hasEveningShift ? `
+                        <label style="font-size:12px;font-weight:700;color:var(--text-muted);display:block;margin-bottom:8px;"><i class="fas fa-moon"></i> الدوام والراتب — الشفت المسائي</label>
+                        <div style="display:flex;flex-wrap:wrap;gap:10px 22px;font-size:13px;">
+                            <span><b style="color:var(--text-muted);">الدوام:</b> ${e.eveningShiftStart || '-'} — ${e.eveningShiftEnd || '-'}</span>
+                            <span><b style="color:var(--text-muted);">الراتب:</b> ${Number(e.eveningBaseSalary).toLocaleString()}</span>
+                            <span><b style="color:var(--text-muted);">حالة الراتب هذا الشهر:</b> ${e.eveningPayroll && e.eveningPayroll.delivered ? `<span style="color:#059669;font-weight:700;"><i class="fas fa-check-circle"></i> استلم راتب (${Number(e.eveningPayroll.net).toLocaleString()})</span>` : '<span style="color:#D97706;font-weight:700;">لم يستلم بعد</span>'}</span>
+                        </div>
+                        ` : ''}
                     </div>
 
                     <div style="background:rgba(0,107,115,0.04);border-radius:10px;padding:14px;margin-bottom:18px;">
@@ -5105,6 +5151,14 @@ try {
             });
             return html + '</tbody></table></div>';
         }
+        function travelersTable(rows) {
+            if (!rows || rows.length === 0) return '<p style="color:var(--text-muted);text-align:center;padding:12px;">لا توجد بيانات مسافرين ضمن هذا النطاق</p>';
+            let html = '<div class="table-wrap"><table class="table"><thead><tr><th>#</th><th>الفرع</th><th>عدد المسافرين</th><th>عدد الإيجازات</th></tr></thead><tbody>';
+            rows.forEach((item, i) => {
+                html += `<tr><td>${i+1}</td><td>${item.branch}</td><td><strong>${item.travelers}</strong></td><td>${item.briefsCount}</td></tr>`;
+            });
+            return html + '</tbody></table></div>';
+        }
 
         function generateReport() {
             const type = document.getElementById('reportType').value;
@@ -5118,6 +5172,7 @@ try {
                 'attendance': 'تقرير الحضور',
                 'salaries': 'تقرير الرواتب',
                 'briefing': 'تقرير الإيجاز',
+                'travelers': 'تقرير المسافرين',
                 'all': 'تقرير شامل'
             };
             document.getElementById('reportTitle').textContent = typeNames[type] || 'تقرير';
@@ -5141,10 +5196,12 @@ try {
                 if (type === 'attendance') html += attendanceTable(data.attendance);
                 else if (type === 'salaries') html += salariesTable(data.salaries);
                 else if (type === 'briefing') html += briefingTable(data.briefing);
+                else if (type === 'travelers') html += travelersTable(data.travelers);
                 else {
                     html += '<h5 style="margin:14px 0 6px;"><i class="fas fa-clock"></i> الحضور</h5>' + attendanceTable(data.attendance);
                     html += '<h5 style="margin:14px 0 6px;"><i class="fas fa-wallet"></i> الرواتب</h5>' + salariesTable(data.salaries);
                     html += '<h5 style="margin:14px 0 6px;"><i class="fas fa-chart-simple"></i> الإيجاز</h5>' + briefingTable(data.briefing);
+                    html += '<h5 style="margin:14px 0 6px;"><i class="fas fa-plane"></i> المسافرون</h5>' + travelersTable(data.travelers);
                 }
 
                 html += `

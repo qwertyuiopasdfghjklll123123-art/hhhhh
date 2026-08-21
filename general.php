@@ -51,6 +51,15 @@ function audit_log_write(PDO $pdo, string $role, ?string $name, ?string $number,
     }
 }
 
+function next_staff_account_number(PDO $pdo, string $role): string
+{
+    $base = $role === 'general_manager' ? 9000 : 8000;
+    $stmt = $pdo->prepare("SELECT COUNT(*) FROM users WHERE role=?");
+    $stmt->execute([$role]);
+    $seq = (int) $stmt->fetchColumn() + 1;
+    return (string) ($base + $seq);
+}
+
 /** يُنشئ تلقائياً طلبات أفضل 3 موظفين حضوراً للشهر السابق إن لم تُنشأ من قبل (تُستدعى عند كل تحميل للوحة تحكم المسؤول العام) */
 function ensure_monthly_honor_requests(PDO $pdo): void
 {
@@ -169,6 +178,22 @@ function gm_report_data(PDO $pdo, string $type, string $from, string $to, int $b
             $r['hrNote'] = $r['hrNote'] ?: '-';
             $r['gmNote'] = $r['gmNote'] ?: '-';
             $r['statusText'] = $briefStatusAr[$r['status']] ?? $r['status'];
+            return $r;
+        }, $stmt->fetchAll());
+    }
+
+    if ($type === 'travelers' || $type === 'all') {
+        $sql = "SELECT b.name AS branch, COALESCE(SUM(db.travelers_count),0) AS travelers, COUNT(*) AS briefsCount
+                FROM daily_briefs db JOIN branches b ON b.id = db.branch_id
+                WHERE db.brief_date BETWEEN ? AND ?";
+        $params = [$from, $to];
+        if ($branch > 0) { $sql .= " AND db.branch_id = ?"; $params[] = $branch; }
+        $sql .= " GROUP BY b.id, b.name ORDER BY travelers DESC";
+        $stmt = $pdo->prepare($sql);
+        $stmt->execute($params);
+        $result['travelers'] = array_map(function ($r) {
+            $r['travelers'] = (int) $r['travelers'];
+            $r['briefsCount'] = (int) $r['briefsCount'];
             return $r;
         }, $stmt->fetchAll());
     }
@@ -396,7 +421,7 @@ if (isset($_GET['ajax'])) {
         }
 
         case 'gm_accounts_list': {
-            $rows = $pdo->query("SELECT id, username, display_name, employee_number, status, created_at FROM users WHERE role='general_manager' ORDER BY created_at DESC")->fetchAll();
+            $rows = $pdo->query("SELECT id, username, display_name, phone_number, employee_number, status, created_at FROM users WHERE role='general_manager' ORDER BY created_at DESC")->fetchAll();
             echo json_encode(['ok' => true, 'accounts' => $rows], JSON_UNESCAPED_UNICODE);
             exit;
         }
@@ -404,10 +429,10 @@ if (isset($_GET['ajax'])) {
         case 'gm_account_create': {
             $name = trim($_POST['name'] ?? '');
             $username = trim($_POST['username'] ?? '');
+            $phone = trim($_POST['phone'] ?? '');
             $password = (string) ($_POST['password'] ?? '');
-            $employeeNumber = trim($_POST['employeeNumber'] ?? '');
-            if ($name === '' || $username === '' || $employeeNumber === '' || strlen($password) < 6) {
-                echo json_encode(['ok' => false, 'error' => 'الرجاء تعبئة الاسم والبريد الإلكتروني والرقم الوظيفي (كلمة المرور 6 أحرف على الأقل)']);
+            if ($name === '' || $username === '' || $phone === '' || strlen($password) < 6) {
+                echo json_encode(['ok' => false, 'error' => 'الرجاء تعبئة الاسم والبريد الإلكتروني ورقم الهاتف (كلمة المرور 6 أحرف على الأقل)']);
                 exit;
             }
             if (!filter_var($username, FILTER_VALIDATE_EMAIL)) {
@@ -416,10 +441,11 @@ if (isset($_GET['ajax'])) {
             }
             try {
                 $hash = password_hash($password, PASSWORD_DEFAULT);
-                $pdo->prepare("INSERT INTO users (role, username, password_hash, display_name, employee_number, status) VALUES ('general_manager', ?, ?, ?, ?, 'active')")
-                    ->execute([$username, $hash, $name, $employeeNumber]);
-                audit_log_write($pdo, $gmUser['role'], $gmUser['displayName'] ?? $gmUser['username'], $gmUser['employeeNumber'] ?? null, 'gm_account_create', 'أنشأ المسؤول العام حساب مسؤول عام جديد: ' . $name . ' (' . $username . ')');
-                echo json_encode(['ok' => true]);
+                $employeeNumber = next_staff_account_number($pdo, 'general_manager');
+                $pdo->prepare("INSERT INTO users (role, username, password_hash, display_name, phone_number, employee_number, status) VALUES ('general_manager', ?, ?, ?, ?, ?, 'active')")
+                    ->execute([$username, $hash, $name, $phone, $employeeNumber]);
+                audit_log_write($pdo, $gmUser['role'], $gmUser['displayName'] ?? $gmUser['username'], $gmUser['employeeNumber'] ?? null, 'gm_account_create', 'أنشأ المسؤول العام حساب مسؤول عام جديد: ' . $name . ' (' . $username . ') برقم وظيفي ' . $employeeNumber);
+                echo json_encode(['ok' => true, 'employeeNumber' => $employeeNumber]);
             } catch (Throwable $ex) {
                 echo json_encode(['ok' => false, 'error' => 'اسم الدخول مستخدم مسبقاً']);
             }
@@ -550,10 +576,11 @@ if (isset($_GET['ajax'])) {
 
         case 'employees_list': {
             $rows = $pdo->query("
-                SELECT e.id, e.full_name AS name, b.name AS branch
+                SELECT e.id, e.full_name AS name, b.name AS branch, e.has_evening_shift AS hasEveningShift
                 FROM employees e JOIN branches b ON b.id = e.branch_id
                 WHERE e.status='active' ORDER BY e.full_name
             ")->fetchAll();
+            $rows = array_map(fn($r) => ['id' => (int) $r['id'], 'name' => $r['name'], 'branch' => $r['branch'], 'hasEveningShift' => (bool) $r['hasEveningShift']], $rows);
             echo json_encode(['ok' => true, 'employees' => $rows], JSON_UNESCAPED_UNICODE);
             exit;
         }
@@ -569,7 +596,7 @@ if (isset($_GET['ajax'])) {
                        adv.approved_monthly_deduction AS advanceMonthly, adv.remaining_balance AS advanceRemaining
                 FROM employees e
                 JOIN branches b ON b.id = e.branch_id
-                LEFT JOIN payroll p ON p.employee_id = e.id AND p.period_month=? AND p.period_year=?
+                LEFT JOIN payroll p ON p.employee_id = e.id AND p.period_month=? AND p.period_year=? AND p.shift_period='morning'
                 LEFT JOIN requests adv ON adv.employee_id = e.id AND adv.type='advance' AND adv.status='approved' AND adv.remaining_balance > 0
                 WHERE e.status='active'
                 ORDER BY (COALESCE(p.status, 'pending') = 'delivered') ASC, e.full_name
@@ -595,56 +622,63 @@ if (isset($_GET['ajax'])) {
             $type = $_POST['type'] ?? '';
             $amount = (float) ($_POST['amount'] ?? 0);
             $note = trim($_POST['note'] ?? '');
+            $period = ($_POST['period'] ?? '') === 'evening' ? 'evening' : 'morning';
             if (!in_array($type, ['salary', 'bonus', 'deduction'], true) || $amount <= 0 || $employeeId <= 0) {
                 echo json_encode(['ok' => false, 'error' => 'الرجاء اختيار الموظف ونوع التعديل وإدخال مبلغ صحيح']);
                 exit;
             }
-            $empStmt = $pdo->prepare("SELECT branch_id, full_name FROM employees WHERE id=?");
+            $empStmt = $pdo->prepare("SELECT branch_id, full_name, has_evening_shift, evening_base_salary FROM employees WHERE id=?");
             $empStmt->execute([$employeeId]);
             $emp = $empStmt->fetch();
             if (!$emp) {
                 echo json_encode(['ok' => false, 'error' => 'الموظف غير موجود']);
                 exit;
             }
+            if ($period === 'evening' && !$emp['has_evening_shift']) {
+                echo json_encode(['ok' => false, 'error' => 'لا يوجد لهذا الموظف شفت مسائي مفعّل']);
+                exit;
+            }
             $month = (int) date('n');
             $year = (int) date('Y');
             $branchId = (int) $emp['branch_id'];
 
-            $existing = $pdo->prepare("SELECT id, status FROM payroll WHERE employee_id=? AND period_month=? AND period_year=?");
-            $existing->execute([$employeeId, $month, $year]);
+            $existing = $pdo->prepare("SELECT id, status FROM payroll WHERE employee_id=? AND period_month=? AND period_year=? AND shift_period=?");
+            $existing->execute([$employeeId, $month, $year, $period]);
             $existing = $existing->fetch();
             if ($existing && $existing['status'] === 'delivered') {
                 echo json_encode(['ok' => false, 'error' => 'تم تسليم راتب هذا الشهر مسبقاً، لا يمكن تعديله']);
                 exit;
             }
 
+            $defaultBaseExpr = $period === 'evening' ? $emp['evening_base_salary'] : null;
             if ($type === 'salary') {
-                $pdo->prepare("INSERT INTO payroll (employee_id, branch_id, period_month, period_year, base_salary, status)
-                    VALUES (?, ?, ?, ?, ?, 'pending') ON DUPLICATE KEY UPDATE base_salary=?")
-                    ->execute([$employeeId, $branchId, $month, $year, $amount, $amount]);
+                $pdo->prepare("INSERT INTO payroll (employee_id, branch_id, period_month, period_year, shift_period, base_salary, status)
+                    VALUES (?, ?, ?, ?, ?, ?, 'pending') ON DUPLICATE KEY UPDATE base_salary=?")
+                    ->execute([$employeeId, $branchId, $month, $year, $period, $amount, $amount]);
             } elseif ($type === 'bonus') {
-                $pdo->prepare("INSERT INTO payroll (employee_id, branch_id, period_month, period_year, base_salary, bonus, status)
-                    VALUES (?, ?, ?, ?, (SELECT base_salary FROM employees WHERE id=?), ?, 'pending')
+                $pdo->prepare("INSERT INTO payroll (employee_id, branch_id, period_month, period_year, shift_period, base_salary, bonus, status)
+                    VALUES (?, ?, ?, ?, ?, COALESCE(?, (SELECT base_salary FROM employees WHERE id=?)), ?, 'pending')
                     ON DUPLICATE KEY UPDATE bonus = bonus + VALUES(bonus)")
-                    ->execute([$employeeId, $branchId, $month, $year, $employeeId, $amount]);
+                    ->execute([$employeeId, $branchId, $month, $year, $period, $defaultBaseExpr, $employeeId, $amount]);
             } else {
-                $pdo->prepare("INSERT INTO payroll (employee_id, branch_id, period_month, period_year, base_salary, deduction, status)
-                    VALUES (?, ?, ?, ?, (SELECT base_salary FROM employees WHERE id=?), ?, 'pending')
+                $pdo->prepare("INSERT INTO payroll (employee_id, branch_id, period_month, period_year, shift_period, base_salary, deduction, status)
+                    VALUES (?, ?, ?, ?, ?, COALESCE(?, (SELECT base_salary FROM employees WHERE id=?)), ?, 'pending')
                     ON DUPLICATE KEY UPDATE deduction = deduction + VALUES(deduction)")
-                    ->execute([$employeeId, $branchId, $month, $year, $employeeId, $amount]);
+                    ->execute([$employeeId, $branchId, $month, $year, $period, $defaultBaseExpr, $employeeId, $amount]);
             }
 
             $pdo->prepare("INSERT INTO payroll_adjustments (employee_id, branch_id, period_month, period_year, type, amount, note, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
                 ->execute([$employeeId, $branchId, $month, $year, $type, $amount, $note ?: null, $gmUser['id']]);
 
             $typeLabel = ['salary' => 'تحديث الراتب الأساسي', 'bonus' => 'مكافأة', 'deduction' => 'خصم'];
-            $msg = $typeLabel[$type] . ' بقيمة ' . number_format($amount) . ' للموظف ' . $emp['full_name'] . ' من المسؤول العام';
+            $periodLabel = $period === 'evening' ? ' (الشفت المسائي)' : '';
+            $msg = $typeLabel[$type] . $periodLabel . ' بقيمة ' . number_format($amount) . ' للموظف ' . $emp['full_name'] . ' من المسؤول العام';
             $notifyUsers = $pdo->prepare("SELECT id FROM users WHERE employee_id=? UNION SELECT id FROM users WHERE branch_id=? AND role='branch_manager' UNION SELECT id FROM users WHERE role='hr'");
             $notifyUsers->execute([$employeeId, $branchId]);
             foreach ($notifyUsers->fetchAll(PDO::FETCH_COLUMN) as $uid) {
                 $pdo->prepare("INSERT INTO notifications (user_id, title, message) VALUES (?, 'تحديث في الراتب', ?)")->execute([$uid, $msg]);
             }
-            audit_log_write($pdo, $gmUser['role'], $gmUser['displayName'] ?? $gmUser['username'], $gmUser['employeeNumber'] ?? null, 'payroll_adjustment', $typeLabel[$type] . ' بقيمة ' . number_format($amount) . ' للموظف ' . $emp['full_name'], $branchId);
+            audit_log_write($pdo, $gmUser['role'], $gmUser['displayName'] ?? $gmUser['username'], $gmUser['employeeNumber'] ?? null, 'payroll_adjustment', $typeLabel[$type] . $periodLabel . ' بقيمة ' . number_format($amount) . ' للموظف ' . $emp['full_name'], $branchId);
 
             echo json_encode(['ok' => true]);
             exit;
@@ -724,6 +758,25 @@ if (isset($_GET['ajax'])) {
 
             $pendingHonorCount = (int) $pdo->query("SELECT COUNT(*) FROM monthly_honor_requests WHERE status='pending'")->fetchColumn();
 
+            // مقارنة أرصدة الفروع (إيرادات الشهر الحالي) — نفس مقياس لوحة تحكم HR
+            $branchRevenueRows = $pdo->query("
+                SELECT b.id, b.name, COALESCE(SUM(CASE WHEN db.brief_date >= '$monthStart' AND db.status IN ('approved') THEN db.total_income ELSE 0 END),0) AS revenue
+                FROM branches b
+                LEFT JOIN daily_briefs db ON db.branch_id = b.id
+                WHERE b.status = 'active'
+                GROUP BY b.id, b.name
+                ORDER BY revenue DESC
+            ")->fetchAll();
+            $branchRevenueTotal = array_sum(array_column($branchRevenueRows, 'revenue'));
+            $branchRevenueShares = array_map(function ($r) use ($branchRevenueTotal) {
+                return [
+                    'id' => (int) $r['id'],
+                    'name' => $r['name'],
+                    'revenue' => (float) $r['revenue'],
+                    'pct' => $branchRevenueTotal > 0 ? round(((float) $r['revenue'] / $branchRevenueTotal) * 100, 1) : 0,
+                ];
+            }, $branchRevenueRows);
+
             echo json_encode([
                 'ok' => true,
                 'attendancePct' => $attendancePct,
@@ -731,6 +784,7 @@ if (isset($_GET['ajax'])) {
                 'balancePct' => $balancePct,
                 'honorRoll' => $honorRoll,
                 'pendingHonorCount' => $pendingHonorCount,
+                'branchRevenueShares' => $branchRevenueShares,
             ], JSON_UNESCAPED_UNICODE);
             exit;
         }
@@ -941,14 +995,14 @@ if (isset($_GET['ajax'])) {
             $branch['shiftEnd'] = $branch['shiftEnd'] ? substr($branch['shiftEnd'], 0, 5) : null;
 
             $empStmt = $pdo->prepare("
-                SELECT e.id, e.full_name AS name, e.job_title, e.shift_type, e.is_branch_manager AS isManager, e.base_salary AS salary,
+                SELECT e.id, e.full_name AS name, e.job_title, e.shift_type, e.has_evening_shift AS hasEveningShift, e.is_branch_manager AS isManager, e.base_salary AS salary,
                        ROUND(SUM(a.status IN ('present','late')) / GREATEST(COUNT(a.id),1) * 100) AS attendanceRate,
                        p.status AS payrollStatus, p.period_month AS payrollMonth, p.period_year AS payrollYear
                 FROM employees e
                 LEFT JOIN attendance a ON a.employee_id = e.id AND a.attendance_date >= DATE_FORMAT(CURDATE(), '%Y-%m-01')
                 LEFT JOIN payroll p ON p.employee_id = e.id AND p.period_month = MONTH(CURDATE()) AND p.period_year = YEAR(CURDATE())
                 WHERE e.branch_id = ? AND e.status = 'active'
-                GROUP BY e.id, e.full_name, e.job_title, e.shift_type, e.is_branch_manager, e.base_salary, p.status, p.period_month, p.period_year
+                GROUP BY e.id, e.full_name, e.job_title, e.shift_type, e.has_evening_shift, e.is_branch_manager, e.base_salary, p.status, p.period_month, p.period_year
                 ORDER BY e.is_branch_manager DESC, e.full_name
             ");
             $empStmt->execute([$branchId]);
@@ -957,7 +1011,7 @@ if (isset($_GET['ajax'])) {
                 $r['isManager'] = (bool) $r['isManager'];
                 $r['salary'] = (float) $r['salary'];
                 $r['attendanceRate'] = $r['attendanceRate'] !== null ? (int) $r['attendanceRate'] : 0;
-                $r['shiftTypeText'] = $r['shift_type'] === 'evening' ? 'مسائي' : 'صباحي';
+                $r['shiftTypeText'] = $r['hasEveningShift'] ? 'صباحي ومسائي' : ($r['shift_type'] === 'evening' ? 'مسائي' : 'صباحي');
                 if ($r['payrollStatus'] === 'delivered') {
                     $r['payrollText'] = 'استلم راتب ' . ($monthNamesGm[(int) $r['payrollMonth']] ?? $r['payrollMonth']) . ' ' . $r['payrollYear'];
                 } else {
@@ -1193,6 +1247,22 @@ try {
     .stat-card .label { font-size: 12px; color: var(--text-muted); margin-bottom: 8px; }
     .stat-card .value { font-size: 26px; font-weight: 900; color: var(--primary); }
 
+    .stocks-section { background: var(--bg-card); border-radius: var(--radius-md); padding: 16px 18px; margin-bottom: 12px; box-shadow: 0 2px 12px rgba(0,0,0,0.04); }
+    .stocks-section .stocks-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px; }
+    .stocks-section .stocks-header h4 { font-size: 14px; font-weight: 800; }
+    .stocks-section .stocks-header h4 i { color: var(--orange); }
+    .stocks-section .stocks-header .update-time { font-size: 11px; color: var(--text-muted); }
+    .stocks-chart { display: flex; align-items: flex-end; justify-content: center; gap: 18px; row-gap: 40px; height: auto; min-height: 110px; padding: 22px 4px 30px; flex-wrap: wrap; }
+    .branch-bar-wrap { display: flex; flex-direction: column; align-items: center; justify-content: flex-end; height: 100px; min-width: 60px; position: relative; cursor: pointer; }
+    .branch-bar { width: 20px; border-radius: 2px; background: var(--primary-gradient, var(--primary)); min-height: 4px; transition: height 0.6s ease; opacity: 0.85; }
+    .branch-bar-wrap:hover .branch-bar { opacity: 1; }
+    .branch-bar-pct { font-size: 10px; font-weight: 800; color: var(--text-secondary); margin-bottom: 4px; white-space: nowrap; }
+    .branch-bar-label { position: absolute; bottom: -20px; font-size: 9.5px; color: var(--text-muted); font-weight: 500; white-space: nowrap; max-width: 70px; overflow: hidden; text-overflow: ellipsis; }
+    .branch-bar-value { position: absolute; bottom: -33px; font-size: 9px; color: var(--primary); font-weight: 800; white-space: nowrap; max-width: 80px; overflow: hidden; text-overflow: ellipsis; }
+    .stocks-summary { display: flex; gap: 24px; margin-top: 16px; padding-top: 14px; border-top: 1px solid rgba(0,107,115,0.04); flex-wrap: wrap; }
+    .stocks-summary .summary-item { display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 600; }
+    .stocks-summary .summary-item .value { font-weight: 800; color: var(--text-primary); }
+
     .brief-card { background: var(--bg-card); border-radius: var(--radius-md); padding: 16px 18px; margin-bottom: 12px; box-shadow: 0 2px 12px rgba(0,0,0,0.04); border-right: 4px solid var(--orange); }
     .brief-card.history { border-right-color: #ccc; }
     .brief-top { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
@@ -1284,7 +1354,10 @@ try {
             </div>
 
             <nav class="nav-menu">
-                <button class="nav-item active" id="sidenav-pending" onclick="switchTab('pending')">
+                <button class="nav-item active" id="sidenav-control" onclick="switchTab('control')">
+                    <i class="fas fa-chart-pie"></i> لوحة تحكم
+                </button>
+                <button class="nav-item" id="sidenav-pending" onclick="switchTab('pending')">
                     <i class="fas fa-inbox"></i> بانتظار الاعتماد
                 </button>
                 <button class="nav-item" id="sidenav-history" onclick="switchTab('history')">
@@ -1315,9 +1388,6 @@ try {
                 <button class="nav-item" id="sidenav-mgrRequests" onclick="switchTab('mgrRequests')">
                     <i class="fas fa-envelope-open-text"></i> طلبات مسؤولي الفروع
                 </button>
-                <button class="nav-item" id="sidenav-control" onclick="switchTab('control')">
-                    <i class="fas fa-gauge-high"></i> تحكم
-                </button>
             </nav>
 
             <div class="user-info">
@@ -1345,8 +1415,8 @@ try {
                         <i class="fas fa-bars"></i>
                     </button>
                     <div>
-                        <h2 id="pageTitle"><i class="fas fa-inbox"></i> بانتظار الاعتماد</h2>
-                        <span class="sub" id="pageSub">الإيجازات التي تحتاج اعتمادك النهائي</span>
+                        <h2 id="pageTitle"><i class="fas fa-chart-pie"></i> لوحة تحكم</h2>
+                        <span class="sub" id="pageSub">نظرة عامة على أداء الشركة</span>
                     </div>
                 </div>
                 <div class="header-actions" style="position:relative;">
@@ -1378,7 +1448,7 @@ try {
                 <div class="stat-card"><div class="label"><i class="fas fa-users"></i> الموظفون</div><div class="value" id="statEmployees">0</div></div>
             </div>
 
-            <div id="view-pending"></div>
+            <div id="view-pending" class="hidden"></div>
             <div id="view-history" class="hidden"></div>
             <div id="view-branches" class="hidden"></div>
             <div id="view-payrollWindow" class="hidden">
@@ -1394,12 +1464,16 @@ try {
             <div id="view-payroll" class="hidden">
                 <div class="brief-card">
                     <h4 style="margin-bottom:10px;"><i class="fas fa-plus-circle"></i> إضافة راتب / مكافأة / خصم لموظف</h4>
-                    <div style="display:grid;grid-template-columns:1.5fr 1fr 1fr 1.5fr auto;gap:10px;">
-                        <select id="payrollEmployee" style="height:38px;padding:0 10px;border:1.5px solid #e2ebeb;border-radius:8px;font-family:var(--font-family);"></select>
+                    <div style="display:grid;grid-template-columns:1.5fr 1fr 1fr 1fr 1.5fr auto;gap:10px;">
+                        <select id="payrollEmployee" onchange="togglePayrollPeriodField()" style="height:38px;padding:0 10px;border:1.5px solid #e2ebeb;border-radius:8px;font-family:var(--font-family);"></select>
                         <select id="payrollType" style="height:38px;padding:0 10px;border:1.5px solid #e2ebeb;border-radius:8px;font-family:var(--font-family);">
                             <option value="salary">راتب أساسي</option>
                             <option value="bonus">مكافأة</option>
                             <option value="deduction">خصم</option>
+                        </select>
+                        <select id="payrollPeriod" style="display:none;height:38px;padding:0 10px;border:1.5px solid #e2ebeb;border-radius:8px;font-family:var(--font-family);">
+                            <option value="morning">الشفت الصباحي</option>
+                            <option value="evening">الشفت المسائي</option>
                         </select>
                         <input type="number" id="payrollAmount" placeholder="المبلغ" style="height:38px;padding:0 10px;border:1.5px solid #e2ebeb;border-radius:8px;font-family:var(--font-family);">
                         <input type="text" id="payrollNote" placeholder="ملاحظة (اختياري)" style="height:38px;padding:0 10px;border:1.5px solid #e2ebeb;border-radius:8px;font-family:var(--font-family);">
@@ -1425,6 +1499,7 @@ try {
                                 <option value="attendance">الحضور</option>
                                 <option value="salaries">الرواتب</option>
                                 <option value="briefing">الإيجاز</option>
+                                <option value="travelers">المسافرون</option>
                             </select>
                         </div>
                         <div class="form-group"><label style="font-size:12px;">من تاريخ</label><input type="date" id="reportFrom" style="width:100%;height:38px;border:1.5px solid #e2ebeb;border-radius:8px;font-family:var(--font-family);"></div>
@@ -1459,7 +1534,7 @@ try {
                     <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr auto;gap:10px;">
                         <input type="text" id="gmName" placeholder="الاسم" style="height:38px;padding:0 10px;border:1.5px solid #e2ebeb;border-radius:8px;font-family:var(--font-family);">
                         <input type="email" id="gmUsername" placeholder="البريد الإلكتروني (لتسجيل الدخول)" style="height:38px;padding:0 10px;border:1.5px solid #e2ebeb;border-radius:8px;font-family:var(--font-family);">
-                        <input type="text" id="gmEmployeeNumber" placeholder="الرقم الوظيفي" style="height:38px;padding:0 10px;border:1.5px solid #e2ebeb;border-radius:8px;font-family:var(--font-family);">
+                        <input type="text" id="gmPhone" placeholder="رقم الهاتف" style="height:38px;padding:0 10px;border:1.5px solid #e2ebeb;border-radius:8px;font-family:var(--font-family);">
                         <input type="password" id="gmPassword" placeholder="كلمة المرور" style="height:38px;padding:0 10px;border:1.5px solid #e2ebeb;border-radius:8px;font-family:var(--font-family);">
                         <button class="btn small" onclick="createGmAccount()"><i class="fas fa-save"></i> إنشاء</button>
                     </div>
@@ -1489,7 +1564,15 @@ try {
             <div id="view-mgrRequests" class="hidden">
                 <div id="mgrRequestsList"></div>
             </div>
-            <div id="view-control" class="hidden">
+            <div id="view-control">
+                <div class="stocks-section">
+                    <div class="stocks-header">
+                        <h4><i class="fas fa-chart-column"></i> مقارنة أرصدة الفروع (الشهر الحالي)</h4>
+                        <span class="update-time"><i class="fas fa-clock"></i> تحديث: <span id="gmStocksTime">--:--</span></span>
+                    </div>
+                    <div class="stocks-chart" id="gmStocksChart"></div>
+                    <div class="stocks-summary" id="gmStocksSummary"></div>
+                </div>
                 <div class="brief-card">
                     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
                         <span style="font-size:13px;font-weight:700;"><i class="fas fa-users"></i> نسبة دوام الموظفين (الشهر الحالي)</span>
@@ -1726,6 +1809,7 @@ try {
         loadNotifications();
         setInterval(loadNotifications, 60000);
         if (currentRole !== 'shareholder') loadPending();
+        loadControlData();
         const today = new Date().toISOString().split('T')[0];
         const monthStart = today.slice(0, 8) + '01';
         document.getElementById('reportFrom').value = monthStart;
@@ -1739,7 +1823,10 @@ try {
             fetch('?ajax=employees_list').then(r => r.json()).then(data => {
                 if (!data.ok) return;
                 const select = document.getElementById('payrollEmployee');
-                if (select) select.innerHTML = data.employees.map(e => `<option value="${e.id}">${e.name} — ${e.branch}</option>`).join('');
+                if (select) {
+                    select.innerHTML = data.employees.map(e => `<option value="${e.id}" data-evening="${e.hasEveningShift ? '1' : '0'}">${e.name} — ${e.branch}</option>`).join('');
+                    togglePayrollPeriodField();
+                }
             });
         }
     }
@@ -1765,18 +1852,27 @@ try {
         });
     }
 
+    function togglePayrollPeriodField() {
+        const select = document.getElementById('payrollEmployee');
+        const opt = select.options[select.selectedIndex];
+        const periodField = document.getElementById('payrollPeriod');
+        periodField.style.display = (opt && opt.dataset.evening === '1') ? '' : 'none';
+    }
+
     function addPayrollAdjustment() {
         const select = document.getElementById('payrollEmployee');
         const name = select.options[select.selectedIndex] ? select.options[select.selectedIndex].text : '';
         const employeeId = select.value;
         const type = document.getElementById('payrollType').value;
+        const periodField = document.getElementById('payrollPeriod');
+        const period = periodField.style.display !== 'none' ? periodField.value : 'morning';
         const amount = parseFloat(document.getElementById('payrollAmount').value) || 0;
         const note = document.getElementById('payrollNote').value;
         if (!employeeId || amount <= 0) {
             showToast('⚠️ تنبيه', 'الرجاء اختيار الموظف وإدخال مبلغ صحيح', 'warning');
             return;
         }
-        fetch('?ajax=payroll_adjustment_add', { method: 'POST', body: new URLSearchParams({ employeeId, type, amount, note }) })
+        fetch('?ajax=payroll_adjustment_add', { method: 'POST', body: new URLSearchParams({ employeeId, type, period, amount, note }) })
             .then(r => r.json()).then(data => {
                 if (!data.ok) { showToast('⚠️ خطأ', data.error || 'تعذر الحفظ', 'error'); return; }
                 showToast('✅ تم الحفظ', `تم تحديث راتب ${name} وإرسال إشعار له ولمسؤول فرعه و HR`, 'success');
@@ -1895,7 +1991,7 @@ try {
         audit: { title: 'تدقيق', sub: 'سجل زمني بكل عملية تمت في النظام ومن قام بها', icon: 'fa-clipboard-list' },
         attendanceBoard: { title: 'بصمة', sub: 'حضور جميع الموظفين ومسؤولي الفروع حسب التاريخ', icon: 'fa-fingerprint' },
         mgrRequests: { title: 'طلبات مسؤولي الفروع', sub: 'سلفة، استقالة، مستلزمات، إجازة — تصلك مباشرة دون المرور بالموارد البشرية', icon: 'fa-envelope-open-text' },
-        control: { title: 'تحكم', sub: 'نسبة الدوام ورصيد اليوم ولائحة الشرف', icon: 'fa-gauge-high' },
+        control: { title: 'لوحة تحكم', sub: 'نظرة عامة على أداء الشركة', icon: 'fa-chart-pie' },
     };
 
     function switchTab(tab) {
@@ -2252,7 +2348,13 @@ try {
             rows.map(r => `<tr style="border-bottom:1px solid #eee;"><td style="padding:6px;">${r.branch}</td><td style="padding:6px;">${r.sender || '-'}</td><td style="padding:6px;">${r.date}</td><td style="padding:6px;">${r.revenue}</td><td style="padding:6px;">${r.expense}</td><td style="padding:6px;">${r.travelers}</td><td style="padding:6px;">${r.profit}</td><td style="padding:6px;">${r.statusText || '-'}</td><td style="padding:6px;">${r.hrNote || '-'}</td><td style="padding:6px;">${r.gmNote || '-'}</td></tr>`).join('') + '</tbody></table></div>';
     }
 
-    const reportTypeNamesGm = { 'attendance': 'الحضور', 'salaries': 'الرواتب', 'briefing': 'الإيجاز', 'all': 'تقرير شامل' };
+    function travelersTable(rows) {
+        if (!rows || !rows.length) return '<p style="color:var(--text-muted);font-size:13px;">لا توجد بيانات</p>';
+        return '<div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font-size:12px;"><thead><tr style="background:var(--bg);"><th style="padding:6px;text-align:right;">الفرع</th><th style="padding:6px;">عدد المسافرين</th><th style="padding:6px;">عدد الإيجازات</th></tr></thead><tbody>' +
+            rows.map(r => `<tr style="border-bottom:1px solid #eee;"><td style="padding:6px;">${r.branch}</td><td style="padding:6px;"><strong>${r.travelers}</strong></td><td style="padding:6px;">${r.briefsCount}</td></tr>`).join('') + '</tbody></table></div>';
+    }
+
+    const reportTypeNamesGm = { 'attendance': 'الحضور', 'salaries': 'الرواتب', 'briefing': 'الإيجاز', 'travelers': 'المسافرون', 'all': 'تقرير شامل' };
 
     function generateReport() {
         const type = document.getElementById('reportType').value;
@@ -2266,6 +2368,7 @@ try {
             if (type === 'attendance' || type === 'all') html += '<h4 style="margin-bottom:8px;"><i class="fas fa-clock"></i> الحضور</h4>' + attendanceTable(data.attendance);
             if (type === 'salaries' || type === 'all') html += '<h4 style="margin:14px 0 8px;"><i class="fas fa-wallet"></i> الرواتب</h4>' + salariesTable(data.salaries);
             if (type === 'briefing' || type === 'all') html += '<h4 style="margin:14px 0 8px;"><i class="fas fa-chart-simple"></i> الإيجاز</h4>' + briefingTable(data.briefing);
+            if (type === 'travelers' || type === 'all') html += '<h4 style="margin:14px 0 8px;"><i class="fas fa-plane"></i> المسافرون</h4>' + travelersTable(data.travelers);
             html += '</div>';
             document.getElementById('reportResult').innerHTML = html;
             document.getElementById('reportPrintMeta').textContent = `${reportTypeNamesGm[type] || type} — من ${from} إلى ${to}`;
@@ -2353,7 +2456,7 @@ try {
             }
             view.innerHTML = data.accounts.map(a => `
                 <div class="brief-card" style="display:flex;align-items:center;justify-content:space-between;">
-                    <div><b>${a.display_name || a.username}</b> <span style="color:var(--text-muted);font-size:12px;">(${a.username} — رقم وظيفي: ${a.employee_number || '-'})</span></div>
+                    <div><b>${a.display_name || a.username}</b> <span style="color:var(--text-muted);font-size:12px;">(${a.username}${a.phone_number ? ' — ' + a.phone_number : ''} — رقم وظيفي: ${a.employee_number || '-'})</span></div>
                     <button class="btn small ${a.status === 'active' ? 'red' : 'green'}" onclick="toggleGmAccount(${a.id})">${a.status === 'active' ? 'تعطيل' : 'تفعيل'}</button>
                 </div>
             `).join('');
@@ -2363,23 +2466,23 @@ try {
     function createGmAccount() {
         const name = document.getElementById('gmName').value;
         const username = document.getElementById('gmUsername').value;
-        const employeeNumber = document.getElementById('gmEmployeeNumber').value;
+        const phone = document.getElementById('gmPhone').value;
         const password = document.getElementById('gmPassword').value;
-        if (!name || !username || !employeeNumber || password.length < 6) {
-            showToast('⚠️ تنبيه', 'الرجاء تعبئة الاسم والبريد الإلكتروني والرقم الوظيفي وكلمة مرور 6 أحرف على الأقل', 'warning');
+        if (!name || !username || !phone || password.length < 6) {
+            showToast('⚠️ تنبيه', 'الرجاء تعبئة الاسم والبريد الإلكتروني ورقم الهاتف وكلمة مرور 6 أحرف على الأقل', 'warning');
             return;
         }
         if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(username)) {
             showToast('⚠️ تنبيه', 'الرجاء إدخال بريد إلكتروني صحيح', 'warning');
             return;
         }
-        fetch('?ajax=gm_account_create', { method: 'POST', body: new URLSearchParams({ name, username, employeeNumber, password }) })
+        fetch('?ajax=gm_account_create', { method: 'POST', body: new URLSearchParams({ name, username, phone, password }) })
             .then(r => r.json()).then(data => {
                 if (!data.ok) { showToast('⚠️ خطأ', data.error || 'تعذر الإنشاء', 'error'); return; }
-                showToast('✅ تم الإنشاء', 'تم إنشاء حساب المسؤول العام بنجاح', 'success');
+                showToast('✅ تم الإنشاء', 'تم إنشاء حساب المسؤول العام بنجاح — الرقم الوظيفي: ' + data.employeeNumber, 'success');
                 document.getElementById('gmName').value = '';
                 document.getElementById('gmUsername').value = '';
-                document.getElementById('gmEmployeeNumber').value = '';
+                document.getElementById('gmPhone').value = '';
                 document.getElementById('gmPassword').value = '';
                 loadGmAccounts();
             }).catch(() => {
@@ -2485,9 +2588,47 @@ try {
         });
     }
 
+    function renderGmBranchRevenueBars(shares) {
+        const chart = document.getElementById('gmStocksChart');
+        const summary = document.getElementById('gmStocksSummary');
+        const timeEl = document.getElementById('gmStocksTime');
+        if (timeEl) timeEl.textContent = new Date().toLocaleTimeString('ar-SA', { hour: '2-digit', minute: '2-digit' });
+        if (!chart) return;
+        if (!shares || shares.length === 0) {
+            chart.innerHTML = '<div style="width:100%;text-align:center;color:var(--text-muted);font-size:12px;padding:20px 0;">لا توجد بيانات إيرادات كافية بعد</div>';
+            if (summary) summary.innerHTML = '';
+            return;
+        }
+        chart.innerHTML = shares.map(s => {
+            const height = Math.max(s.pct, 3);
+            return `
+                <div class="branch-bar-wrap" title="${s.name}: ${s.pct}% (${Number(s.revenue).toLocaleString()} د.ع) — اضغط لعرض تفاصيل الفرع" onclick="goToBranchDetailFromControl(${s.id})">
+                    <span class="branch-bar-pct">${s.pct}%</span>
+                    <div class="branch-bar" style="height:${height}%;"></div>
+                    <span class="branch-bar-label">${s.name}</span>
+                    <span class="branch-bar-value">${Number(s.revenue).toLocaleString()} د.ع</span>
+                </div>
+            `;
+        }).join('');
+        if (summary) {
+            const total = shares.reduce((sum, s) => sum + s.revenue, 0);
+            const best = shares[0];
+            summary.innerHTML = `
+                <span class="summary-item">إجمالي إيرادات الشهر: <span class="value">${Number(total).toLocaleString()}</span></span>
+                ${best && best.revenue > 0 ? `<span class="summary-item"><i class="fas fa-trophy" style="color:var(--accent);"></i> الأعلى: <span class="value">${best.name}</span></span>` : ''}
+            `;
+        }
+    }
+
+    function goToBranchDetailFromControl(id) {
+        switchTab('branches');
+        openGmBranchDetail(id);
+    }
+
     function loadControlData() {
         fetch('?ajax=control_data').then(r => r.json()).then(data => {
             if (!data.ok) return;
+            renderGmBranchRevenueBars(data.branchRevenueShares || []);
             document.getElementById('controlAttendancePctLabel').textContent = data.attendancePct + '%';
             document.getElementById('controlAttendanceBar').style.width = data.attendancePct + '%';
             document.getElementById('controlBalancePctLabel').textContent = data.balancePct + '%';
