@@ -1,0 +1,331 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>فيترين — كل هاتف يستحق أن يُعرض</title>
+<meta name="description" content="فيترين متجر متخصص لعرض وبيع الهواتف الذكية بأسلوب احترافي راقٍ. تصفح المجموعة وتواصل معنا مباشرة لإتمام طلبك.">
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%230B3D2E'/%3E%3Crect x='11' y='7' width='10' height='18' rx='2.4' fill='none' stroke='%23FAF9F4' stroke-width='1.6'/%3E%3Ccircle cx='16' cy='21.6' r='0.9' fill='%23FAF9F4'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Reem+Kufi:wght@400..700&family=Mada:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+<!--
+THESIS: كل هاتف يُعرض ككائن يستحق، لا كسطر في قائمة — رفض شبكة الماركت العامة والقالب التقني المعتاد.
+OWN-WORLD: أرضية زمردية عميقة "فيترين"، بطل مضاء بكشاف على قاعدة عرض، بطاقات "تسمية معروضات" بيضاء
+(اسم/مواصفة/سعر كبطاقة متحف)، خطوط فاصلة نحاسية ذهبية رفيعة. Reem Kufi للعناوين، Mada للنصوص.
+STORY: الزائر يرى الهواتف معروضة كقطع ثمينة، يثق بضمانات المتجر المذكورة بدقة، ويتواصل عبر واتساب للطلب.
+FIRST VIEWPORT: خلفية زمردية كاملة، توهج كشاف خلف مجسم هاتف هندسي على قاعدة، بطاقة بيضاء عائمة تسمي
+جهازًا رائدًا واحدًا، عنوان فوقها، وزرا دعوة أسفلها.
+FORM: فيترين (نظام واجهة عرض بوتيك) — مُختار مباشرة من الموجز (أخضر/أبيض، احترافي، عربي، تواصل
+للطلب) دون دورة الاختيار الكاملة أو توليد الصور؛ لا تتوفر أدوات تصميم صور أو وكلاء فرعية مخصصة في هذه الجلسة.
+FINISH: unreviewed and undocumented is unfinished; this build ends with the finish review, the verdict,
+DESIGN.md, and every shipping raster carrying its provenance.
+-->
+
+<a class="skip-link" href="#main">تخطَّ إلى المحتوى الرئيسي</a>
+
+<header class="site-header" id="site-header">
+  <div class="wrap header-row">
+    <a href="#top" class="brand" aria-label="فيترين — الصفحة الرئيسية">
+      <span class="brand-mark" aria-hidden="true">
+        <svg viewBox="0 0 24 24" width="22" height="22"><rect x="7" y="2.5" width="10" height="19" rx="2.4" fill="none" stroke="currentColor" stroke-width="1.6"/><circle cx="12" cy="17.6" r="0.9" fill="currentColor"/></svg>
+      </span>
+      <span class="brand-word">فيترين</span>
+    </a>
+
+    <nav class="main-nav" id="main-nav" aria-label="التنقل الرئيسي">
+      <a href="#collection">المجموعة</a>
+      <a href="#commitment">التزامنا</a>
+      <a href="#voices">آراء الزوار</a>
+      <a href="#contact">تواصل معنا</a>
+    </nav>
+
+    <div class="header-actions">
+      <a class="btn btn-accent btn-sm" href="https://wa.me/000000000000" target="_blank" rel="noopener">
+        <svg viewBox="0 0 24 24" width="17" height="17" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" d="M6.5 17.5 4 20l2.6-.7A8 8 0 1 0 4 12a7.9 7.9 0 0 0 1.1 4Z"/><path fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" d="M9.5 9.8c.3-.7 1-2 1.4-2s.9.1 1.2.6c.3.5.9 1.7.9 1.9s.1.4-.1.6c-.3.3-.5.5-.7.7s-.3.4 0 .9c.3.5 1 1.4 2.1 2.2 1 .8 1.7 1 2.1 1.1.3.1.5 0 .7-.2l.9-1c.3-.3.5-.3.9-.2l1.9.9c.3.2.5.3.6.5.1.2.1 1-.3 1.9-.4.9-2 1.7-2.8 1.7-1.9 0-4-1-5.8-2.7-1.7-1.7-2.6-3.5-2.8-4.1-.2-.6-.6-1.7-.2-2.7Z"/></svg>
+        <span>واتساب</span>
+      </a>
+      <button class="nav-toggle" id="nav-toggle" aria-controls="main-nav" aria-expanded="false" aria-label="فتح قائمة التنقل">
+        <span></span><span></span><span></span>
+      </button>
+    </div>
+  </div>
+</header>
+
+<main id="main">
+
+  <!-- ============ HERO / THE VITRINE ============ -->
+  <section class="hero" id="top">
+    <div class="hero-glow" aria-hidden="true"></div>
+    <div class="wrap hero-grid">
+      <div class="hero-copy">
+        <h1>كل هاتف يستحق<br>أن يُعرض</h1>
+        <p class="hero-lede">
+          فيترين لا تعرض الهواتف في قائمة طويلة، بل تقدّم كل جهاز كقطعة تستحق التمعن فيها.
+          اختر ما يناسبك، وتواصل معنا مباشرة لإتمام الطلب — دون حساب، ودون تعقيد.
+        </p>
+        <div class="hero-actions">
+          <a class="btn btn-accent" href="#collection">تصفح المجموعة</a>
+          <a class="btn btn-ghost" href="#contact">تواصل معنا</a>
+        </div>
+      </div>
+
+      <div class="hero-vitrine" role="group" aria-label="عرض توضيحي: Nova X1 Pro">
+        <div class="pedestal" aria-hidden="true"></div>
+        <svg class="phone-mark" viewBox="0 0 200 340" aria-hidden="true">
+          <rect x="6" y="6" width="188" height="328" rx="34" fill="#0E2A20" stroke="#3F6A57" stroke-width="1.5"/>
+          <rect x="18" y="22" width="164" height="296" rx="20" fill="url(#screenGrad)"/>
+          <rect x="18" y="22" width="164" height="296" rx="20" fill="none" stroke="#5A8A72" stroke-width="1"/>
+          <circle cx="100" cy="34" r="3.4" fill="#0E2A20" stroke="#5A8A72" stroke-width="1"/>
+          <rect x="70" y="298" width="60" height="4" rx="2" fill="#5A8A72"/>
+          <defs>
+            <linearGradient id="screenGrad" x1="0" y1="0" x2="1" y2="1">
+              <stop offset="0%" stop-color="#1F8A5F"/>
+              <stop offset="55%" stop-color="#145C43"/>
+              <stop offset="100%" stop-color="#0B3D2E"/>
+            </linearGradient>
+          </defs>
+        </svg>
+
+        <div class="specimen-card">
+          <p class="specimen-eyebrow">القطعة المميزة</p>
+          <p class="specimen-name">Nova X1 Pro</p>
+          <p class="specimen-spec">256GB · كاميرا ثلاثية 108 ميجابكسل</p>
+          <p class="specimen-price"><bdi>899 $</bdi></p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ TRUST TICKER ============ -->
+  <section class="ticker" aria-label="التزامات المتجر">
+    <div class="ticker-track">
+      <span>ضمان حقيقي لمدة سنتين</span>
+      <span class="dot" aria-hidden="true">◆</span>
+      <span>فحص جودة على 60 نقطة قبل التسليم</span>
+      <span class="dot" aria-hidden="true">◆</span>
+      <span>توصيل خلال 24 ساعة داخل المدينة</span>
+      <span class="dot" aria-hidden="true">◆</span>
+      <span>دعم فني مباشر بعد الشراء</span>
+      <span class="dot" aria-hidden="true">◆</span>
+      <span>ضمان حقيقي لمدة سنتين</span>
+      <span class="dot" aria-hidden="true">◆</span>
+      <span>فحص جودة على 60 نقطة قبل التسليم</span>
+      <span class="dot" aria-hidden="true">◆</span>
+      <span>توصيل خلال 24 ساعة داخل المدينة</span>
+      <span class="dot" aria-hidden="true">◆</span>
+      <span>دعم فني مباشر بعد الشراء</span>
+    </div>
+  </section>
+
+  <!-- ============ COLLECTION ============ -->
+  <section class="section collection" id="collection">
+    <div class="wrap">
+      <div class="section-head">
+        <h2>المجموعة المختارة</h2>
+        <p>كل جهاز مُدقّق ومُجهّز قبل عرضه هنا. الأسعار والمواصفات أدناه توضيحية — للعرض والتوضيح فقط.</p>
+      </div>
+
+      <!-- بيانات المنتجات أدناه توضيحية بالكامل (أسماء وهمية)، وتُستبدل بالكتالوج الحقيقي قبل الإطلاق -->
+      <div class="gallery">
+
+        <article class="product product-feature">
+          <div class="product-visual" aria-hidden="true">
+            <svg viewBox="0 0 120 200"><rect x="4" y="4" width="112" height="192" rx="22" fill="#0E2A20" stroke="#3F6A57" stroke-width="1.2"/><rect x="13" y="15" width="94" height="170" rx="12" fill="url(#g1)"/><defs><linearGradient id="g1" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#2FA36F"/><stop offset="100%" stop-color="#0B3D2E"/></linearGradient></defs></svg>
+          </div>
+          <div class="product-label">
+            <p class="specimen-eyebrow">الفئة الرائدة</p>
+            <h3>Nova X1 Pro</h3>
+            <p class="product-spec">شاشة 6.7 بوصة AMOLED · معالج ثماني النواة · كاميرا ثلاثية 108 ميجابكسل · بطارية 5000mAh</p>
+            <div class="product-foot">
+              <span class="price"><bdi>899 $</bdi></span>
+              <a class="btn btn-accent btn-sm" href="https://wa.me/000000000000?text=مهتم%20بـ%20Nova%20X1%20Pro" target="_blank" rel="noopener">اطلب عبر واتساب</a>
+            </div>
+          </div>
+        </article>
+
+        <article class="product">
+          <div class="product-visual" aria-hidden="true">
+            <svg viewBox="0 0 120 200"><rect x="4" y="4" width="112" height="192" rx="22" fill="#0E2A20" stroke="#3F6A57" stroke-width="1.2"/><rect x="13" y="15" width="94" height="170" rx="12" fill="url(#g2)"/><defs><linearGradient id="g2" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#1F8A5F"/><stop offset="100%" stop-color="#0B3D2E"/></linearGradient></defs></svg>
+          </div>
+          <div class="product-label">
+            <h3>Nova X1</h3>
+            <p class="product-spec">شاشة 6.5 بوصة AMOLED · كاميرا مزدوجة 64 ميجابكسل · بطارية 4800mAh</p>
+            <div class="product-foot">
+              <span class="price"><bdi>649 $</bdi></span>
+              <a class="btn btn-outline btn-sm" href="https://wa.me/000000000000?text=مهتم%20بـ%20Nova%20X1" target="_blank" rel="noopener">اطلب عبر واتساب</a>
+            </div>
+          </div>
+        </article>
+
+        <article class="product">
+          <div class="product-visual" aria-hidden="true">
+            <svg viewBox="0 0 120 200"><rect x="4" y="4" width="112" height="192" rx="22" fill="#0E2A20" stroke="#3F6A57" stroke-width="1.2"/><rect x="13" y="15" width="94" height="170" rx="12" fill="url(#g3)"/><defs><linearGradient id="g3" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#3F6A57"/><stop offset="100%" stop-color="#0E2A20"/></linearGradient></defs></svg>
+          </div>
+          <div class="product-label">
+            <h3>Nova Air</h3>
+            <p class="product-spec">تصميم نحيف 7.4mm · شاشة 6.1 بوصة · بطارية 4200mAh</p>
+            <div class="product-foot">
+              <span class="price"><bdi>499 $</bdi></span>
+              <a class="btn btn-outline btn-sm" href="https://wa.me/000000000000?text=مهتم%20بـ%20Nova%20Air" target="_blank" rel="noopener">اطلب عبر واتساب</a>
+            </div>
+          </div>
+        </article>
+
+        <article class="product">
+          <div class="product-visual" aria-hidden="true">
+            <svg viewBox="0 0 120 200"><rect x="4" y="4" width="112" height="192" rx="22" fill="#0E2A20" stroke="#3F6A57" stroke-width="1.2"/><rect x="13" y="15" width="94" height="170" rx="12" fill="url(#g4)"/><defs><linearGradient id="g4" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#C9A96A"/><stop offset="100%" stop-color="#0B3D2E"/></linearGradient></defs></svg>
+          </div>
+          <div class="product-label">
+            <h3>Nova Lite 5G</h3>
+            <p class="product-spec">دعم 5G · شاشة 6.4 بوصة · كاميرا 50 ميجابكسل · شحن سريع 33W</p>
+            <div class="product-foot">
+              <span class="price"><bdi>359 $</bdi></span>
+              <a class="btn btn-outline btn-sm" href="https://wa.me/000000000000?text=مهتم%20بـ%20Nova%20Lite%205G" target="_blank" rel="noopener">اطلب عبر واتساب</a>
+            </div>
+          </div>
+        </article>
+
+        <article class="product">
+          <div class="product-visual" aria-hidden="true">
+            <svg viewBox="0 0 120 200"><rect x="4" y="4" width="112" height="192" rx="22" fill="#0E2A20" stroke="#3F6A57" stroke-width="1.2"/><rect x="13" y="15" width="94" height="170" rx="12" fill="url(#g5)"/><defs><linearGradient id="g5" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#5A8A72"/><stop offset="100%" stop-color="#0E2A20"/></linearGradient></defs></svg>
+          </div>
+          <div class="product-label">
+            <h3>Nova Play</h3>
+            <p class="product-spec">شاشة 6.3 بوصة · بطارية 5000mAh تدوم يومين كاملين</p>
+            <div class="product-foot">
+              <span class="price"><bdi>249 $</bdi></span>
+              <a class="btn btn-outline btn-sm" href="https://wa.me/000000000000?text=مهتم%20بـ%20Nova%20Play" target="_blank" rel="noopener">اطلب عبر واتساب</a>
+            </div>
+          </div>
+        </article>
+
+        <article class="product">
+          <div class="product-visual" aria-hidden="true">
+            <svg viewBox="0 0 120 200"><rect x="4" y="4" width="112" height="192" rx="22" fill="#0E2A20" stroke="#3F6A57" stroke-width="1.2"/><rect x="26" y="15" width="38" height="170" rx="10" fill="url(#g6)"/><rect x="66" y="15" width="38" height="170" rx="10" fill="url(#g6)"/><defs><linearGradient id="g6" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#2FA36F"/><stop offset="100%" stop-color="#0B3D2E"/></linearGradient></defs></svg>
+          </div>
+          <div class="product-label">
+            <p class="specimen-eyebrow">قابل للطي</p>
+            <h3>Nova Fold</h3>
+            <p class="product-spec">شاشة قابلة للطي 7.6 بوصة مفرودة · مفصلة مصممة لتحمل 200 ألف طية</p>
+            <div class="product-foot">
+              <span class="price"><bdi>1299 $</bdi></span>
+              <a class="btn btn-outline btn-sm" href="https://wa.me/000000000000?text=مهتم%20بـ%20Nova%20Fold" target="_blank" rel="noopener">اطلب عبر واتساب</a>
+            </div>
+          </div>
+        </article>
+
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ COMMITMENT / SEALS ============ -->
+  <section class="section commitment" id="commitment">
+    <div class="wrap">
+      <div class="section-head on-dark">
+        <h2>التزامنا تجاهك</h2>
+        <p>لسنا الأرخص بالضرورة — نحن الأكثر شفافية في ما نلتزم به.</p>
+      </div>
+
+      <div class="seals">
+        <div class="seal seal-a">
+          <svg class="seal-ring" viewBox="0 0 100 100" aria-hidden="true"><circle cx="50" cy="50" r="46" fill="none" stroke="currentColor" stroke-width="1.2" stroke-dasharray="2 5"/></svg>
+          <h3>ضمان حقيقي لسنتين</h3>
+          <p>نستبدل أو نصلح أي عطب تصنيع دون تعقيد ودون رسوم خفية.</p>
+        </div>
+        <div class="seal seal-b">
+          <svg class="seal-ring" viewBox="0 0 100 100" aria-hidden="true"><circle cx="50" cy="50" r="46" fill="none" stroke="currentColor" stroke-width="1.2" stroke-dasharray="2 5"/></svg>
+          <h3>فحص 60 نقطة</h3>
+          <p>كل جهاز يمر باختبار شامل قبل أن يصل إليك، ونوثّق نتيجته.</p>
+        </div>
+        <div class="seal seal-c">
+          <svg class="seal-ring" viewBox="0 0 100 100" aria-hidden="true"><circle cx="50" cy="50" r="46" fill="none" stroke="currentColor" stroke-width="1.2" stroke-dasharray="2 5"/></svg>
+          <h3>توصيل خلال 24 ساعة</h3>
+          <p>داخل المدينة، مع تتبع مباشر لحالة الطلب من لحظة التأكيد.</p>
+        </div>
+        <div class="seal seal-d">
+          <svg class="seal-ring" viewBox="0 0 100 100" aria-hidden="true"><circle cx="50" cy="50" r="46" fill="none" stroke="currentColor" stroke-width="1.2" stroke-dasharray="2 5"/></svg>
+          <h3>دعم ما بعد البيع</h3>
+          <p>تواصل مباشر معنا لأي استفسار أو عطل بعد الشراء، بدون قوائم انتظار.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ VISITOR VOICES ============ -->
+  <!-- آراء توضيحية بأسماء مختصرة — تُستبدل بآراء عملاء حقيقيين قبل الإطلاق -->
+  <section class="section voices" id="voices">
+    <div class="wrap">
+      <div class="section-head">
+        <h2>آراء الزوار</h2>
+        <p>نماذج توضيحية لتنسيق الآراء — تُستبدل بتقييمات حقيقية بعد الإطلاق.</p>
+      </div>
+    </div>
+    <div class="voices-track wrap">
+      <blockquote class="voice-card">
+        <p>"تجربة شراء مختلفة تمامًا — حسّيت إني بختار قطعة، مش بس بشتري جهاز."</p>
+        <cite>س. أحمد</cite>
+      </blockquote>
+      <blockquote class="voice-card">
+        <p>"التعامل والدعم بعد البيع فرّق كبير عن أي مكان تاني جربته قبل كده."</p>
+        <cite>م. خالد</cite>
+      </blockquote>
+      <blockquote class="voice-card">
+        <p>"وصلني الطلب خلال يوم واحد، والتغليف والعرض كانوا يليقوا بالسعر فعلاً."</p>
+        <cite>ي. سالم</cite>
+      </blockquote>
+    </div>
+  </section>
+
+  <!-- ============ CONTACT / CLOSING ============ -->
+  <section class="section contact" id="contact">
+    <div class="wrap contact-grid">
+      <div>
+        <h2>جاهز تختار هاتفك؟</h2>
+        <p>تواصل معنا مباشرة، وسنساعدك تختار الجهاز المناسب من المجموعة ونكمل الطلب سويًا.</p>
+        <a class="btn btn-accent btn-lg" href="https://wa.me/000000000000" target="_blank" rel="noopener">
+          <svg viewBox="0 0 24 24" width="19" height="19" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" d="M6.5 17.5 4 20l2.6-.7A8 8 0 1 0 4 12a7.9 7.9 0 0 0 1.1 4Z"/></svg>
+          <span>تواصل معنا عبر واتساب</span>
+        </a>
+      </div>
+
+      <!-- تفاصيل التواصل أدناه بيانات مؤقتة — استبدلها ببيانات المتجر الحقيقية -->
+      <dl class="contact-details">
+        <div><dt>الهاتف / واتساب</dt><dd><bdi>+000 000 0000</bdi> (رقم مؤقت)</dd></div>
+        <div><dt>العنوان</dt><dd>يُضاف عنوان المتجر هنا</dd></div>
+        <div><dt>ساعات العمل</dt><dd>يوميًا · 10 صباحًا – 10 مساءً</dd></div>
+      </dl>
+    </div>
+  </section>
+
+</main>
+
+<footer class="site-footer">
+  <div class="wrap footer-row">
+    <a href="#top" class="brand" aria-label="فيترين — الصفحة الرئيسية">
+      <span class="brand-mark" aria-hidden="true">
+        <svg viewBox="0 0 24 24" width="20" height="20"><rect x="7" y="2.5" width="10" height="19" rx="2.4" fill="none" stroke="currentColor" stroke-width="1.6"/><circle cx="12" cy="17.6" r="0.9" fill="currentColor"/></svg>
+      </span>
+      <span class="brand-word">فيترين</span>
+    </a>
+
+    <div class="social-row" aria-label="روابط التواصل الاجتماعي">
+      <a href="#" aria-label="إنستغرام"><svg viewBox="0 0 24 24" width="18" height="18"><rect x="3.5" y="3.5" width="17" height="17" rx="5" fill="none" stroke="currentColor" stroke-width="1.5"/><circle cx="12" cy="12" r="4" fill="none" stroke="currentColor" stroke-width="1.5"/><circle cx="17" cy="7" r="1" fill="currentColor"/></svg></a>
+      <a href="#" aria-label="فيسبوك"><svg viewBox="0 0 24 24" width="18" height="18"><path fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" d="M14 8.5h2V5.2h-2c-2 0-3.4 1.4-3.4 3.5v2H8.6v3.2h2V21H14v-7.1h2.3l.5-3.2H14v-1.5c0-.5.3-.7.7-.7Z"/></svg></a>
+      <a href="#" aria-label="إكس (تويتر)"><svg viewBox="0 0 24 24" width="17" height="17"><path fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" d="M4 4l16 16M20 4 4 20"/></svg></a>
+    </div>
+
+    <p class="footer-copy">© <span id="year">2026</span> فيترين. جميع الحقوق محفوظة.</p>
+  </div>
+</footer>
+
+<a class="whatsapp-fab" href="https://wa.me/000000000000" target="_blank" rel="noopener" aria-label="تواصل عبر واتساب">
+  <svg viewBox="0 0 24 24" width="26" height="26"><path fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" d="M6.5 17.5 4 20l2.6-.7A8 8 0 1 0 4 12a7.9 7.9 0 0 0 1.1 4Z"/><path fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" d="M9.5 9.8c.3-.7 1-2 1.4-2s.9.1 1.2.6c.3.5.9 1.7.9 1.9s.1.4-.1.6c-.3.3-.5.5-.7.7s-.3.4 0 .9c.3.5 1 1.4 2.1 2.2 1 .8 1.7 1 2.1 1.1.3.1.5 0 .7-.2l.9-1c.3-.3.5-.3.9-.2l1.9.9c.3.2.5.3.6.5.1.2.1 1-.3 1.9-.4.9-2 1.7-2.8 1.7-1.9 0-4-1-5.8-2.7-1.7-1.7-2.6-3.5-2.8-4.1-.2-.6-.6-1.7-.2-2.7Z"/></svg>
+</a>
+
+<script src="js/script.js"></script>
+</body>
+</html>
