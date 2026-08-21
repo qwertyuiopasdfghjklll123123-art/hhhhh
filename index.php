@@ -7,6 +7,7 @@
 declare(strict_types=1);
 error_reporting(E_ALL);
 ini_set('display_errors', '0');
+date_default_timezone_set('Asia/Baghdad');
 
 if (!file_exists(__DIR__ . '/config.php')) {
     header('Location: /install.php');
@@ -309,7 +310,7 @@ if (isset($_GET['ajax'])) {
                     'documents' => $empRow['documents'] ?: null,
                     'hireDate' => $empRow['hire_date'],
                     'baseSalary' => (float) $empRow['base_salary'],
-                    'shiftTypeText' => $empRow['shift_type'] === 'evening' ? 'مطبق' : 'غير مطبق',
+                    'shiftTypeText' => $empRow['shift_type'] === 'evening' ? 'مسائي' : 'صباحي',
                     'adminDeduction' => (float) ($pay['deduction'] ?? 0),
                     'adminBonus' => (float) ($pay['bonus'] ?? 0),
                     'netSalary' => (float) $empRow['base_salary'] + (float) ($pay['bonus'] ?? 0) - (float) ($pay['deduction'] ?? 0),
@@ -2513,13 +2514,13 @@ try {
 
                 <!-- أزرار البصمة -->
                 <div class="fingerprint-buttons">
-                    <button class="fingerprint-btn fingerprint-btn-checkin" id="checkInBtn" onclick="handleCheckIn()" disabled>
+                    <button type="button" class="fingerprint-btn fingerprint-btn-checkin" id="checkInBtn" onclick="handleCheckIn()" disabled>
                         <div class="fingerprint-icon"><i class="fas fa-fingerprint"></i></div>
                         <span class="fingerprint-label">تسجيل حضور</span>
                         <span class="fingerprint-sub">بصمة الدخول</span>
                         <span class="fingerprint-time" id="timeToStart">09:00 ص</span>
                     </button>
-                    <button class="fingerprint-btn fingerprint-btn-checkout" id="checkOutBtn" onclick="handleCheckOut()" disabled>
+                    <button type="button" class="fingerprint-btn fingerprint-btn-checkout" id="checkOutBtn" onclick="handleCheckOut()" disabled>
                         <div class="fingerprint-icon"><i class="fas fa-fingerprint"></i></div>
                         <span class="fingerprint-label">تسجيل انصراف</span>
                         <span class="fingerprint-sub">بصمة الخروج</span>
@@ -2686,12 +2687,12 @@ try {
                 </div>
 
                 <div class="fingerprint-buttons" style="flex-direction:column;gap:12px;">
-                    <button class="fingerprint-btn fingerprint-btn-checkin" style="width:100%;" id="checkInBtn2" onclick="handleCheckIn()" disabled>
+                    <button type="button" class="fingerprint-btn fingerprint-btn-checkin" style="width:100%;" id="checkInBtn2" onclick="handleCheckIn()" disabled>
                         <div class="fingerprint-icon"><i class="fas fa-fingerprint"></i></div>
                         <span class="fingerprint-label">تسجيل حضور</span>
                         <span class="fingerprint-sub">بصمة الدخول</span>
                     </button>
-                    <button class="fingerprint-btn fingerprint-btn-checkout" style="width:100%;" id="checkOutBtn2" onclick="handleCheckOut()" disabled>
+                    <button type="button" class="fingerprint-btn fingerprint-btn-checkout" style="width:100%;" id="checkOutBtn2" onclick="handleCheckOut()" disabled>
                         <div class="fingerprint-icon"><i class="fas fa-fingerprint"></i></div>
                         <span class="fingerprint-label">تسجيل انصراف</span>
                         <span class="fingerprint-sub">بصمة الخروج</span>
@@ -3071,7 +3072,7 @@ try {
         window.addEventListener('unhandledrejection', function(e) {
             console.error('Unhandled request failure:', e.reason);
             if (typeof showToast === 'function') {
-                showToast('❌ خطأ في الاتصال', 'تعذر تنفيذ العملية — تأكد من تشغيل migrate.php على قاعدة البيانات ثم أعد المحاولة', 'error');
+                showToast('❌ خطأ في الاتصال', 'تعذر تنفيذ العملية، تحقق من اتصال الإنترنت وحاول مرة أخرى', 'error');
             }
             try {
                 fetch('?ajax=log_error', { method: 'POST', body: new URLSearchParams({ clientAction: 'unhandledrejection', message: String(e.reason && e.reason.message || e.reason || 'unknown') }) }).catch(() => {});

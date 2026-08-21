@@ -7,6 +7,7 @@
 declare(strict_types=1);
 error_reporting(E_ALL);
 ini_set('display_errors', '0');
+date_default_timezone_set('Asia/Baghdad');
 
 if (!file_exists(__DIR__ . '/config.php')) {
     header('Location: /install.php');
@@ -298,12 +299,12 @@ if (isset($_GET['ajax'])) {
         case 'employees': {
             $stmt = $pdo->prepare("
                 SELECT e.id, e.employee_number AS code, e.full_name AS name, e.job_title AS title,
-                       e.base_salary AS salary, e.rating, e.status,
+                       e.base_salary AS salary, e.rating, e.status, e.shift_type AS shiftType,
                        ROUND(SUM(a.status IN ('present','late')) / GREATEST(COUNT(a.id),1) * 100) AS attendancePct
                 FROM employees e
                 LEFT JOIN attendance a ON a.employee_id=e.id AND a.attendance_date >= DATE_FORMAT(CURDATE(), '%Y-%m-01')
                 WHERE e.branch_id=? AND e.is_branch_manager=0
-                GROUP BY e.id, e.employee_number, e.full_name, e.job_title, e.base_salary, e.rating, e.status
+                GROUP BY e.id, e.employee_number, e.full_name, e.job_title, e.base_salary, e.rating, e.status, e.shift_type
                 ORDER BY e.created_at DESC
             ");
             $stmt->execute([$branchId]);
@@ -311,6 +312,7 @@ if (isset($_GET['ajax'])) {
                 $r['attendancePct'] = (int) ($r['attendancePct'] ?? 0);
                 $r['salary'] = (float) $r['salary'];
                 $r['rating'] = (float) $r['rating'];
+                $r['shiftTypeText'] = $r['shiftType'] === 'evening' ? 'مسائي' : 'صباحي';
                 return $r;
             }, $stmt->fetchAll());
             echo json_encode(['ok' => true, 'employees' => $rows], JSON_UNESCAPED_UNICODE);
@@ -543,7 +545,7 @@ if (isset($_GET['ajax'])) {
         }
 
         case 'my_profile': {
-            $meRow = $pdo->prepare("SELECT e.full_name, e.employee_number, e.base_salary, e.documents, b.name AS branch_name
+            $meRow = $pdo->prepare("SELECT e.full_name, e.employee_number, e.base_salary, e.documents, e.shift_type, b.name AS branch_name
                 FROM employees e JOIN branches b ON b.id = e.branch_id WHERE e.id = ?");
             $meRow->execute([$mgr['employee_id']]);
             $meRow = $meRow->fetch();
@@ -566,6 +568,7 @@ if (isset($_GET['ajax'])) {
                 'code' => $meRow['employee_number'],
                 'branch' => $meRow['branch_name'],
                 'baseSalary' => (float) $meRow['base_salary'],
+                'shiftTypeText' => $meRow['shift_type'] === 'evening' ? 'مسائي' : 'صباحي',
                 'documents' => $meRow['documents'] ?: null,
                 'salary' => ['base' => $base, 'bonus' => $bonus, 'deduction' => $deduction, 'net' => $net, 'statusText' => $statusText],
             ], JSON_UNESCAPED_UNICODE);
@@ -1624,8 +1627,8 @@ function branch_report_data(PDO $pdo, string $type, string $from, string $to, in
                 <div class="card">
                     <h3>تسجيل حضوري</h3>
                     <div class="grid-2">
-                        <button class="btn green hidden" id="checkInBtn" onclick="recordManagerAttendance('in')"><i class="fas fa-sign-in-alt"></i> تسجيل دخول</button>
-                        <button class="btn red hidden" id="checkOutBtn" onclick="recordManagerAttendance('out')"><i class="fas fa-sign-out-alt"></i> تسجيل انصراف</button>
+                        <button type="button" class="btn green hidden" id="checkInBtn" onclick="recordManagerAttendance('in')"><i class="fas fa-sign-in-alt"></i> تسجيل دخول</button>
+                        <button type="button" class="btn red hidden" id="checkOutBtn" onclick="recordManagerAttendance('out')"><i class="fas fa-sign-out-alt"></i> تسجيل انصراف</button>
                     </div>
                     <div class="muted mt-2" id="attendanceWindowNote" style="text-align:center;"></div>
                     <div id="managerAttendanceStatus" class="mt-2 text-center muted"></div>
@@ -1915,6 +1918,7 @@ function branch_report_data(PDO $pdo, string $type, string $from, string $to, in
                             <tr><th>المنصب</th><td>مدير فرع</td></tr>
                             <tr><th>الفرع</th><td id="mpBranch">...</td></tr>
                             <tr><th>رقم التوظيف</th><td id="mpCode">...</td></tr>
+                            <tr><th>الشفت</th><td id="mpShift">...</td></tr>
                             <tr><th>الراتب الاسمي</th><td id="mpSalary">...</td></tr>
                         </table>
                     </div>
@@ -2116,7 +2120,7 @@ function branch_report_data(PDO $pdo, string $type, string $from, string $to, in
         window.addEventListener('unhandledrejection', function(e) {
             console.error('Unhandled request failure:', e.reason);
             if (typeof showToast === 'function') {
-                showToast('❌ خطأ في الاتصال', 'تعذر تنفيذ العملية — تأكد من تشغيل migrate.php على قاعدة البيانات ثم أعد المحاولة', 'error');
+                showToast('❌ خطأ في الاتصال', 'تعذر تنفيذ العملية، تحقق من اتصال الإنترنت وحاول مرة أخرى', 'error');
             }
             try {
                 fetch('?ajax=log_error', { method: 'POST', body: new URLSearchParams({ clientAction: 'unhandledrejection', message: String(e.reason && e.reason.message || e.reason || 'unknown') }) }).catch(() => {});
@@ -2355,6 +2359,7 @@ function branch_report_data(PDO $pdo, string $type, string $from, string $to, in
                     <div class="flex-between"><div class="flex"><div style="width:44px;height:44px;border-radius:50%;background:var(--primary-gradient);display:flex;align-items:center;justify-content:center;color:#fff;font-size:20px;">👤</div><div><b>${e.name}</b><div class="muted">الكود: ${e.code}</div></div></div><span class="badge ${e.status === 'active' ? 'ok' : 'danger'}">${e.status === 'active' ? 'نشط' : 'غير نشط'}</span></div>
                     <div class="grid-2" style="margin-top:8px;font-size:12px;">
                         <span><span class="muted">المسمى:</span> ${e.title || '-'}</span>
+                        <span><span class="muted">الشفت:</span> ${e.shiftTypeText}</span>
                         <span><span class="muted">الراتب:</span> ${Number(e.salary).toLocaleString()}</span>
                         <span><span class="muted">الحضور:</span> ${e.attendancePct}%</span>
                         <span><span class="muted">التقييم:</span> ${e.rating} ★</span>
@@ -2477,6 +2482,7 @@ function branch_report_data(PDO $pdo, string $type, string $from, string $to, in
                 document.getElementById('mpName').textContent = data.name;
                 document.getElementById('mpBranch').textContent = data.branch;
                 document.getElementById('mpCode').textContent = data.code;
+                document.getElementById('mpShift').textContent = data.shiftTypeText;
                 document.getElementById('mpSalary').textContent = Number(data.baseSalary).toLocaleString() + ' د.ع';
                 document.getElementById('mpBase').textContent = Number(data.salary.base).toLocaleString();
                 document.getElementById('mpDeduction').textContent = '- ' + Number(data.salary.deduction).toLocaleString();

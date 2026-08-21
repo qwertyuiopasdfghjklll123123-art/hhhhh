@@ -7,6 +7,7 @@
 declare(strict_types=1);
 error_reporting(E_ALL);
 ini_set('display_errors', '0');
+date_default_timezone_set('Asia/Baghdad');
 
 if (!file_exists(__DIR__ . '/config.php')) {
     header('Location: /install.php');
@@ -3538,7 +3539,7 @@ function report_data(PDO $pdo, string $type, string $from, string $to, int $bran
         window.addEventListener('unhandledrejection', function(e) {
             console.error('Unhandled request failure:', e.reason);
             if (typeof showToast === 'function') {
-                showToast('❌ خطأ في الاتصال', 'تعذر تنفيذ العملية — تأكد من تشغيل migrate.php على قاعدة البيانات ثم أعد المحاولة', 'error');
+                showToast('❌ خطأ في الاتصال', 'تعذر تنفيذ العملية، تحقق من اتصال الإنترنت وحاول مرة أخرى', 'error');
             }
             try {
                 fetch('?ajax=log_error', { method: 'POST', body: new URLSearchParams({ clientAction: 'unhandledrejection', message: String(e.reason && e.reason.message || e.reason || 'unknown') }) }).catch(() => {});
@@ -4798,7 +4799,7 @@ function report_data(PDO $pdo, string $type, string $from, string $to, int $bran
                 if (decision === 'approved') showToast('✅ تمت الموافقة', `تمت موافقتك على إيجاز ${who}، بانتظار الاعتماد النهائي من المسؤول العام`, 'success');
                 else showToast('❌ تم الرفض', `تم رفض إيجاز ${who}`, 'error');
             }).catch(() => {
-                showToast('❌ خطأ', 'تعذر الاتصال بالخادم — تأكد من تشغيل migrate.php على قاعدة البيانات', 'error');
+                showToast('❌ خطأ', 'تعذر الاتصال بالخادم، حاول مرة أخرى', 'error');
             });
         }
 
@@ -4885,7 +4886,7 @@ function report_data(PDO $pdo, string $type, string $from, string $to, int $bran
                 if (decision === 'approved') showToast('✅ تمت الموافقة', `تم قبول طلب ${typeLabel}`, 'success');
                 else showToast('❌ تم الرفض', `تم رفض طلب ${typeLabel}`, 'error');
             }).catch(() => {
-                showToast('❌ خطأ', 'تعذر الاتصال بالخادم — تأكد من تشغيل migrate.php على قاعدة البيانات', 'error');
+                showToast('❌ خطأ', 'تعذر الاتصال بالخادم، حاول مرة أخرى', 'error');
             });
         }
 
