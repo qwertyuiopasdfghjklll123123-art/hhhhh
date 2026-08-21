@@ -361,7 +361,8 @@ if (isset($_GET['ajax'])) {
                 ORDER BY db.brief_date DESC, db.id DESC
             ");
             $entriesStmt = $pdo->prepare("SELECT id, entry_type, amount, description, attachment FROM daily_ledger WHERE branch_id=? AND entry_date=? ORDER BY created_at ASC");
-            $rows = array_map(function ($r) use ($entriesStmt) {
+            $prevStmt = $pdo->prepare("SELECT total_income, total_expense FROM daily_briefs WHERE branch_id=? AND brief_date=?");
+            $rows = array_map(function ($r) use ($entriesStmt, $prevStmt) {
                 $r['revenue'] = (float) $r['revenue'];
                 $r['expenses'] = (float) $r['expenses'];
                 $r['travelersCount'] = (int) $r['travelersCount'];
@@ -369,6 +370,9 @@ if (isset($_GET['ajax'])) {
                 $r['hrStatusText'] = $r['hr_decision'] === 'approved' ? 'وافقت عليه الموارد البشرية' : 'بانتظار مراجعة الموارد البشرية أيضاً';
                 $entriesStmt->execute([$r['branch_id'], $r['rawDate']]);
                 $r['entries'] = array_map(fn($e) => ['id' => (int) $e['id'], 'type' => $e['entry_type'], 'amount' => (float) $e['amount'], 'note' => $e['description'], 'attachment' => $e['attachment']], $entriesStmt->fetchAll());
+                $prevStmt->execute([$r['branch_id'], date('Y-m-d', strtotime($r['rawDate'] . ' -1 day'))]);
+                $prevRow = $prevStmt->fetch();
+                $r['prevDayNetProfit'] = $prevRow ? ((float) $prevRow['total_income'] - (float) $prevRow['total_expense']) : null;
                 return $r;
             }, $stmt->fetchAll());
             echo json_encode(['ok' => true, 'briefs' => $rows], JSON_UNESCAPED_UNICODE);
@@ -606,7 +610,8 @@ if (isset($_GET['ajax'])) {
             ];
             $today = date('Y-m-d');
             $gmEntriesStmt = $pdo->prepare("SELECT id, entry_type, amount, description, attachment FROM daily_ledger WHERE branch_id=? AND entry_date=? ORDER BY created_at ASC");
-            $briefs = array_map(function ($r) use ($statusAr, $today, $branchId, $gmEntriesStmt) {
+            $gmPrevStmt = $pdo->prepare("SELECT total_income, total_expense FROM daily_briefs WHERE branch_id=? AND brief_date=?");
+            $briefs = array_map(function ($r) use ($statusAr, $today, $branchId, $gmEntriesStmt, $gmPrevStmt) {
                 $r['revenue'] = (float) $r['revenue'];
                 $r['expense'] = (float) $r['expense'];
                 $r['profit'] = $r['revenue'] - $r['expense'];
@@ -614,6 +619,9 @@ if (isset($_GET['ajax'])) {
                 $r['isToday'] = $r['rawDate'] === $today;
                 $gmEntriesStmt->execute([$branchId, $r['rawDate']]);
                 $r['entries'] = array_map(fn($e) => ['id' => (int) $e['id'], 'type' => $e['entry_type'], 'amount' => (float) $e['amount'], 'note' => $e['description'], 'attachment' => $e['attachment']], $gmEntriesStmt->fetchAll());
+                $gmPrevStmt->execute([$branchId, date('Y-m-d', strtotime($r['rawDate'] . ' -1 day'))]);
+                $gmPrevRow = $gmPrevStmt->fetch();
+                $r['prevDayNetProfit'] = $gmPrevRow ? ((float) $gmPrevRow['total_income'] - (float) $gmPrevRow['total_expense']) : null;
                 return $r;
             }, $briefsStmt->fetchAll());
 
@@ -699,7 +707,10 @@ if (isset($_GET['ajax'])) {
         --radius-sm: 8px;
         --radius-md: 14px;
         --radius-lg: 20px;
+        --radius-full: 9999px;
         --font-family: 'IBM Plex Sans Arabic', 'Tajawal', sans-serif;
+        --transition-base: 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        --sidebar-width: 260px;
     }
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body { font-family: var(--font-family); background: var(--bg); color: var(--text-primary); min-height: 100vh; font-size: 14px; }
@@ -723,15 +734,69 @@ if (isset($_GET['ajax'])) {
     .btn:disabled { opacity: 0.6; cursor: not-allowed; }
     .login-error { color: #EF4444; font-size: 13px; text-align: center; margin-top: 12px; display: none; }
 
-    header.topbar { background: var(--bg-card); box-shadow: 0 2px 12px rgba(0,0,0,0.05); padding: 14px 24px; display: flex; align-items: center; justify-content: space-between; position: sticky; top: 0; z-index: 100; }
-    header.topbar .brand { display: flex; align-items: center; gap: 10px; font-weight: 900; font-size: 17px; }
-    header.topbar .brand .logo { width: 40px; height: 40px; border-radius: 12px; background: var(--primary-gradient); color: #fff; display: flex; align-items: center; justify-content: center; font-size: 18px; }
-    header.topbar .role-badge { background: rgba(201,154,61,0.12); color: var(--accent); padding: 4px 12px; border-radius: 20px; font-size: 12px; font-weight: 700; margin-right: 10px; }
+    /* ============================================================
+       الشريط الجانبي والمحتوى الرئيسي (بنفس شكل نظام الموارد البشرية)
+       ============================================================ */
+    #appContainer { display: flex; width: 100%; }
+    .sidebar {
+        width: var(--sidebar-width);
+        height: 100vh;
+        background: linear-gradient(180deg, #4B5320 0%, #3A4019 100%);
+        border-left: 1px solid rgba(0,0,0,0.08);
+        box-shadow: 2px 0 20px rgba(0,0,0,0.08);
+        position: fixed;
+        right: 0;
+        top: 0;
+        z-index: 100;
+        display: flex;
+        flex-direction: column;
+        padding: 20px 16px;
+        overflow-y: auto;
+        transition: var(--transition-base);
+    }
+    .sidebar .brand { display: flex; align-items: center; gap: 12px; padding-bottom: 20px; border-bottom: 1px solid rgba(255,255,255,0.1); margin-bottom: 16px; }
+    .sidebar .brand .logo { width: 44px; height: 44px; border-radius: var(--radius-md); background: rgba(255,255,255,0.14); display: flex; align-items: center; justify-content: center; color: #fff; font-size: 20px; font-weight: 900; flex-shrink: 0; }
+    .sidebar .brand .name { font-size: 18px; font-weight: 900; color: #fff; }
+    .sidebar .brand .name span { color: #C9D18F; }
+    .sidebar .brand .version { font-size: 9px; color: rgba(255,255,255,0.55); font-weight: 400; display: block; }
+    .sidebar .nav-menu { flex: 1; display: flex; flex-direction: column; gap: 2px; }
+    .sidebar .nav-item { display: flex; align-items: center; gap: 12px; padding: 12px 14px; border-radius: var(--radius-md); cursor: pointer; transition: var(--transition-base); color: rgba(255,255,255,0.75); font-weight: 600; font-size: 13px; border: none; background: transparent; width: 100%; font-family: var(--font-family); text-align: right; }
+    .sidebar .nav-item:hover { background: rgba(255,255,255,0.08); color: #fff; }
+    .sidebar .nav-item.active { background: rgba(255,255,255,0.16); color: #fff; }
+    .sidebar .nav-item i { width: 20px; font-size: 16px; text-align: center; flex-shrink: 0; }
+    .sidebar .nav-divider { height: 1px; background: rgba(255,255,255,0.1); margin: 8px 0; }
+    .sidebar .user-info { padding-top: 16px; border-top: 1px solid rgba(255,255,255,0.1); display: flex; align-items: center; gap: 12px; }
+    .sidebar .user-info .avatar { width: 44px; height: 44px; border-radius: var(--radius-full); background: rgba(255,255,255,0.14); display: flex; align-items: center; justify-content: center; color: #fff; font-size: 18px; font-weight: 900; flex-shrink: 0; }
+    .sidebar .user-info .info .name { font-size: 14px; font-weight: 800; color: #fff; }
+    .sidebar .user-info .info .role { font-size: 11px; color: rgba(255,255,255,0.6); font-weight: 400; }
+    .sidebar .user-info .logout-btn { margin-right: auto; background: none; border: none; color: rgba(255,255,255,0.6); cursor: pointer; font-size: 18px; transition: var(--transition-base); padding: 4px 8px; border-radius: var(--radius-full); }
+    .sidebar .user-info .logout-btn:hover { color: #EF4444; background: rgba(239,68,68,0.08); }
 
-    .container { max-width: 1100px; margin: 0 auto; padding: 24px; }
-    .tabs { display: flex; gap: 8px; margin-bottom: 20px; border-bottom: 1px solid #e2ebeb; }
-    .tabs button { background: none; border: none; padding: 10px 18px; font-family: var(--font-family); font-size: 14px; font-weight: 700; color: var(--text-muted); cursor: pointer; border-bottom: 3px solid transparent; }
-    .tabs button.active { color: var(--primary); border-bottom-color: var(--primary); }
+    .sidebar-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.3); z-index: 99; }
+    .sidebar-overlay.show { display: block; }
+
+    .main-content { flex: 1; margin-right: var(--sidebar-width); padding: 24px 32px 40px; min-height: 100vh; }
+    .top-header { display: flex; align-items: center; justify-content: space-between; padding-bottom: 20px; border-bottom: 1px solid rgba(0,107,115,0.04); margin-bottom: 24px; flex-wrap: wrap; gap: 12px; }
+    .top-header .page-title { display: flex; align-items: center; gap: 10px; }
+    .top-header .page-title h2 { font-size: 22px; font-weight: 800; color: var(--text-primary); display: flex; align-items: center; gap: 10px; }
+    .top-header .page-title h2 i { color: var(--primary); }
+    .top-header .page-title .sub { font-size: 13px; color: var(--text-muted); font-weight: 400; display: block; }
+    .top-header .header-actions { display: flex; align-items: center; gap: 12px; }
+    .top-header .header-actions .date-display { font-size: 13px; color: var(--text-primary); font-weight: 500; background: var(--bg-card); padding: 8px 16px; border-radius: var(--radius-md); border: 1px solid rgba(0,107,115,0.04); box-shadow: 0 2px 8px rgba(0,107,115,0.04); }
+    .top-header .header-actions .date-display i { color: var(--primary); margin-left: 6px; }
+
+    .mobile-menu-toggle { display: none; background: none; border: none; font-size: 24px; color: var(--text-primary); cursor: pointer; padding: 4px 8px; }
+
+    @media (max-width: 768px) {
+        :root { --sidebar-width: 0px; }
+        .sidebar { transform: translateX(100%); width: 280px; }
+        .sidebar.open { transform: translateX(0); }
+        .main-content { margin-right: 0; padding: 16px; }
+        .top-header .page-title h2 { font-size: 18px; }
+        .mobile-menu-toggle { display: flex !important; }
+    }
+
+    .container { max-width: 1100px; margin: 0 auto; }
 
     .stats-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin-bottom: 24px; }
     .stat-card { background: var(--bg-card); border-radius: var(--radius-md); padding: 18px; box-shadow: 0 2px 12px rgba(0,0,0,0.04); }
@@ -816,26 +881,91 @@ if (isset($_GET['ajax'])) {
     </div>
 
     <!-- التطبيق -->
-    <div id="appContainer" class="hidden">
-        <header class="topbar">
-            <div class="brand"><div class="logo" id="headerLogo">✥</div> <span id="headerCompanyName">شركة الصوى</span> <span class="role-badge" id="roleBadge">المسؤول العام</span></div>
-            <div style="display:flex;align-items:center;gap:10px;position:relative;">
-                <button onclick="toggleNotifPanel()" style="position:relative;width:38px;height:38px;border:none;border-radius:50%;background:rgba(0,107,115,0.06);color:var(--primary);cursor:pointer;font-size:16px;">
-                    <i class="fas fa-bell"></i>
-                    <span id="notifBadge" style="display:none;position:absolute;top:-2px;left:-2px;background:#DC2626;color:#fff;font-size:10px;font-weight:800;min-width:16px;height:16px;border-radius:50%;align-items:center;justify-content:center;">0</span>
-                </button>
-                <div id="notifPanel" style="display:none;position:absolute;left:0;top:48px;width:320px;max-height:420px;overflow-y:auto;background:#fff;border-radius:14px;box-shadow:0 12px 40px rgba(0,0,0,0.15);z-index:500;">
-                    <div style="padding:12px 16px;border-bottom:1px solid #eee;display:flex;justify-content:space-between;align-items:center;">
-                        <b style="font-size:13px;">الإشعارات</b>
-                        <button onclick="markAllNotifsRead()" style="background:none;border:none;color:var(--primary);font-size:11px;cursor:pointer;">تعليم الكل كمقروء</button>
-                    </div>
-                    <div id="notifList" style="padding:6px;"></div>
-                </div>
-                <button class="btn small red" onclick="handleLogout()"><i class="fas fa-sign-out-alt"></i> تسجيل الخروج</button>
-            </div>
-        </header>
+    <div id="appContainer" class="hidden" style="display:flex;width:100%;">
 
-        <div class="container">
+        <!-- ===== الشريط الجانبي ===== -->
+        <aside class="sidebar" id="sidebar">
+            <div class="brand">
+                <div class="logo" id="headerLogo">✥</div>
+                <div>
+                    <div class="name" id="headerCompanyName">شركة <span>الصوى</span></div>
+                    <span class="version">GM</span>
+                </div>
+            </div>
+
+            <nav class="nav-menu">
+                <button class="nav-item active" id="sidenav-pending" onclick="switchTab('pending')">
+                    <i class="fas fa-inbox"></i> بانتظار الاعتماد
+                </button>
+                <button class="nav-item" id="sidenav-history" onclick="switchTab('history')">
+                    <i class="fas fa-history"></i> سجل الاعتمادات
+                </button>
+                <button class="nav-item" id="sidenav-branches" onclick="switchTab('branches')">
+                    <i class="fas fa-building"></i> الفروع
+                </button>
+                <button class="nav-item" id="sidenav-payroll" onclick="switchTab('payroll')">
+                    <i class="fas fa-money-check-dollar"></i> الرواتب والمكافآت
+                </button>
+                <button class="nav-item" id="sidenav-reports" onclick="switchTab('reports')">
+                    <i class="fas fa-chart-bar"></i> التقارير
+                </button>
+                <div class="nav-divider"></div>
+                <button class="nav-item" id="sidenav-shareholders" onclick="switchTab('shareholders')">
+                    <i class="fas fa-user-tie"></i> المساهمون
+                </button>
+            </nav>
+
+            <div class="user-info">
+                <div class="avatar"><i class="fas fa-user-tie"></i></div>
+                <div class="info">
+                    <div class="name">الإدارة العليا</div>
+                    <div class="role" id="roleBadge">المسؤول العام</div>
+                </div>
+                <button class="logout-btn" onclick="handleLogout()" title="تسجيل الخروج">
+                    <i class="fas fa-sign-out-alt"></i>
+                </button>
+            </div>
+        </aside>
+
+        <!-- ===== الظل خلف القائمة الجانبية (موبايل) ===== -->
+        <div class="sidebar-overlay" id="sidebarOverlay" onclick="toggleSidebar()"></div>
+
+        <!-- ===== المحتوى الرئيسي ===== -->
+        <main class="main-content">
+
+            <!-- ===== الهيدر العلوي ===== -->
+            <header class="top-header">
+                <div class="page-title">
+                    <button class="mobile-menu-toggle" onclick="toggleSidebar()">
+                        <i class="fas fa-bars"></i>
+                    </button>
+                    <div>
+                        <h2 id="pageTitle"><i class="fas fa-inbox"></i> بانتظار الاعتماد</h2>
+                        <span class="sub" id="pageSub">الإيجازات التي تحتاج اعتمادك النهائي</span>
+                    </div>
+                </div>
+                <div class="header-actions" style="position:relative;">
+                    <span class="date-display">
+                        <i class="fas fa-calendar"></i>
+                        <span id="currentDateDisplay"></span>
+                    </span>
+                    <button onclick="toggleNotifPanel()" style="position:relative;width:38px;height:38px;border:none;border-radius:50%;background:rgba(0,107,115,0.06);color:var(--primary);cursor:pointer;font-size:16px;">
+                        <i class="fas fa-bell"></i>
+                        <span id="notifBadge" style="display:none;position:absolute;top:-2px;left:-2px;background:#DC2626;color:#fff;font-size:10px;font-weight:800;min-width:16px;height:16px;border-radius:50%;align-items:center;justify-content:center;">0</span>
+                    </button>
+                    <div id="notifPanel" style="display:none;position:absolute;left:0;top:48px;width:320px;max-height:420px;overflow-y:auto;background:#fff;border-radius:14px;box-shadow:0 12px 40px rgba(0,0,0,0.15);z-index:500;">
+                        <div style="padding:12px 16px;border-bottom:1px solid #eee;display:flex;justify-content:space-between;align-items:center;">
+                            <b style="font-size:13px;">الإشعارات</b>
+                            <button onclick="markAllNotifsRead()" style="background:none;border:none;color:var(--primary);font-size:11px;cursor:pointer;">تعليم الكل كمقروء</button>
+                        </div>
+                        <div id="notifList" style="padding:6px;"></div>
+                    </div>
+                </div>
+            </header>
+
+            <!-- ===== المحتوى ===== -->
+            <div id="pageContent">
+            <div class="container">
             <div class="stats-grid">
                 <div class="stat-card" id="pendingCard"><div class="label"><i class="fas fa-clock"></i> بانتظار الاعتماد</div><div class="value" id="statPending">0</div></div>
                 <div class="stat-card"><div class="label"><i class="fas fa-check-circle"></i> معتمد اليوم</div><div class="value" id="statApprovedToday">0</div></div>
@@ -850,15 +980,6 @@ if (isset($_GET['ajax'])) {
                 <div style="font-size:12px;color:var(--text-muted);margin-bottom:10px;">اختر فرعاً أو أكثر لفتح صلاحية تسليم الرواتب له لمدة 3 أيام، أو ألغِ صلاحية فرع مفتوحة</div>
                 <div id="payrollBranchList" style="display:flex;flex-direction:column;gap:8px;margin-bottom:10px;"></div>
                 <button class="btn small" id="payrollWindowBtn" onclick="openPayrollWindow()"><i class="fas fa-unlock"></i> فتح الصلاحية للفروع المحددة (3 أيام)</button>
-            </div>
-
-            <div class="tabs">
-                <button class="active" id="tab-pending" onclick="switchTab('pending')"><i class="fas fa-inbox"></i> بانتظار الاعتماد</button>
-                <button id="tab-history" onclick="switchTab('history')"><i class="fas fa-history"></i> سجل الاعتمادات</button>
-                <button id="tab-branches" onclick="switchTab('branches')"><i class="fas fa-building"></i> الفروع</button>
-                <button id="tab-payroll" onclick="switchTab('payroll')"><i class="fas fa-money-check-dollar"></i> الرواتب والمكافآت</button>
-                <button id="tab-reports" onclick="switchTab('reports')"><i class="fas fa-chart-bar"></i> التقارير</button>
-                <button id="tab-shareholders" onclick="switchTab('shareholders')"><i class="fas fa-user-tie"></i> المساهمون</button>
             </div>
 
             <div id="view-pending"></div>
@@ -928,7 +1049,11 @@ if (isset($_GET['ajax'])) {
                 </div>
                 <div id="shareholdersList"></div>
             </div>
-        </div>
+            </div>
+            </div>
+
+        </main>
+
     </div>
 
     <!-- شريط دعوة تثبيت التطبيق (PWA) -->
@@ -1123,6 +1248,9 @@ if (isset($_GET['ajax'])) {
     let currentRole = 'general_manager';
 
     function initApp() {
+        const now = new Date();
+        const dEl = document.getElementById('currentDateDisplay');
+        if (dEl) dEl.textContent = now.toLocaleDateString('ar-SA', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
         loadBootstrap();
         requestNotifPermission();
         loadNotifications();
@@ -1191,11 +1319,16 @@ if (isset($_GET['ajax'])) {
     function applyRoleUI() {
         const isShareholder = currentRole === 'shareholder';
         document.getElementById('roleBadge').textContent = isShareholder ? 'مساهم' : 'المسؤول العام';
-        document.getElementById('tab-shareholders').style.display = isShareholder ? 'none' : '';
-        document.getElementById('tab-payroll').style.display = isShareholder ? 'none' : '';
+        document.getElementById('sidenav-shareholders').style.display = isShareholder ? 'none' : '';
+        document.getElementById('sidenav-payroll').style.display = isShareholder ? 'none' : '';
         document.getElementById('pendingCard').style.display = isShareholder ? 'none' : '';
-        document.getElementById('tab-pending').style.display = isShareholder ? 'none' : '';
+        document.getElementById('sidenav-pending').style.display = isShareholder ? 'none' : '';
         if (isShareholder) switchTab('history');
+    }
+
+    function toggleSidebar() {
+        document.getElementById('sidebar').classList.toggle('open');
+        document.getElementById('sidebarOverlay').classList.toggle('show');
     }
 
     function loadBootstrap() {
@@ -1276,16 +1409,74 @@ if (isset($_GET['ajax'])) {
         });
     }
 
+    const gmPageTitles = {
+        pending: { title: 'بانتظار الاعتماد', sub: 'الإيجازات التي تحتاج اعتمادك النهائي', icon: 'fa-inbox' },
+        history: { title: 'سجل الاعتمادات', sub: 'كل الإيجازات المعتمدة أو المرفوضة', icon: 'fa-history' },
+        branches: { title: 'الفروع', sub: 'نظرة عامة على أداء كل فرع', icon: 'fa-building' },
+        payroll: { title: 'الرواتب والمكافآت', sub: 'إدارة رواتب ومكافآت وخصومات الموظفين', icon: 'fa-money-check-dollar' },
+        reports: { title: 'التقارير', sub: 'إنشاء وتصدير التقارير', icon: 'fa-chart-bar' },
+        shareholders: { title: 'المساهمون', sub: 'إدارة حسابات المساهمين', icon: 'fa-user-tie' },
+    };
+
     function switchTab(tab) {
         ['pending', 'history', 'branches', 'payroll', 'reports', 'shareholders'].forEach(t => {
-            document.getElementById('tab-' + t).classList.toggle('active', t === tab);
+            document.getElementById('sidenav-' + t).classList.toggle('active', t === tab);
             document.getElementById('view-' + t).classList.toggle('hidden', t !== tab);
         });
+        const info = gmPageTitles[tab];
+        if (info) {
+            document.getElementById('pageTitle').innerHTML = `<i class="fas ${info.icon}"></i> ${info.title}`;
+            document.getElementById('pageSub').textContent = info.sub;
+        }
+        if (window.innerWidth <= 768) {
+            document.getElementById('sidebar').classList.remove('open');
+            document.getElementById('sidebarOverlay').classList.remove('show');
+        }
         if (tab === 'pending') loadPending();
         else if (tab === 'history') loadHistory();
         else if (tab === 'branches') loadBranches();
         else if (tab === 'payroll') loadPayrollOverview();
         else if (tab === 'shareholders') loadShareholders();
+    }
+
+    function renderBriefEntriesBlock(entries, prevDayNetProfit) {
+        entries = entries || [];
+        const hasPrev = prevDayNetProfit !== undefined && prevDayNetProfit !== null;
+        if (!entries.length && !hasPrev) return '';
+        let inner = '';
+        if (entries.length) {
+            inner += `<div style="padding:8px 10px;font-weight:800;font-size:11.5px;background:rgba(0,107,115,0.05);"><i class="fas fa-list"></i> قيود الإيجاز (${entries.length})</div>`;
+            inner += entries.map((en, idx) => `
+                <div style="padding:10px 12px;${idx > 0 ? 'border-top:1px solid rgba(0,107,115,0.08);' : ''}">
+                    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
+                        <span style="font-size:10.5px;color:var(--text-muted);font-weight:700;">قيد ${idx + 1}</span>
+                        <b style="font-size:14px;color:${en.type === 'income' ? '#059669' : '#DC2626'};">${en.type === 'income' ? '+' : '-'}${Number(en.amount).toLocaleString()} د.ع</b>
+                    </div>
+                    <div style="display:flex;flex-wrap:wrap;gap:6px 16px;font-size:11.5px;${en.attachment ? 'margin-bottom:8px;' : ''}">
+                        <span><b style="color:var(--text-muted);">النوع:</b> <span style="font-weight:700;color:${en.type === 'income' ? '#059669' : '#DC2626'};">${en.type === 'income' ? '💰 إيراد' : '💸 صرف'}</span></span>
+                        <span><b style="color:var(--text-muted);">الملاحظة:</b> ${en.note || 'بدون ملاحظات'}</span>
+                    </div>
+                    ${en.attachment ? `<a href="${en.attachment}" target="_blank" style="display:inline-flex;align-items:center;gap:6px;padding:6px 12px;background:rgba(0,107,115,0.08);color:var(--primary);border-radius:8px;font-size:11px;font-weight:700;text-decoration:none;"><i class="fas fa-paperclip"></i> عرض الملف المرفق</a>` : ''}
+                </div>
+            `).join('');
+        }
+        const totalIn = entries.filter(e => e.type === 'income').reduce((s, e) => s + Number(e.amount), 0);
+        const totalOut = entries.filter(e => e.type === 'expense').reduce((s, e) => s + Number(e.amount), 0);
+        inner += `<div style="padding:10px 12px;${entries.length ? 'border-top:1.5px solid rgba(0,107,115,0.1);' : ''}background:rgba(0,107,115,0.04);">
+            ${entries.length ? `
+                <div style="display:flex;flex-wrap:wrap;gap:10px 18px;font-size:11.5px;${hasPrev ? 'margin-bottom:6px;' : ''}">
+                    <span><b style="color:var(--text-muted);">إجمالي الإيراد:</b> <b style="color:#059669;">${totalIn.toLocaleString()}</b></span>
+                    <span><b style="color:var(--text-muted);">إجمالي الصرف:</b> <b style="color:#DC2626;">${totalOut.toLocaleString()}</b></span>
+                </div>
+            ` : ''}
+            ${hasPrev ? `
+                <div style="font-size:11px;color:var(--text-muted);">
+                    <i class="fas fa-calendar-day"></i> صافي ربح اليوم السابق:
+                    <b style="color:${prevDayNetProfit >= 0 ? '#059669' : '#DC2626'};">${prevDayNetProfit >= 0 ? '+' : ''}${Number(prevDayNetProfit).toLocaleString()}</b> د.ع
+                </div>
+            ` : '<div style="font-size:11px;color:var(--text-muted);">لا يوجد إيجاز لليوم السابق للمقارنة</div>'}
+        </div>`;
+        return `<div style="margin:8px 0;border-radius:8px;overflow:hidden;border:1px solid rgba(0,107,115,0.06);">${inner}</div>`;
     }
 
     function loadPending() {
@@ -1312,17 +1503,7 @@ if (isset($_GET['ajax'])) {
                         <i class="fas ${b.hr_decision === 'approved' ? 'fa-circle-check' : 'fa-clock'}" style="color:${b.hr_decision === 'approved' ? 'var(--green)' : '#D97706'};"></i>
                         ${b.hrStatusText}
                     </div>
-                    ${b.entries && b.entries.length ? `
-                        <div class="brief-note" style="padding:0;overflow:hidden;">
-                            <div style="padding:6px 10px;font-weight:800;font-size:11px;background:rgba(0,107,115,0.04);"><i class="fas fa-list"></i> قيود الإيجاز (${b.entries.length})</div>
-                            ${b.entries.map(en => `
-                                <div style="display:flex;justify-content:space-between;gap:8px;font-size:11.5px;padding:5px 10px;border-top:1px solid rgba(0,107,115,0.06);">
-                                    <span style="color:${en.type === 'income' ? 'var(--green)' : '#DC2626'};">${en.type === 'income' ? '💰' : '💸'} ${en.note || 'بدون ملاحظات'}${en.attachment ? ` <a href="${en.attachment}" target="_blank"><i class="fas fa-paperclip"></i></a>` : ''}</span>
-                                    <b style="color:${en.type === 'income' ? 'var(--green)' : '#DC2626'};">${en.type === 'income' ? '+' : '-'}${Number(en.amount).toLocaleString()}</b>
-                                </div>
-                            `).join('')}
-                        </div>
-                    ` : ''}
+                    ${renderBriefEntriesBlock(b.entries, b.prevDayNetProfit)}
                     ${b.note ? `<div class="brief-note"><b>ملاحظة المرسل:</b> ${b.note}</div>` : ''}
                     ${b.attachment ? `<div class="brief-note"><a href="${b.attachment}" target="_blank"><i class="fas fa-paperclip"></i> عرض الملف المرفق مع الإيجاز</a></div>` : ''}
                     ${b.hrNote ? `<div class="brief-note"><b>ملاحظة HR:</b> ${b.hrNote}</div>` : ''}
@@ -1467,17 +1648,7 @@ if (isset($_GET['ajax'])) {
                             <div class="item"><div class="v">${br.travelers}</div><div class="l">المسافرون</div></div>
                             <div class="item"><div class="v" style="color:var(--green);">${br.profit.toLocaleString()}</div><div class="l">صافي الربح</div></div>
                         </div>
-                        ${br.entries && br.entries.length ? `
-                            <div class="brief-note" style="padding:0;overflow:hidden;">
-                                <div style="padding:6px 10px;font-weight:800;font-size:11px;background:rgba(0,107,115,0.04);"><i class="fas fa-list"></i> قيود الإيجاز (${br.entries.length})</div>
-                                ${br.entries.map(en => `
-                                    <div style="display:flex;justify-content:space-between;gap:8px;font-size:11.5px;padding:5px 10px;border-top:1px solid rgba(0,107,115,0.06);">
-                                        <span style="color:${en.type === 'income' ? 'var(--green)' : '#DC2626'};">${en.type === 'income' ? '💰' : '💸'} ${en.note || 'بدون ملاحظات'}${en.attachment ? ` <a href="${en.attachment}" target="_blank"><i class="fas fa-paperclip"></i></a>` : ''}</span>
-                                        <b style="color:${en.type === 'income' ? 'var(--green)' : '#DC2626'};">${en.type === 'income' ? '+' : '-'}${Number(en.amount).toLocaleString()}</b>
-                                    </div>
-                                `).join('')}
-                            </div>
-                        ` : ''}
+                        ${renderBriefEntriesBlock(br.entries, br.prevDayNetProfit)}
                         ${br.note ? `<div class="brief-note"><b>ملاحظة المرسل:</b> ${br.note}</div>` : ''}
                         ${br.attachment ? `<div class="brief-note"><a href="${br.attachment}" target="_blank"><i class="fas fa-paperclip"></i> عرض الملف المرفق مع الإيجاز</a></div>` : ''}
                         ${br.hrNote ? `<div class="brief-note"><b>ملاحظة HR:</b> ${br.hrNote}</div>` : ''}

@@ -980,7 +980,7 @@ function branch_report_data(PDO $pdo, string $type, string $from, string $to, in
             --green: #159447;
             --red: #df4b4b;
             --orange: #d98c1a;
-            --bg: #e8eeee;
+            --bg: #F0F4F8;
             --bg-card: #FFFFFF;
             --text-primary: #173437;
             --text-muted: #718083;
@@ -1031,7 +1031,6 @@ function branch_report_data(PDO $pdo, string $type, string $from, string $to, in
 
         /* إطار تطبيق ثابت العرض لشاشات ما قبل الدخول فقط (الترحيب/الدخول) —
            لا يُطبَّق على لوحة التحكم بعد الدخول حتى لا يتعارض مع تخطيط سطح المكتب */
-        body { background: #003f46; }
         .welcome-screen, .login-page {
             left: 50% !important;
             right: auto !important;

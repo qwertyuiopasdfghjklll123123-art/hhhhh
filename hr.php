@@ -355,13 +355,17 @@ if (isset($_GET['ajax'])) {
                 'approved' => 'معتمد نهائياً', 'rejected' => 'مرفوض',
             ];
             $bdEntriesStmt = $pdo->prepare("SELECT id, entry_type, amount, description, attachment FROM daily_ledger WHERE branch_id=? AND entry_date=? ORDER BY created_at ASC");
-            $briefs = array_map(function ($r) use ($statusAr, $branchId, $bdEntriesStmt) {
+            $bdPrevStmt = $pdo->prepare("SELECT total_income, total_expense FROM daily_briefs WHERE branch_id=? AND brief_date=?");
+            $briefs = array_map(function ($r) use ($statusAr, $branchId, $bdEntriesStmt, $bdPrevStmt) {
                 $r['revenue'] = (float) $r['revenue'];
                 $r['expense'] = (float) $r['expense'];
                 $r['profit'] = $r['revenue'] - $r['expense'];
                 $r['statusText'] = $statusAr[$r['status']] ?? $r['status'];
                 $bdEntriesStmt->execute([$branchId, $r['rawDate']]);
                 $r['entries'] = array_map(fn($e) => ['id' => (int) $e['id'], 'type' => $e['entry_type'], 'amount' => (float) $e['amount'], 'note' => $e['description'], 'attachment' => $e['attachment']], $bdEntriesStmt->fetchAll());
+                $bdPrevStmt->execute([$branchId, date('Y-m-d', strtotime($r['rawDate'] . ' -1 day'))]);
+                $bdPrevRow = $bdPrevStmt->fetch();
+                $r['prevDayNetProfit'] = $bdPrevRow ? ((float) $bdPrevRow['total_income'] - (float) $bdPrevRow['total_expense']) : null;
                 return $r;
             }, $briefsStmt->fetchAll());
 
@@ -879,7 +883,8 @@ if (isset($_GET['ajax'])) {
             ];
             $today = date('Y-m-d');
             $entriesStmt = $pdo->prepare("SELECT id, entry_type, amount, description, attachment FROM daily_ledger WHERE branch_id=? AND entry_date=? ORDER BY created_at ASC");
-            $rows = array_map(function ($r) use ($statusAr, $today, $entriesStmt) {
+            $prevStmt = $pdo->prepare("SELECT total_income, total_expense FROM daily_briefs WHERE branch_id=? AND brief_date=?");
+            $rows = array_map(function ($r) use ($statusAr, $today, $entriesStmt, $prevStmt) {
                 $r['revenue'] = (float) $r['revenue'];
                 $r['expenses'] = (float) $r['expenses'];
                 $r['travelersCount'] = (int) $r['travelersCount'];
@@ -891,6 +896,9 @@ if (isset($_GET['ajax'])) {
                 $r['isToday'] = $r['rawDate'] === $today;
                 $entriesStmt->execute([$r['branchId'], $r['rawDate']]);
                 $r['entries'] = array_map(fn($e) => ['id' => (int) $e['id'], 'type' => $e['entry_type'], 'amount' => (float) $e['amount'], 'note' => $e['description'], 'attachment' => $e['attachment']], $entriesStmt->fetchAll());
+                $prevStmt->execute([$r['branchId'], date('Y-m-d', strtotime($r['rawDate'] . ' -1 day'))]);
+                $prevRow = $prevStmt->fetch();
+                $r['prevDayNetProfit'] = $prevRow ? ((float) $prevRow['total_income'] - (float) $prevRow['total_expense']) : null;
                 return $r;
             }, $stmt->fetchAll());
             echo json_encode(['ok' => true, 'briefs' => $rows, 'branchId' => $branchId, 'pendingCount' => $pendingCount], JSON_UNESCAPED_UNICODE);
@@ -4241,16 +4249,7 @@ function report_data(PDO $pdo, string $type, string $from, string $to, int $bran
                         <span>الربح: <b style="color:#059669;">${Number(br.profit).toLocaleString()}</b></span>
                         <span class="bd-brief-status" style="background:${statusColors[br.status]}1A;color:${statusColors[br.status]};">${br.statusText}</span>
                         ${br.attachment ? `<a href="${br.attachment}" target="_blank" style="font-size:11px;"><i class="fas fa-paperclip"></i> الملف المرفق</a>` : ''}
-                        ${br.entries && br.entries.length ? `
-                            <div style="width:100%;border-top:1px solid rgba(0,107,115,0.06);margin-top:4px;padding-top:4px;">
-                                ${br.entries.map(en => `
-                                    <div style="display:flex;justify-content:space-between;gap:8px;font-size:11px;padding:2px 0;">
-                                        <span style="color:${en.type === 'income' ? '#059669' : '#DC2626'};">${en.type === 'income' ? '💰' : '💸'} ${en.note || 'بدون ملاحظات'}${en.attachment ? ` <a href="${en.attachment}" target="_blank"><i class="fas fa-paperclip"></i></a>` : ''}</span>
-                                        <b style="color:${en.type === 'income' ? '#059669' : '#DC2626'};">${en.type === 'income' ? '+' : '-'}${Number(en.amount).toLocaleString()}</b>
-                                    </div>
-                                `).join('')}
-                            </div>
-                        ` : ''}
+                        <div style="width:100%;">${renderBriefEntriesBlock(br.entries, br.prevDayNetProfit)}</div>
                     </div>
                 `).join('');
             }
@@ -4662,6 +4661,46 @@ function report_data(PDO $pdo, string $type, string $from, string $to, int $bran
             content.innerHTML = html;
         }
 
+        function renderBriefEntriesBlock(entries, prevDayNetProfit) {
+            entries = entries || [];
+            const hasPrev = prevDayNetProfit !== undefined && prevDayNetProfit !== null;
+            if (!entries.length && !hasPrev) return '';
+            let inner = '';
+            if (entries.length) {
+                inner += `<div style="padding:8px 10px;font-weight:800;font-size:11.5px;background:rgba(0,107,115,0.05);"><i class="fas fa-list"></i> قيود الإيجاز (${entries.length})</div>`;
+                inner += entries.map((en, idx) => `
+                    <div style="padding:10px 12px;${idx > 0 ? 'border-top:1px solid rgba(0,107,115,0.08);' : ''}">
+                        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
+                            <span style="font-size:10.5px;color:var(--text-muted);font-weight:700;">قيد ${idx + 1}</span>
+                            <b style="font-size:14px;color:${en.type === 'income' ? '#059669' : '#DC2626'};">${en.type === 'income' ? '+' : '-'}${Number(en.amount).toLocaleString()} د.ع</b>
+                        </div>
+                        <div style="display:flex;flex-wrap:wrap;gap:6px 16px;font-size:11.5px;${en.attachment ? 'margin-bottom:8px;' : ''}">
+                            <span><b style="color:var(--text-muted);">النوع:</b> <span style="font-weight:700;color:${en.type === 'income' ? '#059669' : '#DC2626'};">${en.type === 'income' ? '💰 إيراد' : '💸 صرف'}</span></span>
+                            <span><b style="color:var(--text-muted);">الملاحظة:</b> ${en.note || 'بدون ملاحظات'}</span>
+                        </div>
+                        ${en.attachment ? `<a href="${en.attachment}" target="_blank" style="display:inline-flex;align-items:center;gap:6px;padding:6px 12px;background:rgba(0,107,115,0.08);color:var(--primary);border-radius:8px;font-size:11px;font-weight:700;text-decoration:none;"><i class="fas fa-paperclip"></i> عرض الملف المرفق</a>` : ''}
+                    </div>
+                `).join('');
+            }
+            const totalIn = entries.filter(e => e.type === 'income').reduce((s, e) => s + Number(e.amount), 0);
+            const totalOut = entries.filter(e => e.type === 'expense').reduce((s, e) => s + Number(e.amount), 0);
+            inner += `<div style="padding:10px 12px;${entries.length ? 'border-top:1.5px solid rgba(0,107,115,0.1);' : ''}background:rgba(0,107,115,0.04);">
+                ${entries.length ? `
+                    <div style="display:flex;flex-wrap:wrap;gap:10px 18px;font-size:11.5px;${hasPrev ? 'margin-bottom:6px;' : ''}">
+                        <span><b style="color:var(--text-muted);">إجمالي الإيراد:</b> <b style="color:#059669;">${totalIn.toLocaleString()}</b></span>
+                        <span><b style="color:var(--text-muted);">إجمالي الصرف:</b> <b style="color:#DC2626;">${totalOut.toLocaleString()}</b></span>
+                    </div>
+                ` : ''}
+                ${hasPrev ? `
+                    <div style="font-size:11px;color:var(--text-muted);">
+                        <i class="fas fa-calendar-day"></i> صافي ربح اليوم السابق:
+                        <b style="color:${prevDayNetProfit >= 0 ? '#059669' : '#DC2626'};">${prevDayNetProfit >= 0 ? '+' : ''}${Number(prevDayNetProfit).toLocaleString()}</b> د.ع
+                    </div>
+                ` : '<div style="font-size:11px;color:var(--text-muted);">لا يوجد إيجاز لليوم السابق للمقارنة</div>'}
+            </div>`;
+            return `<div style="margin:8px 0;border-radius:8px;overflow:hidden;border:1px solid rgba(0,107,115,0.06);">${inner}</div>`;
+        }
+
         function renderBriefingCard(item) {
             const statusClass = item.status === 'approved' ? 'approved' : (item.status === 'rejected' ? 'rejected' : 'pending');
             const statusColors = { pending: '#D97706', hr_approved: '#0A8A94', gm_approved: '#0A8A94', approved: '#10B981', rejected: '#DC2626' };
@@ -4702,21 +4741,7 @@ function report_data(PDO $pdo, string $type, string $from, string $to, int $bran
                         </div>
                     </div>
 
-                    ${item.entries && item.entries.length ? `
-                        <div class="briefing-note" style="padding:0;overflow:hidden;">
-                            <div style="padding:8px 10px;font-weight:800;font-size:11.5px;background:rgba(0,107,115,0.04);"><i class="fas fa-list"></i> قيود الإيجاز (${item.entries.length})</div>
-                            ${item.entries.map(en => `
-                                <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:7px 10px;border-top:1px solid rgba(0,107,115,0.06);font-size:11.5px;">
-                                    <div style="min-width:0;">
-                                        <span style="font-weight:700;color:${en.type === 'income' ? '#059669' : '#DC2626'};">${en.type === 'income' ? '💰 إيراد' : '💸 صرف'}</span>
-                                        <span style="color:var(--text-muted);"> — ${en.note || 'بدون ملاحظات'}</span>
-                                        ${en.attachment ? `<a href="${en.attachment}" target="_blank" style="margin-right:6px;"><i class="fas fa-paperclip"></i></a>` : ''}
-                                    </div>
-                                    <b style="white-space:nowrap;color:${en.type === 'income' ? '#059669' : '#DC2626'};">${en.type === 'income' ? '+' : '-'}${en.amount.toLocaleString()}</b>
-                                </div>
-                            `).join('')}
-                        </div>
-                    ` : ''}
+                    ${renderBriefEntriesBlock(item.entries, item.prevDayNetProfit)}
 
                     ${item.note ? `
                         <div class="briefing-note">
