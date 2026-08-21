@@ -647,13 +647,14 @@ if (isset($_GET['ajax'])) {
             $employeeId = (int) ($_POST['employeeId'] ?? 0);
             $date = $_POST['date'] ?? date('Y-m-d');
             $status = in_array($_POST['status'] ?? '', ['present', 'late', 'absent'], true) ? $_POST['status'] : 'present';
-            $empStmt = $pdo->prepare("SELECT branch_id FROM employees WHERE id=?");
+            $empStmt = $pdo->prepare("SELECT branch_id, shift_start FROM employees WHERE id=?");
             $empStmt->execute([$employeeId]);
-            $branchIdForEmp = $empStmt->fetchColumn();
-            if (!$branchIdForEmp) {
+            $empForAttendance = $empStmt->fetch();
+            if (!$empForAttendance) {
                 echo json_encode(['ok' => false, 'error' => 'الموظف غير موجود']);
                 exit;
             }
+            $branchIdForEmp = $empForAttendance['branch_id'];
             $existing = $pdo->prepare("SELECT check_in, check_out, status FROM attendance WHERE employee_id=? AND attendance_date=?");
             $existing->execute([$employeeId, $date]);
             $existing = $existing->fetch();
@@ -683,6 +684,7 @@ if (isset($_GET['ajax'])) {
                 if ($payrollRow) {
                     $newLateDeduction = 0.0;
                     $settingsRow = $pdo->query("SELECT late_grace_minutes, late_deduction_per_hour, work_start_time FROM settings ORDER BY id DESC LIMIT 1")->fetch();
+                    if ($empForAttendance['shift_start']) { $settingsRow['work_start_time'] = $empForAttendance['shift_start']; }
                     if ($settingsRow && (float) $settingsRow['late_deduction_per_hour'] > 0 && $settingsRow['work_start_time']) {
                         $monthStart = sprintf('%04d-%02d-01', $year, $month);
                         $lateStmt = $pdo->prepare("SELECT check_in FROM attendance WHERE employee_id=? AND status='late' AND attendance_date >= ? AND attendance_date < DATE_ADD(?, INTERVAL 1 MONTH)");
@@ -772,7 +774,7 @@ if (isset($_GET['ajax'])) {
             $month = (int) date('n');
             $year = (int) date('Y');
 
-            $empStmt = $pdo->prepare("SELECT branch_id, full_name, base_salary FROM employees WHERE id=?");
+            $empStmt = $pdo->prepare("SELECT branch_id, full_name, base_salary, shift_start FROM employees WHERE id=?");
             $empStmt->execute([$employeeId]);
             $emp = $empStmt->fetch();
             if (!$emp) {
@@ -804,7 +806,8 @@ if (isset($_GET['ajax'])) {
             // خصم التأخير عن الشهر الحالي
             $lateDeduction = 0.0;
             $settingsRow = $pdo->query("SELECT late_grace_minutes, late_deduction_per_hour, work_start_time FROM settings ORDER BY id DESC LIMIT 1")->fetch();
-            if ($settingsRow && (float) $settingsRow['late_deduction_per_hour'] > 0) {
+            if ($emp['shift_start']) { $settingsRow['work_start_time'] = $emp['shift_start']; }
+            if ($settingsRow && (float) $settingsRow['late_deduction_per_hour'] > 0 && $settingsRow['work_start_time']) {
                 $lateStmt = $pdo->prepare("SELECT check_in FROM attendance WHERE employee_id=? AND status='late' AND attendance_date >= ? AND attendance_date < DATE_ADD(?, INTERVAL 1 MONTH)");
                 $monthStart = sprintf('%04d-%02d-01', $year, $month);
                 $lateStmt->execute([$employeeId, $monthStart, $monthStart]);

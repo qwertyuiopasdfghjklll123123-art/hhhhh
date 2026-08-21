@@ -144,6 +144,7 @@ function install_schema(PDO $pdo): void
             amount DECIMAL(14,2) NOT NULL,
             description VARCHAR(255) DEFAULT NULL,
             attachment VARCHAR(255) DEFAULT NULL,
+            brief_id INT DEFAULT NULL,
             created_by INT NOT NULL,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             CONSTRAINT fk_ledger_branch FOREIGN KEY (branch_id) REFERENCES branches(id) ON DELETE CASCADE

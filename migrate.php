@@ -226,6 +226,11 @@ function migration_steps(): array
             'needed' => fn(PDO $pdo) => !column_exists($pdo, 'daily_briefs', 'attachment'),
             'run' => fn(PDO $pdo) => $pdo->exec("ALTER TABLE daily_briefs ADD COLUMN attachment VARCHAR(255) DEFAULT NULL AFTER note"),
         ],
+        [
+            'label' => 'ربط قيود الإيجاز بالإيجاز الذي نُشرت ضمنه، حتى تُصفَّر شاشة كتابة الإيجاز بعد النشر',
+            'needed' => fn(PDO $pdo) => !column_exists($pdo, 'daily_ledger', 'brief_id'),
+            'run' => fn(PDO $pdo) => $pdo->exec("ALTER TABLE daily_ledger ADD COLUMN brief_id INT DEFAULT NULL AFTER attachment"),
+        ],
     ];
 }
 

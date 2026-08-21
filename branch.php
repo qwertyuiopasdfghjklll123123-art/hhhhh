@@ -71,6 +71,34 @@ function is_late(string $now, ?array $settingsRow): bool
     return $now > $deadline;
 }
 
+function notify_attendance_window(PDO $pdo, int $userId, string $shiftStart, string $shiftEnd, int $graceMinutes, $todayAtt): void
+{
+    $nowMinutes = (int) date('H') * 60 + (int) date('i');
+    [$shH, $shM] = array_map('intval', explode(':', $shiftStart));
+    [$eH, $eM] = array_map('intval', explode(':', $shiftEnd));
+    $shiftStartMin = $shH * 60 + $shM;
+    $shiftEndMin = $eH * 60 + $eM;
+    $inWindowOpen = $nowMinutes >= ($shiftStartMin - 15) && $nowMinutes <= ($shiftStartMin + $graceMinutes);
+    $outWindowOpen = $nowMinutes >= $shiftEndMin && $nowMinutes <= ($shiftEndMin + 15);
+
+    $dupStmt = $pdo->prepare("SELECT COUNT(*) FROM notifications WHERE user_id=? AND title=? AND DATE(created_at)=CURDATE()");
+
+    if ($inWindowOpen && !$todayAtt) {
+        $dupStmt->execute([$userId, 'فُتحت فترة تسجيل الحضور']);
+        if (!$dupStmt->fetchColumn()) {
+            $pdo->prepare("INSERT INTO notifications (user_id, title, message) VALUES (?, 'فُتحت فترة تسجيل الحضور', ?)")
+                ->execute([$userId, 'يمكنك الآن تسجيل حضورك، بادر قبل انتهاء الفترة']);
+        }
+    }
+    if ($outWindowOpen && $todayAtt && $todayAtt['check_in'] && !$todayAtt['check_out']) {
+        $dupStmt->execute([$userId, 'فُتحت فترة تسجيل الانصراف']);
+        if (!$dupStmt->fetchColumn()) {
+            $pdo->prepare("INSERT INTO notifications (user_id, title, message) VALUES (?, 'فُتحت فترة تسجيل الانصراف', ?)")
+                ->execute([$userId, 'انتهى دوامك، يمكنك الآن تسجيل انصرافك خلال 15 دقيقة']);
+        }
+    }
+}
+
 function distance_meters(float $lat1, float $lon1, float $lat2, float $lon2): float
 {
     $r = 6371000;
@@ -184,6 +212,8 @@ if (isset($_GET['ajax'])) {
             $todayAttStmt = $pdo->prepare("SELECT check_in, check_out FROM attendance WHERE employee_id=? AND attendance_date=CURDATE()");
             $todayAttStmt->execute([$mgr['employee_id']]);
             $todayAtt = $todayAttStmt->fetch();
+
+            notify_attendance_window($pdo, $mgr['id'], $shiftStart, $shiftEnd, $graceMinutes, $todayAtt);
 
             $empCount = $pdo->prepare("SELECT COUNT(*) FROM employees WHERE branch_id=? AND status='active' AND is_branch_manager=0");
             $empCount->execute([$branchId]);
@@ -440,6 +470,10 @@ if (isset($_GET['ajax'])) {
                     exit;
                 }
                 $settingsRow = $pdo->query("SELECT work_start_time, late_grace_minutes FROM settings ORDER BY id DESC LIMIT 1")->fetch();
+                $empShiftStart = $pdo->prepare("SELECT shift_start FROM employees WHERE id=?");
+                $empShiftStart->execute([$employeeId]);
+                $empShiftStart = $empShiftStart->fetchColumn();
+                if ($empShiftStart) { $settingsRow['work_start_time'] = $empShiftStart; }
                 $status = is_late($now, $settingsRow) ? 'late' : 'present';
                 $stmt = $pdo->prepare("INSERT INTO attendance (employee_id, branch_id, attendance_date, check_in, status)
                     VALUES (?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE check_in=VALUES(check_in), status=VALUES(status)");
@@ -493,6 +527,10 @@ if (isset($_GET['ajax'])) {
             $now = date('H:i:s');
             if ($type === 'in') {
                 $settingsRow = $pdo->query("SELECT work_start_time, late_grace_minutes FROM settings ORDER BY id DESC LIMIT 1")->fetch();
+                $empShiftStart = $pdo->prepare("SELECT shift_start FROM employees WHERE id=?");
+                $empShiftStart->execute([$employeeId]);
+                $empShiftStart = $empShiftStart->fetchColumn();
+                if ($empShiftStart) { $settingsRow['work_start_time'] = $empShiftStart; }
                 $status = is_late($now, $settingsRow) ? 'late' : 'present';
                 $stmt = $pdo->prepare("INSERT INTO attendance (employee_id, branch_id, attendance_date, check_in, status)
                     VALUES (?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE check_in=VALUES(check_in), status=VALUES(status)");
@@ -669,7 +707,7 @@ if (isset($_GET['ajax'])) {
 
         case 'ledger_list': {
             $date = $_GET['date'] ?? date('Y-m-d');
-            $stmt = $pdo->prepare("SELECT id, entry_type, amount, description, attachment FROM daily_ledger WHERE branch_id=? AND entry_date=? ORDER BY created_at DESC");
+            $stmt = $pdo->prepare("SELECT id, entry_type, amount, description, attachment FROM daily_ledger WHERE branch_id=? AND entry_date=? AND brief_id IS NULL ORDER BY created_at DESC");
             $stmt->execute([$branchId, $date]);
             $rows = $stmt->fetchAll();
             echo json_encode(['ok' => true, 'entries' => $rows], JSON_UNESCAPED_UNICODE);
@@ -693,7 +731,7 @@ if (isset($_GET['ajax'])) {
 
         case 'ledger_delete': {
             $id = (int) ($_POST['id'] ?? 0);
-            $pdo->prepare("DELETE FROM daily_ledger WHERE id=? AND branch_id=?")->execute([$id, $branchId]);
+            $pdo->prepare("DELETE FROM daily_ledger WHERE id=? AND branch_id=? AND brief_id IS NULL")->execute([$id, $branchId]);
             echo json_encode(['ok' => true]);
             exit;
         }
@@ -723,6 +761,11 @@ if (isset($_GET['ajax'])) {
                     note=VALUES(note), attachment=COALESCE(VALUES(attachment), attachment), status='pending', submitted_by=VALUES(submitted_by),
                     hr_decision='pending', gm_decision='pending', hr_note=NULL, gm_review_note=NULL, reviewed_by=NULL, reviewed_at=NULL, gm_reviewed_by=NULL, gm_reviewed_at=NULL");
             $stmt->execute([$branchId, $totals['income'], $totals['expense'], $previousProfit, $travelersCount, $note ?: null, $attachment, $mgr['employee_id']]);
+
+            $briefIdStmt = $pdo->prepare("SELECT id FROM daily_briefs WHERE branch_id=? AND brief_date=CURDATE()");
+            $briefIdStmt->execute([$branchId]);
+            $publishedBriefId = (int) $briefIdStmt->fetchColumn();
+            $pdo->prepare("UPDATE daily_ledger SET brief_id=? WHERE branch_id=? AND entry_date=CURDATE()")->execute([$publishedBriefId, $branchId]);
 
             $branchName = $pdo->prepare("SELECT name FROM branches WHERE id=?");
             $branchName->execute([$branchId]);
@@ -2575,6 +2618,7 @@ function branch_report_data(PDO $pdo, string $type, string $from, string $to, in
             else if (page === 'home') loadHomeStats();
             else if (page === 'notifications') loadNotifications();
             else if (page === 'myProfile') { loadMyProfile(); loadMyAttendanceMonth(); }
+            else if (page === 'briefing') { loadBriefingEntries(); loadBriefStatus(); }
             else if (page === 'reports') {
                 const fromEl = document.getElementById('reportFrom');
                 const toEl = document.getElementById('reportTo');
@@ -2972,6 +3016,7 @@ function branch_report_data(PDO $pdo, string $type, string $from, string $to, in
                 const total = document.getElementById('briefProfitDisplay').textContent;
                 showToast('✅ تم النشر', 'تم نشر الإيجاز بتاريخ ' + date + '\n' + total + '\nتم إرساله إلى HR بنجاح', 'success');
                 loadBriefStatus();
+                loadBriefingEntries();
             });
         }
 

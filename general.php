@@ -536,14 +536,32 @@ if (isset($_GET['ajax'])) {
         }
 
         case 'branches_overview': {
+            $rate = (float) ($pdo->query("SELECT usd_exchange_rate FROM settings ORDER BY id DESC LIMIT 1")->fetchColumn() ?: 0);
             $rows = $pdo->query("
                 SELECT b.id, b.name, e.full_name AS manager,
-                       (SELECT COUNT(*) FROM employees WHERE branch_id=b.id AND is_branch_manager=0 AND status='active') AS employeeCount
+                       (SELECT COUNT(*) FROM employees WHERE branch_id=b.id AND is_branch_manager=0 AND status='active') AS employeeCount,
+                       (SELECT ROUND(SUM(status IN ('present','late')) / GREATEST(COUNT(*),1) * 100)
+                          FROM attendance WHERE branch_id=b.id AND attendance_date >= DATE_FORMAT(CURDATE(),'%Y-%m-01')) AS attendanceRate,
+                       (SELECT COUNT(*) FROM daily_briefs WHERE branch_id=b.id AND brief_date >= DATE_FORMAT(CURDATE(),'%Y-%m-01')) AS briefsCount,
+                       lb.net_profit AS lastBriefProfit, lb.brief_date AS lastBriefDate
                 FROM branches b
                 LEFT JOIN employees e ON e.branch_id = b.id AND e.is_branch_manager = 1
+                LEFT JOIN (
+                    SELECT db1.branch_id, (db1.total_income - db1.total_expense) AS net_profit, db1.brief_date
+                    FROM daily_briefs db1
+                    INNER JOIN (SELECT branch_id, MAX(brief_date) AS max_date FROM daily_briefs GROUP BY branch_id) latest
+                        ON latest.branch_id = db1.branch_id AND latest.max_date = db1.brief_date
+                ) lb ON lb.branch_id = b.id
                 WHERE b.status = 'active'
                 ORDER BY b.name
             ")->fetchAll();
+            $rows = array_map(function ($r) use ($rate) {
+                $r['attendanceRate'] = $r['attendanceRate'] !== null ? (int) $r['attendanceRate'] : 0;
+                $r['briefsCount'] = (int) $r['briefsCount'];
+                $r['lastBriefProfit'] = $r['lastBriefProfit'] !== null ? (float) $r['lastBriefProfit'] : null;
+                $r['lastBriefProfitUsd'] = ($r['lastBriefProfit'] !== null && $rate > 0) ? round($r['lastBriefProfit'] / $rate, 2) : null;
+                return $r;
+            }, $rows);
             echo json_encode(['ok' => true, 'branches' => $rows], JSON_UNESCAPED_UNICODE);
             exit;
         }
@@ -569,19 +587,29 @@ if (isset($_GET['ajax'])) {
             $branch['shiftEnd'] = $branch['shiftEnd'] ? substr($branch['shiftEnd'], 0, 5) : null;
 
             $empStmt = $pdo->prepare("
-                SELECT e.id, e.full_name AS name, e.job_title, e.shift_type, e.is_branch_manager AS isManager,
-                       ROUND(SUM(a.status IN ('present','late')) / GREATEST(COUNT(a.id),1) * 100) AS attendanceRate
+                SELECT e.id, e.full_name AS name, e.job_title, e.shift_type, e.is_branch_manager AS isManager, e.base_salary AS salary,
+                       ROUND(SUM(a.status IN ('present','late')) / GREATEST(COUNT(a.id),1) * 100) AS attendanceRate,
+                       p.status AS payrollStatus, p.period_month AS payrollMonth, p.period_year AS payrollYear
                 FROM employees e
                 LEFT JOIN attendance a ON a.employee_id = e.id AND a.attendance_date >= DATE_FORMAT(CURDATE(), '%Y-%m-01')
+                LEFT JOIN payroll p ON p.employee_id = e.id AND p.period_month = MONTH(CURDATE()) AND p.period_year = YEAR(CURDATE())
                 WHERE e.branch_id = ? AND e.status = 'active'
-                GROUP BY e.id, e.full_name, e.job_title, e.shift_type, e.is_branch_manager
+                GROUP BY e.id, e.full_name, e.job_title, e.shift_type, e.is_branch_manager, e.base_salary, p.status, p.period_month, p.period_year
                 ORDER BY e.is_branch_manager DESC, e.full_name
             ");
             $empStmt->execute([$branchId]);
-            $employees = array_map(function ($r) {
+            $monthNamesGm = ['', 'يناير', 'فبراير', 'مارس', 'أبريل', 'مايو', 'يونيو', 'يوليو', 'أغسطس', 'سبتمبر', 'أكتوبر', 'نوفمبر', 'ديسمبر'];
+            $employees = array_map(function ($r) use ($monthNamesGm) {
                 $r['isManager'] = (bool) $r['isManager'];
+                $r['salary'] = (float) $r['salary'];
                 $r['attendanceRate'] = $r['attendanceRate'] !== null ? (int) $r['attendanceRate'] : 0;
                 $r['shiftTypeText'] = $r['shift_type'] === 'evening' ? 'مسائي' : 'صباحي';
+                if ($r['payrollStatus'] === 'delivered') {
+                    $r['payrollText'] = 'استلم راتب ' . ($monthNamesGm[(int) $r['payrollMonth']] ?? $r['payrollMonth']) . ' ' . $r['payrollYear'];
+                } else {
+                    $r['payrollText'] = 'لم يستلم راتب الشهر الحالي بعد';
+                }
+                unset($r['payrollStatus'], $r['payrollMonth'], $r['payrollYear']);
                 return $r;
             }, $empStmt->fetchAll());
 
@@ -906,6 +934,9 @@ if (isset($_GET['ajax'])) {
                 <button class="nav-item" id="sidenav-payroll" onclick="switchTab('payroll')">
                     <i class="fas fa-money-check-dollar"></i> الرواتب والمكافآت
                 </button>
+                <button class="nav-item" id="sidenav-payrollWindow" onclick="switchTab('payrollWindow')">
+                    <i class="fas fa-unlock-keyhole"></i> صلاحية رواتب
+                </button>
                 <button class="nav-item" id="sidenav-reports" onclick="switchTab('reports')">
                     <i class="fas fa-chart-bar"></i> التقارير
                 </button>
@@ -973,18 +1004,19 @@ if (isset($_GET['ajax'])) {
                 <div class="stat-card"><div class="label"><i class="fas fa-users"></i> الموظفون</div><div class="value" id="statEmployees">0</div></div>
             </div>
 
-            <div class="brief-card" id="payrollWindowCard" style="display:none;border-right-color:var(--primary);">
-                <div class="brief-top">
-                    <span class="branch"><i class="fas fa-money-check-dollar"></i> صلاحية تسليم رواتب هذا الشهر لكل فرع</span>
-                </div>
-                <div style="font-size:12px;color:var(--text-muted);margin-bottom:10px;">اختر فرعاً أو أكثر لفتح صلاحية تسليم الرواتب له لمدة 3 أيام، أو ألغِ صلاحية فرع مفتوحة</div>
-                <div id="payrollBranchList" style="display:flex;flex-direction:column;gap:8px;margin-bottom:10px;"></div>
-                <button class="btn small" id="payrollWindowBtn" onclick="openPayrollWindow()"><i class="fas fa-unlock"></i> فتح الصلاحية للفروع المحددة (3 أيام)</button>
-            </div>
-
             <div id="view-pending"></div>
             <div id="view-history" class="hidden"></div>
             <div id="view-branches" class="hidden"></div>
+            <div id="view-payrollWindow" class="hidden">
+                <div class="brief-card" id="payrollWindowCard" style="border-right-color:var(--primary);">
+                    <div class="brief-top">
+                        <span class="branch"><i class="fas fa-money-check-dollar"></i> صلاحية تسليم رواتب هذا الشهر لكل فرع</span>
+                    </div>
+                    <div style="font-size:12px;color:var(--text-muted);margin-bottom:10px;">اختر فرعاً أو أكثر لفتح صلاحية تسليم الرواتب له لمدة 3 أيام، أو ألغِ صلاحية فرع مفتوحة</div>
+                    <div id="payrollBranchList" style="display:flex;flex-direction:column;gap:8px;margin-bottom:10px;"></div>
+                    <button class="btn small" id="payrollWindowBtn" onclick="openPayrollWindow()"><i class="fas fa-unlock"></i> فتح الصلاحية للفروع المحددة (3 أيام)</button>
+                </div>
+            </div>
             <div id="view-payroll" class="hidden">
                 <div class="brief-card">
                     <h4 style="margin-bottom:10px;"><i class="fas fa-plus-circle"></i> إضافة راتب / مكافأة / خصم لموظف</h4>
@@ -1321,6 +1353,7 @@ if (isset($_GET['ajax'])) {
         document.getElementById('roleBadge').textContent = isShareholder ? 'مساهم' : 'المسؤول العام';
         document.getElementById('sidenav-shareholders').style.display = isShareholder ? 'none' : '';
         document.getElementById('sidenav-payroll').style.display = isShareholder ? 'none' : '';
+        document.getElementById('sidenav-payrollWindow').style.display = isShareholder ? 'none' : '';
         document.getElementById('pendingCard').style.display = isShareholder ? 'none' : '';
         document.getElementById('sidenav-pending').style.display = isShareholder ? 'none' : '';
         if (isShareholder) switchTab('history');
@@ -1414,12 +1447,13 @@ if (isset($_GET['ajax'])) {
         history: { title: 'سجل الاعتمادات', sub: 'كل الإيجازات المعتمدة أو المرفوضة', icon: 'fa-history' },
         branches: { title: 'الفروع', sub: 'نظرة عامة على أداء كل فرع', icon: 'fa-building' },
         payroll: { title: 'الرواتب والمكافآت', sub: 'إدارة رواتب ومكافآت وخصومات الموظفين', icon: 'fa-money-check-dollar' },
+        payrollWindow: { title: 'صلاحية رواتب', sub: 'تحديد الفروع المسموح لها بتسليم الرواتب لمدة 3 أيام', icon: 'fa-unlock-keyhole' },
         reports: { title: 'التقارير', sub: 'إنشاء وتصدير التقارير', icon: 'fa-chart-bar' },
         shareholders: { title: 'المساهمون', sub: 'إدارة حسابات المساهمين', icon: 'fa-user-tie' },
     };
 
     function switchTab(tab) {
-        ['pending', 'history', 'branches', 'payroll', 'reports', 'shareholders'].forEach(t => {
+        ['pending', 'history', 'branches', 'payroll', 'payrollWindow', 'reports', 'shareholders'].forEach(t => {
             document.getElementById('sidenav-' + t).classList.toggle('active', t === tab);
             document.getElementById('view-' + t).classList.toggle('hidden', t !== tab);
         });
@@ -1573,13 +1607,29 @@ if (isset($_GET['ajax'])) {
     function renderGmBranchGrid() {
         gmBranchDetailId = null;
         const view = document.getElementById('view-branches');
-        view.innerHTML = '<div class="branches-grid">' + gmBranchList.map(b => `
+        view.innerHTML = '<div class="branches-grid">' + gmBranchList.map(b => {
+            const profitIqd = b.lastBriefProfit !== null ? (b.lastBriefProfit >= 0 ? '+' : '') + Number(b.lastBriefProfit).toLocaleString() + ' د.ع' : '—';
+            const profitUsd = b.lastBriefProfitUsd !== null ? (b.lastBriefProfitUsd >= 0 ? '+' : '') + Number(b.lastBriefProfitUsd).toLocaleString() + ' $' : '';
+            const rateColor = b.attendanceRate >= 80 ? 'var(--green)' : (b.attendanceRate >= 50 ? '#D97706' : '#DC2626');
+            return `
             <div class="branch-card" style="cursor:pointer;" onclick="openGmBranchDetail(${b.id})">
                 <div class="name"><i class="fas fa-building" style="color:var(--primary);"></i> ${b.name}</div>
                 <div class="muted">المدير: ${b.manager || '—'}</div>
                 <div class="muted">عدد الموظفين: ${b.employeeCount}</div>
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-top:8px;padding-top:8px;border-top:1px solid #eef2f4;font-size:12px;">
+                    <span>نسبة الحضور هذا الشهر</span>
+                    <b style="color:${rateColor};">${b.attendanceRate}%</b>
+                </div>
+                <div style="display:flex;justify-content:space-between;align-items:center;font-size:12px;">
+                    <span>إيجازات هذا الشهر</span>
+                    <b>${b.briefsCount}</b>
+                </div>
+                <div style="margin-top:6px;padding:6px 8px;background:rgba(0,107,115,0.04);border-radius:8px;font-size:12px;">
+                    <div style="display:flex;justify-content:space-between;"><span>آخر إيجاز (صافي الربح)</span><b style="color:${b.lastBriefProfit >= 0 ? 'var(--green)' : 'var(--red)'};">${profitIqd}</b></div>
+                    ${profitUsd ? `<div style="text-align:left;font-size:11px;color:var(--text-muted);">${profitUsd}</div>` : ''}
+                </div>
             </div>
-        `).join('') + '</div>';
+        `; }).join('') + '</div>';
     }
 
     function openGmBranchDetail(id) {
@@ -1618,12 +1668,32 @@ if (isset($_GET['ajax'])) {
         const b = data.branch;
         const pct = data.overallAttendanceRate || 0;
 
-        const employeesHtml = data.employees.length ? data.employees.map(e => `
-            <div style="display:flex;align-items:center;justify-content:space-between;padding:8px 10px;background:var(--bg);border-radius:8px;margin-bottom:6px;">
-                <div><b style="font-size:13px;">${e.name}${e.isManager ? ' 👑' : ''}</b><div class="muted" style="font-size:11px;">${e.job_title || ''} · ${e.shiftTypeText}</div></div>
-                <div style="font-weight:800;color:${e.attendanceRate >= 80 ? 'var(--green)' : (e.attendanceRate >= 50 ? 'var(--orange)' : 'var(--red)')};">${e.attendanceRate}%</div>
-            </div>
-        `).join('') : '<p class="muted">لا يوجد موظفون</p>';
+        const employeesHtml = data.employees.length ? `<div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font-size:12px;">
+            <thead><tr style="background:var(--bg);"><th style="padding:6px;text-align:right;">الموظف</th><th style="padding:6px;">الوظيفة</th><th style="padding:6px;">الدوام</th><th style="padding:6px;">الراتب الأساسي</th><th style="padding:6px;">نسبة الحضور</th><th style="padding:6px;">حالة الراتب</th></tr></thead>
+            <tbody>${data.employees.map(e => `
+                <tr style="border-bottom:1px solid #eee;">
+                    <td style="padding:6px;">${e.name}${e.isManager ? ' 👑' : ''}</td>
+                    <td style="padding:6px;">${e.job_title || '-'}</td>
+                    <td style="padding:6px;">${e.shiftTypeText}</td>
+                    <td style="padding:6px;">${e.salary.toLocaleString()}</td>
+                    <td style="padding:6px;font-weight:800;color:${e.attendanceRate >= 80 ? 'var(--green)' : (e.attendanceRate >= 50 ? 'var(--orange)' : 'var(--red)')};">${e.attendanceRate}%</td>
+                    <td style="padding:6px;color:${e.payrollText.startsWith('استلم') ? 'var(--green)' : 'var(--orange)'};">${e.payrollText}</td>
+                </tr>
+            `).join('')}</tbody>
+        </table></div>` : '<p class="muted">لا يوجد موظفون</p>';
+
+        const revenueTableHtml = data.briefs.length ? `<div style="overflow-x:auto;margin-bottom:14px;"><table style="width:100%;border-collapse:collapse;font-size:12px;">
+            <thead><tr style="background:var(--bg);"><th style="padding:6px;text-align:right;">التاريخ</th><th style="padding:6px;">الإيرادات</th><th style="padding:6px;">المصاريف</th><th style="padding:6px;">صافي الربح</th><th style="padding:6px;">الحالة</th></tr></thead>
+            <tbody>${data.briefs.map(br => `
+                <tr style="border-bottom:1px solid #eee;">
+                    <td style="padding:6px;">${br.date}${br.isToday ? ' (اليوم)' : ''}</td>
+                    <td style="padding:6px;">${br.revenue.toLocaleString()}</td>
+                    <td style="padding:6px;">${br.expense.toLocaleString()}</td>
+                    <td style="padding:6px;font-weight:800;color:${br.profit >= 0 ? 'var(--green)' : 'var(--red)'};">${br.profit.toLocaleString()}</td>
+                    <td style="padding:6px;">${br.statusText}</td>
+                </tr>
+            `).join('')}</tbody>
+        </table></div>` : '';
 
         let briefsHtml = '';
         if (!data.briefs.length) {
@@ -1669,7 +1739,9 @@ if (isset($_GET['ajax'])) {
             </div>
             <h4 style="font-size:14px;margin:14px 0 8px;"><i class="fas fa-users"></i> الموظفون</h4>
             ${employeesHtml}
-            <h4 style="font-size:14px;margin:14px 0 8px;"><i class="fas fa-file-signature"></i> الإيجازات</h4>
+            <h4 style="font-size:14px;margin:14px 0 8px;"><i class="fas fa-chart-line"></i> الإيرادات (جدول)</h4>
+            ${revenueTableHtml || '<p class="muted">لا توجد إيجازات منشورة بعد</p>'}
+            <h4 style="font-size:14px;margin:14px 0 8px;"><i class="fas fa-file-signature"></i> الإيجازات (تفصيلي)</h4>
             <div style="display:flex;gap:8px;align-items:center;margin-bottom:10px;flex-wrap:wrap;">
                 <input type="date" id="gmBranchDateInput" style="height:36px;padding:0 10px;border:1.5px solid #e2ebeb;border-radius:8px;font-family:var(--font-family);">
                 <button class="btn small" onclick="filterGmBranchDate()"><i class="fas fa-rotate"></i> تحديث</button>
