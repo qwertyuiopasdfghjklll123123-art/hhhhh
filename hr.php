@@ -248,6 +248,17 @@ if (isset($_GET['ajax'])) {
                 ];
             }, $branchRevenueRows);
 
+            // إجمالي الرصيد الكلي المتراكم لكل فرع (كل الإيجازات المعتمدة نهائياً منذ بداية العمل)
+            $branchTotalBalances = $pdo->query("
+                SELECT b.id, b.name, COALESCE(SUM(db.total_income - db.total_expense),0) AS balance
+                FROM branches b
+                LEFT JOIN daily_briefs db ON db.branch_id = b.id AND db.status = 'approved'
+                WHERE b.status = 'active'
+                GROUP BY b.id, b.name
+                ORDER BY balance DESC
+            ")->fetchAll();
+            $branchTotalBalances = array_map(fn($r) => ['name' => $r['name'], 'balance' => (float) $r['balance']], $branchTotalBalances);
+
             echo json_encode([
                 'ok' => true,
                 'branches' => $branches,
@@ -255,6 +266,7 @@ if (isset($_GET['ajax'])) {
                 'settings' => $settingsRow,
                 'topEmployees' => $topEmployees,
                 'branchRevenueShares' => $branchRevenueShares,
+                'branchTotalBalances' => $branchTotalBalances,
                 'stats' => [
                     'employees' => $totalActive,
                     'attendanceToday' => [
@@ -3061,6 +3073,12 @@ try {
                         <div class="stocks-chart" id="stocksChart"></div>
                         <div class="stocks-summary" id="stocksSummary"></div>
                     </div>
+
+                    <!-- بطاقة الرصيد الكلي التراكمي لكل فرع -->
+                    <div class="content-card" style="margin-top:16px;">
+                        <div class="card-header"><h4><i class="fas fa-wallet"></i> الرصيد الكلي التراكمي لكل فرع</h4></div>
+                        <div class="card-body" id="branchTotalBalancesCard"></div>
+                    </div>
                 </div>
 
                 <!-- ==========================================================
@@ -3765,6 +3783,7 @@ try {
                     renderAttendanceRing(data.stats.employees, data.stats.attendanceToday || {});
                 }
                 renderBranchRevenueBars(data.branchRevenueShares || []);
+                renderBranchTotalBalances(data.branchTotalBalances || []);
                 if (data.settings) {
                     const s = data.settings;
                     const byId = id => document.getElementById(id);
@@ -4013,6 +4032,21 @@ try {
                     ${best && best.revenue > 0 ? `<span class="summary-item"><i class="fas fa-trophy" style="color:var(--accent);"></i> الأعلى: <span class="value">${best.name}</span></span>` : ''}
                 `;
             }
+        }
+
+        function renderBranchTotalBalances(balances) {
+            const view = document.getElementById('branchTotalBalancesCard');
+            if (!view) return;
+            if (!balances || !balances.length) {
+                view.innerHTML = '<div class="muted" style="font-size:12px;">لا توجد بيانات كافية بعد</div>';
+                return;
+            }
+            view.innerHTML = balances.map(b => `
+                <div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid rgba(0,107,115,0.06);">
+                    <span style="font-size:13px;font-weight:700;"><i class="fas fa-building" style="color:var(--primary);"></i> ${b.name}</span>
+                    <b style="color:${b.balance >= 0 ? '#059669' : '#DC2626'};">${Number(b.balance).toLocaleString()} د.ع</b>
+                </div>
+            `).join('');
         }
 
         // ============================================================
