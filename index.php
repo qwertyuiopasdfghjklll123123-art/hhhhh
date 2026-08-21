@@ -825,7 +825,7 @@ try {
     <title>شركة الصوى للصرافة - نافذة الموظف</title>
     <link rel="manifest" href="manifest.php?app=employee">
     <meta name="theme-color" content="#006b73">
-    <link rel="apple-touch-icon" href="icons/icon-192.png">
+    <link rel="apple-touch-icon" href="<?= $welcomeCompanyLogo ? htmlspecialchars($welcomeCompanyLogo, ENT_QUOTES, 'UTF-8') : 'icons/icon-192.png' ?>">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
@@ -3272,6 +3272,7 @@ try {
 
                 if (data.company) {
                     document.getElementById('headerCompanyName').innerHTML = data.company.name + ' <span>نافذة الموظف</span>';
+                    companyLogoUrl = data.company.logo || null;
                     if (data.company.logo) document.getElementById('headerLogo').innerHTML = `<img src="${data.company.logo}" style="width:100%;height:100%;object-fit:cover;border-radius:inherit;">`;
                 }
 
@@ -3362,6 +3363,7 @@ try {
         // ============================================================
         // الإشعارات
         // ============================================================
+        let companyLogoUrl = null;
         function checkNewBrowserNotifications(list, storageKey) {
             if (!('Notification' in window) || Notification.permission !== 'granted' || !list.length) return;
             const lastId = parseInt(localStorage.getItem(storageKey) || '0', 10);
@@ -3369,7 +3371,7 @@ try {
             if (lastId > 0) {
                 list.filter(n => (n.id || 0) > lastId).slice(0, 3).forEach(n => {
                     try {
-                        const notif = new Notification(n.title, { body: n.message || '', icon: 'icons/icon-192.png', tag: storageKey + '_' + n.id });
+                        const notif = new Notification(n.title, { body: n.message || '', icon: companyLogoUrl || 'icons/icon-192.png', tag: storageKey + '_' + n.id });
                         notif.onclick = () => { window.focus(); notif.close(); };
                     } catch (e) {}
                 });

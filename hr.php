@@ -1193,6 +1193,14 @@ function report_data(PDO $pdo, string $type, string $from, string $to, int $bran
 
     return $result;
 }
+
+$appIconUrl = null;
+try {
+    $iconRow = db()->query("SELECT company_logo FROM settings ORDER BY id DESC LIMIT 1")->fetch();
+    if ($iconRow) { $appIconUrl = $iconRow['company_logo'] ?: null; }
+} catch (Throwable $e) {
+    // تجاهل، استخدم الأيقونة الافتراضية
+}
 ?>
 <!DOCTYPE html>
 <html lang="ar" dir="rtl">
@@ -1202,7 +1210,7 @@ function report_data(PDO $pdo, string $type, string $from, string $to, int $bran
     <title>نظام إدارة الموارد البشرية - HR</title>
     <link rel="manifest" href="manifest.php?app=hr">
     <meta name="theme-color" content="#006b73">
-    <link rel="apple-touch-icon" href="icons/icon-192.png">
+    <link rel="apple-touch-icon" href="<?= $appIconUrl ? htmlspecialchars($appIconUrl, ENT_QUOTES, 'UTF-8') : 'icons/icon-192.png' ?>">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
@@ -3686,6 +3694,7 @@ function report_data(PDO $pdo, string $type, string $from, string $to, int $bran
                     if (byId('settingsCompanyName')) byId('settingsCompanyName').value = s.company_name || '';
                     if (s.company_logo && byId('settingsLogoPreview')) byId('settingsLogoPreview').innerHTML = `<img src="${s.company_logo}" style="width:100%;height:100%;object-fit:cover;">`;
                     if (byId('headerCompanyName')) byId('headerCompanyName').innerHTML = (s.company_name || 'نظام') + ' <span>الموارد البشرية</span>';
+                    companyLogoUrl = s.company_logo || null;
                     if (s.company_logo && byId('headerLogo')) byId('headerLogo').innerHTML = `<img src="${s.company_logo}" style="width:100%;height:100%;object-fit:cover;border-radius:inherit;">`;
                     if (byId('settingsCompanyEmail')) byId('settingsCompanyEmail').value = s.company_email || '';
                     if (byId('settingsWorkStart')) byId('settingsWorkStart').value = (s.work_start_time || '').slice(0, 5);
@@ -3784,6 +3793,7 @@ function report_data(PDO $pdo, string $type, string $from, string $to, int $bran
         // ============================================================
         // الإشعارات
         // ============================================================
+        let companyLogoUrl = null;
         function checkNewBrowserNotifications(list, storageKey) {
             if (!('Notification' in window) || Notification.permission !== 'granted' || !list.length) return;
             const lastId = parseInt(localStorage.getItem(storageKey) || '0', 10);
@@ -3791,7 +3801,7 @@ function report_data(PDO $pdo, string $type, string $from, string $to, int $bran
             if (lastId > 0) {
                 list.filter(n => (n.id || 0) > lastId).slice(0, 3).forEach(n => {
                     try {
-                        const notif = new Notification(n.title, { body: n.message || '', icon: 'icons/icon-192.png', tag: storageKey + '_' + n.id });
+                        const notif = new Notification(n.title, { body: n.message || '', icon: companyLogoUrl || 'icons/icon-192.png', tag: storageKey + '_' + n.id });
                         notif.onclick = () => { window.focus(); notif.close(); };
                     } catch (e) {}
                 });
