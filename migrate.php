@@ -42,6 +42,83 @@ function table_exists(PDO $pdo, string $table): bool
     return (int) $stmt->fetchColumn() > 0;
 }
 
+/* ======================================================================
+   فحص شامل للنظام: يتحقق أن كل زر (onclick/onchange/onsubmit) في واجهات
+   الملفات الأربعة يشير فعلاً إلى دالة JavaScript معرّفة في نفس الملف، وأن
+   كل طلب ajax=X من الواجهة له معالج فعلي في كود الخادم لنفس الملف. هذا
+   يكشف مباشرة أزرار "لا تستجيب" الناتجة عن اسم دالة أو إجراء خاطئ/محذوف.
+   ====================================================================== */
+const SYSTEM_CHECK_JS_BUILTINS = [
+    'event', 'window', 'document', 'this', 'Math', 'Number', 'String', 'Boolean',
+    'Array', 'Object', 'JSON', 'console', 'parseInt', 'parseFloat', 'isNaN',
+    'confirm', 'alert', 'prompt', 'setTimeout', 'setInterval', 'clearTimeout',
+    'clearInterval', 'encodeURIComponent', 'decodeURIComponent', 'fetch', 'Date',
+    'if', 'for', 'while', 'switch', 'function', 'catch', 'return',
+];
+
+function extract_defined_js_functions(string $code): array
+{
+    preg_match_all('/function\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*\(/', $code, $m1);
+    preg_match_all('/(?:const|let|var)\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*=\s*(?:function|\([^)]*\)\s*=>|async\s*\()/', $code, $m2);
+    return array_flip(array_merge($m1[1], $m2[1]));
+}
+
+/** يستخرج كل استدعاءات الدوال داخل قيم onclick/onchange/oninput/onsubmit، مستثنياً استدعاءات الكائنات المدمجة (event.stopPropagation إلخ) */
+function extract_handler_calls(string $code): array
+{
+    preg_match_all('/\son(?:click|change|input|submit)\s*=\s*"([^"]*)"|\son(?:click|change|input|submit)\s*=\s*\'([^\']*)\'/', $code, $attrs);
+    $values = array_filter(array_merge($attrs[1], $attrs[2]), fn($v) => $v !== '');
+    $calls = [];
+    foreach ($values as $value) {
+        preg_match_all('/(?<![.\w])([a-zA-Z_][a-zA-Z0-9_]*)\s*\(/', $value, $m);
+        foreach ($m[1] as $fn) {
+            if (!in_array($fn, SYSTEM_CHECK_JS_BUILTINS, true)) {
+                $calls[$fn] = true;
+            }
+        }
+    }
+    return array_keys($calls);
+}
+
+function extract_ajax_calls(string $code): array
+{
+    preg_match_all('/\?ajax=([a-zA-Z_][a-zA-Z0-9_]*)/', $code, $m);
+    return array_values(array_unique($m[1]));
+}
+
+function extract_server_actions(string $code): array
+{
+    preg_match_all('/case\s*[\'"]([a-zA-Z_][a-zA-Z0-9_]*)[\'"]\s*:/', $code, $m1);
+    preg_match_all('/\$action\s*===\s*[\'"]([a-zA-Z_][a-zA-Z0-9_]*)[\'"]/', $code, $m2);
+    return array_flip(array_merge($m1[1], $m2[1]));
+}
+
+/** يبني تقرير فحص كامل لملف واجهة واحد: ربط الأزرار بجافاسكربت + ربط ajax بمعالج الخادم */
+function build_file_check_report(string $filePath): ?array
+{
+    if (!is_readable($filePath)) {
+        return null;
+    }
+    $code = file_get_contents($filePath);
+    $definedFunctions = extract_defined_js_functions($code);
+    $handlerCalls = extract_handler_calls($code);
+    sort($handlerCalls);
+    $buttons = array_map(function ($fn) use ($definedFunctions) {
+        $ok = isset($definedFunctions[$fn]);
+        return ['label' => $fn . '(...)', 'ok' => $ok, 'error' => $ok ? null : "الدالة \"$fn\" غير معرّفة في هذا الملف — الزر الذي يستدعيها لن يستجيب"];
+    }, $handlerCalls);
+
+    $serverActions = extract_server_actions($code);
+    $ajaxCalls = extract_ajax_calls($code);
+    sort($ajaxCalls);
+    $ajax = array_map(function ($action) use ($serverActions) {
+        $ok = isset($serverActions[$action]);
+        return ['label' => 'ajax=' . $action, 'ok' => $ok, 'error' => $ok ? null : "لا يوجد معالج للإجراء \"$action\" في كود الخادم لهذا الملف — أي زر يستدعيه سيفشل بصمت أو يعطي خطأ"];
+    }, $ajaxCalls);
+
+    return ['buttons' => $buttons, 'ajax' => $ajax];
+}
+
 /** كل خطوة: [وصف عربي, دالة تتحقق إن كانت مطلوبة, دالة تنفذ التعديل] */
 function migration_steps(): array
 {
@@ -364,6 +441,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['confirm'] ?? '') === '1') 
     }
 }
 
+$systemCheckFiles = [
+    'index.php' => 'تطبيق الموظف',
+    'branch.php' => 'تطبيق مسؤول الفرع',
+    'hr.php' => 'تطبيق الموارد البشرية',
+    'general.php' => 'تطبيق المسؤول العام',
+];
+$systemCheckReports = [];
+foreach ($systemCheckFiles as $file => $labelAr) {
+    $report = build_file_check_report(__DIR__ . '/' . $file);
+    if ($report !== null) {
+        $systemCheckReports[$file] = ['label' => $labelAr] + $report;
+    }
+}
+
 /* ======================================================================
    إنشاء حساب المسؤول العام إن لم يكن موجوداً — يحدث هذا مع الأنظمة التي
    ثُبِّتت قبل إضافة دور "المسؤول العام"، حيث لا ينشئ تحديث القاعدة وحده
@@ -453,26 +544,27 @@ h1{font-size:20px;font-weight:700;margin:0 0 6px;color:var(--primary-dark);}
         <?php endforeach; ?>
     <?php endif; ?>
 
+    <div style="font-size:12px;font-weight:700;color:var(--text-muted);margin:12px 0 6px;">حالة كل تحديث لقاعدة البيانات (<?= count($steps) ?>)</div>
+    <?php foreach ($steps as $i => $step): ?>
+        <?php $isPending = in_array($i, $pending, true); ?>
+        <div class="step">
+            <span><?= h($step['label']) ?></span>
+            <span class="badge <?= $isPending ? 'badge-fail' : 'badge-ok' ?>"><?= $isPending ? 'لا يعمل ❌' : 'صح ✅' ?></span>
+        </div>
+        <?php if ($isPending): ?><div style="font-size:11.5px;color:var(--danger);margin:-2px 0 6px 0;padding-right:12px;">هذا التحديث لم يُنفَّذ بعد على قاعدة البيانات — اضغط "تشغيل التحديث الآن" أدناه</div><?php endif; ?>
+    <?php endforeach; ?>
+
     <?php if (empty($pending)): ?>
-        <div class="alert alert-success">✅ قاعدة البيانات محدَّثة بالكامل، لا توجد تحديثات معلَّقة.</div>
+        <div class="alert alert-success" style="margin-top:12px;">✅ قاعدة البيانات محدَّثة بالكامل، لا توجد تحديثات معلَّقة.</div>
         <div class="links">
             <a class="btn" href="/hr">لوحة HR</a>
             <a class="btn secondary" href="/general">لوحة المسؤول العام</a>
             <a class="btn secondary" href="/branch">لوحة مدير الفرع</a>
         </div>
     <?php else: ?>
-        <div class="alert alert-info">التحديثات التالية بانتظار التنفيذ (<?= count($pending) ?>):</div>
-        <?php foreach ($steps as $i => $step): ?>
-            <?php if (in_array($i, $pending, true)): ?>
-                <div class="step">
-                    <span><?= h($step['label']) ?></span>
-                    <span class="badge badge-pending">معلّق</span>
-                </div>
-            <?php endif; ?>
-        <?php endforeach; ?>
         <form method="post" style="margin-top:18px;">
             <input type="hidden" name="confirm" value="1">
-            <button type="submit" class="btn">تشغيل التحديث الآن</button>
+            <button type="submit" class="btn">تشغيل التحديث الآن (<?= count($pending) ?>)</button>
         </form>
     <?php endif; ?>
 
@@ -509,6 +601,59 @@ h1{font-size:20px;font-weight:700;margin:0 0 6px;color:var(--primary-dark);}
 
     <p style="font-size:11.5px;color:var(--text-muted);margin-top:24px;">
         بعد اكتمال كل التحديثات (لا تظهر أي عناصر "معلّق") وإنشاء حساب المسؤول العام إن لزم، يُفضَّل حذف هذا الملف (migrate.php) من السيرفر لأنه لا حاجة له بعد ذلك.
+    </p>
+</div>
+
+<div class="card" style="margin-top:20px;">
+    <h1>🔍 فحص شامل للنظام</h1>
+    <div class="sub">يتحقق تلقائياً أن كل زر في الواجهات الأربع مرتبط فعلاً بدالة موجودة، وأن كل طلب يرسله الزر للخادم له معالج حقيقي — لاكتشاف الأزرار "التي لا تستجيب" دون الحاجة لتجربة كل زر يدوياً.</div>
+
+    <?php
+    $checkTotals = ['ok' => 0, 'fail' => 0];
+    foreach ($systemCheckReports as $rep) {
+        foreach (array_merge($rep['buttons'], $rep['ajax']) as $item) {
+            $checkTotals[$item['ok'] ? 'ok' : 'fail']++;
+        }
+    }
+    ?>
+    <div class="alert <?= $checkTotals['fail'] === 0 ? 'alert-success' : 'alert-info' ?>">
+        <?= $checkTotals['fail'] === 0
+            ? '✅ كل الأزرار وطلبات الخادم المكتشفة (' . $checkTotals['ok'] . ') مرتبطة بشكل صحيح — لا يوجد زر معطّل مكتشَف آلياً.'
+            : '⚠️ تم اكتشاف ' . $checkTotals['fail'] . ' مشكلة من أصل ' . ($checkTotals['ok'] + $checkTotals['fail']) . '، مفصّلة أدناه مع السبب.' ?>
+    </div>
+
+    <?php foreach ($systemCheckReports as $file => $rep): ?>
+        <div style="margin-top:18px;">
+            <h2 style="font-size:14.5px;margin-bottom:8px;color:var(--primary-dark);">📄 <?= h($rep['label']) ?> <span style="color:var(--text-muted);font-weight:400;">(<?= h($file) ?>)</span></h2>
+
+            <div style="font-size:12px;font-weight:700;color:var(--text-muted);margin:10px 0 6px;">ربط الأزرار بدوال JavaScript (<?= count($rep['buttons']) ?>)</div>
+            <?php if (empty($rep['buttons'])): ?>
+                <div style="font-size:12px;color:var(--text-muted);">لا توجد أزرار onclick/onchange في هذا الملف.</div>
+            <?php endif; ?>
+            <?php foreach ($rep['buttons'] as $b): ?>
+                <div class="step" style="padding:6px 12px;margin-bottom:4px;">
+                    <span style="font-family:monospace;direction:ltr;"><?= h($b['label']) ?></span>
+                    <span class="badge <?= $b['ok'] ? 'badge-ok' : 'badge-fail' ?>"><?= $b['ok'] ? 'صح ✅' : 'لا يعمل ❌' ?></span>
+                </div>
+                <?php if (!$b['ok']): ?><div style="font-size:11.5px;color:var(--danger);margin:-2px 0 6px 0;padding-right:12px;"><?= h($b['error']) ?></div><?php endif; ?>
+            <?php endforeach; ?>
+
+            <div style="font-size:12px;font-weight:700;color:var(--text-muted);margin:14px 0 6px;">ربط طلبات الخادم ajax (<?= count($rep['ajax']) ?>)</div>
+            <?php if (empty($rep['ajax'])): ?>
+                <div style="font-size:12px;color:var(--text-muted);">لا توجد طلبات ajax في هذا الملف.</div>
+            <?php endif; ?>
+            <?php foreach ($rep['ajax'] as $a): ?>
+                <div class="step" style="padding:6px 12px;margin-bottom:4px;">
+                    <span style="font-family:monospace;direction:ltr;"><?= h($a['label']) ?></span>
+                    <span class="badge <?= $a['ok'] ? 'badge-ok' : 'badge-fail' ?>"><?= $a['ok'] ? 'صح ✅' : 'لا يعمل ❌' ?></span>
+                </div>
+                <?php if (!$a['ok']): ?><div style="font-size:11.5px;color:var(--danger);margin:-2px 0 6px 0;padding-right:12px;"><?= h($a['error']) ?></div><?php endif; ?>
+            <?php endforeach; ?>
+        </div>
+    <?php endforeach; ?>
+
+    <p style="font-size:11px;color:var(--text-muted);margin-top:18px;">
+        ملاحظة: هذا الفحص آلي (تحليل ثابت للكود) ويكتشف الأخطاء الشائعة (دالة محذوفة أو بالاسم الخطأ، إجراء خادم غير معرّف). لا يغطي أخطاء منطقية داخل دالة موجودة وتعمل، أو شروط عرض تُخفي الزر (كصلاحية مغلقة).
     </p>
 </div>
 </body>

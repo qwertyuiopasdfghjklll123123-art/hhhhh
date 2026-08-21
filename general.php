@@ -726,11 +726,21 @@ if (isset($_GET['ajax'])) {
 
             $today = date('Y-m-d');
             $monthStart = date('Y-m-01');
-            $attStmt = $pdo->prepare("SELECT SUM(status IN ('present','late')) AS present_days, COUNT(*) AS total_days FROM attendance WHERE attendance_date >= ? AND shift_period='morning'");
+            $attStmt = $pdo->prepare("
+                SELECT SUM(status='present') AS present_days, SUM(status='late') AS late_days, SUM(status='absent') AS absent_days, COUNT(*) AS total_days
+                FROM attendance WHERE attendance_date >= ? AND shift_period='morning'
+            ");
             $attStmt->execute([$monthStart]);
             $att = $attStmt->fetch();
             $totalDays = max(1, (int) ($att['total_days'] ?? 0));
-            $attendancePct = round((((int) ($att['present_days'] ?? 0)) / $totalDays) * 100);
+            $presentDays = (int) ($att['present_days'] ?? 0);
+            $lateDays = (int) ($att['late_days'] ?? 0);
+            $absentDays = (int) ($att['absent_days'] ?? 0);
+            $attendancePct = round((($presentDays + $lateDays) / $totalDays) * 100);
+            $presentPct = round(($presentDays / $totalDays) * 100);
+            $latePct = round(($lateDays / $totalDays) * 100);
+            $absentPct = round(($absentDays / $totalDays) * 100);
+            $activeEmployeeCount = (int) $pdo->query("SELECT COUNT(*) FROM employees WHERE status='active'")->fetchColumn();
 
             $balanceStmt = $pdo->prepare("SELECT COALESCE(SUM(total_income - total_expense),0) AS net FROM daily_briefs WHERE brief_date = ? AND status='approved'");
             $balanceStmt->execute([$today]);
@@ -780,6 +790,7 @@ if (isset($_GET['ajax'])) {
             echo json_encode([
                 'ok' => true,
                 'attendancePct' => $attendancePct,
+                'attendanceBreakdown' => ['presentPct' => $presentPct, 'latePct' => $latePct, 'absentPct' => $absentPct, 'employeeCount' => $activeEmployeeCount],
                 'todayBalance' => $todayBalance,
                 'balancePct' => $balancePct,
                 'honorRoll' => $honorRoll,
@@ -1247,6 +1258,19 @@ try {
     .stat-card .label { font-size: 12px; color: var(--text-muted); margin-bottom: 8px; }
     .stat-card .value { font-size: 26px; font-weight: 900; color: var(--primary); }
 
+    .ring-stat-card { background: var(--bg-card); border-radius: var(--radius-md); padding: 14px 16px; border: 1px solid rgba(0,107,115,0.04); box-shadow: 0 2px 12px rgba(0,0,0,0.04); display: flex; align-items: center; gap: 14px; margin-bottom: 12px; }
+    .ring-chart { width: 66px; height: 66px; min-width: 66px; border-radius: 50%; position: relative; background: conic-gradient(#E5E7EB 0% 100%); }
+    .ring-chart .ring-center { position: absolute; inset: 9px; border-radius: 50%; background: var(--bg-card); display: flex; flex-direction: column; align-items: center; justify-content: center; line-height: 1.1; }
+    .ring-chart .ring-center span { font-size: 14px; font-weight: 900; color: var(--text-primary); }
+    .ring-chart .ring-center small { font-size: 8.5px; color: var(--text-muted); font-weight: 500; }
+    .ring-info { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+    .ring-title { font-size: 12px; font-weight: 700; color: var(--text-primary); display: flex; align-items: center; gap: 6px; }
+    .ring-title i { color: var(--primary); font-size: 11px; }
+    .ring-legend { display: flex; flex-direction: column; gap: 3px; font-size: 11px; color: var(--text-secondary); }
+    .ring-legend .legend-item { display: flex; align-items: center; gap: 5px; white-space: nowrap; }
+    .ring-legend .legend-item b { color: var(--text-primary); font-weight: 800; }
+    .ring-legend .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+
     .stocks-section { background: var(--bg-card); border-radius: var(--radius-md); padding: 16px 18px; margin-bottom: 12px; box-shadow: 0 2px 12px rgba(0,0,0,0.04); }
     .stocks-section .stocks-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px; }
     .stocks-section .stocks-header h4 { font-size: 14px; font-weight: 800; }
@@ -1573,13 +1597,20 @@ try {
                     <div class="stocks-chart" id="gmStocksChart"></div>
                     <div class="stocks-summary" id="gmStocksSummary"></div>
                 </div>
-                <div class="brief-card">
-                    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
-                        <span style="font-size:13px;font-weight:700;"><i class="fas fa-users"></i> نسبة دوام الموظفين (الشهر الحالي)</span>
-                        <span style="font-size:13px;font-weight:800;" id="controlAttendancePctLabel">0%</span>
+                <div class="ring-stat-card">
+                    <div class="ring-chart" id="controlAttendanceRing">
+                        <div class="ring-center">
+                            <span id="controlRingEmployeeCount">0</span>
+                            <small>موظف</small>
+                        </div>
                     </div>
-                    <div style="background:#eef2f4;border-radius:999px;height:22px;overflow:hidden;">
-                        <div id="controlAttendanceBar" style="background:var(--green);height:100%;width:0%;transition:width 0.6s ease;border-radius:999px;"></div>
+                    <div class="ring-info">
+                        <div class="ring-title"><i class="fas fa-users"></i> نسبة دوام الموظفين (الشهر الحالي)</div>
+                        <div class="ring-legend">
+                            <span class="legend-item"><i class="dot" style="background:#059669;"></i> حاضر <b id="controlLegendPresentPct">0%</b></span>
+                            <span class="legend-item"><i class="dot" style="background:#D97706;"></i> متأخر <b id="controlLegendLatePct">0%</b></span>
+                            <span class="legend-item"><i class="dot" style="background:#DC2626;"></i> غائب <b id="controlLegendAbsentPct">0%</b></span>
+                        </div>
                     </div>
                 </div>
                 <div class="brief-card">
@@ -2625,12 +2656,27 @@ try {
         openGmBranchDetail(id);
     }
 
+    function renderControlAttendanceRing(breakdown) {
+        const b = breakdown || {};
+        const p = b.presentPct || 0, l = b.latePct || 0, a = b.absentPct || 0;
+        const ring = document.getElementById('controlAttendanceRing');
+        if (!ring) return;
+        if ((b.employeeCount || 0) > 0 && (p + l + a) > 0) {
+            ring.style.background = `conic-gradient(#059669 0% ${p}%, #D97706 ${p}% ${p + l}%, #DC2626 ${p + l}% ${p + l + a}%, #E5E7EB ${p + l + a}% 100%)`;
+        } else {
+            ring.style.background = 'conic-gradient(#E5E7EB 0% 100%)';
+        }
+        document.getElementById('controlRingEmployeeCount').textContent = b.employeeCount || 0;
+        document.getElementById('controlLegendPresentPct').textContent = p + '%';
+        document.getElementById('controlLegendLatePct').textContent = l + '%';
+        document.getElementById('controlLegendAbsentPct').textContent = a + '%';
+    }
+
     function loadControlData() {
         fetch('?ajax=control_data').then(r => r.json()).then(data => {
             if (!data.ok) return;
             renderGmBranchRevenueBars(data.branchRevenueShares || []);
-            document.getElementById('controlAttendancePctLabel').textContent = data.attendancePct + '%';
-            document.getElementById('controlAttendanceBar').style.width = data.attendancePct + '%';
+            renderControlAttendanceRing(data.attendanceBreakdown);
             document.getElementById('controlBalancePctLabel').textContent = data.balancePct + '%';
             document.getElementById('controlBalanceBar').style.width = data.balancePct + '%';
             document.getElementById('controlBalanceValue').textContent = 'رصيد اليوم: ' + Number(data.todayBalance).toLocaleString() + ' د.ع';
