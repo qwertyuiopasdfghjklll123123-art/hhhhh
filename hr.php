@@ -258,6 +258,17 @@ if (isset($_GET['ajax'])) {
                 ];
             }, $branchRevenueRows);
 
+            // إجمالي الرصيد الكلي المتراكم لكل فرع (كل الإيجازات المعتمدة نهائياً منذ بداية العمل)
+            $branchTotalBalances = $pdo->query("
+                SELECT b.id, b.name, COALESCE(SUM(db.total_income - db.total_expense),0) AS balance
+                FROM branches b
+                LEFT JOIN daily_briefs db ON db.branch_id = b.id AND db.status = 'approved'
+                WHERE b.status = 'active'
+                GROUP BY b.id, b.name
+                ORDER BY balance DESC
+            ")->fetchAll();
+            $branchTotalBalances = array_map(fn($r) => ['id' => (int) $r['id'], 'name' => $r['name'], 'balance' => (float) $r['balance']], $branchTotalBalances);
+
             echo json_encode([
                 'ok' => true,
                 'branches' => $branches,
@@ -265,6 +276,7 @@ if (isset($_GET['ajax'])) {
                 'settings' => $settingsRow,
                 'topEmployees' => $topEmployees,
                 'branchRevenueShares' => $branchRevenueShares,
+                'branchTotalBalances' => $branchTotalBalances,
                 'stats' => [
                     'employees' => $totalActive,
                     'attendanceToday' => [
@@ -498,6 +510,12 @@ if (isset($_GET['ajax'])) {
 
         case 'notifications_mark_all_read': {
             $pdo->prepare("UPDATE notifications SET is_read=1 WHERE user_id=?")->execute([$hrUser['id']]);
+            echo json_encode(['ok' => true]);
+            exit;
+        }
+
+        case 'notifications_delete_all': {
+            $pdo->prepare("DELETE FROM notifications WHERE user_id=?")->execute([$hrUser['id']]);
             echo json_encode(['ok' => true]);
             exit;
         }
@@ -3013,6 +3031,10 @@ try {
                 <button class="nav-item" onclick="navigateTo('exchange')">
                     <i class="fas fa-dollar-sign"></i> سعر الصرف
                 </button>
+                <button class="nav-item" onclick="navigateTo('notifications')">
+                    <i class="fas fa-bell"></i> الإشعارات
+                    <span class="badge" id="notifNavBadge" style="display:none;">0</span>
+                </button>
                 <div class="nav-divider"></div>
                 <button class="nav-item" onclick="navigateTo('settings')">
                     <i class="fas fa-cog"></i> الإعدادات
@@ -3110,6 +3132,12 @@ try {
                         </div>
                         <div class="stocks-chart" id="stocksChart"></div>
                         <div class="stocks-summary" id="stocksSummary"></div>
+                    </div>
+
+                    <!-- الرصيد الكلي التراكمي لكل فرع -->
+                    <div class="content-card" style="margin-top:16px;">
+                        <div class="card-header"><h4><i class="fas fa-wallet"></i> الرصيد الكلي لكل فرع</h4></div>
+                        <div class="card-body" id="branchTotalBalancesCard"></div>
                     </div>
                 </div>
 
@@ -3620,6 +3648,22 @@ try {
                     </div>
                 </div>
 
+                <!-- ==========================================================
+                صفحة الإشعارات
+                ========================================================== -->
+                <div id="page-notifications" class="page-section" style="display:none;">
+                    <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px;margin-bottom:16px;">
+                        <h4 style="font-size:16px;font-weight:800;"><i class="fas fa-bell" style="color:var(--primary);"></i> الإشعارات</h4>
+                        <div style="display:flex;gap:8px;">
+                            <button class="btn-outline" onclick="markAllNotifsRead()"><i class="fas fa-check-double"></i> تعليم الكل كمقروء</button>
+                            <button class="btn-outline" style="color:#DC2626;border-color:#DC2626;" onclick="deleteAllNotifications()"><i class="fas fa-trash"></i> حذف الكل</button>
+                        </div>
+                    </div>
+                    <div class="content-card">
+                        <div class="card-body" id="notifPageList"></div>
+                    </div>
+                </div>
+
             </div>
         </main>
     </div>
@@ -3821,6 +3865,7 @@ try {
                     renderAttendanceRing(data.stats.employees, data.stats.attendanceToday || {});
                 }
                 renderBranchRevenueBars(data.branchRevenueShares || []);
+                renderBranchTotalBalances(data.branchTotalBalances || []);
                 if (data.settings) {
                     const s = data.settings;
                     const byId = id => document.getElementById(id);
@@ -3897,6 +3942,7 @@ try {
                 'requests': { title: 'الطلبات', sub: 'إدارة طلبات الموظفين' },
                 'reports': { title: 'التقارير', sub: 'إنشاء وعرض التقارير' },
                 'exchange': { title: 'سعر الصرف', sub: 'تحديد سعر صرف الدولار' },
+                'notifications': { title: 'الإشعارات', sub: 'كل إشعاراتك في مكان واحد' },
                 'settings': { title: 'الإعدادات', sub: 'إعدادات النظام والشركة' },
                 'branchDetail': { title: 'تفاصيل الفرع', sub: 'الموظفون والإيجازات المنشورة' }
             };
@@ -3909,15 +3955,16 @@ try {
             }
 
             if (page === 'settings') loadHrAccounts();
+            if (page === 'notifications') loadNotifPage();
         }
 
         function getPageTitle(page) {
-            const titles = { 'dashboard': 'لوحة التحكم', 'branches': 'الفروع', 'employees': 'الموظفون', 'attendance': 'الحضور', 'salaries': 'الرواتب', 'briefing': 'الإيجاز', 'requests': 'الطلبات', 'reports': 'التقارير', 'exchange': 'سعر الصرف', 'settings': 'الإعدادات' };
+            const titles = { 'dashboard': 'لوحة التحكم', 'branches': 'الفروع', 'employees': 'الموظفون', 'attendance': 'الحضور', 'salaries': 'الرواتب', 'briefing': 'الإيجاز', 'requests': 'الطلبات', 'reports': 'التقارير', 'exchange': 'سعر الصرف', 'notifications': 'الإشعارات', 'settings': 'الإعدادات' };
             return titles[page] || page;
         }
 
         function getPageIcon(page) {
-            const icons = { 'dashboard': 'fa-chart-pie', 'branches': 'fa-building', 'employees': 'fa-users', 'attendance': 'fa-clock', 'salaries': 'fa-wallet', 'briefing': 'fa-file-signature', 'requests': 'fa-file-pen', 'reports': 'fa-chart-bar', 'exchange': 'fa-dollar-sign', 'settings': 'fa-cog', 'branchDetail': 'fa-building' };
+            const icons = { 'dashboard': 'fa-chart-pie', 'branches': 'fa-building', 'employees': 'fa-users', 'attendance': 'fa-clock', 'salaries': 'fa-wallet', 'briefing': 'fa-file-signature', 'requests': 'fa-file-pen', 'reports': 'fa-chart-bar', 'exchange': 'fa-dollar-sign', 'notifications': 'fa-bell', 'settings': 'fa-cog', 'branchDetail': 'fa-building' };
             return icons[page] || 'fa-circle';
         }
 
@@ -3950,24 +3997,28 @@ try {
                 if (!data.ok) return;
                 checkNewBrowserNotifications(data.notifications, 'lastNotifId_hr');
                 const badge = document.getElementById('notifBadge');
+                const navBadge = document.getElementById('notifNavBadge');
                 if (data.unread > 0) {
                     badge.style.display = 'flex';
                     badge.textContent = data.unread;
+                    if (navBadge) { navBadge.style.display = 'inline-block'; navBadge.textContent = data.unread; }
                 } else {
                     badge.style.display = 'none';
+                    if (navBadge) navBadge.style.display = 'none';
                 }
                 const list = document.getElementById('notifList');
                 if (!data.notifications.length) {
                     list.innerHTML = '<div style="padding:20px;text-align:center;color:var(--text-muted);font-size:12px;">لا توجد إشعارات</div>';
-                    return;
+                } else {
+                    list.innerHTML = data.notifications.map(n => `
+                        <div style="padding:10px 12px;border-radius:8px;margin-bottom:4px;background:${n.is_read ? 'transparent' : 'rgba(0,107,115,0.05)'};">
+                            <div style="font-size:12px;font-weight:800;">${n.title}</div>
+                            <div style="font-size:11.5px;color:var(--text-secondary);margin-top:2px;">${n.message}</div>
+                            <div style="font-size:10px;color:var(--text-muted);margin-top:4px;">${n.date}</div>
+                        </div>
+                    `).join('');
                 }
-                list.innerHTML = data.notifications.map(n => `
-                    <div style="padding:10px 12px;border-radius:8px;margin-bottom:4px;background:${n.is_read ? 'transparent' : 'rgba(0,107,115,0.05)'};">
-                        <div style="font-size:12px;font-weight:800;">${n.title}</div>
-                        <div style="font-size:11.5px;color:var(--text-secondary);margin-top:2px;">${n.message}</div>
-                        <div style="font-size:10px;color:var(--text-muted);margin-top:4px;">${n.date}</div>
-                    </div>
-                `).join('');
+                if (currentPage === 'notifications') renderNotifPage(data.notifications);
             });
         }
 
@@ -3980,6 +4031,37 @@ try {
 
         function markAllNotifsRead() {
             fetch('?ajax=notifications_mark_all_read', { method: 'POST' }).then(() => loadNotifications());
+        }
+
+        function deleteAllNotifications() {
+            showConfirmSheet('حذف جميع الإشعارات', 'سيتم حذف جميع إشعاراتك نهائياً. متابعة؟', function() {
+                fetch('?ajax=notifications_delete_all', { method: 'POST' }).then(() => {
+                    loadNotifications();
+                    showToast('✅ تم الحذف', 'تم حذف جميع الإشعارات', 'success');
+                }).catch(() => {
+                    showToast('⚠️ خطأ', 'تعذر الاتصال بالخادم', 'error');
+                });
+            });
+        }
+
+        function loadNotifPage() {
+            loadNotifications();
+        }
+
+        function renderNotifPage(notifications) {
+            const list = document.getElementById('notifPageList');
+            if (!list) return;
+            if (!notifications.length) {
+                list.innerHTML = '<div style="padding:20px;text-align:center;color:var(--text-muted);font-size:13px;">لا توجد إشعارات</div>';
+                return;
+            }
+            list.innerHTML = notifications.map(n => `
+                <div style="padding:12px 14px;border-radius:10px;margin-bottom:8px;background:${n.is_read ? 'var(--bg)' : 'rgba(0,107,115,0.06)'};">
+                    <div style="font-size:13px;font-weight:800;">${n.title}</div>
+                    <div style="font-size:12.5px;color:var(--text-secondary);margin-top:4px;">${n.message}</div>
+                    <div style="font-size:11px;color:var(--text-muted);margin-top:6px;">${n.date}</div>
+                </div>
+            `).join('');
         }
 
         function handleLogout() {
@@ -4069,6 +4151,21 @@ try {
                     ${best && best.revenue > 0 ? `<span class="summary-item"><i class="fas fa-trophy" style="color:var(--accent);"></i> الأعلى: <span class="value">${best.name}</span></span>` : ''}
                 `;
             }
+        }
+
+        function renderBranchTotalBalances(balances) {
+            const view = document.getElementById('branchTotalBalancesCard');
+            if (!view) return;
+            if (!balances || !balances.length) {
+                view.innerHTML = '<div class="muted" style="font-size:12px;">لا توجد بيانات كافية بعد</div>';
+                return;
+            }
+            view.innerHTML = balances.map(b => `
+                <div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid rgba(0,107,115,0.06);cursor:pointer;" onclick="viewBranch(${b.id})">
+                    <span style="font-size:13px;font-weight:700;"><i class="fas fa-building" style="color:var(--primary);"></i> ${b.name}</span>
+                    <b style="color:${b.balance >= 0 ? '#059669' : '#DC2626'};">${Number(b.balance).toLocaleString()} د.ع</b>
+                </div>
+            `).join('');
         }
 
         // ============================================================
@@ -4596,7 +4693,7 @@ try {
                                 <button class="action-btn approve" onclick="deliverSalary(${item.employeeId}, '${item.name}', 'morning')" title="تسليم">
                                     <i class="fas fa-check"></i> تسليم${item.hasEveningShift ? ' (صباحي)' : ''}
                                 </button>
-                            ` : `<span style="font-size:10.5px;color:var(--text-muted);"><i class="fas fa-lock"></i> الصلاحية مغلقة لفرع ${item.branch}</span>`) : '<span style="font-size:11px;color:var(--text-muted);">تم التسليم${item.hasEveningShift ? " (صباحي)" : ""}</span>'}
+                            ` : `<span style="font-size:10.5px;color:var(--text-muted);"><i class="fas fa-lock"></i> الصلاحية مغلقة لفرع ${item.branch}</span>`) : `<span style="font-size:11px;color:var(--text-muted);">تم التسليم${item.hasEveningShift ? ' (صباحي)' : ''}</span>`}
                         </td>
                     </tr>
                 `;

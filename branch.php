@@ -327,6 +327,12 @@ if (isset($_GET['ajax'])) {
             exit;
         }
 
+        case 'notifications_delete_all': {
+            $pdo->prepare("DELETE FROM notifications WHERE user_id=?")->execute([$mgr['id']]);
+            echo json_encode(['ok' => true]);
+            exit;
+        }
+
         case 'employees': {
             $stmt = $pdo->prepare("
                 SELECT e.id, e.employee_number AS code, e.full_name AS name, e.job_title AS title,
@@ -2151,7 +2157,10 @@ function branch_report_data(PDO $pdo, string $type, string $from, string $to, in
             ========================================================== -->
             <div id="page-notifications" class="page-screen hidden">
                 <div class="page-title"><h2><i class="fas fa-bell"></i> الإشعارات</h2><button onclick="navigateTo('home')" class="back-btn"><i class="fas fa-arrow-right"></i> رجوع</button></div>
-                <button class="btn small light" onclick="markAllNotifsRead()"><i class="fas fa-check-double"></i> تعليم الكل كمقروء</button>
+                <div style="display:flex;gap:10px;">
+                    <button class="btn small light" onclick="markAllNotifsRead()"><i class="fas fa-check-double"></i> تعليم الكل كمقروء</button>
+                    <button class="btn small red" onclick="deleteAllNotifications()"><i class="fas fa-trash"></i> حذف الكل</button>
+                </div>
                 <div id="notifList" style="margin-top:10px;"></div>
             </div>
 
@@ -2516,6 +2525,16 @@ function branch_report_data(PDO $pdo, string $type, string $from, string $to, in
 
         function markAllNotifsRead() {
             fetch('?ajax=notifications_mark_all_read', { method: 'POST' }).then(() => loadNotifications());
+        }
+
+        function deleteAllNotifications() {
+            if (!confirm('سيتم حذف جميع إشعاراتك نهائياً. متابعة؟')) return;
+            fetch('?ajax=notifications_delete_all', { method: 'POST' }).then(() => {
+                loadNotifications();
+                showToast('✅ تم الحذف', 'تم حذف جميع الإشعارات', 'success');
+            }).catch(() => {
+                showToast('⚠️ خطأ', 'تعذر الاتصال بالخادم', 'error');
+            });
         }
 
         function loadHomeStats() {
@@ -3922,6 +3941,7 @@ function branch_report_data(PDO $pdo, string $type, string $from, string $to, in
         window.downloadReport = downloadReport;
         window.printReportPDF = printReportPDF;
         window.markAllNotifsRead = markAllNotifsRead;
+        window.deleteAllNotifications = deleteAllNotifications;
         window.generateReport = generateReport;
         window.saveAttendanceReport = saveAttendanceReport;
         window.savePayrollReport = savePayrollReport;

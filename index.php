@@ -426,6 +426,12 @@ if (isset($_GET['ajax'])) {
             exit;
         }
 
+        case 'notifications_delete_all': {
+            $pdo->prepare("DELETE FROM notifications WHERE user_id=?")->execute([$emp['id']]);
+            echo json_encode(['ok' => true]);
+            exit;
+        }
+
         case 'attendance_self': {
             $type = ($_POST['type'] ?? '') === 'out' ? 'out' : 'in';
             $period = ($_POST['period'] ?? '') === 'evening' ? 'evening' : 'morning';
@@ -3037,9 +3043,14 @@ try {
                     <h2><i class="fas fa-bell"></i> الإشعارات</h2>
                     <button onclick="navigateTo('home')" class="back-btn"><i class="fas fa-arrow-right"></i> رجوع</button>
                 </div>
-                <button class="quick-action-btn" style="width:100%;padding:10px;margin-bottom:14px;border-color:var(--primary);" onclick="markAllRead()">
-                    <i class="fas fa-check-double"></i> تحديد الكل كمقروء
-                </button>
+                <div style="display:flex;gap:10px;margin-bottom:14px;">
+                    <button class="quick-action-btn" style="flex:1;padding:10px;border-color:var(--primary);" onclick="markAllRead()">
+                        <i class="fas fa-check-double"></i> تحديد الكل كمقروء
+                    </button>
+                    <button class="quick-action-btn" style="flex:1;padding:10px;border-color:#DC2626;color:#DC2626;" onclick="deleteAllNotifications()">
+                        <i class="fas fa-trash"></i> حذف الكل
+                    </button>
+                </div>
                 <div class="card" id="notifFullList">
                     <div class="notification-item-full"><div class="notif-content"><div class="notif-title">لا توجد إشعارات</div></div></div>
                 </div>
@@ -4521,6 +4532,17 @@ try {
             fetch('?ajax=notifications_mark_all_read', { method: 'POST' }).then(() => {
                 loadNotifications();
                 showToast('✅ تم التحديد', 'تم تحديد جميع الإشعارات كمقروءة', 'success');
+            });
+        }
+
+        function deleteAllNotifications() {
+            showConfirmSheet('حذف جميع الإشعارات', 'سيتم حذف جميع إشعاراتك نهائياً. متابعة؟', function() {
+                fetch('?ajax=notifications_delete_all', { method: 'POST' }).then(() => {
+                    loadNotifications();
+                    showToast('✅ تم الحذف', 'تم حذف جميع الإشعارات', 'success');
+                }).catch(() => {
+                    showToast('⚠️ خطأ', 'تعذر الاتصال بالخادم', 'error');
+                });
             });
         }
 

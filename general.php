@@ -331,6 +331,12 @@ if (isset($_GET['ajax'])) {
             exit;
         }
 
+        case 'notifications_delete_all': {
+            $pdo->prepare("DELETE FROM notifications WHERE user_id=?")->execute([$gmUser['id']]);
+            echo json_encode(['ok' => true]);
+            exit;
+        }
+
         case 'payroll_window_open': {
             $branchIds = array_filter(array_map('intval', $_POST['branchIds'] ?? []), fn($id) => $id > 0);
             if (empty($branchIds)) {
@@ -787,6 +793,16 @@ if (isset($_GET['ajax'])) {
                 ];
             }, $branchRevenueRows);
 
+            $branchTotalBalances = $pdo->query("
+                SELECT b.id, b.name, COALESCE(SUM(db.total_income - db.total_expense),0) AS balance
+                FROM branches b
+                LEFT JOIN daily_briefs db ON db.branch_id = b.id AND db.status = 'approved'
+                WHERE b.status = 'active'
+                GROUP BY b.id, b.name
+                ORDER BY balance DESC
+            ")->fetchAll();
+            $branchTotalBalances = array_map(fn($r) => ['id' => (int) $r['id'], 'name' => $r['name'], 'balance' => (float) $r['balance']], $branchTotalBalances);
+
             echo json_encode([
                 'ok' => true,
                 'attendancePct' => $attendancePct,
@@ -796,6 +812,7 @@ if (isset($_GET['ajax'])) {
                 'honorRoll' => $honorRoll,
                 'pendingHonorCount' => $pendingHonorCount,
                 'branchRevenueShares' => $branchRevenueShares,
+                'branchTotalBalances' => $branchTotalBalances,
             ], JSON_UNESCAPED_UNICODE);
             exit;
         }
@@ -1412,6 +1429,10 @@ try {
                 <button class="nav-item" id="sidenav-mgrRequests" onclick="switchTab('mgrRequests')">
                     <i class="fas fa-envelope-open-text"></i> طلبات مسؤولي الفروع
                 </button>
+                <button class="nav-item" id="sidenav-notifications" onclick="switchTab('notifications')">
+                    <i class="fas fa-bell"></i> الإشعارات
+                    <span class="badge" id="notifNavBadge" style="display:none;">0</span>
+                </button>
             </nav>
 
             <div class="user-info">
@@ -1588,6 +1609,18 @@ try {
             <div id="view-mgrRequests" class="hidden">
                 <div id="mgrRequestsList"></div>
             </div>
+            <div id="view-notifications" class="hidden">
+                <div class="brief-card">
+                    <div style="display:flex;justify-content:space-between;align-items:center;">
+                        <h4 style="margin:0;"><i class="fas fa-bell"></i> الإشعارات</h4>
+                        <div style="display:flex;gap:8px;">
+                            <button class="btn small" onclick="markAllNotifsRead()"><i class="fas fa-check-double"></i> تعليم الكل كمقروء</button>
+                            <button class="btn small red" onclick="deleteAllNotifications()"><i class="fas fa-trash"></i> حذف الكل</button>
+                        </div>
+                    </div>
+                </div>
+                <div id="notifPageList"></div>
+            </div>
             <div id="view-control">
                 <div class="stocks-section">
                     <div class="stocks-header">
@@ -1596,6 +1629,10 @@ try {
                     </div>
                     <div class="stocks-chart" id="gmStocksChart"></div>
                     <div class="stocks-summary" id="gmStocksSummary"></div>
+                </div>
+                <div class="brief-card">
+                    <h4 style="margin-bottom:10px;"><i class="fas fa-wallet"></i> الرصيد الكلي لكل فرع</h4>
+                    <div id="gmBranchTotalBalancesCard"></div>
                 </div>
                 <div class="ring-stat-card">
                     <div class="ring-chart" id="controlAttendanceRing">
@@ -1735,24 +1772,29 @@ try {
             if (!data.ok) return;
             checkNewBrowserNotifications(data.notifications, 'lastNotifId_gm');
             const badge = document.getElementById('notifBadge');
+            const navBadge = document.getElementById('notifNavBadge');
             if (data.unread > 0) {
                 badge.style.display = 'flex';
                 badge.textContent = data.unread;
+                if (navBadge) { navBadge.style.display = 'inline-block'; navBadge.textContent = data.unread; }
             } else {
                 badge.style.display = 'none';
+                if (navBadge) navBadge.style.display = 'none';
             }
             const list = document.getElementById('notifList');
             if (!data.notifications.length) {
                 list.innerHTML = '<div style="padding:20px;text-align:center;color:var(--text-muted);font-size:12px;">لا توجد إشعارات</div>';
-                return;
+            } else {
+                list.innerHTML = data.notifications.map(n => `
+                    <div style="padding:10px 12px;border-radius:8px;margin-bottom:4px;background:${n.is_read ? 'transparent' : 'rgba(0,107,115,0.05)'};">
+                        <div style="font-size:12px;font-weight:800;">${n.title}</div>
+                        <div style="font-size:11.5px;color:var(--text-secondary);margin-top:2px;">${n.message}</div>
+                        <div style="font-size:10px;color:var(--text-muted);margin-top:4px;">${n.date}</div>
+                    </div>
+                `).join('');
             }
-            list.innerHTML = data.notifications.map(n => `
-                <div style="padding:10px 12px;border-radius:8px;margin-bottom:4px;background:${n.is_read ? 'transparent' : 'rgba(0,107,115,0.05)'};">
-                    <div style="font-size:12px;font-weight:800;">${n.title}</div>
-                    <div style="font-size:11.5px;color:var(--text-secondary);margin-top:2px;">${n.message}</div>
-                    <div style="font-size:10px;color:var(--text-muted);margin-top:4px;">${n.date}</div>
-                </div>
-            `).join('');
+            const notifView = document.getElementById('view-notifications');
+            if (notifView && !notifView.classList.contains('hidden')) renderNotifPage(data.notifications);
         }).catch(() => {});
     }
 
@@ -1765,6 +1807,37 @@ try {
 
     function markAllNotifsRead() {
         fetch('?ajax=notifications_mark_all_read', { method: 'POST' }).then(() => loadNotifications());
+    }
+
+    function deleteAllNotifications() {
+        showConfirmSheet('حذف جميع الإشعارات', 'سيتم حذف جميع إشعاراتك نهائياً. متابعة؟', function() {
+            fetch('?ajax=notifications_delete_all', { method: 'POST' }).then(() => {
+                loadNotifications();
+                showToast('✅ تم الحذف', 'تم حذف جميع الإشعارات', 'success');
+            }).catch(() => {
+                showToast('⚠️ خطأ', 'تعذر الاتصال بالخادم', 'error');
+            });
+        });
+    }
+
+    function loadNotifPage() {
+        loadNotifications();
+    }
+
+    function renderNotifPage(notifications) {
+        const list = document.getElementById('notifPageList');
+        if (!list) return;
+        if (!notifications.length) {
+            list.innerHTML = '<div class="brief-card" style="text-align:center;color:var(--text-muted);font-size:13px;">لا توجد إشعارات</div>';
+            return;
+        }
+        list.innerHTML = notifications.map(n => `
+            <div class="brief-card" style="background:${n.is_read ? 'var(--bg-card)' : 'rgba(0,107,115,0.05)'};">
+                <div style="font-size:13px;font-weight:800;">${n.title}</div>
+                <div style="font-size:12.5px;color:var(--text-secondary);margin-top:4px;">${n.message}</div>
+                <div style="font-size:11px;color:var(--text-muted);margin-top:6px;">${n.date}</div>
+            </div>
+        `).join('');
     }
 
     // بطاقة تأكيد منبثقة (بديل عن confirm() الأصلية بالمتصفح)
@@ -2022,11 +2095,12 @@ try {
         audit: { title: 'تدقيق', sub: 'سجل زمني بكل عملية تمت في النظام ومن قام بها', icon: 'fa-clipboard-list' },
         attendanceBoard: { title: 'بصمة', sub: 'حضور جميع الموظفين ومسؤولي الفروع حسب التاريخ', icon: 'fa-fingerprint' },
         mgrRequests: { title: 'طلبات مسؤولي الفروع', sub: 'سلفة، استقالة، مستلزمات، إجازة — تصلك مباشرة دون المرور بالموارد البشرية', icon: 'fa-envelope-open-text' },
+        notifications: { title: 'الإشعارات', sub: 'كل إشعاراتك في مكان واحد', icon: 'fa-bell' },
         control: { title: 'لوحة تحكم', sub: 'نظرة عامة على أداء الشركة', icon: 'fa-chart-pie' },
     };
 
     function switchTab(tab) {
-        ['pending', 'history', 'branches', 'payroll', 'payrollWindow', 'reports', 'shareholders', 'audit', 'attendanceBoard', 'mgrRequests', 'control'].forEach(t => {
+        ['pending', 'history', 'branches', 'payroll', 'payrollWindow', 'reports', 'shareholders', 'audit', 'attendanceBoard', 'mgrRequests', 'notifications', 'control'].forEach(t => {
             document.getElementById('sidenav-' + t).classList.toggle('active', t === tab);
             document.getElementById('view-' + t).classList.toggle('hidden', t !== tab);
         });
@@ -2047,6 +2121,7 @@ try {
         else if (tab === 'audit') loadAuditLog();
         else if (tab === 'attendanceBoard') loadAttendanceBoard();
         else if (tab === 'mgrRequests') loadMgrRequests();
+        else if (tab === 'notifications') loadNotifPage();
         else if (tab === 'control') loadControlData();
     }
 
@@ -2672,10 +2747,26 @@ try {
         document.getElementById('controlLegendAbsentPct').textContent = a + '%';
     }
 
+    function renderGmBranchTotalBalances(balances) {
+        const view = document.getElementById('gmBranchTotalBalancesCard');
+        if (!view) return;
+        if (!balances || !balances.length) {
+            view.innerHTML = '<div class="muted" style="font-size:12px;">لا توجد بيانات كافية بعد</div>';
+            return;
+        }
+        view.innerHTML = balances.map(b => `
+            <div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid #eef2f4;cursor:pointer;" onclick="goToBranchDetailFromControl(${b.id})">
+                <span style="font-size:13px;font-weight:700;"><i class="fas fa-building" style="color:var(--primary);"></i> ${b.name}</span>
+                <b style="color:${b.balance >= 0 ? 'var(--green)' : 'var(--red)'};">${Number(b.balance).toLocaleString()} د.ع</b>
+            </div>
+        `).join('');
+    }
+
     function loadControlData() {
         fetch('?ajax=control_data').then(r => r.json()).then(data => {
             if (!data.ok) return;
             renderGmBranchRevenueBars(data.branchRevenueShares || []);
+            renderGmBranchTotalBalances(data.branchTotalBalances || []);
             renderControlAttendanceRing(data.attendanceBreakdown);
             document.getElementById('controlBalancePctLabel').textContent = data.balancePct + '%';
             document.getElementById('controlBalanceBar').style.width = data.balancePct + '%';
