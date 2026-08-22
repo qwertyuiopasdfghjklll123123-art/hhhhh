@@ -605,7 +605,7 @@ if (isset($_GET['ajax'])) {
 
         case 'complaints_list': {
             $stmt = $pdo->query("
-                SELECT tc.id, tc.title, tc.details, tc.status, tc.created_at, b.name AS branchName
+                SELECT tc.id, tc.title, tc.details, tc.phone, tc.status, tc.created_at, b.name AS branchName
                 FROM traveler_complaints tc JOIN branches b ON b.id = tc.branch_id
                 ORDER BY (tc.status='new') DESC, tc.created_at DESC LIMIT 200
             ");
@@ -614,6 +614,7 @@ if (isset($_GET['ajax'])) {
                     'id' => (int) $r['id'],
                     'title' => $r['title'],
                     'details' => $r['details'],
+                    'phone' => $r['phone'],
                     'status' => $r['status'],
                     'branchName' => $r['branchName'],
                     'date' => date('d/m/Y H:i', strtotime($r['created_at'])),
@@ -3097,6 +3098,13 @@ try {
         }).catch(() => showToast('❌ خطأ', 'تعذر الاتصال بالخادم', 'error'));
     }
 
+    function whatsappLink(phone) {
+        let digits = (phone || '').replace(/\D/g, '');
+        if (digits.startsWith('0')) digits = '964' + digits.slice(1);
+        else if (!digits.startsWith('964')) digits = '964' + digits;
+        return 'https://wa.me/' + digits;
+    }
+
     function loadComplaints() {
         fetch('?ajax=complaints_list').then(r => r.json()).then(data => {
             if (!data.ok) return;
@@ -3113,9 +3121,12 @@ try {
                     </div>
                     <div style="font-size:14px;font-weight:700;margin:4px 0;">${c.title}</div>
                     <div class="brief-note">${c.details}</div>
-                    ${c.status === 'new'
-                        ? `<div class="brief-actions"><button class="btn small green" onclick="markComplaintReviewed(${c.id})"><i class="fas fa-check"></i> تمت المراجعة</button></div>`
-                        : `<span class="status-pill approved">تمت المراجعة</span>`}
+                    <div class="brief-actions">
+                        ${c.phone ? `<a class="btn small" style="background:#25D366;text-decoration:none;" href="${whatsappLink(c.phone)}" target="_blank"><i class="fab fa-whatsapp"></i> تواصل عبر واتساب</a>` : ''}
+                        ${c.status === 'new'
+                            ? `<button class="btn small green" onclick="markComplaintReviewed(${c.id})"><i class="fas fa-check"></i> تمت المراجعة</button>`
+                            : `<span class="status-pill approved">تمت المراجعة</span>`}
+                    </div>
                 </div>
             `).join('');
         }).catch(() => {});

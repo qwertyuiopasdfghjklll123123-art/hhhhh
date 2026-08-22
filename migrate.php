@@ -453,10 +453,16 @@ function migration_steps(): array
                 branch_id INT NOT NULL,
                 title VARCHAR(150) NOT NULL,
                 details VARCHAR(1000) NOT NULL,
+                phone VARCHAR(30) DEFAULT NULL,
                 status ENUM('new','reviewed') NOT NULL DEFAULT 'new',
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 CONSTRAINT fk_complaint_branch FOREIGN KEY (branch_id) REFERENCES branches(id) ON DELETE CASCADE
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4"),
+        ],
+        [
+            'label' => 'إضافة رقم هاتف المسافر إلى شكاوى المسافرين (لزر واتساب لدى المسؤول العام)',
+            'needed' => fn(PDO $pdo) => table_exists($pdo, 'traveler_complaints') && !column_exists($pdo, 'traveler_complaints', 'phone'),
+            'run' => fn(PDO $pdo) => $pdo->exec("ALTER TABLE traveler_complaints ADD COLUMN phone VARCHAR(30) DEFAULT NULL AFTER details"),
         ],
     ];
 }

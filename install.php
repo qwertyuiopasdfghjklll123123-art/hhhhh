@@ -279,6 +279,7 @@ function install_schema(PDO $pdo): void
             branch_id INT NOT NULL,
             title VARCHAR(150) NOT NULL,
             details VARCHAR(1000) NOT NULL,
+            phone VARCHAR(30) DEFAULT NULL,
             status ENUM('new','reviewed') NOT NULL DEFAULT 'new',
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             CONSTRAINT fk_complaint_branch FOREIGN KEY (branch_id) REFERENCES branches(id) ON DELETE CASCADE

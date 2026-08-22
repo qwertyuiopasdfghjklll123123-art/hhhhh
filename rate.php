@@ -64,12 +64,13 @@ if (isset($_GET['ajax'])) {
     if ($action === 'submit_complaint') {
         $title = trim(mb_substr($_POST['title'] ?? '', 0, 150));
         $details = trim(mb_substr($_POST['details'] ?? '', 0, 1000));
-        if ($title === '' || $details === '') {
-            echo json_encode(['ok' => false, 'error' => 'الرجاء تعبئة عنوان الشكوى وتفاصيلها']);
+        $phone = trim(mb_substr($_POST['phone'] ?? '', 0, 30));
+        if ($title === '' || $details === '' || $phone === '') {
+            echo json_encode(['ok' => false, 'error' => 'الرجاء تعبئة رقم الهاتف وعنوان الشكوى وتفاصيلها']);
             exit;
         }
-        $pdo->prepare("INSERT INTO traveler_complaints (branch_id, title, details) VALUES (?, ?, ?)")
-            ->execute([$branchId, $title, $details]);
+        $pdo->prepare("INSERT INTO traveler_complaints (branch_id, title, details, phone) VALUES (?, ?, ?, ?)")
+            ->execute([$branchId, $title, $details, $phone]);
         echo json_encode(['ok' => true]);
         exit;
     }
@@ -653,6 +654,10 @@ try {
                     <input type="text" value="<?= htmlspecialchars($branch['name']) ?>" readonly>
                 </div>
                 <div class="form-group">
+                    <label>رقم هاتفك (واتساب) <span style="color:#DC2626;">*</span></label>
+                    <input type="tel" id="complaintPhone" placeholder="مثال: 07701234567">
+                </div>
+                <div class="form-group">
                     <label>عنوان الشكوى <span style="color:#DC2626;">*</span></label>
                     <input type="text" id="complaintTitle" placeholder="مثال: تأخر في الخدمة">
                 </div>
@@ -716,25 +721,28 @@ try {
 
         document.getElementById('complaintBtn').addEventListener('click', function() {
             document.getElementById('complaintModal').classList.add('show');
-            document.getElementById('complaintTitle').focus();
+            document.getElementById('complaintPhone').focus();
         });
 
         function closeComplaintModal() {
             document.getElementById('complaintModal').classList.remove('show');
+            document.getElementById('complaintPhone').value = '';
             document.getElementById('complaintTitle').value = '';
             document.getElementById('complaintDetails').value = '';
         }
 
         function submitComplaint() {
+            const phone = document.getElementById('complaintPhone').value.trim();
             const title = document.getElementById('complaintTitle').value.trim();
             const details = document.getElementById('complaintDetails').value.trim();
+            if (!phone) { showToast('⚠️ تنبيه', 'الرجاء إدخال رقم هاتفك', 'error'); document.getElementById('complaintPhone').focus(); return; }
             if (!title) { showToast('⚠️ تنبيه', 'الرجاء إدخال عنوان الشكوى', 'error'); document.getElementById('complaintTitle').focus(); return; }
             if (!details) { showToast('⚠️ تنبيه', 'الرجاء كتابة تفاصيل الشكوى', 'error'); document.getElementById('complaintDetails').focus(); return; }
 
             const btn = document.querySelector('.complaint-modal .btn-send');
             btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> جاري الإرسال...';
             btn.disabled = true;
-            fetch('?ajax=submit_complaint', { method: 'POST', body: new URLSearchParams({ branchId: BRANCH_ID, title, details }) })
+            fetch('?ajax=submit_complaint', { method: 'POST', body: new URLSearchParams({ branchId: BRANCH_ID, title, details, phone }) })
                 .then(r => r.json()).then(data => {
                     btn.innerHTML = '<i class="fas fa-paper-plane"></i> إرسال الشكوى';
                     btn.disabled = false;
