@@ -254,6 +254,17 @@ function install_schema(PDO $pdo): void
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4",
 
+        'holidays' => "CREATE TABLE IF NOT EXISTS holidays (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            branch_id INT DEFAULT NULL,
+            holiday_date DATE NOT NULL,
+            note VARCHAR(150) DEFAULT NULL,
+            created_by INT DEFAULT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE KEY uniq_branch_date (branch_id, holiday_date),
+            CONSTRAINT fk_holiday_branch FOREIGN KEY (branch_id) REFERENCES branches(id) ON DELETE CASCADE
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4",
+
         'audit_log' => "CREATE TABLE IF NOT EXISTS audit_log (
             id INT AUTO_INCREMENT PRIMARY KEY,
             actor_role VARCHAR(30) NOT NULL,
@@ -296,7 +307,7 @@ function install_schema(PDO $pdo): void
     ];
 
     // الترتيب مهم بسبب المفاتيح الأجنبية
-    foreach (['settings', 'branches', 'employees', 'users', 'attendance', 'payroll', 'requests', 'daily_ledger', 'delegations', 'daily_briefs', 'exchange_rate_history', 'notifications', 'payroll_windows', 'payroll_adjustments', 'error_log', 'audit_log', 'honor_roll', 'monthly_honor_requests'] as $table) {
+    foreach (['settings', 'branches', 'employees', 'users', 'attendance', 'payroll', 'requests', 'daily_ledger', 'delegations', 'daily_briefs', 'exchange_rate_history', 'notifications', 'payroll_windows', 'payroll_adjustments', 'error_log', 'holidays', 'audit_log', 'honor_roll', 'monthly_honor_requests'] as $table) {
         $pdo->exec($tables[$table]);
     }
 }

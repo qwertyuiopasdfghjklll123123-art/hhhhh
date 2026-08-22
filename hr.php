@@ -85,6 +85,18 @@ function attendance_status_ar(string $s): string
 {
     return ['present' => 'حاضر', 'late' => 'متأخر', 'absent' => 'غائب'][$s] ?? $s;
 }
+/** يُرجع تسمية العطلة إن كان هذا التاريخ عطلة لهذا الفرع (الجمعة/السبت تلقائياً، أو عطلة حدّدها المسؤول العام)، أو null إن كان يوم دوام عادي */
+function is_holiday(PDO $pdo, string $date, int $branchId): ?string
+{
+    $dow = (int) date('w', strtotime($date));
+    if ($dow === 5) return 'الجمعة';
+    if ($dow === 6) return 'السبت';
+    $stmt = $pdo->prepare("SELECT note FROM holidays WHERE holiday_date=? AND (branch_id IS NULL OR branch_id=?) LIMIT 1");
+    $stmt->execute([$date, $branchId]);
+    $note = $stmt->fetchColumn();
+    if ($note !== false) return $note ?: 'عطلة رسمية';
+    return null;
+}
 function payroll_status_ar(string $s): string
 {
     return $s === 'delivered' ? 'مدفوع' : 'قيد المعالجة';
@@ -220,19 +232,23 @@ if (isset($_GET['ajax'])) {
             // توزيع الحضور اليوم (حاضر/متأخر/غائب) لكل الموظفين النشطين — حسب شفت كل موظف الخاص به
             $presentCount = 0; $lateCount = 0; $absentCount = 0;
             $todayRows = $pdo->query("
-                SELECT e.shift_start, a.status FROM employees e
+                SELECT e.shift_start, e.branch_id, a.status FROM employees e
                 LEFT JOIN attendance a ON a.employee_id = e.id AND a.attendance_date = CURDATE()
                 WHERE e.status = 'active'
             ")->fetchAll();
             $totalActive = count($todayRows);
-            $dow = (int) date('w');
-            $isOffDay = ($dow === 5 || $dow === 6);
+            $todayDate = date('Y-m-d');
+            $holidayByBranch = [];
             $nowMinutes = (int) date('H') * 60 + (int) date('i');
             $grace = (int) ($settingsRow['late_grace_minutes'] ?? 0);
             foreach ($todayRows as $r) {
                 if ($r['status'] === 'late') { $lateCount++; continue; }
                 if ($r['status'] === 'present') { $presentCount++; continue; }
-                if ($isOffDay || !$r['shift_start']) continue;
+                $bId = (int) $r['branch_id'];
+                if (!array_key_exists($bId, $holidayByBranch)) {
+                    $holidayByBranch[$bId] = is_holiday($pdo, $todayDate, $bId) !== null;
+                }
+                if ($holidayByBranch[$bId] || !$r['shift_start']) continue;
                 [$shH, $shM] = array_map('intval', explode(':', $r['shift_start']));
                 $deadline = $shH * 60 + $shM + $grace;
                 if ($nowMinutes > $deadline) $absentCount++;

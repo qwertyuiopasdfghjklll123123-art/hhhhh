@@ -419,6 +419,20 @@ function migration_steps(): array
             'needed' => fn(PDO $pdo) => !column_exists($pdo, 'payroll_adjustments', 'shift_period'),
             'run' => fn(PDO $pdo) => $pdo->exec("ALTER TABLE payroll_adjustments ADD COLUMN shift_period ENUM('morning','evening') NOT NULL DEFAULT 'morning' AFTER type"),
         ],
+        [
+            'label' => 'إضافة جدول إدارة العطل (يحددها المسؤول العام لكل فرع أو لكل الفروع)',
+            'needed' => fn(PDO $pdo) => !table_exists($pdo, 'holidays'),
+            'run' => fn(PDO $pdo) => $pdo->exec("CREATE TABLE IF NOT EXISTS holidays (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                branch_id INT DEFAULT NULL,
+                holiday_date DATE NOT NULL,
+                note VARCHAR(150) DEFAULT NULL,
+                created_by INT DEFAULT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE KEY uniq_branch_date (branch_id, holiday_date),
+                CONSTRAINT fk_holiday_branch FOREIGN KEY (branch_id) REFERENCES branches(id) ON DELETE CASCADE
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4"),
+        ],
     ];
 }
 

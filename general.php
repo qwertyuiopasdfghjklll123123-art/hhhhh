@@ -96,6 +96,19 @@ function attendance_status_ar(string $s): string
     return ['present' => 'حاضر', 'late' => 'متأخر', 'absent' => 'غائب'][$s] ?? $s;
 }
 
+/** يُرجع تسمية العطلة إن كان هذا التاريخ عطلة لهذا الفرع (الجمعة/السبت تلقائياً، أو عطلة حدّدها المسؤول العام)، أو null إن كان يوم دوام عادي */
+function is_holiday(PDO $pdo, string $date, int $branchId): ?string
+{
+    $dow = (int) date('w', strtotime($date));
+    if ($dow === 5) return 'الجمعة';
+    if ($dow === 6) return 'السبت';
+    $stmt = $pdo->prepare("SELECT note FROM holidays WHERE holiday_date=? AND (branch_id IS NULL OR branch_id=?) LIMIT 1");
+    $stmt->execute([$date, $branchId]);
+    $note = $stmt->fetchColumn();
+    if ($note !== false) return $note ?: 'عطلة رسمية';
+    return null;
+}
+
 function brief_overall_status(string $hrDecision, string $gmDecision): string
 {
     if ($hrDecision === 'rejected' || $gmDecision === 'rejected') return 'rejected';
@@ -252,7 +265,7 @@ if (isset($_GET['ajax'])) {
     }
     $gmUser = $_SESSION['gm_user'];
     $isShareholder = $gmUser['role'] === 'shareholder';
-    $gmOnlyActions = ['brief_final_review', 'payroll_window_open', 'payroll_window_close', 'shareholders_list', 'shareholder_create', 'shareholder_toggle', 'payroll_adjustment_add', 'gm_accounts_list', 'gm_account_create', 'gm_account_toggle', 'audit_log_list', 'honor_requests_list', 'honor_request_review', 'attendance_board_list', 'mgr_requests_list', 'mgr_request_review'];
+    $gmOnlyActions = ['brief_final_review', 'payroll_window_open', 'payroll_window_close', 'shareholders_list', 'shareholder_create', 'shareholder_toggle', 'payroll_adjustment_add', 'gm_accounts_list', 'gm_account_create', 'gm_account_toggle', 'audit_log_list', 'honor_requests_list', 'honor_request_review', 'attendance_board_list', 'mgr_requests_list', 'mgr_request_review', 'holidays_list', 'holiday_add', 'holiday_delete'];
     if ($isShareholder && in_array($action, $gmOnlyActions, true)) {
         http_response_code(403);
         echo json_encode(['ok' => false, 'error' => 'هذه الصلاحية متاحة للمسؤول العام فقط']);
@@ -422,6 +435,73 @@ if (isset($_GET['ajax'])) {
         case 'shareholder_toggle': {
             $id = (int) ($_POST['id'] ?? 0);
             $pdo->prepare("UPDATE users SET status = IF(status='active','inactive','active') WHERE id=? AND role='shareholder'")->execute([$id]);
+            echo json_encode(['ok' => true]);
+            exit;
+        }
+
+        case 'holidays_list': {
+            $rows = $pdo->query("
+                SELECT h.id, h.holiday_date, h.note, b.name AS branchName
+                FROM holidays h LEFT JOIN branches b ON b.id = h.branch_id
+                WHERE h.holiday_date >= CURDATE()
+                ORDER BY h.holiday_date ASC LIMIT 100
+            ")->fetchAll();
+            $rows = array_map(function ($r) {
+                return [
+                    'id' => (int) $r['id'],
+                    'date' => $r['holiday_date'],
+                    'dateText' => date('d/m/Y', strtotime($r['holiday_date'])),
+                    'branch' => $r['branchName'] ?: 'كل الفروع',
+                    'note' => $r['note'] ?: 'عطلة رسمية',
+                ];
+            }, $rows);
+            echo json_encode(['ok' => true, 'holidays' => $rows], JSON_UNESCAPED_UNICODE);
+            exit;
+        }
+
+        case 'holiday_add': {
+            $branchId = (int) ($_POST['branchId'] ?? 0);
+            $date = $_POST['date'] ?? '';
+            $note = trim($_POST['note'] ?? '');
+            if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $date)) {
+                echo json_encode(['ok' => false, 'error' => 'الرجاء اختيار تاريخ صحيح']);
+                exit;
+            }
+            $dow = (int) date('w', strtotime($date));
+            if ($dow === 5 || $dow === 6) {
+                echo json_encode(['ok' => false, 'error' => 'هذا اليوم عطلة أسبوعية تلقائياً (جمعة/سبت)، لا حاجة لإضافته']);
+                exit;
+            }
+            try {
+                $pdo->prepare("INSERT INTO holidays (branch_id, holiday_date, note, created_by) VALUES (?, ?, ?, ?)")
+                    ->execute([$branchId > 0 ? $branchId : null, $date, $note ?: null, $gmUser['id']]);
+            } catch (Throwable $ex) {
+                echo json_encode(['ok' => false, 'error' => 'هذا التاريخ مضاف مسبقاً كعطلة لهذا الفرع']);
+                exit;
+            }
+            $branchName = 'كل الفروع';
+            if ($branchId > 0) {
+                $nameStmt = $pdo->prepare("SELECT name FROM branches WHERE id=?");
+                $nameStmt->execute([$branchId]);
+                $branchName = $nameStmt->fetchColumn() ?: 'الفرع';
+            }
+            $msg = 'تم تحديد يوم ' . date('d/m/Y', strtotime($date)) . ' عطلة رسمية لـ ' . $branchName . ($note ? (' — ' . $note) : '');
+            $uidStmt = $branchId > 0
+                ? $pdo->prepare("SELECT id FROM users WHERE branch_id=? UNION SELECT id FROM users WHERE role='hr' UNION SELECT u.id FROM users u JOIN employees e ON e.id=u.employee_id WHERE e.branch_id=?")
+                : $pdo->prepare("SELECT id FROM users WHERE role IN ('hr','branch_manager','employee')");
+            $branchId > 0 ? $uidStmt->execute([$branchId, $branchId]) : $uidStmt->execute();
+            foreach ($uidStmt->fetchAll(PDO::FETCH_COLUMN) as $uid) {
+                $pdo->prepare("INSERT INTO notifications (user_id, title, message) VALUES (?, 'عطلة رسمية جديدة', ?)")->execute([$uid, $msg]);
+            }
+            audit_log_write($pdo, $gmUser['role'], $gmUser['displayName'] ?? $gmUser['username'], $gmUser['employeeNumber'] ?? null, 'holiday_add', $msg, $branchId > 0 ? $branchId : null);
+            echo json_encode(['ok' => true]);
+            exit;
+        }
+
+        case 'holiday_delete': {
+            $id = (int) ($_POST['id'] ?? 0);
+            $pdo->prepare("DELETE FROM holidays WHERE id=?")->execute([$id]);
+            audit_log_write($pdo, $gmUser['role'], $gmUser['displayName'] ?? $gmUser['username'], $gmUser['employeeNumber'] ?? null, 'holiday_delete', 'ألغى المسؤول العام عطلة رسمية (رقم ' . $id . ')');
             echo json_encode(['ok' => true]);
             exit;
         }
@@ -1430,6 +1510,9 @@ try {
                 <button class="nav-item" id="sidenav-mgrRequests" onclick="switchTab('mgrRequests')">
                     <i class="fas fa-envelope-open-text"></i> طلبات مسؤولي الفروع
                 </button>
+                <button class="nav-item" id="sidenav-holidays" onclick="switchTab('holidays')">
+                    <i class="fas fa-umbrella-beach"></i> إدارة العطل
+                </button>
                 <button class="nav-item" id="sidenav-notifications" onclick="switchTab('notifications')">
                     <i class="fas fa-bell"></i> الإشعارات
                     <span class="badge" id="notifNavBadge" style="display:none;">0</span>
@@ -1609,6 +1692,27 @@ try {
             </div>
             <div id="view-mgrRequests" class="hidden">
                 <div id="mgrRequestsList"></div>
+            </div>
+            <div id="view-holidays" class="hidden">
+                <div class="brief-card">
+                    <h4 style="margin-bottom:10px;"><i class="fas fa-calendar-plus"></i> تحديد يوم عطلة جديد</h4>
+                    <div style="background:rgba(0,107,115,0.05);border-radius:8px;padding:8px 10px;font-size:12px;color:var(--text-muted);margin-bottom:12px;">
+                        <i class="fas fa-circle-info"></i> يوم الجمعة عطلة أسبوعية تلقائية لكل الفروع ولا حاجة لإضافتها هنا. أضف هنا فقط أيام العطل الرسمية الإضافية.
+                    </div>
+                    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+                        <div class="form-group"><label style="font-size:12px;">الفرع</label>
+                            <select id="holidayBranch" style="width:100%;height:38px;border:1.5px solid #e2ebeb;border-radius:8px;font-family:var(--font-family);"><option value="0">كل الفروع</option></select>
+                        </div>
+                        <div class="form-group"><label style="font-size:12px;">التاريخ</label>
+                            <input type="date" id="holidayDate" style="width:100%;height:38px;padding:0 10px;border:1.5px solid #e2ebeb;border-radius:8px;font-family:var(--font-family);box-sizing:border-box;">
+                        </div>
+                    </div>
+                    <div class="form-group"><label style="font-size:12px;">ملاحظة (اختياري)</label>
+                        <input type="text" id="holidayNote" placeholder="مثال: عطلة عيد الفطر" style="width:100%;height:38px;padding:0 10px;border:1.5px solid #e2ebeb;border-radius:8px;font-family:var(--font-family);box-sizing:border-box;">
+                    </div>
+                    <button class="btn" onclick="addHoliday()"><i class="fas fa-plus"></i> إضافة عطلة</button>
+                </div>
+                <div id="holidaysList"></div>
             </div>
             <div id="view-notifications" class="hidden">
                 <div class="brief-card">
@@ -1923,6 +2027,8 @@ try {
             if (!data.ok) return;
             const select = document.getElementById('reportBranch');
             select.innerHTML = '<option value="0">جميع الفروع</option>' + data.branches.map(b => `<option value="${b.id}">${b.name}</option>`).join('');
+            const holidaySelect = document.getElementById('holidayBranch');
+            if (holidaySelect) holidaySelect.innerHTML = '<option value="0">كل الفروع</option>' + data.branches.map(b => `<option value="${b.id}">${b.name}</option>`).join('');
         });
         if (currentRole !== 'shareholder') {
             fetch('?ajax=employees_list').then(r => r.json()).then(data => {
@@ -1994,6 +2100,7 @@ try {
         document.getElementById('sidenav-audit').style.display = isShareholder ? 'none' : '';
         document.getElementById('sidenav-attendanceBoard').style.display = isShareholder ? 'none' : '';
         document.getElementById('sidenav-mgrRequests').style.display = isShareholder ? 'none' : '';
+        document.getElementById('sidenav-holidays').style.display = isShareholder ? 'none' : '';
         document.getElementById('sidenav-payroll').style.display = isShareholder ? 'none' : '';
         document.getElementById('sidenav-payrollWindow').style.display = isShareholder ? 'none' : '';
         document.getElementById('pendingCard').style.display = isShareholder ? 'none' : '';
@@ -2096,12 +2203,13 @@ try {
         audit: { title: 'تدقيق', sub: 'سجل زمني بكل عملية تمت في النظام ومن قام بها', icon: 'fa-clipboard-list' },
         attendanceBoard: { title: 'بصمة', sub: 'حضور جميع الموظفين ومسؤولي الفروع حسب التاريخ', icon: 'fa-fingerprint' },
         mgrRequests: { title: 'طلبات مسؤولي الفروع', sub: 'سلفة، استقالة، مستلزمات، إجازة — تصلك مباشرة دون المرور بالموارد البشرية', icon: 'fa-envelope-open-text' },
+        holidays: { title: 'إدارة العطل', sub: 'تحديد أيام العطل الرسمية للفروع — الجمعة عطلة أسبوعية تلقائية للجميع', icon: 'fa-umbrella-beach' },
         notifications: { title: 'الإشعارات', sub: 'كل إشعاراتك في مكان واحد', icon: 'fa-bell' },
         control: { title: 'لوحة تحكم', sub: 'نظرة عامة على أداء الشركة', icon: 'fa-chart-pie' },
     };
 
     function switchTab(tab) {
-        ['pending', 'history', 'branches', 'payroll', 'payrollWindow', 'reports', 'shareholders', 'audit', 'attendanceBoard', 'mgrRequests', 'notifications', 'control'].forEach(t => {
+        ['pending', 'history', 'branches', 'payroll', 'payrollWindow', 'reports', 'shareholders', 'audit', 'attendanceBoard', 'mgrRequests', 'holidays', 'notifications', 'control'].forEach(t => {
             document.getElementById('sidenav-' + t).classList.toggle('active', t === tab);
             document.getElementById('view-' + t).classList.toggle('hidden', t !== tab);
         });
@@ -2122,6 +2230,7 @@ try {
         else if (tab === 'audit') loadAuditLog();
         else if (tab === 'attendanceBoard') loadAttendanceBoard();
         else if (tab === 'mgrRequests') loadMgrRequests();
+        else if (tab === 'holidays') loadHolidays();
         else if (tab === 'notifications') loadNotifPage();
         else if (tab === 'control') loadControlData();
     }
@@ -2661,6 +2770,59 @@ try {
             </table></div>`;
         }).catch(() => {
             showToast('⚠️ خطأ', 'تعذر تحميل بصمة الحضور', 'error');
+        });
+    }
+
+    function loadHolidays() {
+        fetch('?ajax=holidays_list').then(r => r.json()).then(data => {
+            if (!data.ok) return;
+            const view = document.getElementById('holidaysList');
+            if (!data.holidays.length) {
+                view.innerHTML = '<div class="empty-state"><i class="fas fa-umbrella-beach"></i><p>لا توجد عطل رسمية إضافية مضافة حالياً</p></div>';
+                return;
+            }
+            view.innerHTML = data.holidays.map(h => `
+                <div class="brief-card">
+                    <div class="brief-top">
+                        <span class="branch"><i class="fas fa-umbrella-beach"></i> ${h.branch}</span>
+                        <span class="date">${h.dateText}</span>
+                    </div>
+                    <div style="font-size:13px;margin:6px 0;">${h.note}</div>
+                    <div class="brief-actions">
+                        <button class="btn small red" onclick="deleteHoliday(${h.id})"><i class="fas fa-trash"></i> إلغاء العطلة</button>
+                    </div>
+                </div>
+            `).join('');
+        }).catch(() => {});
+    }
+
+    function addHoliday() {
+        const branchId = document.getElementById('holidayBranch').value || '0';
+        const date = document.getElementById('holidayDate').value;
+        const note = document.getElementById('holidayNote').value.trim();
+        if (!date) { showToast('⚠️ تنبيه', 'الرجاء اختيار تاريخ العطلة', 'error'); return; }
+        const fd = new FormData();
+        fd.append('branchId', branchId);
+        fd.append('date', date);
+        fd.append('note', note);
+        fetch('?ajax=holiday_add', { method: 'POST', body: fd }).then(r => r.json()).then(data => {
+            if (!data.ok) { showToast('⚠️ خطأ', data.error || 'تعذر إضافة العطلة', 'error'); return; }
+            showToast('✅ تم', 'تمت إضافة العطلة الرسمية بنجاح', 'success');
+            document.getElementById('holidayDate').value = '';
+            document.getElementById('holidayNote').value = '';
+            loadHolidays();
+        }).catch(() => showToast('❌ خطأ', 'تعذر الاتصال بالخادم', 'error'));
+    }
+
+    function deleteHoliday(id) {
+        showConfirmSheet('إلغاء العطلة', 'هل تريد إلغاء هذه العطلة الرسمية؟', function() {
+            const fd = new FormData();
+            fd.append('id', id);
+            fetch('?ajax=holiday_delete', { method: 'POST', body: fd }).then(r => r.json()).then(data => {
+                if (!data.ok) { showToast('⚠️ خطأ', data.error || 'تعذر إلغاء العطلة', 'error'); return; }
+                showToast('✅ تم', 'تم إلغاء العطلة', 'success');
+                loadHolidays();
+            }).catch(() => showToast('❌ خطأ', 'تعذر الاتصال بالخادم', 'error'));
         });
     }
 

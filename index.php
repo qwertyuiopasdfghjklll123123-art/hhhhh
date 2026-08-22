@@ -113,6 +113,19 @@ function notify_attendance_window(PDO $pdo, int $userId, string $shiftStart, str
     }
 }
 
+/** يُرجع تسمية العطلة إن كان هذا التاريخ عطلة لهذا الفرع (الجمعة/السبت تلقائياً، أو عطلة حدّدها المسؤول العام)، أو null إن كان يوم دوام عادي */
+function is_holiday(PDO $pdo, string $date, int $branchId): ?string
+{
+    $dow = (int) date('w', strtotime($date));
+    if ($dow === 5) return 'الجمعة';
+    if ($dow === 6) return 'السبت';
+    $stmt = $pdo->prepare("SELECT note FROM holidays WHERE holiday_date=? AND (branch_id IS NULL OR branch_id=?) LIMIT 1");
+    $stmt->execute([$date, $branchId]);
+    $note = $stmt->fetchColumn();
+    if ($note !== false) return $note ?: 'عطلة رسمية';
+    return null;
+}
+
 function distance_meters(float $lat1, float $lon1, float $lat2, float $lon2): float
 {
     $r = 6371000;
@@ -241,18 +254,19 @@ if (isset($_GET['ajax'])) {
             $hasEveningShift = (bool) $empRow['has_evening_shift'];
 
             $today = date('Y-m-d');
+            $todayHoliday = is_holiday($pdo, $today, (int) $empRow['branch_id']);
             $todayAttStmt = $pdo->prepare("SELECT check_in, check_out, status FROM attendance WHERE employee_id=? AND attendance_date=? AND shift_period='morning'");
             $todayAttStmt->execute([$employeeId, $today]);
             $todayAtt = $todayAttStmt->fetch();
 
-            notify_attendance_window($pdo, $emp['id'], $shiftStart, $shiftEnd, $graceMinutes, $todayAtt);
+            if (!$todayHoliday) notify_attendance_window($pdo, $emp['id'], $shiftStart, $shiftEnd, $graceMinutes, $todayAtt);
 
             $todayAttEvening = null;
             if ($hasEveningShift && $empRow['evening_shift_start'] && $empRow['evening_shift_end']) {
                 $todayAttEveningStmt = $pdo->prepare("SELECT check_in, check_out, status FROM attendance WHERE employee_id=? AND attendance_date=? AND shift_period='evening'");
                 $todayAttEveningStmt->execute([$employeeId, $today]);
                 $todayAttEvening = $todayAttEveningStmt->fetch();
-                notify_attendance_window($pdo, $emp['id'], $empRow['evening_shift_start'], $empRow['evening_shift_end'], $graceMinutes, $todayAttEvening, 'evening');
+                if (!$todayHoliday) notify_attendance_window($pdo, $emp['id'], $empRow['evening_shift_start'], $empRow['evening_shift_end'], $graceMinutes, $todayAttEvening, 'evening');
             }
 
             $monthStart = date('Y-m-01');
@@ -302,7 +316,9 @@ if (isset($_GET['ajax'])) {
             $activeAdvance = $advStmt->fetch();
 
             $todayStatusText = 'لم يسجل بعد';
-            if ($todayAtt) {
+            if ($todayHoliday) {
+                $todayStatusText = '🏖️ عطلة رسمية';
+            } elseif ($todayAtt) {
                 if ($todayAtt['check_in'] && $todayAtt['check_out']) $todayStatusText = '✓ حضور وانصراف';
                 elseif ($todayAtt['check_in']) $todayStatusText = ($todayAtt['status'] === 'late') ? '⏰ تأخير' : '✓ حضور';
             } else {
@@ -396,6 +412,7 @@ if (isset($_GET['ajax'])) {
                     'checkInTime' => ($todayAttEvening['check_in'] ?? null) ? substr($todayAttEvening['check_in'], 0, 5) : null,
                     'checkOutTime' => ($todayAttEvening['check_out'] ?? null) ? substr($todayAttEvening['check_out'], 0, 5) : null,
                 ] : null,
+                'todayHoliday' => $todayHoliday,
             ], JSON_UNESCAPED_UNICODE);
             exit;
         }
@@ -473,6 +490,11 @@ if (isset($_GET['ajax'])) {
 
             $today = date('Y-m-d');
             $now = date('H:i:s');
+            $todayHolidayCheck = is_holiday($pdo, $today, $branchId);
+            if ($todayHolidayCheck) {
+                echo json_encode(['ok' => false, 'error' => 'اليوم عطلة رسمية (' . $todayHolidayCheck . ') — لا حاجة لتسجيل الحضور']);
+                exit;
+            }
             if ($type === 'in') {
                 $existing = $pdo->prepare("SELECT check_in FROM attendance WHERE employee_id=? AND attendance_date=? AND shift_period=?");
                 $existing->execute([$employeeId, $today, $period]);
@@ -832,7 +854,7 @@ if (isset($_GET['ajax'])) {
             for ($d = 1; $d <= $daysInMonth; $d++) {
                 $date = sprintf('%04d-%02d-%02d', $year, $month, $d);
                 $dow = (int) date('w', strtotime($date));
-                $isOff = ($dow === 5 || $dow === 6);
+                $isOff = is_holiday($pdo, $date, $branchId) !== null;
                 $rec = $byDate[$date] ?? null;
                 if ($isOff) {
                     $status = 'off';
@@ -3545,6 +3567,7 @@ try {
 
                 shiftInfo = data.shift;
                 todayAttendance = data.todayAttendance;
+                todayHoliday = data.todayHoliday || null;
                 hasEveningShift = !!data.hasEveningShift;
                 const eveningSection = document.getElementById('eveningShiftSection');
                 if (eveningSection) eveningSection.classList.toggle('hidden', !hasEveningShift);
@@ -4170,6 +4193,7 @@ try {
         // أيام الدوام
         let shiftInfo = { start: '09:00', end: '15:00', graceMinutes: 15 };
         let todayAttendance = { checkedIn: false, checkedOut: false };
+        let todayHoliday = null;
         let hasEveningShift = false;
         let eveningShiftInfo = { start: '18:00', end: '23:00' };
         let todayAttendanceEvening = { checkedIn: false, checkedOut: false };
@@ -4239,6 +4263,19 @@ try {
             const inBtns = [document.getElementById('checkInBtn'), document.getElementById('checkInBtn2')];
             const outBtns = [document.getElementById('checkOutBtn'), document.getElementById('checkOutBtn2')];
 
+            if (todayHoliday) {
+                inBtns.forEach(btn => { if (btn) btn.classList.add('hidden'); });
+                outBtns.forEach(btn => { if (btn) btn.classList.add('hidden'); });
+                const statusDiv = document.getElementById('attendanceStatus');
+                if (statusDiv) {
+                    statusDiv.style.display = 'block';
+                    statusDiv.style.color = 'var(--primary)';
+                    statusDiv.textContent = '🏖️ اليوم عطلة رسمية (' + todayHoliday + ') — لا حاجة لتسجيل حضور';
+                }
+                if (hasEveningShift) updateEveningAttendanceButtonVisibility();
+                return;
+            }
+
             const now = new Date();
             const nowMinutes = now.getHours() * 60 + now.getMinutes();
             const [startH, startM] = shiftInfo.start.split(':').map(Number);
@@ -4290,6 +4327,18 @@ try {
             const inBtn = document.getElementById('checkInBtnEvening');
             const outBtn = document.getElementById('checkOutBtnEvening');
             if (!inBtn || !outBtn) return;
+
+            if (todayHoliday) {
+                inBtn.classList.add('hidden');
+                outBtn.classList.add('hidden');
+                const statusDiv = document.getElementById('attendanceStatusEvening');
+                if (statusDiv) {
+                    statusDiv.style.display = 'block';
+                    statusDiv.style.color = 'var(--primary)';
+                    statusDiv.textContent = '🏖️ اليوم عطلة رسمية (' + todayHoliday + ') — لا حاجة لتسجيل حضور';
+                }
+                return;
+            }
 
             const now = new Date();
             const nowMinutes = now.getHours() * 60 + now.getMinutes();
