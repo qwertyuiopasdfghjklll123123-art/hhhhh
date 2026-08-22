@@ -2090,14 +2090,14 @@ try {
                         <textarea id="annMessage" rows="3" placeholder="اكتب نص التبليغ هنا..." style="width:100%;padding:10px;border:1.5px solid #e2ebeb;border-radius:8px;font-family:var(--font-family);box-sizing:border-box;resize:vertical;"></textarea>
                     </div>
                     <div class="form-group">
-                        <label style="font-size:12px;display:flex;align-items:center;gap:6px;"><input type="checkbox" id="annTargetAll" onchange="toggleAnnBranchList()"> جميع الفروع</label>
+                        <label style="font-size:12px;display:flex;align-items:center;gap:6px;"><input type="checkbox" id="annTargetAll" onchange="toggleAnnBranchList()" style="width:16px;height:16px;flex-shrink:0;"> جميع الفروع</label>
                     </div>
                     <div id="annBranchListWrap" class="form-group">
                         <label style="font-size:12px;">أو حدّد فروعاً معينة</label>
                         <div id="annBranchList" style="display:flex;flex-wrap:wrap;gap:8px;max-height:140px;overflow-y:auto;padding:8px;border:1.5px solid #e2ebeb;border-radius:8px;"></div>
                     </div>
                     <div class="form-group">
-                        <label style="font-size:12px;display:flex;align-items:center;gap:6px;"><input type="checkbox" id="annTargetHr"> شمول الموارد البشرية (HR)</label>
+                        <label style="font-size:12px;display:flex;align-items:center;gap:6px;"><input type="checkbox" id="annTargetHr" style="width:16px;height:16px;flex-shrink:0;"> شمول الموارد البشرية (HR)</label>
                     </div>
                     <button class="btn" onclick="sendAnnouncement()"><i class="fas fa-paper-plane"></i> إرسال التبليغ</button>
                 </div>
@@ -3325,7 +3325,7 @@ try {
             const wrap = document.getElementById('annBranchList');
             wrap.innerHTML = data.branches.map(b => `
                 <label style="display:flex;align-items:center;gap:5px;font-size:12px;background:rgba(0,107,115,0.05);padding:5px 10px;border-radius:6px;">
-                    <input type="checkbox" class="ann-branch-cb" value="${b.id}"> ${b.name}
+                    <input type="checkbox" class="ann-branch-cb" value="${b.id}" style="width:14px;height:14px;flex-shrink:0;"> ${b.name}
                 </label>
             `).join('');
         }).catch(() => {});
