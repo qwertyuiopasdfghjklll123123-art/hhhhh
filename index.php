@@ -125,12 +125,14 @@ function is_holiday(PDO $pdo, string $date, int $branchId): ?string
     return null;
 }
 
-/** يُرجع true إن كان إيجاز هذا التاريخ معتمداً نهائياً من HR والمسؤول العام معاً (لا يمكن تعديله بعدها) */
+/** يُرجع true إن وافق أحد الطرفين (HR أو المسؤول العام) على إيجاز هذا التاريخ ولو لم يوافق الطرف الآخر بعد (لا يمكن تعديله بعدها) */
 function brief_is_locked(PDO $pdo, int $branchId, string $date): bool
 {
-    $stmt = $pdo->prepare("SELECT status FROM daily_briefs WHERE branch_id=? AND brief_date=?");
+    $stmt = $pdo->prepare("SELECT hr_decision, gm_decision FROM daily_briefs WHERE branch_id=? AND brief_date=?");
     $stmt->execute([$branchId, $date]);
-    return $stmt->fetchColumn() === 'approved';
+    $row = $stmt->fetch();
+    if (!$row) return false;
+    return $row['hr_decision'] === 'approved' || $row['gm_decision'] === 'approved';
 }
 
 function distance_meters(float $lat1, float $lon1, float $lat2, float $lon2): float
@@ -783,7 +785,7 @@ if (isset($_GET['ajax'])) {
             }
             $date = $_POST['date'] ?? date('Y-m-d');
             if (brief_is_locked($pdo, $branchId, $date)) {
-                echo json_encode(['ok' => false, 'error' => 'لا يمكن تعديل إيجاز معتمد نهائياً']);
+                echo json_encode(['ok' => false, 'error' => 'لا يمكن تعديل الإيجاز بعد موافقة أحد الأطراف (الموارد البشرية أو المسؤول العام) عليه']);
                 exit;
             }
             $type = ($_POST['type'] ?? '') === 'expense' ? 'expense' : 'income';
@@ -810,7 +812,7 @@ if (isset($_GET['ajax'])) {
             $entryDateStmt->execute([$id, $branchId]);
             $entryDate = $entryDateStmt->fetchColumn();
             if ($entryDate && brief_is_locked($pdo, $branchId, $entryDate)) {
-                echo json_encode(['ok' => false, 'error' => 'لا يمكن تعديل إيجاز معتمد نهائياً']);
+                echo json_encode(['ok' => false, 'error' => 'لا يمكن تعديل الإيجاز بعد موافقة أحد الأطراف (الموارد البشرية أو المسؤول العام) عليه']);
                 exit;
             }
             $pdo->prepare("DELETE FROM daily_ledger WHERE id=? AND branch_id=?")->execute([$id, $branchId]);
@@ -825,7 +827,7 @@ if (isset($_GET['ajax'])) {
             }
             $date = $_POST['date'] ?? date('Y-m-d');
             if (brief_is_locked($pdo, $branchId, $date)) {
-                echo json_encode(['ok' => false, 'error' => 'لا يمكن تعديل إيجاز معتمد نهائياً']);
+                echo json_encode(['ok' => false, 'error' => 'لا يمكن تعديل الإيجاز بعد موافقة أحد الأطراف (الموارد البشرية أو المسؤول العام) عليه']);
                 exit;
             }
             $travelersCount = (int) ($_POST['travelersCount'] ?? 0);
@@ -896,7 +898,7 @@ if (isset($_GET['ajax'])) {
                     'note' => $r['note'],
                     'status' => $r['status'],
                     'statusText' => $map[$r['status']] ?? $r['status'],
-                    'canEdit' => $r['status'] !== 'approved',
+                    'canEdit' => in_array($r['status'], ['pending', 'rejected'], true),
                 ];
             }, $stmt->fetchAll());
             echo json_encode(['ok' => true, 'briefs' => $rows], JSON_UNESCAPED_UNICODE);
