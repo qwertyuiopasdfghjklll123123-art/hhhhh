@@ -3192,6 +3192,10 @@ try {
                             </button>
                         </div>
 
+                        <div id="branchNoManagerWarning" style="display:none;background:#FEF3C7;color:#92400E;border-radius:10px;padding:10px 14px;margin-bottom:16px;font-size:12.5px;font-weight:700;">
+                            <i class="fas fa-exclamation-triangle"></i> لم يتم تعيين مسؤول لهذا الفرع بعد — عبّئ بيانات المسؤول أدناه (الاسم، الهوية، الهاتف إلزامية) لإكمال الحفظ
+                        </div>
+
                         <div class="branch-form">
                             <div class="form-group">
                                 <label>اسم الفرع <span style="color:#EF4444;">*</span></label>
@@ -4350,7 +4354,7 @@ try {
                             <div>
                                 <div class="branch-name"><i class="fas fa-building"></i> ${branch.name}</div>
                                 <div style="font-size:12px;color:var(--text-secondary);">
-                                    <i class="fas fa-user-tie"></i> مسؤول: ${branch.manager}
+                                    <i class="fas fa-user-tie"></i> مسؤول: ${branch.manager || 'لم يُعيّن بعد'}
                                 </div>
                             </div>
                             <span class="branch-status ${statusClass}">${statusLabel}</span>
@@ -4398,6 +4402,8 @@ try {
         }
 
         function clearBranchForm() {
+            const noManagerWarning = document.getElementById('branchNoManagerWarning');
+            if (noManagerWarning) noManagerWarning.style.display = 'none';
             document.getElementById('branchName').value = '';
             document.getElementById('branchManager').value = '';
             document.getElementById('branchNationalId').value = '';
@@ -4477,11 +4483,14 @@ try {
 
         function editBranch(id) {
             const branch = branches.find(b => b.id === id);
-            if (!branch) return;
+            if (!branch) { showToast('⚠️ خطأ', 'تعذر العثور على بيانات هذا الفرع، أعد تحميل الصفحة وحاول مجدداً', 'error'); return; }
+
+            const noManagerWarning = document.getElementById('branchNoManagerWarning');
+            if (noManagerWarning) noManagerWarning.style.display = branch.manager ? 'none' : 'block';
 
             editingBranchId = id;
             document.getElementById('branchName').value = branch.name;
-            document.getElementById('branchManager').value = branch.manager;
+            document.getElementById('branchManager').value = branch.manager || '';
             document.getElementById('branchNationalId').value = branch.nationalId;
             document.getElementById('branchPhone').value = branch.phone || '';
             document.getElementById('branchBirthDate').value = branch.birthDate || '';

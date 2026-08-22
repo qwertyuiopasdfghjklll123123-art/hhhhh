@@ -289,9 +289,13 @@ if (isset($_GET['ajax'])) {
 
             $month = (int) date('n');
             $year = (int) date('Y');
-            $payStmt = $pdo->prepare("SELECT bonus, deduction, status FROM payroll WHERE employee_id=? AND period_month=? AND period_year=?");
+            $payStmt = $pdo->prepare("SELECT bonus, deduction, status, shift_period FROM payroll WHERE employee_id=? AND period_month=? AND period_year=?");
             $payStmt->execute([$employeeId, $month, $year]);
-            $pay = $payStmt->fetch();
+            $pay = null;
+            $payEvening = null;
+            foreach ($payStmt->fetchAll() as $pr) {
+                if ($pr['shift_period'] === 'evening') { $payEvening = $pr; } else { $pay = $pr; }
+            }
 
             $advStmt = $pdo->prepare("SELECT amount, approved_monthly_deduction, remaining_balance FROM requests WHERE employee_id=? AND type='advance' AND status='approved' AND remaining_balance > 0 ORDER BY id ASC LIMIT 1");
             $advStmt->execute([$employeeId]);
@@ -337,6 +341,12 @@ if (isset($_GET['ajax'])) {
                     'adminBonus' => (float) ($pay['bonus'] ?? 0),
                     'netSalary' => (float) $empRow['base_salary'] + (float) ($pay['bonus'] ?? 0) - (float) ($pay['deduction'] ?? 0),
                     'salaryDelivered' => ($pay['status'] ?? null) === 'delivered',
+                    'hasEveningShift' => $hasEveningShift,
+                    'eveningShiftStart' => $hasEveningShift && $empRow['evening_shift_start'] ? substr($empRow['evening_shift_start'], 0, 5) : null,
+                    'eveningShiftEnd' => $hasEveningShift && $empRow['evening_shift_end'] ? substr($empRow['evening_shift_end'], 0, 5) : null,
+                    'eveningBaseSalary' => $hasEveningShift ? (float) $empRow['evening_base_salary'] : null,
+                    'eveningNetSalary' => $hasEveningShift ? ((float) $empRow['evening_base_salary'] + (float) ($payEvening['bonus'] ?? 0) - (float) ($payEvening['deduction'] ?? 0)) : null,
+                    'eveningSalaryDelivered' => ($payEvening['status'] ?? null) === 'delivered',
                     'hasAdvance' => (bool) $activeAdvance,
                     'advanceAmount' => $activeAdvance ? (float) $activeAdvance['amount'] : null,
                     'advanceMonthlyDeduction' => $activeAdvance ? (float) $activeAdvance['approved_monthly_deduction'] : null,
@@ -676,17 +686,39 @@ if (isset($_GET['ajax'])) {
             $year = (int) date('Y');
             $stmt = $pdo->prepare("SELECT * FROM payroll WHERE employee_id=? AND period_month=? AND period_year=?");
             $stmt->execute([$employeeId, $month, $year]);
-            $pay = $stmt->fetch();
+            $pay = null;
+            $payEvening = null;
+            foreach ($stmt->fetchAll() as $pr) {
+                if ($pr['shift_period'] === 'evening') { $payEvening = $pr; } else { $pay = $pr; }
+            }
 
-            $empRow = $pdo->prepare("SELECT base_salary FROM employees WHERE id=?");
+            $empRow = $pdo->prepare("SELECT base_salary, has_evening_shift, evening_base_salary FROM employees WHERE id=?");
             $empRow->execute([$employeeId]);
-            $baseSalary = (float) $empRow->fetchColumn();
+            $empRow = $empRow->fetch();
+            $baseSalary = (float) $empRow['base_salary'];
+            $hasEveningShift = (bool) $empRow['has_evening_shift'];
 
             $bonus = $pay ? (float) $pay['bonus'] : 0.0;
             $deduction = $pay ? (float) $pay['deduction'] : 0.0;
             $base = $pay ? (float) $pay['base_salary'] : $baseSalary;
             $net = $base + $bonus - $deduction;
-            $statusText = !$pay ? 'لم يُحتسب بعد' : ($pay['status'] === 'delivered' ? 'تم التسليم' : 'قيد المعالجة');
+            $statusText = !$pay ? 'لم يُحتسب بعد (صباحي)' : ($pay['status'] === 'delivered' ? 'تم التسليم (صباحي)' : 'قيد المعالجة (صباحي)');
+
+            $eveningData = null;
+            if ($hasEveningShift) {
+                $eveningBonus = $payEvening ? (float) $payEvening['bonus'] : 0.0;
+                $eveningDeduction = $payEvening ? (float) $payEvening['deduction'] : 0.0;
+                $eveningBase = $payEvening ? (float) $payEvening['base_salary'] : (float) $empRow['evening_base_salary'];
+                $eveningNet = $eveningBase + $eveningBonus - $eveningDeduction;
+                $eveningStatusText = !$payEvening ? 'لم يُحتسب بعد (مسائي)' : ($payEvening['status'] === 'delivered' ? 'تم التسليم (مسائي)' : 'قيد المعالجة (مسائي)');
+                $eveningData = [
+                    'baseSalary' => $eveningBase,
+                    'adminBonus' => $eveningBonus,
+                    'adminDeduction' => $eveningDeduction,
+                    'net' => $eveningNet,
+                    'statusText' => $eveningStatusText,
+                ];
+            }
 
             echo json_encode([
                 'ok' => true,
@@ -697,6 +729,8 @@ if (isset($_GET['ajax'])) {
                 'adminDeduction' => $deduction,
                 'net' => $net,
                 'statusText' => $statusText,
+                'hasEveningShift' => $hasEveningShift,
+                'evening' => $eveningData,
             ], JSON_UNESCAPED_UNICODE);
             exit;
         }
@@ -2694,15 +2728,17 @@ try {
                             <tr><th>الفرع</th><td id="profileTableBranch">...</td></tr>
                             <tr><th>تاريخ المباشرة</th><td id="profileTableHireDate">...</td></tr>
                             <tr><th>رقم التوظيف</th><td id="profileTableCode">...</td></tr>
-                            <tr><th>الراتب الاسمي</th><td id="profileTableSalary">...</td></tr>
-                            <tr><th>الشفت المسائي</th><td id="profileTableShift">...</td></tr>
+                            <tr><th>نوع الدوام</th><td id="profileTableShift">...</td></tr>
+                            <tr><th>الراتب الأساسي (صباحي)</th><td id="profileTableSalary">...</td></tr>
+                            <tr id="profileEveningShiftRow" style="display:none;"><th><i class="fas fa-moon"></i> دوام الشفت المسائي</th><td id="profileTableEveningShift">...</td></tr>
+                            <tr id="profileEveningSalaryRow" style="display:none;"><th><i class="fas fa-moon"></i> الراتب الأساسي (مسائي)</th><td id="profileTableEveningSalary">...</td></tr>
                             <tr><th>الخصومات الإدارية</th><td id="profileTableDeduction">...</td></tr>
                             <tr><th>المكافآت الإدارية</th><td id="profileTableBonus">...</td></tr>
                         </table>
                     </div>
                 </div>
 
-                <div class="section-title"><i class="fas fa-money-bill-wave"></i> راتب الشهر الحالي</div>
+                <div class="section-title"><i class="fas fa-money-bill-wave"></i> راتب الشهر الحالي — الشفت الصباحي</div>
                 <div class="card">
                     <div class="table-wrap">
                         <table class="table">
@@ -2711,6 +2747,18 @@ try {
                         </table>
                     </div>
                     <div class="muted" id="profileSalaryStatus" style="margin-top:6px;font-size:12px;"></div>
+                </div>
+
+                <div id="profileEveningSalaryCard" style="display:none;">
+                    <div class="section-title"><i class="fas fa-moon"></i> راتب الشهر الحالي — الشفت المسائي</div>
+                    <div class="card">
+                        <div class="table-wrap">
+                            <table class="table">
+                                <tr style="border-top:2px solid var(--primary);"><th><b>الصافي المتوقع استلامه (مسائي)</b></th><td><b id="profileEveningNetSalary" style="color:var(--green,#059669);">0</b></td></tr>
+                            </table>
+                        </div>
+                        <div class="muted" id="profileEveningSalaryStatus" style="margin-top:6px;font-size:12px;"></div>
+                    </div>
                 </div>
 
                 <div id="profileAdvanceCard" style="display:none;">
@@ -2890,6 +2938,7 @@ try {
                     <h2><i class="fas fa-money-bill-wave"></i> الراتب والخصومات</h2>
                     <button onclick="navigateTo('home')" class="back-btn"><i class="fas fa-arrow-right"></i> رجوع</button>
                 </div>
+                <div class="section-title" id="salaryMorningTitle"><i class="fas fa-sun"></i> الشفت الصباحي</div>
                 <div class="card">
                     <div class="list-item">
                         <div class="item-icon" style="background:rgba(0,107,115,0.08);color:var(--primary);"><i class="fas fa-calendar"></i></div>
@@ -2912,6 +2961,34 @@ try {
                                 <td><b style="color:var(--green);font-size:16px;" id="salaryNet">0 د.ع</b></td>
                             </tr>
                         </table>
+                    </div>
+                </div>
+
+                <div id="salaryEveningSection" style="display:none;">
+                    <div class="section-title"><i class="fas fa-moon"></i> الشفت المسائي</div>
+                    <div class="card">
+                        <div class="list-item">
+                            <div class="item-icon" style="background:rgba(0,107,115,0.08);color:var(--primary);"><i class="fas fa-calendar"></i></div>
+                            <div class="item-content">
+                                <div class="item-title">الشهر الحالي</div>
+                                <div class="item-desc" id="salaryEveningPeriodText">...</div>
+                            </div>
+                            <span style="font-weight:800;" id="salaryEveningStatusText">...</span>
+                        </div>
+                    </div>
+                    <div class="card">
+                        <div class="table-wrap">
+                            <table class="table">
+                                <tr><th>البيان</th><th>المبلغ</th></tr>
+                                <tr><td>الراتب الاسمي</td><td id="salaryEveningBase">0</td></tr>
+                                <tr><td>الخصومات</td><td style="color:#DC2626;" id="salaryEveningDeduction">- 0</td></tr>
+                                <tr><td>المكافآت</td><td style="color:#059669;" id="salaryEveningBonus">+ 0</td></tr>
+                                <tr style="border-top:2px solid var(--primary);">
+                                    <td><b>الراتب النهائي</b></td>
+                                    <td><b style="color:var(--green);font-size:16px;" id="salaryEveningNet">0 د.ع</b></td>
+                                </tr>
+                            </table>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -3402,7 +3479,24 @@ try {
                 document.getElementById('profileTableDeduction').textContent = Number(p.adminDeduction).toLocaleString() + ' د.ع';
                 document.getElementById('profileTableBonus').textContent = Number(p.adminBonus).toLocaleString() + ' د.ع';
                 document.getElementById('profileNetSalary').textContent = Number(p.netSalary).toLocaleString() + ' د.ع';
-                document.getElementById('profileSalaryStatus').textContent = p.salaryDelivered ? '✅ تم تسليم راتب هذا الشهر' : '⏳ لم يتم تسليم راتب هذا الشهر بعد';
+                document.getElementById('profileSalaryStatus').textContent = p.salaryDelivered ? '✅ تم تسليم راتب هذا الشهر (صباحي)' : '⏳ لم يتم تسليم راتب هذا الشهر بعد (صباحي)';
+
+                const eveningShiftRow = document.getElementById('profileEveningShiftRow');
+                const eveningSalaryRow = document.getElementById('profileEveningSalaryRow');
+                const eveningSalaryCard = document.getElementById('profileEveningSalaryCard');
+                if (p.hasEveningShift) {
+                    eveningShiftRow.style.display = '';
+                    eveningSalaryRow.style.display = '';
+                    eveningSalaryCard.style.display = 'block';
+                    document.getElementById('profileTableEveningShift').textContent = (p.eveningShiftStart || '--') + ' — ' + (p.eveningShiftEnd || '--');
+                    document.getElementById('profileTableEveningSalary').textContent = Number(p.eveningBaseSalary).toLocaleString() + ' د.ع';
+                    document.getElementById('profileEveningNetSalary').textContent = Number(p.eveningNetSalary).toLocaleString() + ' د.ع';
+                    document.getElementById('profileEveningSalaryStatus').textContent = p.eveningSalaryDelivered ? '✅ تم تسليم راتب هذا الشهر (مسائي)' : '⏳ لم يتم تسليم راتب هذا الشهر بعد (مسائي)';
+                } else {
+                    eveningShiftRow.style.display = 'none';
+                    eveningSalaryRow.style.display = 'none';
+                    eveningSalaryCard.style.display = 'none';
+                }
                 const advCard = document.getElementById('profileAdvanceCard');
                 if (p.hasAdvance) {
                     advCard.style.display = 'block';
@@ -3637,6 +3731,22 @@ try {
                 document.getElementById('salaryDeduction').textContent = '- ' + Number(data.adminDeduction).toLocaleString();
                 document.getElementById('salaryBonus').textContent = '+ ' + Number(data.adminBonus).toLocaleString();
                 document.getElementById('salaryNet').textContent = Number(data.net).toLocaleString() + ' د.ع';
+
+                const eveningSection = document.getElementById('salaryEveningSection');
+                const morningTitle = document.getElementById('salaryMorningTitle');
+                if (data.hasEveningShift && data.evening) {
+                    eveningSection.style.display = 'block';
+                    morningTitle.style.display = '';
+                    document.getElementById('salaryEveningPeriodText').textContent = months[data.month - 1] + ' ' + data.year;
+                    document.getElementById('salaryEveningStatusText').textContent = data.evening.statusText;
+                    document.getElementById('salaryEveningBase').textContent = Number(data.evening.baseSalary).toLocaleString();
+                    document.getElementById('salaryEveningDeduction').textContent = '- ' + Number(data.evening.adminDeduction).toLocaleString();
+                    document.getElementById('salaryEveningBonus').textContent = '+ ' + Number(data.evening.adminBonus).toLocaleString();
+                    document.getElementById('salaryEveningNet').textContent = Number(data.evening.net).toLocaleString() + ' د.ع';
+                } else {
+                    eveningSection.style.display = 'none';
+                    morningTitle.style.display = 'none';
+                }
             });
         }
 
