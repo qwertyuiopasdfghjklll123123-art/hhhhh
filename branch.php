@@ -266,6 +266,10 @@ if (isset($_GET['ajax'])) {
             $prevStmt->execute([$branchId, $yesterday]);
             $previousProfit = (float) ($prevStmt->fetchColumn() ?: 0);
 
+            $balanceStmt = $pdo->prepare("SELECT COALESCE(SUM(total_income - total_expense),0) FROM daily_briefs WHERE branch_id=? AND status='approved'");
+            $balanceStmt->execute([$branchId]);
+            $branchBalance = (float) $balanceStmt->fetchColumn();
+
             echo json_encode([
                 'ok' => true,
                 'manager' => ['name' => $mgr['full_name'], 'code' => $mgr['employee_number'], 'branch' => $branch['name'], 'photo' => $mgrPhoto ?: null],
@@ -289,6 +293,7 @@ if (isset($_GET['ajax'])) {
                     'active' => date('Y-m-d') >= $delegation['start_date'] && date('Y-m-d') <= $delegation['end_date'],
                 ] : null,
                 'previousDayProfit' => $previousProfit,
+                'branchBalance' => $branchBalance,
                 'shift' => [
                     'start' => substr($shiftStart, 0, 5),
                     'end' => substr($shiftEnd, 0, 5),
@@ -768,12 +773,16 @@ if (isset($_GET['ajax'])) {
             $leaveUnit = null;
             $leaveAmount = null;
 
+            $shiftPeriod = null;
             if ($type === 'advance') {
                 $amount = (float) ($_POST['amount'] ?? 0);
                 if ($amount <= 0) {
                     echo json_encode(['ok' => false, 'error' => 'الرجاء إدخال مبلغ صحيح']);
                     exit;
                 }
+                $mgrShiftCheck = $pdo->prepare("SELECT has_evening_shift FROM employees WHERE id=?");
+                $mgrShiftCheck->execute([$mgr['employee_id']]);
+                $shiftPeriod = ((bool) $mgrShiftCheck->fetchColumn() && ($_POST['shiftPeriod'] ?? '') === 'evening') ? 'evening' : 'morning';
             } elseif ($type === 'resignation') {
                 $dateFrom = $_POST['resignDate'] ?: null;
                 $dateTo = $_POST['lastDay'] ?: null;
@@ -818,9 +827,9 @@ if (isset($_GET['ajax'])) {
                 }
             }
 
-            $stmt = $pdo->prepare("INSERT INTO requests (employee_id, branch_id, type, requested_by_role, details, amount, date_from, date_to, leave_unit, leave_amount, status)
-                VALUES (?, ?, ?, 'branch_manager', ?, ?, ?, ?, ?, ?, 'pending')");
-            $stmt->execute([$mgr['employee_id'], $branchId, $type, $details ?: null, $amount, $dateFrom, $dateTo, $leaveUnit, $leaveAmount]);
+            $stmt = $pdo->prepare("INSERT INTO requests (employee_id, branch_id, type, requested_by_role, details, amount, date_from, date_to, leave_unit, leave_amount, shift_period, status)
+                VALUES (?, ?, ?, 'branch_manager', ?, ?, ?, ?, ?, ?, ?, 'pending')");
+            $stmt->execute([$mgr['employee_id'], $branchId, $type, $details ?: null, $amount, $dateFrom, $dateTo, $leaveUnit, $leaveAmount, $shiftPeriod]);
 
             $gmUids = $pdo->query("SELECT id FROM users WHERE role='general_manager'")->fetchAll(PDO::FETCH_COLUMN);
             foreach ($gmUids as $uid) {
@@ -834,7 +843,7 @@ if (isset($_GET['ajax'])) {
 
         case 'mgr_requests_mine': {
             $mgrStatusAr = ['pending' => 'بانتظار موافقة المسؤول العام', 'approved' => 'مقبول نهائياً', 'rejected' => 'مرفوض'];
-            $stmt = $pdo->prepare("SELECT id, type, details, amount, date_from, date_to, leave_unit, leave_amount, status, hr_review_note, created_at FROM requests WHERE employee_id=? AND requested_by_role='branch_manager' ORDER BY created_at DESC LIMIT 30");
+            $stmt = $pdo->prepare("SELECT id, type, details, amount, date_from, date_to, leave_unit, leave_amount, shift_period, status, hr_review_note, created_at FROM requests WHERE employee_id=? AND requested_by_role='branch_manager' ORDER BY created_at DESC LIMIT 30");
             $stmt->execute([$mgr['employee_id']]);
             $rows = array_map(function ($r) use ($mgrStatusAr) {
                 return [
@@ -842,6 +851,7 @@ if (isset($_GET['ajax'])) {
                     'type' => request_type_ar($r['type']),
                     'details' => $r['details'],
                     'amount' => $r['amount'] !== null ? (float) $r['amount'] : null,
+                    'shiftPeriod' => $r['type'] === 'advance' ? ($r['shift_period'] === 'evening' ? 'مسائي' : 'صباحي') : null,
                     'dateFrom' => $r['date_from'],
                     'dateTo' => $r['date_to'],
                     'leaveUnit' => $r['leave_unit'],
@@ -1040,13 +1050,22 @@ if (isset($_GET['ajax'])) {
             $bonus = $existing ? (float) $existing['bonus'] : 0.0;
             $deduction = $existing ? (float) $existing['deduction'] : 0.0;
 
-            $advStmt = $pdo->prepare("SELECT id, approved_monthly_deduction, remaining_balance FROM requests WHERE employee_id=? AND type='advance' AND status='approved' AND remaining_balance > 0 ORDER BY id ASC LIMIT 1");
+            $advStmt = $pdo->prepare("SELECT id, approved_monthly_deduction, remaining_balance FROM requests WHERE employee_id=? AND type='advance' AND status='approved' AND remaining_balance > 0 AND COALESCE(shift_period,'morning')='morning' ORDER BY id ASC LIMIT 1");
             $advStmt->execute([$employeeId]);
             $adv = $advStmt->fetch();
             if ($adv) {
                 $advanceCut = min((float) $adv['approved_monthly_deduction'], (float) $adv['remaining_balance']);
                 $deduction += $advanceCut;
-                $pdo->prepare("UPDATE requests SET remaining_balance = remaining_balance - ? WHERE id=?")->execute([$advanceCut, $adv['id']]);
+                $newRemaining = (float) $adv['remaining_balance'] - $advanceCut;
+                $pdo->prepare("UPDATE requests SET remaining_balance = ? WHERE id=?")->execute([$newRemaining, $adv['id']]);
+                if ($newRemaining <= 0) {
+                    $doneMsg = 'تم اكتمال تسديد السلفة الخاصة بـ ' . $emp['full_name'];
+                    $doneUids = $pdo->prepare("SELECT id FROM users WHERE employee_id=? UNION SELECT id FROM users WHERE role='hr'");
+                    $doneUids->execute([$employeeId]);
+                    foreach ($doneUids->fetchAll(PDO::FETCH_COLUMN) as $uid) {
+                        $pdo->prepare("INSERT INTO notifications (user_id, title, message) VALUES (?, 'تم اكتمال تسديد السلفة', ?)")->execute([$uid, $doneMsg]);
+                    }
+                }
             }
 
             $stmt = $pdo->prepare("INSERT INTO payroll (employee_id, branch_id, period_month, period_year, base_salary, bonus, deduction, status)
@@ -1752,7 +1771,10 @@ function branch_report_data(PDO $pdo, string $type, string $from, string $to, in
                     </div>
                 </div>
 
-               
+                <div class="card">
+                    <div class="section-title" style="margin-top:0;"><i class="fas fa-wallet"></i> رصيد الفرع</div>
+                    <div id="homeBranchBalance" style="font-size:22px;font-weight:900;color:var(--primary,#006B73);padding:6px 0;">0 د.ع</div>
+                </div>
 
                 <div class="card" onclick="navigateTo('notifications')" style="cursor:pointer;">
                     <div class="section-title" style="margin-top:0;"><i class="fas fa-bell"></i> التنبيهات</div>
@@ -2560,6 +2582,8 @@ function branch_report_data(PDO $pdo, string $type, string $from, string $to, in
                 document.getElementById('homeRequestsCount').textContent = data.stats.pendingRequests;
                 document.getElementById('homeAttendanceCount').textContent = data.stats.presentToday + '/' + data.stats.employees;
                 document.getElementById('homeCommitmentPct').textContent = data.stats.commitmentPct + '%';
+                const balanceEl = document.getElementById('homeBranchBalance');
+                if (balanceEl) balanceEl.textContent = Number(data.branchBalance || 0).toLocaleString() + ' د.ع';
                 const attendancePct = data.stats.employees > 0 ? Math.round((data.stats.presentToday / data.stats.employees) * 100) : 0;
                 document.getElementById('ringAttendance').style.setProperty('--pct', attendancePct);
                 document.getElementById('ringCommitment').style.setProperty('--pct', data.stats.commitmentPct);
@@ -2694,6 +2718,14 @@ function branch_report_data(PDO $pdo, string $type, string $from, string $to, in
             if (type === 'advance') {
                 wrap.innerHTML = `
                     <div class="form-group"><label>مبلغ السلفة</label><input type="number" id="mgrReqAmount" placeholder="500000" min="10000" step="10000"></div>
+                    ${mgrHasEveningShift ? `
+                    <div class="form-group"><label>الشفت الذي سيُخصم منه القسط الشهري</label>
+                        <select id="mgrReqShift">
+                            <option value="morning">الشفت الصباحي</option>
+                            <option value="evening">الشفت المسائي</option>
+                        </select>
+                    </div>
+                    ` : ''}
                     <div class="form-group"><label>السبب</label><textarea id="mgrReqDetails" placeholder="سبب طلب السلفة..."></textarea></div>
                 `;
             } else if (type === 'resignation') {
@@ -2743,6 +2775,7 @@ function branch_report_data(PDO $pdo, string $type, string $from, string $to, in
             const params = { type, details: val('mgrReqDetails') };
             if (type === 'advance') {
                 params.amount = val('mgrReqAmount');
+                params.shiftPeriod = val('mgrReqShift') || 'morning';
             } else if (type === 'resignation') {
                 params.resignDate = val('mgrReqResignDate');
                 params.lastDay = val('mgrReqLastDay');
@@ -2778,7 +2811,7 @@ function branch_report_data(PDO $pdo, string $type, string $from, string $to, in
                 view.innerHTML = data.requests.map(r => `
                     <div class="card">
                         <div class="flex-between"><b>${r.type}</b><span class="badge ${r.status.includes('نهائي') ? 'ok' : (r.status === 'مرفوض' ? 'danger' : 'wait')}">${r.status}</span></div>
-                        <p class="muted">${r.date}${r.details ? ' — ' + r.details : ''}</p>
+                        <p class="muted">${r.date}${r.details ? ' — ' + r.details : ''}${r.shiftPeriod ? ' — يُخصم من الشفت ' + r.shiftPeriod : ''}</p>
                         ${r.note ? `<p class="muted">${r.note}</p>` : ''}
                     </div>
                 `).join('');

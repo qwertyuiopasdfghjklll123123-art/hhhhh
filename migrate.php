@@ -406,6 +406,19 @@ function migration_steps(): array
             'needed' => fn(PDO $pdo) => !column_exists($pdo, 'users', 'phone_number'),
             'run' => fn(PDO $pdo) => $pdo->exec("ALTER TABLE users ADD COLUMN phone_number VARCHAR(30) DEFAULT NULL AFTER employee_number"),
         ],
+        [
+            'label' => 'إضافة تحديد الشفت (صباحي/مسائي) لطلبات السلفة لدى الموظفين ذوي الشفتين',
+            'needed' => fn(PDO $pdo) => !column_exists($pdo, 'requests', 'shift_period'),
+            'run' => function (PDO $pdo) {
+                $pdo->exec("ALTER TABLE requests ADD COLUMN shift_period ENUM('morning','evening') DEFAULT NULL AFTER leave_amount");
+                $pdo->exec("UPDATE requests SET shift_period='morning' WHERE type='advance' AND shift_period IS NULL");
+            },
+        ],
+        [
+            'label' => 'إضافة تحديد الشفت لسجل تعديلات الرواتب (لعرضها في ملف الموظف الشخصي)',
+            'needed' => fn(PDO $pdo) => !column_exists($pdo, 'payroll_adjustments', 'shift_period'),
+            'run' => fn(PDO $pdo) => $pdo->exec("ALTER TABLE payroll_adjustments ADD COLUMN shift_period ENUM('morning','evening') NOT NULL DEFAULT 'morning' AFTER type"),
+        ],
     ];
 }
 

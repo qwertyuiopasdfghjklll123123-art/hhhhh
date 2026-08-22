@@ -673,8 +673,8 @@ if (isset($_GET['ajax'])) {
                     ->execute([$employeeId, $branchId, $month, $year, $period, $defaultBaseExpr, $employeeId, $amount]);
             }
 
-            $pdo->prepare("INSERT INTO payroll_adjustments (employee_id, branch_id, period_month, period_year, type, amount, note, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
-                ->execute([$employeeId, $branchId, $month, $year, $type, $amount, $note ?: null, $gmUser['id']]);
+            $pdo->prepare("INSERT INTO payroll_adjustments (employee_id, branch_id, period_month, period_year, type, shift_period, amount, note, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)")
+                ->execute([$employeeId, $branchId, $month, $year, $type, $period, $amount, $note ?: null, $gmUser['id']]);
 
             $typeLabel = ['salary' => 'تحديث الراتب الأساسي', 'bonus' => 'مكافأة', 'deduction' => 'خصم'];
             $periodLabel = $period === 'evening' ? ' (الشفت المسائي)' : '';
@@ -898,7 +898,7 @@ if (isset($_GET['ajax'])) {
             $typeAr = ['advance' => 'سلفة', 'resignation' => 'استقالة', 'supplies' => 'مستلزمات', 'leave' => 'إجازة'];
             $stmt = $pdo->query("
                 SELECT r.id, e.full_name AS name, e.employee_number AS employeeNumber, b.name AS branch, r.type, r.details, r.amount,
-                       r.date_from, r.date_to, r.leave_unit, r.leave_amount, r.status, r.hr_review_note AS note,
+                       r.date_from, r.date_to, r.leave_unit, r.leave_amount, r.shift_period, r.status, r.hr_review_note AS note,
                        DATE_FORMAT(r.created_at, '%d/%m/%Y') AS date
                 FROM requests r JOIN employees e ON e.id = r.employee_id JOIN branches b ON b.id = r.branch_id
                 WHERE r.requested_by_role = 'branch_manager'
@@ -907,7 +907,8 @@ if (isset($_GET['ajax'])) {
             $rows = array_map(function ($r) use ($typeAr) {
                 $details = $r['details'];
                 if ($r['type'] === 'advance' && $r['amount']) {
-                    $details = number_format((float) $r['amount']) . ' د.ع' . ($details ? ' - ' . $details : '');
+                    $shiftLabel = $r['shift_period'] === 'evening' ? ' — يُخصم من الشفت المسائي' : ' — يُخصم من الشفت الصباحي';
+                    $details = number_format((float) $r['amount']) . ' د.ع' . $shiftLabel . ($details ? ' - ' . $details : '');
                 } elseif ($r['type'] === 'leave' && $r['date_from']) {
                     $unitText = $r['leave_unit'] === 'hours' ? ($r['leave_amount'] . ' ساعة بتاريخ ' . $r['date_from']) : ($r['date_from'] . ' إلى ' . $r['date_to']);
                     $details = $unitText . ($details ? ' - ' . $details : '');

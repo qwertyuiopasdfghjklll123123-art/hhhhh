@@ -591,6 +591,28 @@ if (isset($_GET['ajax'])) {
                 if ($pr['shift_period'] === 'evening') { $eveningPay = $info; } else { $morningPay = $info; }
             }
 
+            $adjTypeAr = ['salary' => 'تحديث الراتب الأساسي', 'bonus' => 'مكافأة', 'deduction' => 'خصم'];
+            $adjStmt = $pdo->prepare("
+                SELECT pa.type, pa.shift_period, pa.amount, pa.note, pa.period_month, pa.period_year, pa.created_at,
+                       COALESCE(u.display_name, u.username) AS byName, u.role AS byRole
+                FROM payroll_adjustments pa
+                LEFT JOIN users u ON u.id = pa.created_by
+                WHERE pa.employee_id = ?
+                ORDER BY pa.created_at DESC LIMIT 20
+            ");
+            $adjStmt->execute([$employeeId]);
+            $adjustments = array_map(function ($a) use ($adjTypeAr) {
+                return [
+                    'type' => $adjTypeAr[$a['type']] ?? $a['type'],
+                    'shiftPeriod' => $a['shift_period'] === 'evening' ? 'مسائي' : 'صباحي',
+                    'amount' => (float) $a['amount'],
+                    'note' => $a['note'],
+                    'period' => $a['period_month'] . '/' . $a['period_year'],
+                    'date' => date('d/m/Y', strtotime($a['created_at'])),
+                    'byName' => $a['byName'] ?: 'المسؤول العام',
+                ];
+            }, $adjStmt->fetchAll());
+
             echo json_encode(['ok' => true, 'employee' => [
                 'id' => (int) $emp['id'],
                 'name' => $emp['full_name'],
@@ -617,6 +639,7 @@ if (isset($_GET['ajax'])) {
                 'isManager' => (bool) $emp['is_branch_manager'],
                 'documents' => $emp['documents'],
                 'photo' => $emp['photo'],
+                'adjustments' => $adjustments,
             ]], JSON_UNESCAPED_UNICODE);
             exit;
         }
@@ -909,15 +932,22 @@ if (isset($_GET['ajax'])) {
                 }
             }
 
-            // خصم السلفة الشهري النشط (يُخصم مرة واحدة فقط، من الشفت الصباحي إن وُجد)
-            if ($period === 'morning') {
-                $advStmt = $pdo->prepare("SELECT id, approved_monthly_deduction, remaining_balance FROM requests WHERE employee_id=? AND type='advance' AND status='approved' AND remaining_balance > 0 ORDER BY id ASC LIMIT 1");
-                $advStmt->execute([$employeeId]);
-                $adv = $advStmt->fetch();
-                if ($adv) {
-                    $advanceCut = min((float) $adv['approved_monthly_deduction'], (float) $adv['remaining_balance']);
-                    $deduction += $advanceCut;
-                    $pdo->prepare("UPDATE requests SET remaining_balance = remaining_balance - ? WHERE id=?")->execute([$advanceCut, $adv['id']]);
+            // خصم القسط الشهري للسلفة النشطة من الشفت الذي حُدد لها عند تقديم الطلب
+            $advStmt = $pdo->prepare("SELECT id, approved_monthly_deduction, remaining_balance FROM requests WHERE employee_id=? AND type='advance' AND status='approved' AND remaining_balance > 0 AND COALESCE(shift_period,'morning')=? ORDER BY id ASC LIMIT 1");
+            $advStmt->execute([$employeeId, $period]);
+            $adv = $advStmt->fetch();
+            if ($adv) {
+                $advanceCut = min((float) $adv['approved_monthly_deduction'], (float) $adv['remaining_balance']);
+                $deduction += $advanceCut;
+                $newRemaining = (float) $adv['remaining_balance'] - $advanceCut;
+                $pdo->prepare("UPDATE requests SET remaining_balance = ? WHERE id=?")->execute([$newRemaining, $adv['id']]);
+                if ($newRemaining <= 0) {
+                    $doneMsg = 'تم اكتمال تسديد السلفة الخاصة بـ ' . $emp['full_name'] . ' (الشفت ' . ($period === 'evening' ? 'المسائي' : 'الصباحي') . ')';
+                    $doneUids = $pdo->prepare("SELECT id FROM users WHERE employee_id=? UNION SELECT id FROM users WHERE branch_id=? AND role='branch_manager' UNION SELECT id FROM users WHERE role='hr'");
+                    $doneUids->execute([$employeeId, $branchId]);
+                    foreach ($doneUids->fetchAll(PDO::FETCH_COLUMN) as $uid) {
+                        $pdo->prepare("INSERT INTO notifications (user_id, title, message) VALUES (?, 'تم اكتمال تسديد السلفة', ?)")->execute([$uid, $doneMsg]);
+                    }
                 }
             }
 
@@ -1044,7 +1074,7 @@ if (isset($_GET['ajax'])) {
         case 'requests': {
             // الموارد البشرية لا ترى إلا الطلبات التي وافق عليها مدير الفرع أولاً (أو المُنجَزة سابقاً للسجل)
             $stmt = $pdo->query("
-                SELECT r.id, e.full_name AS name, b.name AS branch, r.type, r.details, r.amount, r.date_from, r.date_to,
+                SELECT r.id, e.full_name AS name, b.name AS branch, r.type, r.details, r.amount, r.date_from, r.date_to, r.shift_period,
                        DATE_FORMAT(r.created_at, '%d/%m/%Y') AS date, r.status, r.branch_review_note AS branchNote
                 FROM requests r JOIN employees e ON e.id = r.employee_id JOIN branches b ON b.id = r.branch_id
                 WHERE r.status IN ('branch_approved','approved','rejected') AND r.requested_by_role = 'employee'
@@ -1053,7 +1083,8 @@ if (isset($_GET['ajax'])) {
             $rows = array_map(function ($r) {
                 $details = $r['details'];
                 if ($r['type'] === 'advance' && $r['amount']) {
-                    $details = number_format((float) $r['amount']) . ' د.ع' . ($details ? ' - ' . $details : '');
+                    $shiftLabel = $r['shift_period'] === 'evening' ? ' — يُخصم من الشفت المسائي' : ' — يُخصم من الشفت الصباحي';
+                    $details = number_format((float) $r['amount']) . ' د.ع' . $shiftLabel . ($details ? ' - ' . $details : '');
                 } elseif ($r['type'] === 'leave' && $r['date_from']) {
                     $details = $r['date_from'] . ' إلى ' . $r['date_to'] . ($details ? ' - ' . $details : '');
                 }
@@ -4792,6 +4823,29 @@ try {
                             <span><b style="color:var(--text-muted);">حالة الراتب هذا الشهر:</b> ${e.eveningPayroll && e.eveningPayroll.delivered ? `<span style="color:#059669;font-weight:700;"><i class="fas fa-check-circle"></i> استلم راتب (${Number(e.eveningPayroll.net).toLocaleString()})</span>` : '<span style="color:#D97706;font-weight:700;">لم يستلم بعد</span>'}</span>
                         </div>
                         ` : ''}
+                    </div>
+
+                    <div style="border-top:1px solid #e2ebeb;padding-top:14px;margin-bottom:18px;">
+                        <label style="font-size:12px;font-weight:700;color:var(--text-muted);display:block;margin-bottom:8px;">سجل تعديلات الراتب (مكافآت / خصومات / تحديث الراتب الأساسي)</label>
+                        ${e.adjustments && e.adjustments.length ? `
+                        <div class="table-wrap" style="max-height:200px;overflow-y:auto;">
+                            <table class="table">
+                                <thead><tr><th>النوع</th><th>الشفت</th><th>المبلغ</th><th>الشهر</th><th>بواسطة</th><th>ملاحظة</th></tr></thead>
+                                <tbody>
+                                    ${e.adjustments.map(a => `
+                                        <tr>
+                                            <td>${a.type}</td>
+                                            <td>${a.shiftPeriod}</td>
+                                            <td style="color:${a.type === 'خصم' ? '#DC2626' : '#059669'};">${Number(a.amount).toLocaleString()}</td>
+                                            <td>${a.period}</td>
+                                            <td>${a.byName}</td>
+                                            <td style="font-size:11px;color:var(--text-muted);">${a.note || '-'}</td>
+                                        </tr>
+                                    `).join('')}
+                                </tbody>
+                            </table>
+                        </div>
+                        ` : '<div style="font-size:12px;color:var(--text-muted);">لا توجد تعديلات مسجلة على راتب هذا الموظف</div>'}
                     </div>
 
                     <div style="background:rgba(0,107,115,0.04);border-radius:10px;padding:14px;margin-bottom:18px;">

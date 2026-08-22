@@ -496,12 +496,16 @@ if (isset($_GET['ajax'])) {
         }
 
         case 'my_requests': {
+            $meHasEveningStmt = $pdo->prepare("SELECT has_evening_shift FROM employees WHERE id=?");
+            $meHasEveningStmt->execute([$employeeId]);
+            $meHasEveningShift = (bool) $meHasEveningStmt->fetchColumn();
             $stmt = $pdo->prepare("SELECT * FROM requests WHERE employee_id=? ORDER BY created_at DESC LIMIT 50");
             $stmt->execute([$employeeId]);
-            $rows = array_map(function ($r) {
+            $rows = array_map(function ($r) use ($meHasEveningShift) {
                 $details = $r['details'];
                 if ($r['type'] === 'advance' && $r['amount']) {
-                    $details = number_format((float) $r['amount']) . ' د.ع';
+                    $shiftLabel = $meHasEveningShift ? ($r['shift_period'] === 'evening' ? ' (تُخصم من الشفت المسائي)' : ' (تُخصم من الشفت الصباحي)') : '';
+                    $details = number_format((float) $r['amount']) . ' د.ع' . $shiftLabel;
                 } elseif (in_array($r['type'], ['leave', 'resignation'], true) && $r['date_from']) {
                     $details = $r['date_from'] . ' إلى ' . $r['date_to'];
                 }
@@ -591,6 +595,9 @@ if (isset($_GET['ajax'])) {
                     echo json_encode(['ok' => false, 'error' => 'الرجاء تعبئة جميع الحقول المطلوبة']);
                     exit;
                 }
+                $empShiftCheck = $pdo->prepare("SELECT has_evening_shift FROM employees WHERE id=?");
+                $empShiftCheck->execute([$employeeId]);
+                $shiftPeriod = ((bool) $empShiftCheck->fetchColumn() && ($_POST['shiftPeriod'] ?? '') === 'evening') ? 'evening' : 'morning';
             } elseif ($type === 'complaint') {
                 $title = trim($_POST['complaintTitle'] ?? '');
                 $details = $title . ($details ? (' — ' . $details) : '');
@@ -609,9 +616,9 @@ if (isset($_GET['ajax'])) {
                 }
             }
 
-            $stmt = $pdo->prepare("INSERT INTO requests (employee_id, branch_id, type, requested_by_role, details, amount, date_from, date_to, leave_unit, leave_amount, status)
-                VALUES (?, ?, ?, 'employee', ?, ?, ?, ?, ?, ?, 'pending')");
-            $stmt->execute([$employeeId, $branchId, $type, $details, $amount, $dateFrom, $dateTo, $leaveUnit, $leaveAmount]);
+            $stmt = $pdo->prepare("INSERT INTO requests (employee_id, branch_id, type, requested_by_role, details, amount, date_from, date_to, leave_unit, leave_amount, shift_period, status)
+                VALUES (?, ?, ?, 'employee', ?, ?, ?, ?, ?, ?, ?, 'pending')");
+            $stmt->execute([$employeeId, $branchId, $type, $details, $amount, $dateFrom, $dateTo, $leaveUnit, $leaveAmount, $type === 'advance' ? $shiftPeriod : null]);
 
             $mgrUids = $pdo->prepare("SELECT id FROM users WHERE role='branch_manager' AND branch_id=?");
             $mgrUids->execute([$branchId]);
@@ -4294,6 +4301,15 @@ try {
                             <option value="12">12 دفعة</option>
                         </select>
                     </div>
+                    ${hasEveningShift ? `
+                    <div class="form-group">
+                        <label>الشفت الذي سيُخصم منه القسط الشهري</label>
+                        <select id="reqLoanShift">
+                            <option value="morning">الشفت الصباحي</option>
+                            <option value="evening">الشفت المسائي</option>
+                        </select>
+                    </div>
+                    ` : ''}
                     <div class="form-group">
                         <label>السبب <span class="required">*</span></label>
                         <textarea id="reqReason" placeholder="اكتب سبب طلب السلفة..." required></textarea>
@@ -4380,6 +4396,7 @@ try {
                 params.loanAmount = val('reqLoanAmount');
                 params.installments = val('reqLoanInstallments');
                 params.notes = val('reqNotes');
+                params.shiftPeriod = val('reqLoanShift') || 'morning';
             } else if (type === 'شكوى') {
                 params.complaintTitle = val('reqComplaintTitle');
             } else if (type === 'استقالة') {
