@@ -25,6 +25,7 @@ function install_schema(PDO $pdo): void
             usd_exchange_rate DECIMAL(10,2) NOT NULL DEFAULT 0,
             late_grace_minutes INT NOT NULL DEFAULT 15,
             late_deduction_per_hour DECIMAL(10,2) NOT NULL DEFAULT 0,
+            absence_deduction_amount DECIMAL(10,2) NOT NULL DEFAULT 0,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4",
@@ -98,6 +99,9 @@ function install_schema(PDO $pdo): void
             check_in TIME DEFAULT NULL,
             check_out TIME DEFAULT NULL,
             status ENUM('present','late','absent') NOT NULL DEFAULT 'present',
+            deduction_status ENUM('pending','approved','waived') NOT NULL DEFAULT 'pending',
+            deduction_reviewed_by INT DEFAULT NULL,
+            deduction_reviewed_at TIMESTAMP NULL DEFAULT NULL,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             UNIQUE KEY uniq_emp_date_period (employee_id, attendance_date, shift_period),
             CONSTRAINT fk_att_employee FOREIGN KEY (employee_id) REFERENCES employees(id) ON DELETE CASCADE,
@@ -324,10 +328,29 @@ function install_schema(PDO $pdo): void
             UNIQUE KEY uniq_emp_period_honorreq (employee_id, period_month, period_year),
             CONSTRAINT fk_honorreq_employee FOREIGN KEY (employee_id) REFERENCES employees(id) ON DELETE CASCADE
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4",
+
+        'gm_announcements' => "CREATE TABLE IF NOT EXISTS gm_announcements (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            title VARCHAR(150) NOT NULL,
+            message TEXT NOT NULL,
+            target_all_branches TINYINT(1) NOT NULL DEFAULT 0,
+            target_hr TINYINT(1) NOT NULL DEFAULT 0,
+            created_by INT DEFAULT NULL,
+            created_by_name VARCHAR(100) DEFAULT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4",
+
+        'gm_announcement_branches' => "CREATE TABLE IF NOT EXISTS gm_announcement_branches (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            announcement_id INT NOT NULL,
+            branch_id INT NOT NULL,
+            CONSTRAINT fk_annb_announcement FOREIGN KEY (announcement_id) REFERENCES gm_announcements(id) ON DELETE CASCADE,
+            CONSTRAINT fk_annb_branch FOREIGN KEY (branch_id) REFERENCES branches(id) ON DELETE CASCADE
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4",
     ];
 
     // الترتيب مهم بسبب المفاتيح الأجنبية
-    foreach (['settings', 'branches', 'employees', 'users', 'attendance', 'payroll', 'requests', 'daily_ledger', 'delegations', 'daily_briefs', 'exchange_rate_history', 'notifications', 'payroll_windows', 'payroll_adjustments', 'error_log', 'holidays', 'branch_ratings', 'traveler_complaints', 'audit_log', 'honor_roll', 'monthly_honor_requests'] as $table) {
+    foreach (['settings', 'branches', 'employees', 'users', 'attendance', 'payroll', 'requests', 'daily_ledger', 'delegations', 'daily_briefs', 'exchange_rate_history', 'notifications', 'payroll_windows', 'payroll_adjustments', 'error_log', 'holidays', 'branch_ratings', 'traveler_complaints', 'audit_log', 'honor_roll', 'monthly_honor_requests', 'gm_announcements', 'gm_announcement_branches'] as $table) {
         $pdo->exec($tables[$table]);
     }
 }

@@ -117,6 +117,43 @@ function brief_overall_status(string $hrDecision, string $gmDecision): string
     return 'pending';
 }
 
+/** يحسب إجمالي خصم التأخير والغياب لموظف عن شهر وشفت معيّنين، مستبعِداً أي سجل أُلغي خصمه (deduction_status='waived') */
+function compute_month_deduction(PDO $pdo, int $employeeId, ?string $shiftStartTime, string $period, int $month, int $year): float
+{
+    $settingsRow = $pdo->query("SELECT late_grace_minutes, late_deduction_per_hour, absence_deduction_amount, work_start_time FROM settings ORDER BY id DESC LIMIT 1")->fetch();
+    if (!$settingsRow) return 0.0;
+    if ($shiftStartTime) { $settingsRow['work_start_time'] = $shiftStartTime; }
+    $monthStart = sprintf('%04d-%02d-01', $year, $month);
+    $total = 0.0;
+
+    if ((float) $settingsRow['late_deduction_per_hour'] > 0 && $settingsRow['work_start_time']) {
+        $lateStmt = $pdo->prepare("SELECT check_in FROM attendance WHERE employee_id=? AND shift_period=? AND status='late' AND deduction_status != 'waived' AND attendance_date >= ? AND attendance_date < DATE_ADD(?, INTERVAL 1 MONTH)");
+        $lateStmt->execute([$employeeId, $period, $monthStart, $monthStart]);
+        $grace = (int) $settingsRow['late_grace_minutes'];
+        $deadline = strtotime($settingsRow['work_start_time']) + $grace * 60;
+        $lateMinutes = 0;
+        foreach ($lateStmt->fetchAll(PDO::FETCH_COLUMN) as $checkIn) {
+            if (!$checkIn) continue;
+            $diff = (strtotime($checkIn) - $deadline) / 60;
+            if ($diff > 0) $lateMinutes += $diff;
+        }
+        if ($lateMinutes > 0) {
+            $total += ceil($lateMinutes / 60) * (float) $settingsRow['late_deduction_per_hour'];
+        }
+    }
+
+    if ((float) $settingsRow['absence_deduction_amount'] > 0) {
+        $absentStmt = $pdo->prepare("SELECT COUNT(*) FROM attendance WHERE employee_id=? AND shift_period=? AND status='absent' AND deduction_status != 'waived' AND attendance_date >= ? AND attendance_date < DATE_ADD(?, INTERVAL 1 MONTH)");
+        $absentStmt->execute([$employeeId, $period, $monthStart, $monthStart]);
+        $absentCount = (int) $absentStmt->fetchColumn();
+        if ($absentCount > 0) {
+            $total += $absentCount * (float) $settingsRow['absence_deduction_amount'];
+        }
+    }
+
+    return $total;
+}
+
 function log_error(PDO $pdo, string $action, ?string $role, ?int $userId, string $message): void
 {
     try {
@@ -264,7 +301,7 @@ if (isset($_GET['ajax'])) {
     }
     $gmUser = $_SESSION['gm_user'];
     $isShareholder = $gmUser['role'] === 'shareholder';
-    $gmOnlyActions = ['brief_final_review', 'payroll_window_open', 'payroll_window_close', 'shareholders_list', 'shareholder_create', 'shareholder_toggle', 'payroll_adjustment_add', 'gm_accounts_list', 'gm_account_create', 'gm_account_toggle', 'audit_log_list', 'honor_requests_list', 'honor_request_review', 'attendance_board_list', 'mgr_requests_list', 'mgr_request_review', 'holidays_list', 'holiday_add', 'holiday_delete', 'ratings_overview', 'ratings_branch_detail', 'complaints_list', 'complaint_mark_reviewed'];
+    $gmOnlyActions = ['brief_final_review', 'payroll_window_open', 'payroll_window_close', 'shareholders_list', 'shareholder_create', 'shareholder_toggle', 'payroll_adjustment_add', 'gm_accounts_list', 'gm_account_create', 'gm_account_toggle', 'audit_log_list', 'honor_requests_list', 'honor_request_review', 'attendance_board_list', 'mgr_requests_list', 'mgr_request_review', 'holidays_list', 'holiday_add', 'holiday_delete', 'ratings_overview', 'ratings_branch_detail', 'complaints_list', 'complaint_mark_reviewed', 'deductions_list', 'deduction_review', 'announcement_send', 'announcements_sent_list'];
     if ($isShareholder && in_array($action, $gmOnlyActions, true)) {
         http_response_code(403);
         echo json_encode(['ok' => false, 'error' => 'هذه الصلاحية متاحة للمسؤول العام فقط']);
@@ -629,6 +666,180 @@ if (isset($_GET['ajax'])) {
             $pdo->prepare("UPDATE traveler_complaints SET status='reviewed' WHERE id=?")->execute([$id]);
             audit_log_write($pdo, $gmUser['role'], $gmUser['displayName'] ?? $gmUser['username'], $gmUser['employeeNumber'] ?? null, 'complaint_reviewed', 'راجع المسؤول العام شكوى مسافر (رقم ' . $id . ')');
             echo json_encode(['ok' => true]);
+            exit;
+        }
+
+        case 'deductions_list': {
+            $month = (int) ($_GET['month'] ?? date('n'));
+            $year = (int) ($_GET['year'] ?? date('Y'));
+            $monthStart = sprintf('%04d-%02d-01', $year, $month);
+            $settingsRow = $pdo->query("SELECT late_grace_minutes, late_deduction_per_hour, absence_deduction_amount, work_start_time FROM settings ORDER BY id DESC LIMIT 1")->fetch();
+            $stmt = $pdo->prepare("
+                SELECT a.id, a.employee_id, a.branch_id, a.attendance_date, a.shift_period, a.check_in, a.status,
+                       a.deduction_status, a.deduction_reviewed_at,
+                       e.full_name, e.employee_number, e.is_branch_manager, e.shift_start, e.evening_shift_start,
+                       b.name AS branch_name
+                FROM attendance a
+                JOIN employees e ON e.id = a.employee_id
+                JOIN branches b ON b.id = a.branch_id
+                WHERE a.status IN ('late','absent') AND a.attendance_date >= ? AND a.attendance_date < DATE_ADD(?, INTERVAL 1 MONTH)
+                ORDER BY a.attendance_date DESC, a.id DESC
+            ");
+            $stmt->execute([$monthStart, $monthStart]);
+            $statusMap = ['pending' => 'قيد الانتظار', 'approved' => 'تم اعتماد الخصم', 'waived' => 'أُلغي الخصم'];
+            $rows = array_map(function ($r) use ($settingsRow, $statusMap) {
+                $amount = 0.0;
+                if ($r['status'] === 'late') {
+                    $shiftStart = $r['shift_period'] === 'evening' ? $r['evening_shift_start'] : $r['shift_start'];
+                    $workStart = $shiftStart ?: ($settingsRow['work_start_time'] ?? null);
+                    if ($workStart && $r['check_in'] && (float) $settingsRow['late_deduction_per_hour'] > 0) {
+                        $grace = (int) $settingsRow['late_grace_minutes'];
+                        $deadline = strtotime($workStart) + $grace * 60;
+                        $diff = (strtotime($r['check_in']) - $deadline) / 60;
+                        if ($diff > 0) {
+                            $amount = ceil($diff / 60) * (float) $settingsRow['late_deduction_per_hour'];
+                        }
+                    }
+                } else {
+                    $amount = (float) $settingsRow['absence_deduction_amount'];
+                }
+                return [
+                    'id' => (int) $r['id'],
+                    'employeeName' => $r['full_name'],
+                    'employeeNumber' => $r['employee_number'],
+                    'isBranchManager' => (bool) $r['is_branch_manager'],
+                    'branchName' => $r['branch_name'],
+                    'date' => $r['attendance_date'],
+                    'dateText' => date('d/m/Y', strtotime($r['attendance_date'])),
+                    'shiftPeriod' => $r['shift_period'],
+                    'status' => $r['status'],
+                    'statusText' => $r['status'] === 'late' ? 'تأخر عن الدوام' : 'غياب',
+                    'amount' => $amount,
+                    'deductionStatus' => $r['deduction_status'],
+                    'deductionStatusText' => $statusMap[$r['deduction_status']] ?? $r['deduction_status'],
+                ];
+            }, $stmt->fetchAll());
+            echo json_encode(['ok' => true, 'deductions' => $rows], JSON_UNESCAPED_UNICODE);
+            exit;
+        }
+
+        case 'deduction_review': {
+            $id = (int) ($_POST['id'] ?? 0);
+            $decision = in_array($_POST['decision'] ?? '', ['approved', 'waived'], true) ? $_POST['decision'] : null;
+            if (!$id || !$decision) {
+                echo json_encode(['ok' => false, 'error' => 'بيانات غير صحيحة']);
+                exit;
+            }
+            $att = $pdo->prepare("SELECT a.*, e.full_name, e.branch_id AS emp_branch_id FROM attendance a JOIN employees e ON e.id = a.employee_id WHERE a.id=?");
+            $att->execute([$id]);
+            $att = $att->fetch();
+            if (!$att) {
+                echo json_encode(['ok' => false, 'error' => 'السجل غير موجود']);
+                exit;
+            }
+            $pdo->prepare("UPDATE attendance SET deduction_status=?, deduction_reviewed_by=?, deduction_reviewed_at=NOW() WHERE id=?")
+                ->execute([$decision, $gmUser['id'], $id]);
+
+            $month = (int) date('n', strtotime($att['attendance_date']));
+            $year = (int) date('Y', strtotime($att['attendance_date']));
+            $empStmt = $pdo->prepare("SELECT shift_start, evening_shift_start FROM employees WHERE id=?");
+            $empStmt->execute([$att['employee_id']]);
+            $empRow = $empStmt->fetch();
+            $shiftStart = $att['shift_period'] === 'evening' ? ($empRow['evening_shift_start'] ?? null) : ($empRow['shift_start'] ?? null);
+            $payrollRow = $pdo->prepare("SELECT id, deduction, late_deduction FROM payroll WHERE employee_id=? AND period_month=? AND period_year=? AND shift_period=? AND status='delivered'");
+            $payrollRow->execute([$att['employee_id'], $month, $year, $att['shift_period']]);
+            $payrollRow = $payrollRow->fetch();
+            if ($payrollRow) {
+                $newDeduction = compute_month_deduction($pdo, (int) $att['employee_id'], $shiftStart, $att['shift_period'], $month, $year);
+                $oldDeduction = (float) $payrollRow['late_deduction'];
+                if ($newDeduction !== $oldDeduction) {
+                    $newTotal = max(0, (float) $payrollRow['deduction'] - $oldDeduction + $newDeduction);
+                    $pdo->prepare("UPDATE payroll SET deduction=?, late_deduction=? WHERE id=?")
+                        ->execute([$newTotal, $newDeduction, $payrollRow['id']]);
+                }
+            }
+
+            $decisionText = $decision === 'waived' ? 'تم إلغاء' : 'تم اعتماد';
+            $reasonText = $att['status'] === 'late' ? 'خصم التأخير' : 'خصم الغياب';
+            $msg = $decisionText . ' ' . $reasonText . ' ليوم ' . date('d/m/Y', strtotime($att['attendance_date'])) . ' الخاص بـ ' . $att['full_name'];
+            $notifyUsers = $pdo->prepare("SELECT id FROM users WHERE employee_id=? UNION SELECT id FROM users WHERE branch_id=? AND role='branch_manager' UNION SELECT id FROM users WHERE role='hr'");
+            $notifyUsers->execute([$att['employee_id'], $att['emp_branch_id']]);
+            foreach ($notifyUsers->fetchAll(PDO::FETCH_COLUMN) as $uid) {
+                $pdo->prepare("INSERT INTO notifications (user_id, title, message) VALUES (?, 'مراجعة خصم تأخير/غياب', ?)")->execute([$uid, $msg]);
+            }
+            audit_log_write($pdo, $gmUser['role'], $gmUser['displayName'] ?? $gmUser['username'], $gmUser['employeeNumber'] ?? null, 'deduction_review', $msg);
+            echo json_encode(['ok' => true]);
+            exit;
+        }
+
+        case 'announcement_send': {
+            $title = trim($_POST['title'] ?? '');
+            $message = trim($_POST['message'] ?? '');
+            $targetAll = ($_POST['targetAll'] ?? '0') === '1';
+            $targetHr = ($_POST['targetHr'] ?? '0') === '1';
+            $branchIds = array_filter(array_map('intval', explode(',', $_POST['branchIds'] ?? '')));
+            if ($title === '' || $message === '') {
+                echo json_encode(['ok' => false, 'error' => 'الرجاء تعبئة عنوان التبليغ ونصه']);
+                exit;
+            }
+            if (!$targetAll && !$targetHr && empty($branchIds)) {
+                echo json_encode(['ok' => false, 'error' => 'الرجاء تحديد جهة استلام واحدة على الأقل']);
+                exit;
+            }
+            $pdo->prepare("INSERT INTO gm_announcements (title, message, target_all_branches, target_hr, created_by, created_by_name) VALUES (?, ?, ?, ?, ?, ?)")
+                ->execute([$title, $message, $targetAll ? 1 : 0, $targetHr ? 1 : 0, $gmUser['id'], $gmUser['displayName'] ?? $gmUser['username']]);
+            $annId = (int) $pdo->lastInsertId();
+            if (!$targetAll && !empty($branchIds)) {
+                $insBranch = $pdo->prepare("INSERT INTO gm_announcement_branches (announcement_id, branch_id) VALUES (?, ?)");
+                foreach ($branchIds as $bid) {
+                    $insBranch->execute([$annId, $bid]);
+                }
+            }
+
+            $recipientUserIds = [];
+            if ($targetAll) {
+                $recipientUserIds = $pdo->query("SELECT id FROM users WHERE role='branch_manager'")->fetchAll(PDO::FETCH_COLUMN);
+            } elseif (!empty($branchIds)) {
+                $in = implode(',', array_fill(0, count($branchIds), '?'));
+                $branchMgrStmt = $pdo->prepare("SELECT id FROM users WHERE role='branch_manager' AND branch_id IN ($in)");
+                $branchMgrStmt->execute($branchIds);
+                $recipientUserIds = $branchMgrStmt->fetchAll(PDO::FETCH_COLUMN);
+            }
+            if ($targetHr) {
+                $hrIds = $pdo->query("SELECT id FROM users WHERE role='hr'")->fetchAll(PDO::FETCH_COLUMN);
+                $recipientUserIds = array_merge($recipientUserIds, $hrIds);
+            }
+            $notifTitle = 'تبليغ من المسؤول العام: ' . $title;
+            $notifMsg = mb_substr($message, 0, 250);
+            foreach (array_unique($recipientUserIds) as $uid) {
+                $pdo->prepare("INSERT INTO notifications (user_id, title, message) VALUES (?, ?, ?)")->execute([$uid, $notifTitle, $notifMsg]);
+            }
+            audit_log_write($pdo, $gmUser['role'], $gmUser['displayName'] ?? $gmUser['username'], $gmUser['employeeNumber'] ?? null, 'announcement_send', 'أرسل تبليغاً بعنوان "' . $title . '"');
+            echo json_encode(['ok' => true]);
+            exit;
+        }
+
+        case 'announcements_sent_list': {
+            $rows = $pdo->query("SELECT id, title, message, target_all_branches, target_hr, created_at FROM gm_announcements ORDER BY created_at DESC LIMIT 50")->fetchAll();
+            $branchNamesStmt = $pdo->prepare("SELECT b.name FROM gm_announcement_branches gb JOIN branches b ON b.id = gb.branch_id WHERE gb.announcement_id = ?");
+            $rows = array_map(function ($r) use ($branchNamesStmt) {
+                if ($r['target_all_branches']) {
+                    $targetText = 'جميع الفروع';
+                } else {
+                    $branchNamesStmt->execute([$r['id']]);
+                    $names = $branchNamesStmt->fetchAll(PDO::FETCH_COLUMN);
+                    $targetText = $names ? implode('، ', $names) : 'لا يوجد';
+                }
+                if ($r['target_hr']) $targetText .= ' + الموارد البشرية';
+                return [
+                    'id' => (int) $r['id'],
+                    'title' => $r['title'],
+                    'message' => $r['message'],
+                    'targetText' => $targetText,
+                    'dateText' => date('d/m/Y H:i', strtotime($r['created_at'])),
+                ];
+            }, $rows);
+            echo json_encode(['ok' => true, 'announcements' => $rows], JSON_UNESCAPED_UNICODE);
             exit;
         }
 
@@ -1644,6 +1855,13 @@ try {
                 <button class="nav-item" id="sidenav-ratings" onclick="switchTab('ratings')">
                     <i class="fas fa-star"></i> تقييمات الفروع
                 </button>
+                <button class="nav-item" id="sidenav-deductions" onclick="switchTab('deductions')">
+                    <i class="fas fa-minus-circle"></i> الخصومات
+                    <span class="badge" id="deductionsNavBadge" style="display:none;">0</span>
+                </button>
+                <button class="nav-item" id="sidenav-announcements" onclick="switchTab('announcements')">
+                    <i class="fas fa-bullhorn"></i> التبليغات
+                </button>
                 <button class="nav-item" id="sidenav-notifications" onclick="switchTab('notifications')">
                     <i class="fas fa-bell"></i> الإشعارات
                     <span class="badge" id="notifNavBadge" style="display:none;">0</span>
@@ -1852,6 +2070,41 @@ try {
                 </div>
                 <div id="ratingsSubView-ratings"></div>
                 <div id="ratingsSubView-complaints" class="hidden"></div>
+            </div>
+            <div id="view-deductions" class="hidden">
+                <div class="brief-card">
+                    <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;">
+                        <h4 style="margin:0;"><i class="fas fa-minus-circle"></i> الخصومات (تأخير وغياب)</h4>
+                        <input type="month" id="deductionsMonth" style="height:36px;padding:0 10px;border:1.5px solid #e2ebeb;border-radius:8px;font-family:var(--font-family);" onchange="loadDeductions()">
+                    </div>
+                </div>
+                <div id="deductionsList"></div>
+            </div>
+            <div id="view-announcements" class="hidden">
+                <div class="brief-card">
+                    <h4 style="margin-bottom:10px;"><i class="fas fa-paper-plane"></i> إرسال تبليغ جديد</h4>
+                    <div class="form-group"><label style="font-size:12px;">عنوان التبليغ</label>
+                        <input type="text" id="annTitle" placeholder="مثال: تنبيه هام" style="width:100%;height:38px;padding:0 10px;border:1.5px solid #e2ebeb;border-radius:8px;font-family:var(--font-family);box-sizing:border-box;">
+                    </div>
+                    <div class="form-group"><label style="font-size:12px;">نص التبليغ</label>
+                        <textarea id="annMessage" rows="3" placeholder="اكتب نص التبليغ هنا..." style="width:100%;padding:10px;border:1.5px solid #e2ebeb;border-radius:8px;font-family:var(--font-family);box-sizing:border-box;resize:vertical;"></textarea>
+                    </div>
+                    <div class="form-group">
+                        <label style="font-size:12px;display:flex;align-items:center;gap:6px;"><input type="checkbox" id="annTargetAll" onchange="toggleAnnBranchList()"> جميع الفروع</label>
+                    </div>
+                    <div id="annBranchListWrap" class="form-group">
+                        <label style="font-size:12px;">أو حدّد فروعاً معينة</label>
+                        <div id="annBranchList" style="display:flex;flex-wrap:wrap;gap:8px;max-height:140px;overflow-y:auto;padding:8px;border:1.5px solid #e2ebeb;border-radius:8px;"></div>
+                    </div>
+                    <div class="form-group">
+                        <label style="font-size:12px;display:flex;align-items:center;gap:6px;"><input type="checkbox" id="annTargetHr"> شمول الموارد البشرية (HR)</label>
+                    </div>
+                    <button class="btn" onclick="sendAnnouncement()"><i class="fas fa-paper-plane"></i> إرسال التبليغ</button>
+                </div>
+                <div class="brief-card">
+                    <h4 style="margin-bottom:10px;"><i class="fas fa-history"></i> آخر التبليغات المُرسلة</h4>
+                </div>
+                <div id="announcementsSentList"></div>
             </div>
             <div id="view-notifications" class="hidden">
                 <div class="brief-card">
@@ -2345,12 +2598,14 @@ try {
         mgrRequests: { title: 'طلبات مسؤولي الفروع', sub: 'سلفة، استقالة، مستلزمات، إجازة — تصلك مباشرة دون المرور بالموارد البشرية', icon: 'fa-envelope-open-text' },
         holidays: { title: 'إدارة العطل', sub: 'تحديد أيام العطل الرسمية للفروع — الجمعة عطلة أسبوعية تلقائية للجميع', icon: 'fa-umbrella-beach' },
         ratings: { title: 'تقييمات الفروع', sub: 'تقييمات ورسائل المسافرين لكل فرع، وشكاوى المسافرين', icon: 'fa-star' },
+        deductions: { title: 'الخصومات', sub: 'مراجعة خصومات التأخير والغياب واعتمادها أو إلغاؤها', icon: 'fa-minus-circle' },
+        announcements: { title: 'التبليغات', sub: 'إرسال تبليغات لمسؤولي الفروع والموارد البشرية ومتابعة آخر ما أُرسل', icon: 'fa-bullhorn' },
         notifications: { title: 'الإشعارات', sub: 'كل إشعاراتك في مكان واحد', icon: 'fa-bell' },
         control: { title: 'لوحة تحكم', sub: 'نظرة عامة على أداء الشركة', icon: 'fa-chart-pie' },
     };
 
     function switchTab(tab, autoOpenLatestPending) {
-        ['pending', 'history', 'branches', 'payroll', 'payrollWindow', 'reports', 'shareholders', 'audit', 'attendanceBoard', 'mgrRequests', 'holidays', 'ratings', 'notifications', 'control'].forEach(t => {
+        ['pending', 'history', 'branches', 'payroll', 'payrollWindow', 'reports', 'shareholders', 'audit', 'attendanceBoard', 'mgrRequests', 'holidays', 'ratings', 'deductions', 'announcements', 'notifications', 'control'].forEach(t => {
             document.getElementById('sidenav-' + t).classList.toggle('active', t === tab);
             document.getElementById('view-' + t).classList.toggle('hidden', t !== tab);
         });
@@ -2373,6 +2628,8 @@ try {
         else if (tab === 'mgrRequests') loadMgrRequests();
         else if (tab === 'holidays') loadHolidays();
         else if (tab === 'ratings') switchRatingsSubTab(ratingsSubTab);
+        else if (tab === 'deductions') loadDeductions();
+        else if (tab === 'announcements') { loadAnnBranchList(); loadAnnouncementsSent(); }
         else if (tab === 'notifications') loadNotifPage();
         else if (tab === 'control') loadControlData();
     }
@@ -3001,6 +3258,130 @@ try {
                 loadHolidays();
             }).catch(() => showToast('❌ خطأ', 'تعذر الاتصال بالخادم', 'error'));
         });
+    }
+
+    // ============================================================
+    // الخصومات (مراجعة خصومات التأخير والغياب)
+    // ============================================================
+    function loadDeductions() {
+        const input = document.getElementById('deductionsMonth');
+        if (input && !input.value) {
+            const now = new Date();
+            input.value = now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0');
+        }
+        let url = '?ajax=deductions_list';
+        if (input && input.value) {
+            const [y, m] = input.value.split('-');
+            url += '&year=' + y + '&month=' + parseInt(m, 10);
+        }
+        fetch(url).then(r => r.json()).then(data => {
+            if (!data.ok) return;
+            const view = document.getElementById('deductionsList');
+            const pendingCount = data.deductions.filter(d => d.deductionStatus === 'pending').length;
+            const navBadge = document.getElementById('deductionsNavBadge');
+            if (navBadge) {
+                navBadge.style.display = pendingCount > 0 ? 'inline-block' : 'none';
+                navBadge.textContent = pendingCount;
+            }
+            if (!data.deductions.length) {
+                view.innerHTML = '<div class="empty-state"><i class="fas fa-minus-circle"></i><p>لا توجد حالات تأخير أو غياب هذا الشهر</p></div>';
+                return;
+            }
+            view.innerHTML = data.deductions.map(d => `
+                <div class="brief-card">
+                    <div class="brief-top">
+                        <span class="branch"><i class="fas fa-building"></i> ${d.branchName}</span>
+                        <span class="date">${d.dateText}</span>
+                    </div>
+                    <div style="font-size:13px;margin:6px 0;">
+                        <b>${d.employeeName}</b>${d.isBranchManager ? ' <span class="badge">مدير فرع</span>' : ''}
+                        — <span style="color:${d.status === 'late' ? '#B58500' : '#DC2626'};">${d.statusText}</span>
+                        — خصم <b>${Number(d.amount).toLocaleString()} د.ع</b>
+                        <span style="color:var(--text-muted);font-size:11px;"> (${d.deductionStatusText})</span>
+                    </div>
+                    <div class="brief-actions">
+                        <button class="btn small" style="${d.deductionStatus === 'approved' ? '' : 'opacity:0.55;'}" onclick="reviewDeduction(${d.id}, 'approved')"><i class="fas fa-check"></i> اعتماد الخصم</button>
+                        <button class="btn small red" style="${d.deductionStatus === 'waived' ? '' : 'opacity:0.55;'}" onclick="reviewDeduction(${d.id}, 'waived')"><i class="fas fa-ban"></i> إلغاء الخصم</button>
+                    </div>
+                </div>
+            `).join('');
+        }).catch(() => {});
+    }
+
+    function reviewDeduction(id, decision) {
+        fetch('?ajax=deduction_review', { method: 'POST', body: new URLSearchParams({ id, decision }) }).then(r => r.json()).then(data => {
+            if (!data.ok) { showToast('⚠️ خطأ', data.error || 'تعذر تنفيذ العملية', 'error'); loadDeductions(); return; }
+            showToast(decision === 'waived' ? '🚫 تم الإلغاء' : '✅ تم الاعتماد', decision === 'waived' ? 'تم إلغاء الخصم' : 'تم اعتماد الخصم', 'success');
+            loadDeductions();
+        }).catch(() => showToast('❌ خطأ', 'تعذر الاتصال بالخادم', 'error'));
+    }
+
+    // ============================================================
+    // التبليغات (إرسال ومتابعة تبليغات المسؤول العام)
+    // ============================================================
+    function loadAnnBranchList() {
+        fetch('?ajax=branches_overview').then(r => r.json()).then(data => {
+            if (!data.ok) return;
+            const wrap = document.getElementById('annBranchList');
+            wrap.innerHTML = data.branches.map(b => `
+                <label style="display:flex;align-items:center;gap:5px;font-size:12px;background:rgba(0,107,115,0.05);padding:5px 10px;border-radius:6px;">
+                    <input type="checkbox" class="ann-branch-cb" value="${b.id}"> ${b.name}
+                </label>
+            `).join('');
+        }).catch(() => {});
+    }
+
+    function toggleAnnBranchList() {
+        const targetAll = document.getElementById('annTargetAll').checked;
+        document.getElementById('annBranchListWrap').style.display = targetAll ? 'none' : 'block';
+    }
+
+    function sendAnnouncement() {
+        const title = document.getElementById('annTitle').value.trim();
+        const message = document.getElementById('annMessage').value.trim();
+        const targetAll = document.getElementById('annTargetAll').checked;
+        const targetHr = document.getElementById('annTargetHr').checked;
+        const branchIds = Array.from(document.querySelectorAll('.ann-branch-cb:checked')).map(cb => cb.value);
+        if (!title || !message) { showToast('⚠️ تنبيه', 'الرجاء تعبئة عنوان التبليغ ونصه', 'warning'); return; }
+        if (!targetAll && !targetHr && !branchIds.length) { showToast('⚠️ تنبيه', 'الرجاء تحديد جهة استلام واحدة على الأقل', 'warning'); return; }
+        const fd = new FormData();
+        fd.append('title', title);
+        fd.append('message', message);
+        fd.append('targetAll', targetAll ? '1' : '0');
+        fd.append('targetHr', targetHr ? '1' : '0');
+        fd.append('branchIds', branchIds.join(','));
+        fetch('?ajax=announcement_send', { method: 'POST', body: fd }).then(r => r.json()).then(data => {
+            if (!data.ok) { showToast('⚠️ خطأ', data.error || 'تعذر إرسال التبليغ', 'error'); return; }
+            showToast('✅ تم الإرسال', 'تم إرسال التبليغ بنجاح', 'success');
+            document.getElementById('annTitle').value = '';
+            document.getElementById('annMessage').value = '';
+            document.getElementById('annTargetAll').checked = false;
+            document.getElementById('annTargetHr').checked = false;
+            document.querySelectorAll('.ann-branch-cb').forEach(cb => cb.checked = false);
+            toggleAnnBranchList();
+            loadAnnouncementsSent();
+        }).catch(() => showToast('❌ خطأ', 'تعذر الاتصال بالخادم', 'error'));
+    }
+
+    function loadAnnouncementsSent() {
+        fetch('?ajax=announcements_sent_list').then(r => r.json()).then(data => {
+            if (!data.ok) return;
+            const view = document.getElementById('announcementsSentList');
+            if (!data.announcements.length) {
+                view.innerHTML = '<div class="empty-state"><i class="fas fa-bullhorn"></i><p>لم يتم إرسال أي تبليغ بعد</p></div>';
+                return;
+            }
+            view.innerHTML = data.announcements.map(a => `
+                <div class="brief-card">
+                    <div class="brief-top">
+                        <span class="branch"><i class="fas fa-bullhorn"></i> ${a.title}</span>
+                        <span class="date">${a.dateText}</span>
+                    </div>
+                    <div style="font-size:13px;margin:6px 0;white-space:pre-wrap;">${a.message}</div>
+                    <div style="font-size:11px;color:var(--text-muted);"><i class="fas fa-users"></i> ${a.targetText}</div>
+                </div>
+            `).join('');
+        }).catch(() => {});
     }
 
     let ratingsSubTab = 'ratings';

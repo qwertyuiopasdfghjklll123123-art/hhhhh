@@ -464,6 +464,44 @@ function migration_steps(): array
             'needed' => fn(PDO $pdo) => table_exists($pdo, 'traveler_complaints') && !column_exists($pdo, 'traveler_complaints', 'phone'),
             'run' => fn(PDO $pdo) => $pdo->exec("ALTER TABLE traveler_complaints ADD COLUMN phone VARCHAR(30) DEFAULT NULL AFTER details"),
         ],
+        [
+            'label' => 'إضافة قيمة خصم الغياب إلى إعدادات النظام',
+            'needed' => fn(PDO $pdo) => !column_exists($pdo, 'settings', 'absence_deduction_amount'),
+            'run' => fn(PDO $pdo) => $pdo->exec("ALTER TABLE settings ADD COLUMN absence_deduction_amount DECIMAL(10,2) NOT NULL DEFAULT 0 AFTER late_deduction_per_hour"),
+        ],
+        [
+            'label' => 'إضافة حالة مراجعة خصم التأخير/الغياب إلى سجل الحضور',
+            'needed' => fn(PDO $pdo) => !column_exists($pdo, 'attendance', 'deduction_status'),
+            'run' => fn(PDO $pdo) => $pdo->exec("ALTER TABLE attendance
+                ADD COLUMN deduction_status ENUM('pending','approved','waived') NOT NULL DEFAULT 'pending' AFTER status,
+                ADD COLUMN deduction_reviewed_by INT DEFAULT NULL AFTER deduction_status,
+                ADD COLUMN deduction_reviewed_at TIMESTAMP NULL DEFAULT NULL AFTER deduction_reviewed_by"),
+        ],
+        [
+            'label' => 'إضافة جدول تبليغات المسؤول العام',
+            'needed' => fn(PDO $pdo) => !table_exists($pdo, 'gm_announcements'),
+            'run' => fn(PDO $pdo) => $pdo->exec("CREATE TABLE IF NOT EXISTS gm_announcements (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                title VARCHAR(150) NOT NULL,
+                message TEXT NOT NULL,
+                target_all_branches TINYINT(1) NOT NULL DEFAULT 0,
+                target_hr TINYINT(1) NOT NULL DEFAULT 0,
+                created_by INT DEFAULT NULL,
+                created_by_name VARCHAR(100) DEFAULT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4"),
+        ],
+        [
+            'label' => 'إضافة جدول ربط تبليغات المسؤول العام بالفروع المحددة',
+            'needed' => fn(PDO $pdo) => !table_exists($pdo, 'gm_announcement_branches'),
+            'run' => fn(PDO $pdo) => $pdo->exec("CREATE TABLE IF NOT EXISTS gm_announcement_branches (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                announcement_id INT NOT NULL,
+                branch_id INT NOT NULL,
+                CONSTRAINT fk_annb_announcement FOREIGN KEY (announcement_id) REFERENCES gm_announcements(id) ON DELETE CASCADE,
+                CONSTRAINT fk_annb_branch FOREIGN KEY (branch_id) REFERENCES branches(id) ON DELETE CASCADE
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4"),
+        ],
     ];
 }
 

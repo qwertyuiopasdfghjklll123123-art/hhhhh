@@ -1058,6 +1058,27 @@ if (isset($_GET['ajax'])) {
             exit;
         }
 
+        case 'announcements_received': {
+            $stmt = $pdo->prepare("
+                SELECT id, title, message, created_by_name, created_at
+                FROM gm_announcements
+                WHERE target_all_branches = 1 OR EXISTS (SELECT 1 FROM gm_announcement_branches gb WHERE gb.announcement_id = gm_announcements.id AND gb.branch_id = ?)
+                ORDER BY created_at DESC LIMIT 50
+            ");
+            $stmt->execute([$branchId]);
+            $rows = array_map(function ($r) {
+                return [
+                    'id' => (int) $r['id'],
+                    'title' => $r['title'],
+                    'message' => $r['message'],
+                    'senderName' => $r['created_by_name'] ?: 'المسؤول العام',
+                    'dateText' => date('d/m/Y H:i', strtotime($r['created_at'])),
+                ];
+            }, $stmt->fetchAll());
+            echo json_encode(['ok' => true, 'announcements' => $rows], JSON_UNESCAPED_UNICODE);
+            exit;
+        }
+
         case 'payroll_list': {
             $month = (int) ($_GET['month'] ?? date('n'));
             $year = (int) ($_GET['year'] ?? date('Y'));
@@ -1832,6 +1853,7 @@ function branch_report_data(PDO $pdo, string $type, string $from, string $to, in
                 <button class="nav-item" id="sidenav-payroll" onclick="navigateTo('payroll')"><i class="fas fa-money-bill-wave"></i> الرواتب</button>
                 <button class="nav-item" id="sidenav-reports" onclick="navigateTo('reports')"><i class="fas fa-chart-bar"></i> التقارير</button>
                 <button class="nav-item" id="sidenav-files" onclick="navigateTo('files')"><i class="fas fa-folder"></i> الملفات</button>
+                <button class="nav-item" id="sidenav-announcements" onclick="navigateTo('announcements')"><i class="fas fa-bullhorn"></i> التبليغات</button>
                 <div class="nav-divider"></div>
                 <button class="nav-item" id="sidenav-notifications" onclick="navigateTo('notifications')">
                     <i class="fas fa-bell"></i> الإشعارات
@@ -2221,6 +2243,14 @@ function branch_report_data(PDO $pdo, string $type, string $from, string $to, in
             </div>
 
             <!-- ==========================================================
+            التبليغات (المستلَمة من المسؤول العام)
+            ========================================================== -->
+            <div id="page-announcements" class="page-screen hidden">
+                <div class="page-title"><h2><i class="fas fa-bullhorn"></i> التبليغات</h2><button onclick="navigateTo('home')" class="back-btn"><i class="fas fa-arrow-right"></i> رجوع</button></div>
+                <div id="announcementsList" style="margin-top:10px;"></div>
+            </div>
+
+            <!-- ==========================================================
             الإشعارات
             ========================================================== -->
             <div id="page-notifications" class="page-screen hidden">
@@ -2593,6 +2623,26 @@ function branch_report_data(PDO $pdo, string $type, string $from, string $to, in
 
         function markAllNotifsRead() {
             fetch('?ajax=notifications_mark_all_read', { method: 'POST' }).then(() => loadNotifications());
+        }
+
+        function loadAnnouncements() {
+            fetch('?ajax=announcements_received').then(r => r.json()).then(data => {
+                if (!data.ok) return;
+                const list = document.getElementById('announcementsList');
+                if (!data.announcements.length) {
+                    list.innerHTML = '<div class="card" style="text-align:center;padding:24px;color:var(--text-muted);">لا توجد تبليغات بعد</div>';
+                    return;
+                }
+                list.innerHTML = data.announcements.map(a => `
+                    <div class="card">
+                        <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;">
+                            <b style="font-size:13px;">${a.title}</b>
+                            <span class="muted" style="font-size:10px;">${a.senderName} — ${a.dateText}</span>
+                        </div>
+                        <p class="muted" style="margin-top:4px;white-space:pre-wrap;">${a.message}</p>
+                    </div>
+                `).join('');
+            }).catch(() => {});
         }
 
         function deleteAllNotifications() {
@@ -3110,6 +3160,7 @@ function branch_report_data(PDO $pdo, string $type, string $from, string $to, in
             payroll: { title: 'الرواتب', sub: 'تسليم رواتب الموظفين', icon: 'fa-money-bill-wave' },
             reports: { title: 'التقارير', sub: 'إنشاء وعرض التقارير', icon: 'fa-chart-bar' },
             files: { title: 'الملفات', sub: 'مستندات الفرع', icon: 'fa-folder' },
+            announcements: { title: 'التبليغات', sub: 'تبليغات المسؤول العام', icon: 'fa-bullhorn' },
             notifications: { title: 'الإشعارات', sub: 'آخر التحديثات', icon: 'fa-bell' },
             myProfile: { title: 'ملفي الشخصي', sub: 'بياناتك وراتبك وحضورك', icon: 'fa-user' },
         };
@@ -3144,6 +3195,7 @@ function branch_report_data(PDO $pdo, string $type, string $from, string $to, in
             else if (page === 'delegation') loadEmployees();
             else if (page === 'home') loadHomeStats();
             else if (page === 'notifications') loadNotifications();
+            else if (page === 'announcements') loadAnnouncements();
             else if (page === 'myProfile') { loadMyProfile(); loadMyAttendanceMonth(); }
             else if (page === 'briefing') { cancelEditBrief(); loadBriefHistory(); }
             else if (page === 'reports') {

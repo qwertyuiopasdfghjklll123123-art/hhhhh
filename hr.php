@@ -118,6 +118,43 @@ function brief_overall_status(string $hrDecision, string $gmDecision): string
     return 'pending';
 }
 
+/** يحسب إجمالي خصم التأخير والغياب لموظف عن شهر وشفت معيّنين، مستبعِداً أي سجل أُلغي خصمه (deduction_status='waived') */
+function compute_month_deduction(PDO $pdo, int $employeeId, ?string $shiftStartTime, string $period, int $month, int $year): float
+{
+    $settingsRow = $pdo->query("SELECT late_grace_minutes, late_deduction_per_hour, absence_deduction_amount, work_start_time FROM settings ORDER BY id DESC LIMIT 1")->fetch();
+    if (!$settingsRow) return 0.0;
+    if ($shiftStartTime) { $settingsRow['work_start_time'] = $shiftStartTime; }
+    $monthStart = sprintf('%04d-%02d-01', $year, $month);
+    $total = 0.0;
+
+    if ((float) $settingsRow['late_deduction_per_hour'] > 0 && $settingsRow['work_start_time']) {
+        $lateStmt = $pdo->prepare("SELECT check_in FROM attendance WHERE employee_id=? AND shift_period=? AND status='late' AND deduction_status != 'waived' AND attendance_date >= ? AND attendance_date < DATE_ADD(?, INTERVAL 1 MONTH)");
+        $lateStmt->execute([$employeeId, $period, $monthStart, $monthStart]);
+        $grace = (int) $settingsRow['late_grace_minutes'];
+        $deadline = strtotime($settingsRow['work_start_time']) + $grace * 60;
+        $lateMinutes = 0;
+        foreach ($lateStmt->fetchAll(PDO::FETCH_COLUMN) as $checkIn) {
+            if (!$checkIn) continue;
+            $diff = (strtotime($checkIn) - $deadline) / 60;
+            if ($diff > 0) $lateMinutes += $diff;
+        }
+        if ($lateMinutes > 0) {
+            $total += ceil($lateMinutes / 60) * (float) $settingsRow['late_deduction_per_hour'];
+        }
+    }
+
+    if ((float) $settingsRow['absence_deduction_amount'] > 0) {
+        $absentStmt = $pdo->prepare("SELECT COUNT(*) FROM attendance WHERE employee_id=? AND shift_period=? AND status='absent' AND deduction_status != 'waived' AND attendance_date >= ? AND attendance_date < DATE_ADD(?, INTERVAL 1 MONTH)");
+        $absentStmt->execute([$employeeId, $period, $monthStart, $monthStart]);
+        $absentCount = (int) $absentStmt->fetchColumn();
+        if ($absentCount > 0) {
+            $total += $absentCount * (float) $settingsRow['absence_deduction_amount'];
+        }
+    }
+
+    return $total;
+}
+
 function log_error(PDO $pdo, string $action, ?string $role, ?int $userId, string $message): void
 {
     try {
@@ -768,35 +805,17 @@ if (isset($_GET['ajax'])) {
                 ON DUPLICATE KEY UPDATE check_in=VALUES(check_in), check_out=VALUES(check_out), status=VALUES(status)")
                 ->execute([$employeeId, $branchIdForEmp, $date, $checkIn, $checkOut, $status]);
 
-            // إلغاء خصم التأخير عند تصحيح الحالة من "متأخر" إلى غير متأخر، إن كان الراتب
-            // قد سُلِّم مسبقاً عن شهر هذا اليوم (نعيد احتساب خصم التأخير للشهر بالكامل من
-            // سجلات الحضور الحالية بدل طرح يوم واحد، لتفادي أخطاء التقريب التراكمي)
-            if ($oldStatus === 'late' && $status !== 'late') {
+            // إعادة احتساب خصم التأخير/الغياب عند تصحيح حالة تؤثر عليه، إن كان الراتب
+            // قد سُلِّم مسبقاً عن شهر هذا اليوم (نعيد احتساب الخصم للشهر بالكامل من
+            // سجلات الحضور الحالية بدل تعديل يوم واحد، لتفادي أخطاء التقريب التراكمي)
+            if ($oldStatus !== $status && (in_array($oldStatus, ['late', 'absent'], true) || in_array($status, ['late', 'absent'], true))) {
                 $month = (int) date('n', strtotime($date));
                 $year = (int) date('Y', strtotime($date));
                 $payrollRow = $pdo->prepare("SELECT id, deduction, late_deduction FROM payroll WHERE employee_id=? AND period_month=? AND period_year=? AND status='delivered'");
                 $payrollRow->execute([$employeeId, $month, $year]);
                 $payrollRow = $payrollRow->fetch();
                 if ($payrollRow) {
-                    $newLateDeduction = 0.0;
-                    $settingsRow = $pdo->query("SELECT late_grace_minutes, late_deduction_per_hour, work_start_time FROM settings ORDER BY id DESC LIMIT 1")->fetch();
-                    if ($empForAttendance['shift_start']) { $settingsRow['work_start_time'] = $empForAttendance['shift_start']; }
-                    if ($settingsRow && (float) $settingsRow['late_deduction_per_hour'] > 0 && $settingsRow['work_start_time']) {
-                        $monthStart = sprintf('%04d-%02d-01', $year, $month);
-                        $lateStmt = $pdo->prepare("SELECT check_in FROM attendance WHERE employee_id=? AND status='late' AND attendance_date >= ? AND attendance_date < DATE_ADD(?, INTERVAL 1 MONTH)");
-                        $lateStmt->execute([$employeeId, $monthStart, $monthStart]);
-                        $grace = (int) $settingsRow['late_grace_minutes'];
-                        $deadline = strtotime($settingsRow['work_start_time']) + $grace * 60;
-                        $lateMinutes = 0;
-                        foreach ($lateStmt->fetchAll(PDO::FETCH_COLUMN) as $ci) {
-                            if (!$ci) continue;
-                            $diff = (strtotime($ci) - $deadline) / 60;
-                            if ($diff > 0) $lateMinutes += $diff;
-                        }
-                        if ($lateMinutes > 0) {
-                            $newLateDeduction = ceil($lateMinutes / 60) * (float) $settingsRow['late_deduction_per_hour'];
-                        }
-                    }
+                    $newLateDeduction = compute_month_deduction($pdo, $employeeId, $empForAttendance['shift_start'], 'morning', $month, $year);
                     $oldLateDeduction = (float) $payrollRow['late_deduction'];
                     if ($newLateDeduction !== $oldLateDeduction) {
                         $newDeduction = max(0, (float) $payrollRow['deduction'] - $oldLateDeduction + $newLateDeduction);
@@ -807,6 +826,125 @@ if (isset($_GET['ajax'])) {
             }
 
             echo json_encode(['ok' => true]);
+            exit;
+        }
+
+        case 'deductions_list': {
+            $month = (int) ($_GET['month'] ?? date('n'));
+            $year = (int) ($_GET['year'] ?? date('Y'));
+            $monthStart = sprintf('%04d-%02d-01', $year, $month);
+            $settingsRow = $pdo->query("SELECT late_grace_minutes, late_deduction_per_hour, absence_deduction_amount, work_start_time FROM settings ORDER BY id DESC LIMIT 1")->fetch();
+            $stmt = $pdo->prepare("
+                SELECT a.id, a.employee_id, a.branch_id, a.attendance_date, a.shift_period, a.check_in, a.status,
+                       a.deduction_status, a.deduction_reviewed_at,
+                       e.full_name, e.employee_number, e.is_branch_manager, e.shift_start, e.evening_shift_start,
+                       b.name AS branch_name
+                FROM attendance a
+                JOIN employees e ON e.id = a.employee_id
+                JOIN branches b ON b.id = a.branch_id
+                WHERE a.status IN ('late','absent') AND a.attendance_date >= ? AND a.attendance_date < DATE_ADD(?, INTERVAL 1 MONTH)
+                ORDER BY a.attendance_date DESC, a.id DESC
+            ");
+            $stmt->execute([$monthStart, $monthStart]);
+            $statusMap = ['pending' => 'قيد الانتظار', 'approved' => 'تم اعتماد الخصم', 'waived' => 'أُلغي الخصم'];
+            $rows = array_map(function ($r) use ($settingsRow, $statusMap) {
+                $amount = 0.0;
+                if ($r['status'] === 'late') {
+                    $shiftStart = $r['shift_period'] === 'evening' ? $r['evening_shift_start'] : $r['shift_start'];
+                    $workStart = $shiftStart ?: ($settingsRow['work_start_time'] ?? null);
+                    if ($workStart && $r['check_in'] && (float) $settingsRow['late_deduction_per_hour'] > 0) {
+                        $grace = (int) $settingsRow['late_grace_minutes'];
+                        $deadline = strtotime($workStart) + $grace * 60;
+                        $diff = (strtotime($r['check_in']) - $deadline) / 60;
+                        if ($diff > 0) {
+                            $amount = ceil($diff / 60) * (float) $settingsRow['late_deduction_per_hour'];
+                        }
+                    }
+                } else {
+                    $amount = (float) $settingsRow['absence_deduction_amount'];
+                }
+                return [
+                    'id' => (int) $r['id'],
+                    'employeeName' => $r['full_name'],
+                    'employeeNumber' => $r['employee_number'],
+                    'isBranchManager' => (bool) $r['is_branch_manager'],
+                    'branchName' => $r['branch_name'],
+                    'date' => $r['attendance_date'],
+                    'dateText' => date('d/m/Y', strtotime($r['attendance_date'])),
+                    'shiftPeriod' => $r['shift_period'],
+                    'status' => $r['status'],
+                    'statusText' => $r['status'] === 'late' ? 'تأخر عن الدوام' : 'غياب',
+                    'amount' => $amount,
+                    'deductionStatus' => $r['deduction_status'],
+                    'deductionStatusText' => $statusMap[$r['deduction_status']] ?? $r['deduction_status'],
+                ];
+            }, $stmt->fetchAll());
+            echo json_encode(['ok' => true, 'deductions' => $rows], JSON_UNESCAPED_UNICODE);
+            exit;
+        }
+
+        case 'deduction_review': {
+            $id = (int) ($_POST['id'] ?? 0);
+            $decision = in_array($_POST['decision'] ?? '', ['approved', 'waived'], true) ? $_POST['decision'] : null;
+            if (!$id || !$decision) {
+                echo json_encode(['ok' => false, 'error' => 'بيانات غير صحيحة']);
+                exit;
+            }
+            $att = $pdo->prepare("SELECT a.*, e.full_name, e.branch_id AS emp_branch_id FROM attendance a JOIN employees e ON e.id = a.employee_id WHERE a.id=?");
+            $att->execute([$id]);
+            $att = $att->fetch();
+            if (!$att) {
+                echo json_encode(['ok' => false, 'error' => 'السجل غير موجود']);
+                exit;
+            }
+            $reviewerId = $_SESSION['hr_user']['id'] ?? null;
+            $pdo->prepare("UPDATE attendance SET deduction_status=?, deduction_reviewed_by=?, deduction_reviewed_at=NOW() WHERE id=?")
+                ->execute([$decision, $reviewerId, $id]);
+
+            // إعادة احتساب راتب مُسلَّم مسبقاً عن شهر هذا اليوم إن تغيّر خصمه بعد المراجعة
+            $month = (int) date('n', strtotime($att['attendance_date']));
+            $year = (int) date('Y', strtotime($att['attendance_date']));
+            $empStmt = $pdo->prepare("SELECT shift_start, evening_shift_start FROM employees WHERE id=?");
+            $empStmt->execute([$att['employee_id']]);
+            $empRow = $empStmt->fetch();
+            $shiftStart = $att['shift_period'] === 'evening' ? ($empRow['evening_shift_start'] ?? null) : ($empRow['shift_start'] ?? null);
+            $payrollRow = $pdo->prepare("SELECT id, deduction, late_deduction FROM payroll WHERE employee_id=? AND period_month=? AND period_year=? AND shift_period=? AND status='delivered'");
+            $payrollRow->execute([$att['employee_id'], $month, $year, $att['shift_period']]);
+            $payrollRow = $payrollRow->fetch();
+            if ($payrollRow) {
+                $newDeduction = compute_month_deduction($pdo, (int) $att['employee_id'], $shiftStart, $att['shift_period'], $month, $year);
+                $oldDeduction = (float) $payrollRow['late_deduction'];
+                if ($newDeduction !== $oldDeduction) {
+                    $newTotal = max(0, (float) $payrollRow['deduction'] - $oldDeduction + $newDeduction);
+                    $pdo->prepare("UPDATE payroll SET deduction=?, late_deduction=? WHERE id=?")
+                        ->execute([$newTotal, $newDeduction, $payrollRow['id']]);
+                }
+            }
+
+            $decisionText = $decision === 'waived' ? 'تم إلغاء' : 'تم اعتماد';
+            $reasonText = $att['status'] === 'late' ? 'خصم التأخير' : 'خصم الغياب';
+            $msg = $decisionText . ' ' . $reasonText . ' ليوم ' . date('d/m/Y', strtotime($att['attendance_date'])) . ' الخاص بـ ' . $att['full_name'];
+            $notifyUsers = $pdo->prepare("SELECT id FROM users WHERE employee_id=? UNION SELECT id FROM users WHERE branch_id=? AND role='branch_manager' UNION SELECT id FROM users WHERE role='general_manager'");
+            $notifyUsers->execute([$att['employee_id'], $att['emp_branch_id']]);
+            foreach ($notifyUsers->fetchAll(PDO::FETCH_COLUMN) as $uid) {
+                $pdo->prepare("INSERT INTO notifications (user_id, title, message) VALUES (?, 'مراجعة خصم تأخير/غياب', ?)")->execute([$uid, $msg]);
+            }
+            echo json_encode(['ok' => true]);
+            exit;
+        }
+
+        case 'announcements_received': {
+            $rows = $pdo->query("SELECT id, title, message, created_by_name, created_at FROM gm_announcements WHERE target_hr=1 ORDER BY created_at DESC LIMIT 50")->fetchAll();
+            $rows = array_map(function ($r) {
+                return [
+                    'id' => (int) $r['id'],
+                    'title' => $r['title'],
+                    'message' => $r['message'],
+                    'senderName' => $r['created_by_name'] ?: 'المسؤول العام',
+                    'dateText' => date('d/m/Y H:i', strtotime($r['created_at'])),
+                ];
+            }, $rows);
+            echo json_encode(['ok' => true, 'announcements' => $rows], JSON_UNESCAPED_UNICODE);
             exit;
         }
 
@@ -924,27 +1062,11 @@ if (isset($_GET['ajax'])) {
             $bonus = $existing ? (float) $existing['bonus'] : 0.0;
             $deduction = $existing ? (float) $existing['deduction'] : 0.0;
 
-            // خصم التأخير عن الشهر الحالي (لنفس الشفت المسلَّم فقط)
-            $lateDeduction = 0.0;
-            $settingsRow = $pdo->query("SELECT late_grace_minutes, late_deduction_per_hour, work_start_time FROM settings ORDER BY id DESC LIMIT 1")->fetch();
+            // خصم التأخير والغياب عن الشهر الحالي (لنفس الشفت المسلَّم فقط)، مستبعِداً ما أُلغي خصمه من قسم "الخصومات"
             $effectiveShiftStart = $period === 'evening' ? $emp['evening_shift_start'] : $emp['shift_start'];
-            if ($effectiveShiftStart) { $settingsRow['work_start_time'] = $effectiveShiftStart; }
-            if ($settingsRow && (float) $settingsRow['late_deduction_per_hour'] > 0 && $settingsRow['work_start_time']) {
-                $lateStmt = $pdo->prepare("SELECT check_in FROM attendance WHERE employee_id=? AND shift_period=? AND status='late' AND attendance_date >= ? AND attendance_date < DATE_ADD(?, INTERVAL 1 MONTH)");
-                $monthStart = sprintf('%04d-%02d-01', $year, $month);
-                $lateStmt->execute([$employeeId, $period, $monthStart, $monthStart]);
-                $grace = (int) $settingsRow['late_grace_minutes'];
-                $deadline = strtotime($settingsRow['work_start_time']) + $grace * 60;
-                $lateMinutes = 0;
-                foreach ($lateStmt->fetchAll(PDO::FETCH_COLUMN) as $checkIn) {
-                    if (!$checkIn) continue;
-                    $diff = (strtotime($checkIn) - $deadline) / 60;
-                    if ($diff > 0) $lateMinutes += $diff;
-                }
-                if ($lateMinutes > 0) {
-                    $lateDeduction = ceil($lateMinutes / 60) * (float) $settingsRow['late_deduction_per_hour'];
-                    $deduction += $lateDeduction;
-                }
+            $lateDeduction = compute_month_deduction($pdo, $employeeId, $effectiveShiftStart, $period, $month, $year);
+            if ($lateDeduction > 0) {
+                $deduction += $lateDeduction;
             }
 
             // خصم القسط الشهري للسلفة النشطة من الشفت الذي حُدد لها عند تقديم الطلب
@@ -1192,13 +1314,14 @@ if (isset($_GET['ajax'])) {
             $workEnd = $_POST['workEnd'] ?? '17:00';
             $lateGrace = (int) ($_POST['lateGrace'] ?? 15);
             $lateDeduction = (float) ($_POST['lateDeduction'] ?? 0);
+            $absenceDeduction = (float) ($_POST['absenceDeduction'] ?? 0);
             $logoPath = handle_upload('logo', 'branding', ['jpg', 'jpeg', 'png', 'webp']);
             if ($logoPath) {
-                $pdo->prepare("UPDATE settings SET company_name=?, company_email=?, work_start_time=?, work_end_time=?, late_grace_minutes=?, late_deduction_per_hour=?, company_logo=? ORDER BY id DESC LIMIT 1")
-                    ->execute([$companyName, $companyEmail, $workStart, $workEnd, $lateGrace, $lateDeduction, $logoPath]);
+                $pdo->prepare("UPDATE settings SET company_name=?, company_email=?, work_start_time=?, work_end_time=?, late_grace_minutes=?, late_deduction_per_hour=?, absence_deduction_amount=?, company_logo=? ORDER BY id DESC LIMIT 1")
+                    ->execute([$companyName, $companyEmail, $workStart, $workEnd, $lateGrace, $lateDeduction, $absenceDeduction, $logoPath]);
             } else {
-                $pdo->prepare("UPDATE settings SET company_name=?, company_email=?, work_start_time=?, work_end_time=?, late_grace_minutes=?, late_deduction_per_hour=? ORDER BY id DESC LIMIT 1")
-                    ->execute([$companyName, $companyEmail, $workStart, $workEnd, $lateGrace, $lateDeduction]);
+                $pdo->prepare("UPDATE settings SET company_name=?, company_email=?, work_start_time=?, work_end_time=?, late_grace_minutes=?, late_deduction_per_hour=?, absence_deduction_amount=? ORDER BY id DESC LIMIT 1")
+                    ->execute([$companyName, $companyEmail, $workStart, $workEnd, $lateGrace, $lateDeduction, $absenceDeduction]);
             }
             echo json_encode(['ok' => true, 'logo' => $logoPath]);
             exit;
@@ -3071,11 +3194,18 @@ try {
                     <i class="fas fa-file-pen"></i> الطلبات
                     <span class="badge warning">5</span>
                 </button>
+                <button class="nav-item" onclick="navigateTo('deductions')">
+                    <i class="fas fa-minus-circle"></i> الخصومات
+                    <span class="badge warning" id="deductionsNavBadge" style="display:none;">0</span>
+                </button>
                 <button class="nav-item" onclick="navigateTo('reports')">
                     <i class="fas fa-chart-bar"></i> التقارير
                 </button>
                 <button class="nav-item" onclick="navigateTo('exchange')">
                     <i class="fas fa-dollar-sign"></i> سعر الصرف
+                </button>
+                <button class="nav-item" onclick="navigateTo('announcements')">
+                    <i class="fas fa-bullhorn"></i> التبليغات
                 </button>
                 <button class="nav-item" onclick="navigateTo('notifications')">
                     <i class="fas fa-bell"></i> الإشعارات
@@ -3676,6 +3806,7 @@ try {
                                 <div class="form-group"><label style="font-size:12px;font-weight:600;color:var(--text-muted);">وقت نهاية الدوام</label><input type="time" id="settingsWorkEnd" value="17:00" style="width:100%;padding:10px 12px;border:2px solid rgba(0,107,115,0.06);border-radius:var(--radius-sm);font-family:var(--font-family);"></div>
                                 <div class="form-group"><label style="font-size:12px;font-weight:600;color:var(--text-muted);">مدة السماح بالتأخير (دقيقة)</label><input type="number" id="settingsLateGrace" value="15" min="0" style="width:100%;padding:10px 12px;border:2px solid rgba(0,107,115,0.06);border-radius:var(--radius-sm);font-family:var(--font-family);"></div>
                                 <div class="form-group"><label style="font-size:12px;font-weight:600;color:var(--text-muted);">قيمة الخصم عن كل ساعة تأخير</label><input type="number" id="settingsLateDeduction" value="0" min="0" style="width:100%;padding:10px 12px;border:2px solid rgba(0,107,115,0.06);border-radius:var(--radius-sm);font-family:var(--font-family);"></div>
+                                <div class="form-group"><label style="font-size:12px;font-weight:600;color:var(--text-muted);">قيمة الخصم عن يوم الغياب</label><input type="number" id="settingsAbsenceDeduction" value="0" min="0" style="width:100%;padding:10px 12px;border:2px solid rgba(0,107,115,0.06);border-radius:var(--radius-sm);font-family:var(--font-family);"></div>
                             </div>
                             <button class="btn-primary" style="margin-top:12px;" onclick="settingsSave()">
                                 <i class="fas fa-save"></i> حفظ الإعدادات
@@ -3695,6 +3826,33 @@ try {
                             </div>
                             <div id="hrAccountsList" style="margin-top:14px;"></div>
                         </div>
+                    </div>
+                </div>
+
+                <!-- ==========================================================
+                صفحة الخصومات (مراجعة خصومات التأخير والغياب)
+                ========================================================== -->
+                <div id="page-deductions" class="page-section" style="display:none;">
+                    <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px;margin-bottom:16px;">
+                        <h4 style="font-size:16px;font-weight:800;"><i class="fas fa-minus-circle" style="color:var(--primary);"></i> الخصومات (تأخير وغياب)</h4>
+                        <div style="display:flex;gap:8px;align-items:center;">
+                            <input type="month" id="deductionsMonth" style="height:38px;padding:0 10px;border:2px solid rgba(0,107,115,0.06);border-radius:var(--radius-sm);font-family:var(--font-family);" onchange="loadDeductions()">
+                        </div>
+                    </div>
+                    <div class="content-card">
+                        <div class="card-body" id="deductionsList"></div>
+                    </div>
+                </div>
+
+                <!-- ==========================================================
+                صفحة التبليغات (المستلَمة من المسؤول العام)
+                ========================================================== -->
+                <div id="page-announcements" class="page-section" style="display:none;">
+                    <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px;margin-bottom:16px;">
+                        <h4 style="font-size:16px;font-weight:800;"><i class="fas fa-bullhorn" style="color:var(--primary);"></i> التبليغات</h4>
+                    </div>
+                    <div class="content-card">
+                        <div class="card-body" id="announcementsList"></div>
                     </div>
                 </div>
 
@@ -3930,6 +4088,7 @@ try {
                     if (byId('settingsWorkEnd')) byId('settingsWorkEnd').value = (s.work_end_time || '').slice(0, 5);
                     if (byId('settingsLateGrace')) byId('settingsLateGrace').value = s.late_grace_minutes ?? 15;
                     if (byId('settingsLateDeduction')) byId('settingsLateDeduction').value = s.late_deduction_per_hour ?? 0;
+                    if (byId('settingsAbsenceDeduction')) byId('settingsAbsenceDeduction').value = s.absence_deduction_amount ?? 0;
                 }
                 loadAttendance();
                 loadSalaries();
@@ -3990,8 +4149,10 @@ try {
                 'salaries': { title: 'الرواتب', sub: 'إدارة رواتب الموظفين والمكافآت' },
                 'briefing': { title: 'الإيجاز', sub: 'معاينة واعتماد الإيجازات' },
                 'requests': { title: 'الطلبات', sub: 'إدارة طلبات الموظفين' },
+                'deductions': { title: 'الخصومات', sub: 'مراجعة خصومات التأخير والغياب واعتمادها أو إلغاؤها' },
                 'reports': { title: 'التقارير', sub: 'إنشاء وعرض التقارير' },
                 'exchange': { title: 'سعر الصرف', sub: 'تحديد سعر صرف الدولار' },
+                'announcements': { title: 'التبليغات', sub: 'تبليغات المسؤول العام' },
                 'notifications': { title: 'الإشعارات', sub: 'كل إشعاراتك في مكان واحد' },
                 'settings': { title: 'الإعدادات', sub: 'إعدادات النظام والشركة' },
                 'branchDetail': { title: 'تفاصيل الفرع', sub: 'الموظفون والإيجازات المنشورة' }
@@ -4006,15 +4167,17 @@ try {
 
             if (page === 'settings') loadHrAccounts();
             if (page === 'notifications') loadNotifPage();
+            if (page === 'deductions') loadDeductions();
+            if (page === 'announcements') loadAnnouncements();
         }
 
         function getPageTitle(page) {
-            const titles = { 'dashboard': 'لوحة التحكم', 'branches': 'الفروع', 'employees': 'الموظفون', 'attendance': 'الحضور', 'salaries': 'الرواتب', 'briefing': 'الإيجاز', 'requests': 'الطلبات', 'reports': 'التقارير', 'exchange': 'سعر الصرف', 'notifications': 'الإشعارات', 'settings': 'الإعدادات' };
+            const titles = { 'dashboard': 'لوحة التحكم', 'branches': 'الفروع', 'employees': 'الموظفون', 'attendance': 'الحضور', 'salaries': 'الرواتب', 'briefing': 'الإيجاز', 'requests': 'الطلبات', 'deductions': 'الخصومات', 'reports': 'التقارير', 'exchange': 'سعر الصرف', 'announcements': 'التبليغات', 'notifications': 'الإشعارات', 'settings': 'الإعدادات' };
             return titles[page] || page;
         }
 
         function getPageIcon(page) {
-            const icons = { 'dashboard': 'fa-chart-pie', 'branches': 'fa-building', 'employees': 'fa-users', 'attendance': 'fa-clock', 'salaries': 'fa-wallet', 'briefing': 'fa-file-signature', 'requests': 'fa-file-pen', 'reports': 'fa-chart-bar', 'exchange': 'fa-dollar-sign', 'notifications': 'fa-bell', 'settings': 'fa-cog', 'branchDetail': 'fa-building' };
+            const icons = { 'dashboard': 'fa-chart-pie', 'branches': 'fa-building', 'employees': 'fa-users', 'attendance': 'fa-clock', 'salaries': 'fa-wallet', 'briefing': 'fa-file-signature', 'requests': 'fa-file-pen', 'deductions': 'fa-minus-circle', 'reports': 'fa-chart-bar', 'exchange': 'fa-dollar-sign', 'announcements': 'fa-bullhorn', 'notifications': 'fa-bell', 'settings': 'fa-cog', 'branchDetail': 'fa-building' };
             return icons[page] || 'fa-circle';
         }
 
@@ -4265,6 +4428,7 @@ try {
             fd.append('workEnd', document.getElementById('settingsWorkEnd').value);
             fd.append('lateGrace', document.getElementById('settingsLateGrace').value);
             fd.append('lateDeduction', document.getElementById('settingsLateDeduction').value);
+            fd.append('absenceDeduction', document.getElementById('settingsAbsenceDeduction').value);
             const logoFile = document.getElementById('settingsLogoFile').files[0];
             if (logoFile) fd.append('logo', logoFile);
             fetch('?ajax=settings_save', { method: 'POST', body: fd }).then(r => r.json()).then(data => {
@@ -4275,6 +4439,84 @@ try {
             }).catch(() => {
                 showToast('⚠️ خطأ', 'تعذر الاتصال بالخادم', 'error');
             });
+        }
+
+        // ============================================================
+        // الخصومات (مراجعة خصومات التأخير والغياب)
+        // ============================================================
+        function loadDeductions() {
+            const input = document.getElementById('deductionsMonth');
+            if (input && !input.value) {
+                const now = new Date();
+                input.value = now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0');
+            }
+            let url = '?ajax=deductions_list';
+            if (input && input.value) {
+                const [y, m] = input.value.split('-');
+                url += '&year=' + y + '&month=' + parseInt(m, 10);
+            }
+            fetch(url).then(r => r.json()).then(data => {
+                if (!data.ok) return;
+                const view = document.getElementById('deductionsList');
+                const pendingCount = data.deductions.filter(d => d.deductionStatus === 'pending').length;
+                const navBadge = document.getElementById('deductionsNavBadge');
+                if (navBadge) {
+                    navBadge.style.display = pendingCount > 0 ? 'inline-block' : 'none';
+                    navBadge.textContent = pendingCount;
+                }
+                if (!data.deductions.length) {
+                    view.innerHTML = '<div class="muted" style="font-size:13px;padding:20px;text-align:center;">لا توجد حالات تأخير أو غياب هذا الشهر</div>';
+                    return;
+                }
+                view.innerHTML = data.deductions.map(d => `
+                    <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:12px 0;border-bottom:1px solid rgba(0,107,115,0.06);flex-wrap:wrap;">
+                        <div>
+                            <b>${d.employeeName}</b>${d.isBranchManager ? ' <span class="badge" style="font-size:10px;">مدير فرع</span>' : ''}
+                            <span style="color:var(--text-muted);font-size:12px;"> — ${d.branchName} — ${d.dateText}</span><br>
+                            <span style="font-size:12px;color:${d.status === 'late' ? '#B58500' : '#DC2626'};">${d.statusText}</span>
+                            <span style="font-size:12px;font-weight:700;"> — خصم ${Number(d.amount).toLocaleString()} د.ع</span>
+                            <span style="font-size:11px;color:var(--text-muted);"> (${d.deductionStatusText})</span>
+                        </div>
+                        <div style="display:flex;gap:6px;">
+                            <button class="btn-outline" style="padding:6px 12px;font-size:12px;${d.deductionStatus === 'approved' ? 'border-color:var(--success);color:var(--success);' : ''}" onclick="reviewDeduction(${d.id}, 'approved')"><i class="fas fa-check"></i> اعتماد الخصم</button>
+                            <button class="btn-outline" style="padding:6px 12px;font-size:12px;${d.deductionStatus === 'waived' ? 'border-color:#DC2626;color:#DC2626;' : ''}" onclick="reviewDeduction(${d.id}, 'waived')"><i class="fas fa-ban"></i> إلغاء الخصم</button>
+                        </div>
+                    </div>
+                `).join('');
+            }).catch(() => {});
+        }
+
+        function reviewDeduction(id, decision) {
+            fetch('?ajax=deduction_review', { method: 'POST', body: new URLSearchParams({ id, decision }) }).then(r => r.json()).then(data => {
+                if (!data.ok) { showToast('⚠️ خطأ', data.error || 'تعذر تنفيذ العملية', 'error'); loadDeductions(); return; }
+                showToast(decision === 'waived' ? '🚫 تم الإلغاء' : '✅ تم الاعتماد', decision === 'waived' ? 'تم إلغاء الخصم' : 'تم اعتماد الخصم', 'success');
+                loadDeductions();
+            }).catch(() => {
+                showToast('⚠️ خطأ', 'تعذر الاتصال بالخادم', 'error');
+            });
+        }
+
+        // ============================================================
+        // التبليغات (المستلَمة من المسؤول العام)
+        // ============================================================
+        function loadAnnouncements() {
+            fetch('?ajax=announcements_received').then(r => r.json()).then(data => {
+                if (!data.ok) return;
+                const view = document.getElementById('announcementsList');
+                if (!data.announcements.length) {
+                    view.innerHTML = '<div class="muted" style="font-size:13px;padding:20px;text-align:center;">لا توجد تبليغات بعد</div>';
+                    return;
+                }
+                view.innerHTML = data.announcements.map(a => `
+                    <div style="padding:12px 0;border-bottom:1px solid rgba(0,107,115,0.06);">
+                        <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;">
+                            <b>${a.title}</b>
+                            <span style="font-size:11px;color:var(--text-muted);">${a.senderName} — ${a.dateText}</span>
+                        </div>
+                        <div style="font-size:13px;color:var(--text-muted);margin-top:4px;white-space:pre-wrap;">${a.message}</div>
+                    </div>
+                `).join('');
+            }).catch(() => {});
         }
 
         function loadHrAccounts() {
