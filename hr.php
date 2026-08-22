@@ -4482,9 +4482,24 @@ try {
         }
 
         function editBranch(id) {
-            const branch = branches.find(b => b.id === id);
-            if (!branch) { showToast('⚠️ خطأ', 'تعذر العثور على بيانات هذا الفرع، أعد تحميل الصفحة وحاول مجدداً', 'error'); return; }
+            const numericId = Number(id);
+            const branch = branches.find(b => Number(b.id) === numericId);
+            if (!branch) {
+                fetch('?ajax=branches').then(r => r.json()).then(data => {
+                    if (!data.ok) { showToast('⚠️ خطأ', 'تعذر تحميل بيانات الفروع من الخادم', 'error'); return; }
+                    branches = data.branches;
+                    const retryBranch = branches.find(b => Number(b.id) === numericId);
+                    if (!retryBranch) { showToast('⚠️ خطأ', 'هذا الفرع غير موجود، ربما تم حذفه', 'error'); loadBranches(); return; }
+                    fillBranchForm(retryBranch, id);
+                }).catch(() => {
+                    showToast('❌ خطأ', 'تعذر الاتصال بالخادم، حاول مرة أخرى', 'error');
+                });
+                return;
+            }
+            fillBranchForm(branch, id);
+        }
 
+        function fillBranchForm(branch, id) {
             const noManagerWarning = document.getElementById('branchNoManagerWarning');
             if (noManagerWarning) noManagerWarning.style.display = branch.manager ? 'none' : 'block';
 
