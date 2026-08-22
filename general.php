@@ -1593,7 +1593,7 @@ try {
             <div id="pageContent">
             <div class="container">
             <div class="stats-grid">
-                <div class="stat-card" id="pendingCard"><div class="label"><i class="fas fa-clock"></i> بانتظار الاعتماد</div><div class="value" id="statPending">0</div></div>
+                <div class="stat-card" id="pendingCard" style="cursor:pointer;" onclick="switchTab('pending', true)"><div class="label"><i class="fas fa-clock"></i> بانتظار الاعتماد</div><div class="value" id="statPending">0</div></div>
                 <div class="stat-card"><div class="label"><i class="fas fa-check-circle"></i> معتمد اليوم</div><div class="value" id="statApprovedToday">0</div></div>
                 <div class="stat-card"><div class="label"><i class="fas fa-building"></i> الفروع</div><div class="value" id="statBranches">0</div></div>
                 <div class="stat-card"><div class="label"><i class="fas fa-users"></i> الموظفون</div><div class="value" id="statEmployees">0</div></div>
@@ -2230,7 +2230,7 @@ try {
         control: { title: 'لوحة تحكم', sub: 'نظرة عامة على أداء الشركة', icon: 'fa-chart-pie' },
     };
 
-    function switchTab(tab) {
+    function switchTab(tab, autoOpenLatestPending) {
         ['pending', 'history', 'branches', 'payroll', 'payrollWindow', 'reports', 'shareholders', 'audit', 'attendanceBoard', 'mgrRequests', 'holidays', 'notifications', 'control'].forEach(t => {
             document.getElementById('sidenav-' + t).classList.toggle('active', t === tab);
             document.getElementById('view-' + t).classList.toggle('hidden', t !== tab);
@@ -2244,7 +2244,7 @@ try {
             document.getElementById('sidebar').classList.remove('open');
             document.getElementById('sidebarOverlay').classList.remove('show');
         }
-        if (tab === 'pending') loadPending();
+        if (tab === 'pending') loadPending(autoOpenLatestPending);
         else if (tab === 'history') loadHistory();
         else if (tab === 'branches') loadBranches();
         else if (tab === 'payroll') loadPayrollOverview();
@@ -2300,10 +2300,11 @@ try {
     let pendingBriefsData = [];
     let pendingOpenId = null;
 
-    function loadPending() {
+    function loadPending(autoOpenLatest) {
         fetch('?ajax=briefs_pending').then(r => r.json()).then(data => {
             if (!data.ok) return;
             pendingBriefsData = data.briefs;
+            if (autoOpenLatest && pendingBriefsData.length) pendingOpenId = pendingBriefsData[0].id;
             renderPendingCards();
         });
     }
