@@ -433,6 +433,31 @@ function migration_steps(): array
                 CONSTRAINT fk_holiday_branch FOREIGN KEY (branch_id) REFERENCES branches(id) ON DELETE CASCADE
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4"),
         ],
+        [
+            'label' => 'إضافة جدول تقييمات الفروع (تقييم عام من المسافرين عبر رابط عام)',
+            'needed' => fn(PDO $pdo) => !table_exists($pdo, 'branch_ratings'),
+            'run' => fn(PDO $pdo) => $pdo->exec("CREATE TABLE IF NOT EXISTS branch_ratings (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                branch_id INT NOT NULL,
+                rating TINYINT NOT NULL,
+                comment VARCHAR(500) DEFAULT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                CONSTRAINT fk_rating_branch FOREIGN KEY (branch_id) REFERENCES branches(id) ON DELETE CASCADE
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4"),
+        ],
+        [
+            'label' => 'إضافة جدول شكاوى المسافرين (عبر نفس رابط تقييم الفرع العام)',
+            'needed' => fn(PDO $pdo) => !table_exists($pdo, 'traveler_complaints'),
+            'run' => fn(PDO $pdo) => $pdo->exec("CREATE TABLE IF NOT EXISTS traveler_complaints (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                branch_id INT NOT NULL,
+                title VARCHAR(150) NOT NULL,
+                details VARCHAR(1000) NOT NULL,
+                status ENUM('new','reviewed') NOT NULL DEFAULT 'new',
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                CONSTRAINT fk_complaint_branch FOREIGN KEY (branch_id) REFERENCES branches(id) ON DELETE CASCADE
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4"),
+        ],
     ];
 }
 

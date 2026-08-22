@@ -286,7 +286,7 @@ if (isset($_GET['ajax'])) {
 
             echo json_encode([
                 'ok' => true,
-                'manager' => ['name' => $mgr['full_name'], 'code' => $mgr['employee_number'], 'branch' => $branch['name'], 'photo' => $mgrPhoto ?: null],
+                'manager' => ['name' => $mgr['full_name'], 'code' => $mgr['employee_number'], 'branch' => $branch['name'], 'branchId' => $branchId, 'photo' => $mgrPhoto ?: null],
                 'company' => ['name' => $settingsRow['company_name'] ?: 'شركة الصوى للصرافة', 'logo' => $settingsRow['company_logo'] ?: null],
                 'stats' => [
                     'employees' => (int) $empCount->fetchColumn(),
@@ -1859,6 +1859,16 @@ function branch_report_data(PDO $pdo, string $type, string $from, string $to, in
                     <div id="homeBranchBalance" style="font-size:22px;font-weight:900;color:var(--primary,#006B73);padding:6px 0;">0 د.ع</div>
                 </div>
 
+                <div class="card">
+                    <div class="section-title" style="margin-top:0;"><i class="fas fa-star"></i> رابط تقييم الفرع</div>
+                    <p class="muted" style="font-size:12.5px;margin-bottom:8px;">شارك هذا الرابط مع المسافرين ليقيّموا تجربتهم في الفرع أو يقدّموا شكوى</p>
+                    <div style="display:flex;gap:8px;align-items:center;">
+                        <input type="text" id="ratingLinkInput" readonly style="flex:1;height:38px;padding:0 10px;border:1.5px solid #e2ebeb;border-radius:8px;font-family:var(--font-family);font-size:12px;color:var(--text-muted);">
+                        <button class="btn small" onclick="copyRatingLink()"><i class="fas fa-copy"></i> نسخ</button>
+                        <button class="btn small gold" onclick="shareRatingLink()"><i class="fas fa-share-nodes"></i> مشاركة</button>
+                    </div>
+                </div>
+
                 <div class="card" onclick="navigateTo('notifications')" style="cursor:pointer;">
                     <div class="section-title" style="margin-top:0;"><i class="fas fa-bell"></i> التنبيهات</div>
                     <div id="homeNotificationsSummary" style="display:flex;justify-content:space-between;padding:8px 0;"><span class="muted">جاري التحميل...</span></div>
@@ -2542,6 +2552,8 @@ function branch_report_data(PDO $pdo, string $type, string $from, string $to, in
                 const briefBranchEl = document.getElementById('briefBranchName');
                 if (briefBranchEl) briefBranchEl.textContent = data.manager.branch;
                 document.getElementById('homeManagerCode').textContent = 'رقم الموظف: ' + data.manager.code;
+                const ratingLinkEl = document.getElementById('ratingLinkInput');
+                if (ratingLinkEl && data.manager.branchId) ratingLinkEl.value = window.location.origin + '/rate.php?b=' + data.manager.branchId;
                 document.getElementById('sideMenuName').textContent = data.manager.name;
                 document.getElementById('sideMenuTitle').textContent = 'مدير فرع — ' + data.manager.branch;
                 if (data.manager.photo) {
@@ -3236,6 +3248,30 @@ function branch_report_data(PDO $pdo, string $type, string $from, string $to, in
                     updateLocationStatus(true);
                     showToast('✅ تم الحفظ', 'تم حفظ موقع الفرع بنجاح', 'success');
                 });
+        }
+
+        function copyRatingLink() {
+            const input = document.getElementById('ratingLinkInput');
+            if (!input.value) { showToast('⚠️ تنبيه', 'الرابط غير جاهز بعد', 'warning'); return; }
+            navigator.clipboard.writeText(input.value).then(() => {
+                showToast('✅ تم النسخ', 'تم نسخ رابط التقييم', 'success');
+            }).catch(() => {
+                input.removeAttribute('readonly');
+                input.select();
+                document.execCommand('copy');
+                input.setAttribute('readonly', 'readonly');
+                showToast('✅ تم النسخ', 'تم نسخ رابط التقييم', 'success');
+            });
+        }
+
+        function shareRatingLink() {
+            const input = document.getElementById('ratingLinkInput');
+            if (!input.value) { showToast('⚠️ تنبيه', 'الرابط غير جاهز بعد', 'warning'); return; }
+            if (navigator.share) {
+                navigator.share({ title: 'تقييم الفرع', text: 'شاركنا رأيك بتجربتك في الفرع', url: input.value }).catch(() => {});
+            } else {
+                copyRatingLink();
+            }
         }
 
         function getCurrentLocation() {

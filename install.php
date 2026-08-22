@@ -265,6 +265,25 @@ function install_schema(PDO $pdo): void
             CONSTRAINT fk_holiday_branch FOREIGN KEY (branch_id) REFERENCES branches(id) ON DELETE CASCADE
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4",
 
+        'branch_ratings' => "CREATE TABLE IF NOT EXISTS branch_ratings (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            branch_id INT NOT NULL,
+            rating TINYINT NOT NULL,
+            comment VARCHAR(500) DEFAULT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            CONSTRAINT fk_rating_branch FOREIGN KEY (branch_id) REFERENCES branches(id) ON DELETE CASCADE
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4",
+
+        'traveler_complaints' => "CREATE TABLE IF NOT EXISTS traveler_complaints (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            branch_id INT NOT NULL,
+            title VARCHAR(150) NOT NULL,
+            details VARCHAR(1000) NOT NULL,
+            status ENUM('new','reviewed') NOT NULL DEFAULT 'new',
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            CONSTRAINT fk_complaint_branch FOREIGN KEY (branch_id) REFERENCES branches(id) ON DELETE CASCADE
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4",
+
         'audit_log' => "CREATE TABLE IF NOT EXISTS audit_log (
             id INT AUTO_INCREMENT PRIMARY KEY,
             actor_role VARCHAR(30) NOT NULL,
@@ -307,7 +326,7 @@ function install_schema(PDO $pdo): void
     ];
 
     // الترتيب مهم بسبب المفاتيح الأجنبية
-    foreach (['settings', 'branches', 'employees', 'users', 'attendance', 'payroll', 'requests', 'daily_ledger', 'delegations', 'daily_briefs', 'exchange_rate_history', 'notifications', 'payroll_windows', 'payroll_adjustments', 'error_log', 'holidays', 'audit_log', 'honor_roll', 'monthly_honor_requests'] as $table) {
+    foreach (['settings', 'branches', 'employees', 'users', 'attendance', 'payroll', 'requests', 'daily_ledger', 'delegations', 'daily_briefs', 'exchange_rate_history', 'notifications', 'payroll_windows', 'payroll_adjustments', 'error_log', 'holidays', 'branch_ratings', 'traveler_complaints', 'audit_log', 'honor_roll', 'monthly_honor_requests'] as $table) {
         $pdo->exec($tables[$table]);
     }
 }

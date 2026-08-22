@@ -264,7 +264,7 @@ if (isset($_GET['ajax'])) {
     }
     $gmUser = $_SESSION['gm_user'];
     $isShareholder = $gmUser['role'] === 'shareholder';
-    $gmOnlyActions = ['brief_final_review', 'payroll_window_open', 'payroll_window_close', 'shareholders_list', 'shareholder_create', 'shareholder_toggle', 'payroll_adjustment_add', 'gm_accounts_list', 'gm_account_create', 'gm_account_toggle', 'audit_log_list', 'honor_requests_list', 'honor_request_review', 'attendance_board_list', 'mgr_requests_list', 'mgr_request_review', 'holidays_list', 'holiday_add', 'holiday_delete'];
+    $gmOnlyActions = ['brief_final_review', 'payroll_window_open', 'payroll_window_close', 'shareholders_list', 'shareholder_create', 'shareholder_toggle', 'payroll_adjustment_add', 'gm_accounts_list', 'gm_account_create', 'gm_account_toggle', 'audit_log_list', 'honor_requests_list', 'honor_request_review', 'attendance_board_list', 'mgr_requests_list', 'mgr_request_review', 'holidays_list', 'holiday_add', 'holiday_delete', 'ratings_overview', 'ratings_branch_detail', 'complaints_list', 'complaint_mark_reviewed'];
     if ($isShareholder && in_array($action, $gmOnlyActions, true)) {
         http_response_code(403);
         echo json_encode(['ok' => false, 'error' => 'هذه الصلاحية متاحة للمسؤول العام فقط']);
@@ -524,6 +524,109 @@ if (isset($_GET['ajax'])) {
                 $pdo->prepare("INSERT INTO notifications (user_id, title, message) VALUES (?, 'إلغاء عطلة رسمية', ?)")->execute([$uid, $msg]);
             }
             audit_log_write($pdo, $gmUser['role'], $gmUser['displayName'] ?? $gmUser['username'], $gmUser['employeeNumber'] ?? null, 'holiday_delete', $msg, $branchId > 0 ? $branchId : null);
+            echo json_encode(['ok' => true]);
+            exit;
+        }
+
+        case 'ratings_overview': {
+            $monthStart = date('Y-m-01');
+            $branches = $pdo->query("SELECT id, name FROM branches WHERE status='active' ORDER BY name")->fetchAll();
+            $statStmt = $pdo->prepare("
+                SELECT COUNT(*) AS total, AVG(rating) AS avgRating,
+                       SUM(rating >= 3) AS goodCount, SUM(rating < 3) AS notGoodCount
+                FROM branch_ratings WHERE branch_id=?
+            ");
+            $monthStmt = $pdo->prepare("SELECT COUNT(*) AS cnt, AVG(rating) AS avgRating FROM branch_ratings WHERE branch_id=? AND created_at >= ?");
+            $complaintCountStmt = $pdo->prepare("SELECT COUNT(*) FROM traveler_complaints WHERE branch_id=? AND status='new'");
+            $rows = [];
+            $bestBranchName = null;
+            $bestAvg = -1;
+            foreach ($branches as $b) {
+                $statStmt->execute([$b['id']]);
+                $stat = $statStmt->fetch();
+                $total = (int) $stat['total'];
+                $avg = $total > 0 ? round((float) $stat['avgRating'], 2) : null;
+                $goodPct = $total > 0 ? (int) round(((int) $stat['goodCount'] / $total) * 100) : null;
+                $notGoodPct = $total > 0 ? (int) round(((int) $stat['notGoodCount'] / $total) * 100) : null;
+
+                $monthStmt->execute([$b['id'], $monthStart]);
+                $monthRow = $monthStmt->fetch();
+                $monthCount = (int) $monthRow['cnt'];
+                $monthAvg = $monthCount > 0 ? round((float) $monthRow['avgRating'], 2) : null;
+                if ($monthCount > 0 && $monthAvg > $bestAvg) {
+                    $bestAvg = $monthAvg;
+                    $bestBranchName = $b['name'];
+                }
+
+                $complaintCountStmt->execute([$b['id']]);
+
+                $rows[] = [
+                    'branchId' => (int) $b['id'],
+                    'branchName' => $b['name'],
+                    'total' => $total,
+                    'avgRating' => $avg,
+                    'goodPct' => $goodPct,
+                    'notGoodPct' => $notGoodPct,
+                    'monthCount' => $monthCount,
+                    'newComplaints' => (int) $complaintCountStmt->fetchColumn(),
+                ];
+            }
+            echo json_encode([
+                'ok' => true,
+                'branches' => $rows,
+                'bestBranchThisMonth' => $bestBranchName,
+                'bestBranchAvg' => $bestAvg > -1 ? $bestAvg : null,
+            ], JSON_UNESCAPED_UNICODE);
+            exit;
+        }
+
+        case 'ratings_branch_detail': {
+            $branchId = (int) ($_GET['branchId'] ?? 0);
+            $branchStmt = $pdo->prepare("SELECT name FROM branches WHERE id=?");
+            $branchStmt->execute([$branchId]);
+            $branchName = $branchStmt->fetchColumn();
+            if (!$branchName) {
+                echo json_encode(['ok' => false, 'error' => 'الفرع غير موجود']);
+                exit;
+            }
+            $stmt = $pdo->prepare("SELECT id, rating, comment, created_at FROM branch_ratings WHERE branch_id=? ORDER BY created_at DESC LIMIT 200");
+            $stmt->execute([$branchId]);
+            $rows = array_map(function ($r) {
+                return [
+                    'id' => (int) $r['id'],
+                    'rating' => (int) $r['rating'],
+                    'comment' => $r['comment'],
+                    'date' => date('d/m/Y H:i', strtotime($r['created_at'])),
+                ];
+            }, $stmt->fetchAll());
+            echo json_encode(['ok' => true, 'branchName' => $branchName, 'ratings' => $rows], JSON_UNESCAPED_UNICODE);
+            exit;
+        }
+
+        case 'complaints_list': {
+            $stmt = $pdo->query("
+                SELECT tc.id, tc.title, tc.details, tc.status, tc.created_at, b.name AS branchName
+                FROM traveler_complaints tc JOIN branches b ON b.id = tc.branch_id
+                ORDER BY (tc.status='new') DESC, tc.created_at DESC LIMIT 200
+            ");
+            $rows = array_map(function ($r) {
+                return [
+                    'id' => (int) $r['id'],
+                    'title' => $r['title'],
+                    'details' => $r['details'],
+                    'status' => $r['status'],
+                    'branchName' => $r['branchName'],
+                    'date' => date('d/m/Y H:i', strtotime($r['created_at'])),
+                ];
+            }, $stmt->fetchAll());
+            echo json_encode(['ok' => true, 'complaints' => $rows], JSON_UNESCAPED_UNICODE);
+            exit;
+        }
+
+        case 'complaint_mark_reviewed': {
+            $id = (int) ($_POST['id'] ?? 0);
+            $pdo->prepare("UPDATE traveler_complaints SET status='reviewed' WHERE id=?")->execute([$id]);
+            audit_log_write($pdo, $gmUser['role'], $gmUser['displayName'] ?? $gmUser['username'], $gmUser['employeeNumber'] ?? null, 'complaint_reviewed', 'راجع المسؤول العام شكوى مسافر (رقم ' . $id . ')');
             echo json_encode(['ok' => true]);
             exit;
         }
@@ -1537,6 +1640,9 @@ try {
                 <button class="nav-item" id="sidenav-holidays" onclick="switchTab('holidays')">
                     <i class="fas fa-umbrella-beach"></i> إدارة العطل
                 </button>
+                <button class="nav-item" id="sidenav-ratings" onclick="switchTab('ratings')">
+                    <i class="fas fa-star"></i> تقييمات الفروع
+                </button>
                 <button class="nav-item" id="sidenav-notifications" onclick="switchTab('notifications')">
                     <i class="fas fa-bell"></i> الإشعارات
                     <span class="badge" id="notifNavBadge" style="display:none;">0</span>
@@ -1737,6 +1843,14 @@ try {
                     <button class="btn" onclick="addHoliday()"><i class="fas fa-plus"></i> إضافة عطلة</button>
                 </div>
                 <div id="holidaysList"></div>
+            </div>
+            <div id="view-ratings" class="hidden">
+                <div style="display:flex;gap:8px;margin-bottom:12px;">
+                    <button class="btn small" id="ratingsSubTabBtn-ratings" onclick="switchRatingsSubTab('ratings')"><i class="fas fa-star"></i> التقييمات</button>
+                    <button class="btn small" id="ratingsSubTabBtn-complaints" onclick="switchRatingsSubTab('complaints')"><i class="fas fa-flag"></i> شكاوى المسافرين</button>
+                </div>
+                <div id="ratingsSubView-ratings"></div>
+                <div id="ratingsSubView-complaints" class="hidden"></div>
             </div>
             <div id="view-notifications" class="hidden">
                 <div class="brief-card">
@@ -2125,6 +2239,7 @@ try {
         document.getElementById('sidenav-attendanceBoard').style.display = isShareholder ? 'none' : '';
         document.getElementById('sidenav-mgrRequests').style.display = isShareholder ? 'none' : '';
         document.getElementById('sidenav-holidays').style.display = isShareholder ? 'none' : '';
+        document.getElementById('sidenav-ratings').style.display = isShareholder ? 'none' : '';
         document.getElementById('sidenav-payroll').style.display = isShareholder ? 'none' : '';
         document.getElementById('sidenav-payrollWindow').style.display = isShareholder ? 'none' : '';
         document.getElementById('pendingCard').style.display = isShareholder ? 'none' : '';
@@ -2228,12 +2343,13 @@ try {
         attendanceBoard: { title: 'بصمة', sub: 'حضور جميع الموظفين ومسؤولي الفروع حسب التاريخ', icon: 'fa-fingerprint' },
         mgrRequests: { title: 'طلبات مسؤولي الفروع', sub: 'سلفة، استقالة، مستلزمات، إجازة — تصلك مباشرة دون المرور بالموارد البشرية', icon: 'fa-envelope-open-text' },
         holidays: { title: 'إدارة العطل', sub: 'تحديد أيام العطل الرسمية للفروع — الجمعة عطلة أسبوعية تلقائية للجميع', icon: 'fa-umbrella-beach' },
+        ratings: { title: 'تقييمات الفروع', sub: 'تقييمات ورسائل المسافرين لكل فرع، وشكاوى المسافرين', icon: 'fa-star' },
         notifications: { title: 'الإشعارات', sub: 'كل إشعاراتك في مكان واحد', icon: 'fa-bell' },
         control: { title: 'لوحة تحكم', sub: 'نظرة عامة على أداء الشركة', icon: 'fa-chart-pie' },
     };
 
     function switchTab(tab, autoOpenLatestPending) {
-        ['pending', 'history', 'branches', 'payroll', 'payrollWindow', 'reports', 'shareholders', 'audit', 'attendanceBoard', 'mgrRequests', 'holidays', 'notifications', 'control'].forEach(t => {
+        ['pending', 'history', 'branches', 'payroll', 'payrollWindow', 'reports', 'shareholders', 'audit', 'attendanceBoard', 'mgrRequests', 'holidays', 'ratings', 'notifications', 'control'].forEach(t => {
             document.getElementById('sidenav-' + t).classList.toggle('active', t === tab);
             document.getElementById('view-' + t).classList.toggle('hidden', t !== tab);
         });
@@ -2255,6 +2371,7 @@ try {
         else if (tab === 'attendanceBoard') loadAttendanceBoard();
         else if (tab === 'mgrRequests') loadMgrRequests();
         else if (tab === 'holidays') loadHolidays();
+        else if (tab === 'ratings') switchRatingsSubTab(ratingsSubTab);
         else if (tab === 'notifications') loadNotifPage();
         else if (tab === 'control') loadControlData();
     }
@@ -2883,6 +3000,134 @@ try {
                 loadHolidays();
             }).catch(() => showToast('❌ خطأ', 'تعذر الاتصال بالخادم', 'error'));
         });
+    }
+
+    let ratingsSubTab = 'ratings';
+    let ratingsOverviewData = [];
+    let openRatingsBranchId = null;
+
+    function switchRatingsSubTab(tab) {
+        ratingsSubTab = tab;
+        const ratingsBtn = document.getElementById('ratingsSubTabBtn-ratings');
+        const complaintsBtn = document.getElementById('ratingsSubTabBtn-complaints');
+        ratingsBtn.style.opacity = tab === 'ratings' ? '1' : '0.55';
+        complaintsBtn.style.opacity = tab === 'complaints' ? '1' : '0.55';
+        document.getElementById('ratingsSubView-ratings').classList.toggle('hidden', tab !== 'ratings');
+        document.getElementById('ratingsSubView-complaints').classList.toggle('hidden', tab !== 'complaints');
+        if (tab === 'ratings') loadRatingsOverview();
+        else loadComplaints();
+    }
+
+    function loadRatingsOverview() {
+        openRatingsBranchId = null;
+        fetch('?ajax=ratings_overview').then(r => r.json()).then(data => {
+            if (!data.ok) return;
+            ratingsOverviewData = data;
+            renderRatingsOverview();
+        }).catch(() => {});
+    }
+
+    function renderRatingsOverview() {
+        const view = document.getElementById('ratingsSubView-ratings');
+        const data = ratingsOverviewData;
+        const branches = data.branches || [];
+        let html = '';
+        if (data.bestBranchThisMonth) {
+            html += `
+                <div class="brief-card" style="border-right-color:#c99a3d;background:rgba(201,154,61,0.05);">
+                    <div style="display:flex;align-items:center;gap:10px;">
+                        <i class="fas fa-trophy" style="color:#c99a3d;font-size:20px;"></i>
+                        <div>
+                            <div style="font-weight:800;">أفضل فرع هذا الشهر: ${data.bestBranchThisMonth}</div>
+                            <div class="muted" style="font-size:12px;">بمتوسط تقييم ${data.bestBranchAvg} من 5</div>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+        if (!branches.length) {
+            html += '<div class="empty-state"><i class="fas fa-star"></i><p>لا توجد فروع نشطة حالياً</p></div>';
+            view.innerHTML = html;
+            return;
+        }
+        html += '<div class="branches-grid">' + branches.map(b => {
+            const hasRatings = b.total > 0;
+            const goodColor = b.goodPct >= 70 ? 'var(--green)' : (b.goodPct >= 40 ? '#D97706' : 'var(--red)');
+            return `
+            <div class="branch-card" style="cursor:pointer;" onclick="openBranchRatingDetail(${b.branchId})">
+                <div class="name"><i class="fas fa-building" style="color:var(--primary);"></i> ${b.branchName}</div>
+                ${hasRatings ? `
+                    <div style="display:flex;align-items:center;gap:6px;margin-top:6px;">
+                        <i class="fas fa-star" style="color:#c99a3d;"></i>
+                        <b>${b.avgRating}</b><span class="muted" style="font-size:12px;">/ 5 (${b.total} تقييم)</span>
+                    </div>
+                    <div style="display:flex;justify-content:space-between;align-items:center;margin-top:8px;padding-top:8px;border-top:1px solid #eef2f4;font-size:12px;">
+                        <span>نسبة التقييم الجيد</span>
+                        <b style="color:${goodColor};">${b.goodPct}%</b>
+                    </div>
+                ` : `<div class="muted" style="margin-top:8px;font-size:12px;">لا توجد تقييمات بعد</div>`}
+                ${b.newComplaints > 0 ? `<div style="margin-top:6px;font-size:12px;color:var(--red);"><i class="fas fa-flag"></i> ${b.newComplaints} شكوى جديدة</div>` : ''}
+            </div>
+        `; }).join('') + '</div>';
+        view.innerHTML = html;
+    }
+
+    function openBranchRatingDetail(branchId) {
+        openRatingsBranchId = branchId;
+        fetch('?ajax=ratings_branch_detail&branchId=' + branchId).then(r => r.json()).then(data => {
+            if (!data.ok) { showToast('⚠️ خطأ', data.error || 'تعذر تحميل التقييمات', 'error'); return; }
+            const view = document.getElementById('ratingsSubView-ratings');
+            const emojis = { 1: '😞', 2: '😐', 3: '🙂', 4: '😊', 5: '🌟' };
+            let html = `<button class="btn small" onclick="loadRatingsOverview()" style="margin-bottom:12px;"><i class="fas fa-arrow-right"></i> رجوع لكل الفروع</button>`;
+            html += `<div class="brief-card"><div class="brief-top"><span class="branch"><i class="fas fa-building"></i> ${data.branchName}</span></div></div>`;
+            if (!data.ratings.length) {
+                html += '<div class="empty-state"><i class="fas fa-star"></i><p>لا توجد تقييمات لهذا الفرع بعد</p></div>';
+            } else {
+                html += data.ratings.map(r => `
+                    <div class="brief-card">
+                        <div class="brief-top">
+                            <span class="branch">${emojis[r.rating] || ''} تقييم ${r.rating} / 5</span>
+                            <span class="date">${r.date}</span>
+                        </div>
+                        ${r.comment ? `<div class="brief-note">${r.comment}</div>` : '<div class="muted" style="font-size:12px;">بدون تعليق</div>'}
+                    </div>
+                `).join('');
+            }
+            view.innerHTML = html;
+        }).catch(() => showToast('❌ خطأ', 'تعذر الاتصال بالخادم', 'error'));
+    }
+
+    function loadComplaints() {
+        fetch('?ajax=complaints_list').then(r => r.json()).then(data => {
+            if (!data.ok) return;
+            const view = document.getElementById('ratingsSubView-complaints');
+            if (!data.complaints.length) {
+                view.innerHTML = '<div class="empty-state"><i class="fas fa-flag"></i><p>لا توجد شكاوى من المسافرين حالياً</p></div>';
+                return;
+            }
+            view.innerHTML = data.complaints.map(c => `
+                <div class="brief-card" style="${c.status === 'new' ? 'border-right-color:var(--red);' : ''}">
+                    <div class="brief-top">
+                        <span class="branch"><i class="fas fa-building"></i> ${c.branchName}</span>
+                        <span class="date">${c.date}</span>
+                    </div>
+                    <div style="font-size:14px;font-weight:700;margin:4px 0;">${c.title}</div>
+                    <div class="brief-note">${c.details}</div>
+                    ${c.status === 'new'
+                        ? `<div class="brief-actions"><button class="btn small green" onclick="markComplaintReviewed(${c.id})"><i class="fas fa-check"></i> تمت المراجعة</button></div>`
+                        : `<span class="status-pill approved">تمت المراجعة</span>`}
+                </div>
+            `).join('');
+        }).catch(() => {});
+    }
+
+    function markComplaintReviewed(id) {
+        fetch('?ajax=complaint_mark_reviewed', { method: 'POST', body: new URLSearchParams({ id }) })
+            .then(r => r.json()).then(data => {
+                if (!data.ok) { showToast('⚠️ خطأ', data.error || 'تعذر تنفيذ العملية', 'error'); return; }
+                showToast('✅ تم', 'تم تعليم الشكوى كمُراجَعة', 'success');
+                loadComplaints();
+            }).catch(() => showToast('❌ خطأ', 'تعذر الاتصال بالخادم', 'error'));
     }
 
     function loadMgrRequests() {
