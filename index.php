@@ -125,6 +125,14 @@ function is_holiday(PDO $pdo, string $date, int $branchId): ?string
     return null;
 }
 
+/** يُرجع true إن كان إيجاز هذا التاريخ معتمداً نهائياً من HR والمسؤول العام معاً (لا يمكن تعديله بعدها) */
+function brief_is_locked(PDO $pdo, int $branchId, string $date): bool
+{
+    $stmt = $pdo->prepare("SELECT status FROM daily_briefs WHERE branch_id=? AND brief_date=?");
+    $stmt->execute([$branchId, $date]);
+    return $stmt->fetchColumn() === 'approved';
+}
+
 function distance_meters(float $lat1, float $lon1, float $lat2, float $lon2): float
 {
     $r = 6371000;
@@ -761,8 +769,9 @@ if (isset($_GET['ajax'])) {
                 echo json_encode(['ok' => false, 'error' => 'غير مخوّل بهذه العملية']);
                 exit;
             }
-            $stmt = $pdo->prepare("SELECT id, entry_type, amount, description, attachment FROM daily_ledger WHERE branch_id=? AND entry_date=CURDATE() AND brief_id IS NULL ORDER BY created_at DESC");
-            $stmt->execute([$branchId]);
+            $date = $_GET['date'] ?? date('Y-m-d');
+            $stmt = $pdo->prepare("SELECT id, entry_type, amount, description, attachment FROM daily_ledger WHERE branch_id=? AND entry_date=? ORDER BY created_at DESC");
+            $stmt->execute([$branchId, $date]);
             echo json_encode(['ok' => true, 'entries' => $stmt->fetchAll()], JSON_UNESCAPED_UNICODE);
             exit;
         }
@@ -770,6 +779,11 @@ if (isset($_GET['ajax'])) {
         case 'ledger_add': {
             if (!employee_active_delegation($pdo, $branchId, $employeeId)) {
                 echo json_encode(['ok' => false, 'error' => 'غير مخوّل بهذه العملية — لست مفوّضاً بكتابة إيجاز اليوم']);
+                exit;
+            }
+            $date = $_POST['date'] ?? date('Y-m-d');
+            if (brief_is_locked($pdo, $branchId, $date)) {
+                echo json_encode(['ok' => false, 'error' => 'لا يمكن تعديل إيجاز معتمد نهائياً']);
                 exit;
             }
             $type = ($_POST['type'] ?? '') === 'expense' ? 'expense' : 'income';
@@ -780,8 +794,26 @@ if (isset($_GET['ajax'])) {
                 exit;
             }
             $attachment = handle_upload('file', 'ledger', ['jpg', 'jpeg', 'png', 'pdf', 'doc', 'docx']);
-            $stmt = $pdo->prepare("INSERT INTO daily_ledger (branch_id, entry_date, entry_type, amount, description, attachment, created_by) VALUES (?, CURDATE(), ?, ?, ?, ?, ?)");
-            $stmt->execute([$branchId, $type, $amount, $note, $attachment, $emp['id']]);
+            $stmt = $pdo->prepare("INSERT INTO daily_ledger (branch_id, entry_date, entry_type, amount, description, attachment, created_by) VALUES (?, ?, ?, ?, ?, ?, ?)");
+            $stmt->execute([$branchId, $date, $type, $amount, $note, $attachment, $emp['id']]);
+            echo json_encode(['ok' => true, 'id' => (int) $pdo->lastInsertId()]);
+            exit;
+        }
+
+        case 'ledger_delete': {
+            if (!employee_active_delegation($pdo, $branchId, $employeeId)) {
+                echo json_encode(['ok' => false, 'error' => 'غير مخوّل بهذه العملية']);
+                exit;
+            }
+            $id = (int) ($_POST['id'] ?? 0);
+            $entryDateStmt = $pdo->prepare("SELECT entry_date FROM daily_ledger WHERE id=? AND branch_id=?");
+            $entryDateStmt->execute([$id, $branchId]);
+            $entryDate = $entryDateStmt->fetchColumn();
+            if ($entryDate && brief_is_locked($pdo, $branchId, $entryDate)) {
+                echo json_encode(['ok' => false, 'error' => 'لا يمكن تعديل إيجاز معتمد نهائياً']);
+                exit;
+            }
+            $pdo->prepare("DELETE FROM daily_ledger WHERE id=? AND branch_id=?")->execute([$id, $branchId]);
             echo json_encode(['ok' => true]);
             exit;
         }
@@ -791,47 +823,83 @@ if (isset($_GET['ajax'])) {
                 echo json_encode(['ok' => false, 'error' => 'غير مخوّل بهذه العملية — لست مفوّضاً بكتابة إيجاز اليوم']);
                 exit;
             }
+            $date = $_POST['date'] ?? date('Y-m-d');
+            if (brief_is_locked($pdo, $branchId, $date)) {
+                echo json_encode(['ok' => false, 'error' => 'لا يمكن تعديل إيجاز معتمد نهائياً']);
+                exit;
+            }
             $travelersCount = (int) ($_POST['travelersCount'] ?? 0);
             $note = trim($_POST['note'] ?? '');
             $attachment = handle_upload('attachment', 'briefs', ['jpg', 'jpeg', 'png', 'pdf', 'doc', 'docx']);
             $stmt = $pdo->prepare("SELECT
                 COALESCE(SUM(CASE WHEN entry_type='income' THEN amount ELSE 0 END),0) AS income,
                 COALESCE(SUM(CASE WHEN entry_type='expense' THEN amount ELSE 0 END),0) AS expense
-                FROM daily_ledger WHERE branch_id=? AND entry_date=CURDATE()");
-            $stmt->execute([$branchId]);
+                FROM daily_ledger WHERE branch_id=? AND entry_date=?");
+            $stmt->execute([$branchId, $date]);
             $totals = $stmt->fetch();
             if ((float) $totals['income'] === 0.0 && (float) $totals['expense'] === 0.0) {
                 echo json_encode(['ok' => false, 'error' => 'لا توجد قيود لنشرها، أضف قيداً أولاً']);
                 exit;
             }
-            $yesterday = date('Y-m-d', strtotime('-1 day'));
+            $prevDate = date('Y-m-d', strtotime($date . ' -1 day'));
             $prevStmt = $pdo->prepare("SELECT (total_income - total_expense) AS profit FROM daily_briefs WHERE branch_id=? AND brief_date=?");
-            $prevStmt->execute([$branchId, $yesterday]);
+            $prevStmt->execute([$branchId, $prevDate]);
             $previousProfit = (float) ($prevStmt->fetchColumn() ?: 0);
 
             $stmt = $pdo->prepare("INSERT INTO daily_briefs (branch_id, brief_date, total_income, total_expense, previous_profit, travelers_count, note, attachment, status, submitted_by)
-                VALUES (?, CURDATE(), ?, ?, ?, ?, ?, ?, 'pending', ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?)
                 ON DUPLICATE KEY UPDATE total_income=VALUES(total_income), total_expense=VALUES(total_expense), travelers_count=VALUES(travelers_count),
                     note=VALUES(note), attachment=COALESCE(VALUES(attachment), attachment), status='pending', submitted_by=VALUES(submitted_by),
                     hr_decision='pending', gm_decision='pending', hr_note=NULL, gm_review_note=NULL, reviewed_by=NULL, reviewed_at=NULL, gm_reviewed_by=NULL, gm_reviewed_at=NULL");
-            $stmt->execute([$branchId, $totals['income'], $totals['expense'], $previousProfit, $travelersCount, $note ?: null, $attachment, $employeeId]);
+            $stmt->execute([$branchId, $date, $totals['income'], $totals['expense'], $previousProfit, $travelersCount, $note ?: null, $attachment, $employeeId]);
 
-            $briefIdStmt = $pdo->prepare("SELECT id FROM daily_briefs WHERE branch_id=? AND brief_date=CURDATE()");
-            $briefIdStmt->execute([$branchId]);
+            $briefIdStmt = $pdo->prepare("SELECT id FROM daily_briefs WHERE branch_id=? AND brief_date=?");
+            $briefIdStmt->execute([$branchId, $date]);
             $publishedBriefId = (int) $briefIdStmt->fetchColumn();
-            $pdo->prepare("UPDATE daily_ledger SET brief_id=? WHERE branch_id=? AND entry_date=CURDATE()")->execute([$publishedBriefId, $branchId]);
+            $pdo->prepare("UPDATE daily_ledger SET brief_id=? WHERE branch_id=? AND entry_date=?")->execute([$publishedBriefId, $branchId, $date]);
 
             $branchName = $pdo->prepare("SELECT name FROM branches WHERE id=?");
             $branchName->execute([$branchId]);
             $branchName = $branchName->fetchColumn();
-            audit_log_write($pdo, 'employee', $emp['full_name'], $emp['employee_number'] ?? null, 'brief_create', 'نشر ' . $emp['full_name'] . ' (مفوّض) إيجاز فرع ' . $branchName, $branchId);
+            $isToday = $date === date('Y-m-d');
+            audit_log_write($pdo, 'employee', $emp['full_name'], $emp['employee_number'] ?? null, 'brief_create', 'نشر ' . $emp['full_name'] . ' (مفوّض) إيجاز فرع ' . $branchName . ($isToday ? '' : (' ليوم ' . $date)), $branchId);
             $hrUids = $pdo->query("SELECT id FROM users WHERE role='hr'")->fetchAll(PDO::FETCH_COLUMN);
             foreach ($hrUids as $uid) {
                 $pdo->prepare("INSERT INTO notifications (user_id, title, message) VALUES (?, 'إيجاز جديد بانتظار المراجعة', ?)")
-                    ->execute([$uid, 'نشر ' . $emp['full_name'] . ' (مفوّض) إيجاز فرع ' . $branchName . ' اليوم بانتظار مراجعتك']);
+                    ->execute([$uid, 'نشر ' . $emp['full_name'] . ' (مفوّض) إيجاز فرع ' . $branchName . ($isToday ? ' اليوم' : (' ليوم ' . $date)) . ' بانتظار مراجعتك']);
             }
 
             echo json_encode(['ok' => true]);
+            exit;
+        }
+
+        case 'briefs_history_self': {
+            if (!employee_active_delegation($pdo, $branchId, $employeeId)) {
+                echo json_encode(['ok' => false, 'error' => 'غير مخوّل بهذه العملية']);
+                exit;
+            }
+            $map = [
+                'pending' => 'بانتظار مراجعة الموارد البشرية والمسؤول العام',
+                'hr_approved' => 'وافقت الموارد البشرية — بانتظار موافقة المسؤول العام أيضاً',
+                'gm_approved' => 'وافق المسؤول العام — بانتظار موافقة الموارد البشرية أيضاً',
+                'approved' => 'معتمد نهائياً (وافق الطرفان)',
+                'rejected' => 'مرفوض',
+            ];
+            $stmt = $pdo->prepare("SELECT brief_date, total_income, total_expense, travelers_count, note, status FROM daily_briefs WHERE branch_id=? ORDER BY brief_date DESC LIMIT 30");
+            $stmt->execute([$branchId]);
+            $rows = array_map(function ($r) use ($map) {
+                return [
+                    'date' => $r['brief_date'],
+                    'dateText' => date('d/m/Y', strtotime($r['brief_date'])),
+                    'profit' => (float) $r['total_income'] - (float) $r['total_expense'],
+                    'travelersCount' => (int) $r['travelers_count'],
+                    'note' => $r['note'],
+                    'status' => $r['status'],
+                    'statusText' => $map[$r['status']] ?? $r['status'],
+                    'canEdit' => $r['status'] !== 'approved',
+                ];
+            }, $stmt->fetchAll());
+            echo json_encode(['ok' => true, 'briefs' => $rows], JSON_UNESCAPED_UNICODE);
             exit;
         }
 
@@ -3065,6 +3133,12 @@ try {
                     <h2><i class="fas fa-chart-simple"></i> إيجاز الفرع اليومي</h2>
                     <button onclick="navigateTo('home')" class="back-btn"><i class="fas fa-arrow-right"></i> رجوع</button>
                 </div>
+                <div id="editBriefBanner" class="card" style="display:none;background:rgba(201,154,61,0.08);border-color:var(--accent);">
+                    <div class="list-item" style="border-bottom:0;">
+                        <div class="item-content"><div class="item-title"><i class="fas fa-pen"></i> أنت تعدّل إيجاز يوم <b id="editBriefDateText"></b></div></div>
+                        <button class="quick-action-btn" style="padding:8px 12px;" onclick="cancelEditBrief()"><i class="fas fa-times"></i> إلغاء</button>
+                    </div>
+                </div>
                 <div class="card">
                     <div class="list-item">
                         <div class="item-icon" style="background:rgba(0,107,115,0.08);color:var(--primary);"><i class="fas fa-calendar"></i></div>
@@ -3138,8 +3212,12 @@ try {
                         <div class="form-group"><label>إرفاق ملف</label><input type="file" id="briefAttachmentInput" accept=".pdf,.doc,.docx,.jpg,.png"></div>
                     </div>
                     <button class="quick-action-btn" style="width:100%;padding:14px;border-color:var(--accent);" onclick="publishBriefingAsDelegate()">
-                        <i class="fas fa-paper-plane"></i> نشر إيجاز اليوم
+                        <i class="fas fa-paper-plane"></i> <span id="publishBriefBtnText">نشر إيجاز اليوم</span>
                     </button>
+                    <div class="section-title"><i class="fas fa-clock-rotate-left"></i> إيجازات كل يوم</div>
+                    <div id="briefHistoryList">
+                        <div class="card"><div class="list-item"><div class="item-content"><div class="item-title">جاري التحميل...</div></div></div></div>
+                    </div>
                 </div>
             </div>
 
@@ -3853,14 +3931,25 @@ try {
                     document.getElementById('briefProfit').textContent = Number(data.profit).toLocaleString() + ' د.ع';
                 }
             });
-            if (isDelegated) loadLedgerEntries();
+            if (isDelegated) {
+                cancelEditBrief();
+                loadBriefHistory();
+            }
         }
 
         // ============================================================
         // كتابة الإيجاز (للموظف المفوَّض فقط)
         // ============================================================
+        let editingBriefDate = null;
+
+        function todayIsoDate() {
+            const d = new Date();
+            return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+        }
+
         function loadLedgerEntries() {
-            fetch('?ajax=ledger_list').then(r => r.json()).then(data => {
+            const date = editingBriefDate || todayIsoDate();
+            fetch('?ajax=ledger_list&date=' + date).then(r => r.json()).then(data => {
                 if (!data.ok) return;
                 const wrap = document.getElementById('ledgerEntriesList');
                 if (!data.entries.length) {
@@ -3876,8 +3965,18 @@ try {
                             ${e.attachment ? `<a href="${e.attachment}" target="_blank" style="font-size:10px;"><i class="fas fa-paperclip"></i> عرض الملف</a>` : ''}
                         </div>
                         <span style="font-weight:800;">${Number(e.amount).toLocaleString()}</span>
+                        <button class="quick-action-btn" style="padding:6px 10px;margin-right:6px;" onclick="deleteLedgerEntry(${e.id})"><i class="fas fa-trash" style="color:#DC2626;"></i></button>
                     </div>
                 `).join('');
+            });
+        }
+
+        function deleteLedgerEntry(id) {
+            if (!confirm('هل أنت متأكد من حذف هذا القيد؟')) return;
+            fetch('?ajax=ledger_delete', { method: 'POST', body: new URLSearchParams({ id }) }).then(r => r.json()).then(data => {
+                if (!data.ok) { showToast('⚠️ خطأ', data.error || 'تعذر حذف القيد', 'error'); return; }
+                showToast('🗑️ تم الحذف', 'تم حذف القيد بنجاح', 'warning');
+                loadLedgerEntries();
             });
         }
 
@@ -3894,6 +3993,7 @@ try {
             formData.append('type', type);
             formData.append('amount', amount);
             formData.append('note', note);
+            formData.append('date', editingBriefDate || todayIsoDate());
             if (fileInput.files && fileInput.files.length > 0) {
                 formData.append('file', fileInput.files[0]);
             }
@@ -3919,16 +4019,80 @@ try {
             const formData = new FormData();
             formData.append('travelersCount', travelersCount);
             formData.append('note', note);
+            formData.append('date', editingBriefDate || todayIsoDate());
             if (fileInput.files && fileInput.files.length > 0) {
                 formData.append('attachment', fileInput.files[0]);
             }
             fetch('?ajax=briefing_publish_delegate', { method: 'POST', body: formData }).then(r => r.json()).then(data => {
                 if (!data.ok) { showToast('⚠️ خطأ', data.error || 'تعذر نشر الإيجاز', 'error'); return; }
-                showToast('✅ تم النشر', 'تم نشر إيجاز اليوم بانتظار مراجعة الموارد البشرية', 'success');
+                showToast('✅ تم النشر', editingBriefDate ? 'تم حفظ تعديلات إيجاز يوم ' + editingBriefDate : 'تم نشر إيجاز اليوم بانتظار مراجعة الموارد البشرية', 'success');
+                editingBriefDate = null;
+                document.getElementById('editBriefBanner').style.display = 'none';
+                document.getElementById('publishBriefBtnText').textContent = 'نشر إيجاز اليوم';
+                document.getElementById('briefTravelersInput').value = '';
+                document.getElementById('briefNoteInput').value = '';
                 loadBriefing();
+                loadBriefHistory();
             }).catch(() => {
                 showToast('⚠️ خطأ', 'تعذر الاتصال بالخادم', 'error');
             });
+        }
+
+        // ============================================================
+        // إيجازات كل يوم — تعديل إيجاز لم يُعتمد نهائياً بعد
+        // ============================================================
+        let briefHistoryData = [];
+
+        function loadBriefHistory() {
+            if (!isDelegated) return;
+            fetch('?ajax=briefs_history_self').then(r => r.json()).then(data => {
+                if (!data.ok) return;
+                briefHistoryData = data.briefs;
+                renderBriefHistory();
+            }).catch(() => {});
+        }
+
+        function renderBriefHistory() {
+            const view = document.getElementById('briefHistoryList');
+            if (!view) return;
+            if (!briefHistoryData.length) {
+                view.innerHTML = '<div class="card"><div class="list-item"><div class="item-content"><div class="item-title">لا توجد إيجازات منشورة بعد</div></div></div></div>';
+                return;
+            }
+            view.innerHTML = briefHistoryData.map(b => `
+                <div class="card">
+                    <div class="list-item">
+                        <div class="item-content">
+                            <div class="item-title">${b.dateText}</div>
+                            <div class="item-desc">${b.statusText}</div>
+                        </div>
+                        <span style="font-weight:800;color:${b.profit >= 0 ? 'var(--green)' : '#DC2626'};">${(b.profit >= 0 ? '+' : '') + Number(b.profit).toLocaleString()}</span>
+                        ${b.canEdit ? `<button class="quick-action-btn" style="padding:6px 10px;margin-right:6px;" onclick="startEditBrief('${b.date}')"><i class="fas fa-pen"></i></button>` : ''}
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        function startEditBrief(date) {
+            const brief = briefHistoryData.find(x => x.date === date);
+            if (!brief) return;
+            editingBriefDate = brief.date;
+            document.getElementById('editBriefBanner').style.display = 'block';
+            document.getElementById('editBriefDateText').textContent = brief.dateText;
+            document.getElementById('publishBriefBtnText').textContent = 'حفظ التعديلات';
+            document.getElementById('briefTravelersInput').value = brief.travelersCount || '';
+            document.getElementById('briefNoteInput').value = brief.note || '';
+            loadLedgerEntries();
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+        }
+
+        function cancelEditBrief() {
+            editingBriefDate = null;
+            document.getElementById('editBriefBanner').style.display = 'none';
+            document.getElementById('publishBriefBtnText').textContent = 'نشر إيجاز اليوم';
+            document.getElementById('briefTravelersInput').value = '';
+            document.getElementById('briefNoteInput').value = '';
+            loadLedgerEntries();
         }
 
         // ============================================================
