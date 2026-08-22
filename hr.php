@@ -300,7 +300,7 @@ if (isset($_GET['ajax'])) {
             $rate = (float) ($pdo->query("SELECT usd_exchange_rate FROM settings ORDER BY id DESC LIMIT 1")->fetchColumn() ?: 0);
             $rows = $pdo->query("
                 SELECT b.id, b.name, b.location, b.status, b.notes,
-                       e.id AS managerId, e.full_name AS manager, e.national_id AS nationalId, e.phone_number AS phone, e.birth_date AS birthDate,
+                       e.id AS managerId, e.full_name AS manager, e.employee_number AS managerCode, e.national_id AS nationalId, e.phone_number AS phone, e.birth_date AS birthDate,
                        e.hire_date AS hireDate,
                        e.shift_start AS shiftStart, e.shift_end AS shiftEnd,
                        e.photo, e.documents AS docs,
@@ -4352,7 +4352,7 @@ try {
                     <div class="branch-card" onclick="viewBranch(${branch.id})">
                         <div class="branch-top">
                             <div>
-                                <div class="branch-name"><i class="fas fa-building"></i> ${branch.name}</div>
+                                <div class="branch-name"><i class="fas fa-building"></i> ${branch.name}${branch.managerCode ? ` <span style="font-size:11px;font-weight:700;color:var(--primary);background:rgba(0,107,115,0.08);border-radius:6px;padding:2px 8px;">${branch.managerCode}</span>` : ''}</div>
                                 <div style="font-size:12px;color:var(--text-secondary);">
                                     <i class="fas fa-user-tie"></i> مسؤول: ${branch.manager || 'لم يُعيّن بعد'}
                                 </div>
