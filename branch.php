@@ -118,7 +118,6 @@ function is_holiday(PDO $pdo, string $date, int $branchId): ?string
 {
     $dow = (int) date('w', strtotime($date));
     if ($dow === 5) return 'الجمعة';
-    if ($dow === 6) return 'السبت';
     $stmt = $pdo->prepare("SELECT note FROM holidays WHERE holiday_date=? AND (branch_id IS NULL OR branch_id=?) LIMIT 1");
     $stmt->execute([$date, $branchId]);
     $note = $stmt->fetchColumn();

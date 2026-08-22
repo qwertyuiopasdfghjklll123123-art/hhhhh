@@ -118,7 +118,6 @@ function is_holiday(PDO $pdo, string $date, int $branchId): ?string
 {
     $dow = (int) date('w', strtotime($date));
     if ($dow === 5) return 'الجمعة';
-    if ($dow === 6) return 'السبت';
     $stmt = $pdo->prepare("SELECT note FROM holidays WHERE holiday_date=? AND (branch_id IS NULL OR branch_id=?) LIMIT 1");
     $stmt->execute([$date, $branchId]);
     $note = $stmt->fetchColumn();
@@ -4209,9 +4208,8 @@ try {
                 const dayIndex = parseInt(el.dataset.day);
                 el.classList.remove('active', 'today', 'inactive');
                 if (dayIndex === day) el.classList.add('today');
-                if (dayIndex >= 0 && dayIndex <= 4) el.classList.add('active');
+                if (dayIndex !== 5) el.classList.add('active');
                 else el.classList.add('inactive');
-                if (dayIndex === day && dayIndex >= 0 && dayIndex <= 4) el.classList.add('active');
             });
 
             const [startHour, startMinute] = shiftInfo.start.split(':').map(Number);
@@ -4228,10 +4226,10 @@ try {
             document.getElementById('startTime').textContent = shiftInfo.start;
             document.getElementById('endTime').textContent = shiftInfo.end;
 
-            if (remaining > 0 && day >= 0 && day <= 4) {
+            if (remaining > 0 && day !== 5) {
                 remainingEl.textContent = `${remainingHours} ساعات و ${remainingMinutes} دقيقة`;
                 countdownEl.textContent = `⏳ متبقي ${remainingHours}h ${remainingMinutes}m`;
-            } else if (day >= 5) {
+            } else if (day === 5) {
                 remainingEl.textContent = 'يوم عطلة';
                 countdownEl.textContent = '🎉 يوم عطلة';
             } else {

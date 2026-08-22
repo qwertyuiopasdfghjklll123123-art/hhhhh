@@ -101,7 +101,6 @@ function is_holiday(PDO $pdo, string $date, int $branchId): ?string
 {
     $dow = (int) date('w', strtotime($date));
     if ($dow === 5) return 'الجمعة';
-    if ($dow === 6) return 'السبت';
     $stmt = $pdo->prepare("SELECT note FROM holidays WHERE holiday_date=? AND (branch_id IS NULL OR branch_id=?) LIMIT 1");
     $stmt->execute([$date, $branchId]);
     $note = $stmt->fetchColumn();
@@ -468,8 +467,8 @@ if (isset($_GET['ajax'])) {
                 exit;
             }
             $dow = (int) date('w', strtotime($date));
-            if ($dow === 5 || $dow === 6) {
-                echo json_encode(['ok' => false, 'error' => 'هذا اليوم عطلة أسبوعية تلقائياً (جمعة/سبت)، لا حاجة لإضافته']);
+            if ($dow === 5) {
+                echo json_encode(['ok' => false, 'error' => 'يوم الجمعة عطلة أسبوعية تلقائياً، لا حاجة لإضافته']);
                 exit;
             }
             try {
@@ -500,8 +499,31 @@ if (isset($_GET['ajax'])) {
 
         case 'holiday_delete': {
             $id = (int) ($_POST['id'] ?? 0);
+            $holStmt = $pdo->prepare("SELECT branch_id, holiday_date FROM holidays WHERE id=?");
+            $holStmt->execute([$id]);
+            $hol = $holStmt->fetch();
+            if (!$hol) {
+                echo json_encode(['ok' => false, 'error' => 'هذه العطلة غير موجودة أو تم إلغاؤها مسبقاً']);
+                exit;
+            }
+            $branchId = (int) ($hol['branch_id'] ?? 0);
             $pdo->prepare("DELETE FROM holidays WHERE id=?")->execute([$id]);
-            audit_log_write($pdo, $gmUser['role'], $gmUser['displayName'] ?? $gmUser['username'], $gmUser['employeeNumber'] ?? null, 'holiday_delete', 'ألغى المسؤول العام عطلة رسمية (رقم ' . $id . ')');
+
+            $branchName = 'كل الفروع';
+            if ($branchId > 0) {
+                $nameStmt = $pdo->prepare("SELECT name FROM branches WHERE id=?");
+                $nameStmt->execute([$branchId]);
+                $branchName = $nameStmt->fetchColumn() ?: 'الفرع';
+            }
+            $msg = 'تم إلغاء عطلة يوم ' . date('d/m/Y', strtotime($hol['holiday_date'])) . ' لـ ' . $branchName . '، الدوام عادي في هذا اليوم';
+            $uidStmt = $branchId > 0
+                ? $pdo->prepare("SELECT id FROM users WHERE branch_id=? UNION SELECT id FROM users WHERE role='hr' UNION SELECT u.id FROM users u JOIN employees e ON e.id=u.employee_id WHERE e.branch_id=?")
+                : $pdo->prepare("SELECT id FROM users WHERE role IN ('hr','branch_manager','employee')");
+            $branchId > 0 ? $uidStmt->execute([$branchId, $branchId]) : $uidStmt->execute();
+            foreach ($uidStmt->fetchAll(PDO::FETCH_COLUMN) as $uid) {
+                $pdo->prepare("INSERT INTO notifications (user_id, title, message) VALUES (?, 'إلغاء عطلة رسمية', ?)")->execute([$uid, $msg]);
+            }
+            audit_log_write($pdo, $gmUser['role'], $gmUser['displayName'] ?? $gmUser['username'], $gmUser['employeeNumber'] ?? null, 'holiday_delete', $msg, $branchId > 0 ? $branchId : null);
             echo json_encode(['ok' => true]);
             exit;
         }
