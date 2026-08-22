@@ -5199,18 +5199,28 @@ try {
             `;
         }
 
+        let reviewBriefingInFlight = false;
+
         function reviewBriefing(id, decision) {
+            if (reviewBriefingInFlight) return;
+            reviewBriefingInFlight = true;
             const item = briefingRequests.find(b => Number(b.id) === Number(id));
             const noteInput = document.getElementById(`hrNote_${id}`);
             const hrNote = noteInput ? noteInput.value.trim() : '';
             const body = new URLSearchParams({ id, decision, hrNote });
             fetch('?ajax=brief_review', { method: 'POST', body }).then(r => r.json()).then(data => {
-                if (!data.ok) { showToast('⚠️ خطأ', data.error || 'تعذر الحفظ', 'error'); return; }
+                reviewBriefingInFlight = false;
+                if (!data.ok) {
+                    showToast('⚠️ خطأ', data.error || 'تعذر الحفظ', 'error');
+                    loadBriefingRequests();
+                    return;
+                }
                 loadBriefingRequests();
                 const who = item ? `${item.sender} - ${item.branch}` : 'الإيجاز';
                 if (decision === 'approved') showToast('✅ تمت الموافقة', `تمت موافقتك على إيجاز ${who}، بانتظار الاعتماد النهائي من المسؤول العام`, 'success');
                 else showToast('❌ تم الرفض', `تم رفض إيجاز ${who}`, 'error');
             }).catch(() => {
+                reviewBriefingInFlight = false;
                 showToast('❌ خطأ', 'تعذر الاتصال بالخادم، حاول مرة أخرى', 'error');
             });
         }

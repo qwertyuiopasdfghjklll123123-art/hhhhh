@@ -2339,8 +2339,7 @@ try {
 
     function openTodayBrief(branchId) {
         todayBriefOpenBranchId = branchId;
-        const today = new Date().toISOString().slice(0, 10);
-        fetch('?ajax=branch_detail&id=' + branchId + '&date=' + today).then(r => r.json()).then(data => {
+        fetch('?ajax=branch_detail&id=' + branchId).then(r => r.json()).then(data => {
             if (!data.ok) { showToast('⚠️ خطأ', data.error || 'تعذر تحميل بيانات الفرع', 'error'); return; }
             todayBriefDetail = { branch: data.branch, brief: data.briefs.find(x => x.isToday) || null };
             renderTodayBriefDetail();
@@ -2392,22 +2391,31 @@ try {
         view.innerHTML = inner;
     }
 
+    let finalReviewInFlight = false;
+
     function finalReview(id, decision) {
+        if (finalReviewInFlight) return;
+        finalReviewInFlight = true;
         const noteEl = document.getElementById('gmNote_' + id);
         const note = noteEl ? noteEl.value : '';
         fetch('?ajax=brief_final_review', { method: 'POST', body: new URLSearchParams({ id, decision, note }) })
             .then(r => r.json()).then(data => {
-                if (!data.ok) { showToast('⚠️ خطأ', data.error || 'تعذر تنفيذ العملية', 'error'); return; }
+                finalReviewInFlight = false;
+                const branchId = todayBriefOpenBranchId;
+                if (!data.ok) {
+                    showToast('⚠️ خطأ', data.error || 'تعذر تنفيذ العملية', 'error');
+                    if (branchId !== null) openTodayBrief(branchId);
+                    return;
+                }
                 showToast(decision === 'approved' ? '✅ تم الاعتماد' : '❌ تم الرفض',
                     decision === 'approved' ? 'تم اعتماد الإيجاز' : 'تم رفض الإيجاز', decision === 'approved' ? 'success' : 'error');
-                const branchId = todayBriefOpenBranchId;
                 fetch('?ajax=today_briefs').then(r => r.json()).then(d2 => {
                     if (d2.ok) todayBriefsData = d2.branches;
                     if (branchId !== null) openTodayBrief(branchId);
                     else renderTodayBriefsGrid();
                 });
                 loadBootstrap();
-            });
+            }).catch(() => { finalReviewInFlight = false; });
     }
 
     function loadHistory() {
