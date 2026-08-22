@@ -3073,9 +3073,9 @@ try {
             </nav>
 
             <div class="user-info">
-                <div class="avatar">أ</div>
+                <div class="avatar"><?= mb_substr($_SESSION['hr_user']['displayName'] ?? $_SESSION['hr_user']['username'] ?? '؟', 0, 1) ?></div>
                 <div class="info">
-                    <div class="name">أحمد المدير</div>
+                    <div class="name"><?= htmlspecialchars($_SESSION['hr_user']['displayName'] ?? $_SESSION['hr_user']['username'] ?? '') ?></div>
                     <div class="role">مدير الموارد البشرية</div>
                 </div>
                 <button class="logout-btn" onclick="handleLogout()" title="تسجيل الخروج">

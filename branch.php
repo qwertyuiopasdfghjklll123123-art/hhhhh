@@ -990,20 +990,40 @@ if (isset($_GET['ajax'])) {
             $year = (int) ($_GET['year'] ?? date('Y'));
             $stmt = $pdo->prepare("
                 SELECT e.id, e.full_name AS name, e.base_salary,
-                       COALESCE(p.deduction, 0) AS loan, COALESCE(p.status, 'pending') AS status
+                       e.has_evening_shift AS hasEveningShift, e.evening_base_salary AS eveningBaseSalary,
+                       p.base_salary AS paidBase, COALESCE(p.bonus,0) AS bonus, COALESCE(p.deduction,0) AS deduction, COALESCE(p.status,'pending') AS status,
+                       pe.base_salary AS eveningPaidBase, pe.bonus AS eveningBonus, pe.deduction AS eveningDeduction, COALESCE(pe.status,'pending') AS eveningStatus
                 FROM employees e
-                LEFT JOIN payroll p ON p.employee_id = e.id AND p.period_month=? AND p.period_year=?
+                LEFT JOIN payroll p ON p.employee_id = e.id AND p.period_month=? AND p.period_year=? AND p.shift_period='morning'
+                LEFT JOIN payroll pe ON pe.employee_id = e.id AND pe.period_month=? AND pe.period_year=? AND pe.shift_period='evening'
                 WHERE e.branch_id=? AND e.is_branch_manager=0 AND e.status='active'
                 ORDER BY (COALESCE(p.status, 'pending') = 'delivered') ASC, e.full_name
             ");
-            $stmt->execute([$month, $year, $branchId]);
+            $stmt->execute([$month, $year, $month, $year, $branchId]);
             $rows = array_map(function ($r) {
-                $salary = (float) $r['base_salary'];
-                $loan = (float) $r['loan'];
-                return [
-                    'id' => $r['id'], 'name' => $r['name'], 'salary' => $salary, 'loan' => $loan,
-                    'net' => $salary - $loan, 'status' => $r['status'] === 'delivered' ? 'تم التسليم' : 'قيد الانتظار',
+                $base = $r['paidBase'] !== null ? (float) $r['paidBase'] : (float) $r['base_salary'];
+                $bonus = (float) $r['bonus'];
+                $deduction = (float) $r['deduction'];
+                $hasEvening = (bool) $r['hasEveningShift'];
+                $row = [
+                    'id' => $r['id'], 'name' => $r['name'], 'hasEveningShift' => $hasEvening,
+                    'base' => $base, 'bonus' => $bonus, 'deduction' => $deduction, 'net' => $base + $bonus - $deduction,
+                    'status' => $r['status'] === 'delivered' ? 'تم التسليم' : 'قيد الانتظار', 'statusRaw' => $r['status'],
+                    'eveningBase' => null, 'eveningBonus' => null, 'eveningDeduction' => null, 'eveningNet' => null,
+                    'eveningStatus' => null, 'eveningStatusRaw' => null,
                 ];
+                if ($hasEvening) {
+                    $eveningBase = $r['eveningPaidBase'] !== null ? (float) $r['eveningPaidBase'] : (float) $r['eveningBaseSalary'];
+                    $eveningBonus = (float) ($r['eveningBonus'] ?? 0);
+                    $eveningDeduction = (float) ($r['eveningDeduction'] ?? 0);
+                    $row['eveningBase'] = $eveningBase;
+                    $row['eveningBonus'] = $eveningBonus;
+                    $row['eveningDeduction'] = $eveningDeduction;
+                    $row['eveningNet'] = $eveningBase + $eveningBonus - $eveningDeduction;
+                    $row['eveningStatus'] = $r['eveningStatus'] === 'delivered' ? 'تم التسليم' : 'قيد الانتظار';
+                    $row['eveningStatusRaw'] = $r['eveningStatus'];
+                }
+                return $row;
             }, $stmt->fetchAll());
 
             $winStmt = $pdo->prepare("SELECT expires_at FROM payroll_windows WHERE branch_id=? AND period_month=? AND period_year=?");
@@ -1021,6 +1041,8 @@ if (isset($_GET['ajax'])) {
 
         case 'pay_salary': {
             $employeeId = (int) ($_POST['employeeId'] ?? 0);
+            $period = $_POST['period'] ?? 'morning';
+            if (!in_array($period, ['morning', 'evening', 'both'], true)) $period = 'morning';
             $month = (int) date('n');
             $year = (int) date('Y');
 
@@ -1032,56 +1054,98 @@ if (isset($_GET['ajax'])) {
                 exit;
             }
 
-            $empStmt = $pdo->prepare("SELECT full_name, base_salary FROM employees WHERE id=? AND branch_id=?");
+            $empStmt = $pdo->prepare("SELECT full_name, base_salary, has_evening_shift, evening_base_salary, shift_start, evening_shift_start FROM employees WHERE id=? AND branch_id=?");
             $empStmt->execute([$employeeId, $branchId]);
             $emp = $empStmt->fetch();
             if (!$emp) {
                 echo json_encode(['ok' => false, 'error' => 'الموظف غير موجود']);
                 exit;
             }
-            $existing = $pdo->prepare("SELECT * FROM payroll WHERE employee_id=? AND period_month=? AND period_year=?");
-            $existing->execute([$employeeId, $month, $year]);
-            $existing = $existing->fetch();
-            if ($existing && $existing['status'] === 'delivered') {
-                echo json_encode(['ok' => false, 'error' => 'تم تسليم راتب هذا الموظف عن هذا الشهر مسبقاً']);
+            if (($period === 'evening' || $period === 'both') && !$emp['has_evening_shift']) {
+                echo json_encode(['ok' => false, 'error' => 'لا يوجد لهذا الموظف شفت مسائي مفعّل']);
                 exit;
             }
-            $baseSalary = $existing ? (float) $existing['base_salary'] : (float) $emp['base_salary'];
-            $bonus = $existing ? (float) $existing['bonus'] : 0.0;
-            $deduction = $existing ? (float) $existing['deduction'] : 0.0;
 
-            $advStmt = $pdo->prepare("SELECT id, approved_monthly_deduction, remaining_balance FROM requests WHERE employee_id=? AND type='advance' AND status='approved' AND remaining_balance > 0 AND COALESCE(shift_period,'morning')='morning' ORDER BY id ASC LIMIT 1");
-            $advStmt->execute([$employeeId]);
-            $adv = $advStmt->fetch();
-            if ($adv) {
-                $advanceCut = min((float) $adv['approved_monthly_deduction'], (float) $adv['remaining_balance']);
-                $deduction += $advanceCut;
-                $newRemaining = (float) $adv['remaining_balance'] - $advanceCut;
-                $pdo->prepare("UPDATE requests SET remaining_balance = ? WHERE id=?")->execute([$newRemaining, $adv['id']]);
-                if ($newRemaining <= 0) {
-                    $doneMsg = 'تم اكتمال تسديد السلفة الخاصة بـ ' . $emp['full_name'];
-                    $doneUids = $pdo->prepare("SELECT id FROM users WHERE employee_id=? UNION SELECT id FROM users WHERE role='hr'");
-                    $doneUids->execute([$employeeId]);
-                    foreach ($doneUids->fetchAll(PDO::FETCH_COLUMN) as $uid) {
-                        $pdo->prepare("INSERT INTO notifications (user_id, title, message) VALUES (?, 'تم اكتمال تسديد السلفة', ?)")->execute([$uid, $doneMsg]);
+            $periodsToDeliver = $period === 'both' ? ['morning', 'evening'] : [$period];
+            $delivered = [];
+            $settingsRow = $pdo->query("SELECT late_grace_minutes, late_deduction_per_hour FROM settings ORDER BY id DESC LIMIT 1")->fetch();
+
+            foreach ($periodsToDeliver as $p) {
+                $existing = $pdo->prepare("SELECT * FROM payroll WHERE employee_id=? AND period_month=? AND period_year=? AND shift_period=?");
+                $existing->execute([$employeeId, $month, $year, $p]);
+                $existing = $existing->fetch();
+                if ($existing && $existing['status'] === 'delivered') {
+                    continue;
+                }
+
+                $defaultBase = $p === 'evening' ? (float) $emp['evening_base_salary'] : (float) $emp['base_salary'];
+                $baseSalary = $existing ? (float) $existing['base_salary'] : $defaultBase;
+                $bonus = $existing ? (float) $existing['bonus'] : 0.0;
+                $deduction = $existing ? (float) $existing['deduction'] : 0.0;
+
+                $lateDeduction = 0.0;
+                $workStart = $p === 'evening' ? $emp['evening_shift_start'] : $emp['shift_start'];
+                if ($settingsRow && (float) $settingsRow['late_deduction_per_hour'] > 0 && $workStart) {
+                    $lateStmt = $pdo->prepare("SELECT check_in FROM attendance WHERE employee_id=? AND shift_period=? AND status='late' AND attendance_date >= ? AND attendance_date < DATE_ADD(?, INTERVAL 1 MONTH)");
+                    $monthStart = sprintf('%04d-%02d-01', $year, $month);
+                    $lateStmt->execute([$employeeId, $p, $monthStart, $monthStart]);
+                    $grace = (int) $settingsRow['late_grace_minutes'];
+                    $deadline = strtotime($workStart) + $grace * 60;
+                    $lateMinutes = 0;
+                    foreach ($lateStmt->fetchAll(PDO::FETCH_COLUMN) as $checkIn) {
+                        if (!$checkIn) continue;
+                        $diff = (strtotime($checkIn) - $deadline) / 60;
+                        if ($diff > 0) $lateMinutes += $diff;
+                    }
+                    if ($lateMinutes > 0) {
+                        $lateDeduction = ceil($lateMinutes / 60) * (float) $settingsRow['late_deduction_per_hour'];
+                        $deduction += $lateDeduction;
                     }
                 }
+
+                $advStmt = $pdo->prepare("SELECT id, approved_monthly_deduction, remaining_balance FROM requests WHERE employee_id=? AND type='advance' AND status='approved' AND remaining_balance > 0 AND COALESCE(shift_period,'morning')=? ORDER BY id ASC LIMIT 1");
+                $advStmt->execute([$employeeId, $p]);
+                $adv = $advStmt->fetch();
+                if ($adv) {
+                    $advanceCut = min((float) $adv['approved_monthly_deduction'], (float) $adv['remaining_balance']);
+                    $deduction += $advanceCut;
+                    $newRemaining = (float) $adv['remaining_balance'] - $advanceCut;
+                    $pdo->prepare("UPDATE requests SET remaining_balance = ? WHERE id=?")->execute([$newRemaining, $adv['id']]);
+                    if ($newRemaining <= 0) {
+                        $doneMsg = 'تم اكتمال تسديد السلفة الخاصة بـ ' . $emp['full_name'] . ($emp['has_evening_shift'] ? ' (الشفت ' . ($p === 'evening' ? 'المسائي' : 'الصباحي') . ')' : '');
+                        $doneUids = $pdo->prepare("SELECT id FROM users WHERE employee_id=? UNION SELECT id FROM users WHERE role='hr'");
+                        $doneUids->execute([$employeeId]);
+                        foreach ($doneUids->fetchAll(PDO::FETCH_COLUMN) as $uid) {
+                            $pdo->prepare("INSERT INTO notifications (user_id, title, message) VALUES (?, 'تم اكتمال تسديد السلفة', ?)")->execute([$uid, $doneMsg]);
+                        }
+                    }
+                }
+
+                $ins = $pdo->prepare("INSERT INTO payroll (employee_id, branch_id, period_month, period_year, shift_period, base_salary, bonus, deduction, late_deduction, status)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'delivered')
+                    ON DUPLICATE KEY UPDATE base_salary=VALUES(base_salary), bonus=VALUES(bonus), deduction=VALUES(deduction), late_deduction=VALUES(late_deduction), status='delivered'");
+                $ins->execute([$employeeId, $branchId, $month, $year, $p, $baseSalary, $bonus, $deduction, $lateDeduction]);
+
+                $delivered[] = ['period' => $p, 'net' => $baseSalary + $bonus - $deduction];
             }
 
-            $stmt = $pdo->prepare("INSERT INTO payroll (employee_id, branch_id, period_month, period_year, base_salary, bonus, deduction, status)
-                VALUES (?, ?, ?, ?, ?, ?, ?, 'delivered')
-                ON DUPLICATE KEY UPDATE base_salary=VALUES(base_salary), bonus=VALUES(bonus), deduction=VALUES(deduction), status='delivered'");
-            $stmt->execute([$employeeId, $branchId, $month, $year, $baseSalary, $bonus, $deduction]);
+            if (empty($delivered)) {
+                echo json_encode(['ok' => false, 'error' => 'تم تسليم راتب هذا الموظف عن هذا الشهر مسبقاً لهذا الشفت']);
+                exit;
+            }
 
-            $net = $baseSalary + $bonus - $deduction;
+            $totalNet = array_sum(array_column($delivered, 'net'));
+            $periodLabels = array_map(fn($d) => $d['period'] === 'evening' ? 'مسائي' : 'صباحي', $delivered);
+            $periodSuffix = $emp['has_evening_shift'] ? ' (' . implode(' + ', $periodLabels) . ')' : '';
+            $msg = 'تم تسليم راتب ' . $emp['full_name'] . ' عن شهر ' . $month . '/' . $year . $periodSuffix . ' بصافي ' . number_format($totalNet) . ' دينار';
             $notifyUsers = $pdo->prepare("SELECT id FROM users WHERE employee_id=? UNION SELECT id FROM users WHERE role='hr'");
             $notifyUsers->execute([$employeeId]);
             foreach ($notifyUsers->fetchAll(PDO::FETCH_COLUMN) as $uid) {
-                $pdo->prepare("INSERT INTO notifications (user_id, title, message) VALUES (?, 'تم تسليم الراتب', ?)")
-                    ->execute([$uid, 'تم تسليم راتب ' . $emp['full_name'] . ' عن شهر ' . $month . '/' . $year . ' بصافي ' . number_format($net) . ' دينار']);
+                $pdo->prepare("INSERT INTO notifications (user_id, title, message) VALUES (?, 'تم تسليم الراتب', ?)")->execute([$uid, $msg]);
             }
+            audit_log_write($pdo, 'branch_manager', $mgr['full_name'], $mgr['employee_number'] ?? null, 'salary_deliver', 'سلّم مدير الفرع راتب ' . $emp['full_name'] . $periodSuffix . ' عن ' . $month . '/' . $year . ' بصافي ' . number_format($totalNet) . ' دينار', $branchId);
 
-            echo json_encode(['ok' => true, 'net' => $net]);
+            echo json_encode(['ok' => true, 'net' => $totalNet, 'delivered' => array_column($delivered, 'period')]);
             exit;
         }
 
@@ -1789,42 +1853,7 @@ function branch_report_data(PDO $pdo, string $type, string $from, string $to, in
                 <div class="page-title"><h2><i class="fas fa-users"></i> الموظفون</h2><button onclick="navigateTo('home')" class="back-btn"><i class="fas fa-arrow-right"></i> رجوع</button></div>
                 <button class="btn" onclick="openRequestModal('addEmployee')"><i class="fas fa-user-plus"></i> إضافة موظف</button>
                 <div id="employeesList">
-                    <div class="card">
-                        <div class="flex-between"><div class="flex"><div style="width:44px;height:44px;border-radius:50%;background:var(--primary-gradient);display:flex;align-items:center;justify-content:center;color:#fff;font-size:20px;">👨🏻</div><div><b>أحمد حسن علي</b><div class="muted">الكود: EMP-001</div></div></div><span class="badge ok">نشط</span></div>
-                        <div class="grid-2" style="margin-top:8px;font-size:12px;">
-                            <span><span class="muted">المسمى:</span> مسؤول خزينة</span>
-                            <span><span class="muted">الراتب:</span> 1,200,000</span>
-                            <span><span class="muted">الحضور:</span> 100%</span>
-                            <span><span class="muted">التقييم:</span> 4.8 ★</span>
-                        </div>
-                    </div>
-                    <div class="card">
-                        <div class="flex-between"><div class="flex"><div style="width:44px;height:44px;border-radius:50%;background:var(--primary-gradient);display:flex;align-items:center;justify-content:center;color:#fff;font-size:20px;">👩🏻</div><div><b>سارة محمد حسين</b><div class="muted">الكود: EMP-002</div></div></div><span class="badge ok">نشط</span></div>
-                        <div class="grid-2" style="margin-top:8px;font-size:12px;">
-                            <span><span class="muted">المسمى:</span> صراف</span>
-                            <span><span class="muted">الراتب:</span> 900,000</span>
-                            <span><span class="muted">الحضور:</span> 96%</span>
-                            <span><span class="muted">التقييم:</span> 4.5 ★</span>
-                        </div>
-                    </div>
-                    <div class="card">
-                        <div class="flex-between"><div class="flex"><div style="width:44px;height:44px;border-radius:50%;background:var(--primary-gradient);display:flex;align-items:center;justify-content:center;color:#fff;font-size:20px;">👨🏻</div><div><b>محمد باسم كريم</b><div class="muted">الكود: EMP-003</div></div></div><span class="badge ok">نشط</span></div>
-                        <div class="grid-2" style="margin-top:8px;font-size:12px;">
-                            <span><span class="muted">المسمى:</span> محاسب فرع</span>
-                            <span><span class="muted">الراتب:</span> 1,500,000</span>
-                            <span><span class="muted">الحضور:</span> 92%</span>
-                            <span><span class="muted">التقييم:</span> 4.2 ★</span>
-                        </div>
-                    </div>
-                    <div class="card">
-                        <div class="flex-between"><div class="flex"><div style="width:44px;height:44px;border-radius:50%;background:var(--primary-gradient);display:flex;align-items:center;justify-content:center;color:#fff;font-size:20px;">👩🏻</div><div><b>نور صباح أحمد</b><div class="muted">الكود: EMP-004</div></div></div><span class="badge danger">غير نشط</span></div>
-                        <div class="grid-2" style="margin-top:8px;font-size:12px;">
-                            <span><span class="muted">المسمى:</span> خدمة زبائن</span>
-                            <span><span class="muted">الراتب:</span> 750,000</span>
-                            <span><span class="muted">الحضور:</span> 76%</span>
-                            <span><span class="muted">التقييم:</span> 3.8 ★</span>
-                        </div>
-                    </div>
+                    <div class="card" style="text-align:center;padding:24px;color:var(--text-muted);">جاري التحميل...</div>
                 </div>
             </div>
 
@@ -1890,20 +1919,6 @@ function branch_report_data(PDO $pdo, string $type, string $from, string $to, in
                 </div>
 
                 <div class="card">
-                    <h3>حضور اليوم - <span id="todayDate">15 مايو 2024</span></h3>
-                    <div class="table-wrap">
-                        <table class="table">
-                            <tr><th>الموظف</th><th>المسمى</th><th>دخول</th><th>انصراف</th><th>الحالة</th></tr>
-                            <tr><td>أحمد حسن</td><td>مسؤول خزينة</td><td>08:02</td><td>17:05</td><td><span class="badge ok">حاضر</span></td></tr>
-                            <tr><td>سارة حسين</td><td>صراف</td><td>08:08</td><td>17:00</td><td><span class="badge wait">تأخير</span></td></tr>
-                            <tr><td>محمد باسم</td><td>محاسب فرع</td><td>07:58</td><td>17:10</td><td><span class="badge ok">حاضر</span></td></tr>
-                            <tr><td>نور أحمد</td><td>خدمة زبائن</td><td>-</td><td>-</td><td><span class="badge danger">غائب</span></td></tr>
-                        </table>
-                    </div>
-                    <button class="btn small light mt-2" onclick="saveAttendanceReport()"><i class="fas fa-save"></i> حفظ تقرير الحضور</button>
-                </div>
-
-                <div class="card">
                     <h3>تسجيل حضور يدوي</h3>
                     <div class="form-group"><label>اختر الموظف</label><select id="manualEmployeeSelect"><option value="">جاري التحميل...</option></select></div>
                     <div class="grid-2"><button class="btn green small" onclick="manualAttendance('in')"><i class="fas fa-sign-in-alt"></i> دخول</button><button class="btn red small" onclick="manualAttendance('out')"><i class="fas fa-sign-out-alt"></i> انصراف</button></div>
@@ -1916,10 +1931,7 @@ function branch_report_data(PDO $pdo, string $type, string $from, string $to, in
             ========================================================== -->
             <div id="page-requests" class="page-screen hidden">
                 <div class="page-title"><h2><i class="fas fa-file-pen"></i> طلبات الموظفين</h2><button onclick="navigateTo('home')" class="back-btn"><i class="fas fa-arrow-right"></i> رجوع</button></div>
-                <div class="card"><div class="flex-between"><b>📅 طلب إجازة</b><span class="badge wait">بانتظار موافقتك</span></div><p class="muted">أحمد محمد حسن • 3 أيام (16-18 مايو)</p><div class="flex gap-2 mt-2"><button class="btn green small" onclick="showToast('✅ تم الموافقة','تمت الموافقة على طلب الإجازة','success')">موافقة</button><button class="btn red small" onclick="showToast('❌ تم الرفض','تم رفض طلب الإجازة','error')">رفض</button></div></div>
-                <div class="card"><div class="flex-between"><b>💰 طلب سلفة</b><span class="badge wait">بانتظار موافقتك</span></div><p class="muted">أحمد حسن علي • 1,000,000 دينار</p><div class="flex gap-2 mt-2"><button class="btn green small" onclick="showToast('✅ تم الموافقة','تمت الموافقة على طلب السلفة','success')">موافقة</button><button class="btn red small" onclick="showToast('❌ تم الرفض','تم رفض طلب السلفة','error')">رفض</button></div></div>
-                <div class="card"><div class="flex-between"><b>🛒 طلب مشتريات</b><span class="badge ok">تمت الموافقة</span></div><p class="muted">محمد باسم كريم • 2,500,000 دينار</p></div>
-                <div class="card"><div class="flex-between"><b>📅 طلب إجازة</b><span class="badge danger">مرفوض</span></div><p class="muted">نور صباح أحمد • 5 أيام</p></div>
+                <div class="card" style="text-align:center;padding:24px;color:var(--text-muted);">جاري التحميل...</div>
             </div>
 
             <!-- ==========================================================
@@ -1961,8 +1973,8 @@ function branch_report_data(PDO $pdo, string $type, string $from, string $to, in
 
                 <div class="card" style="background:rgba(16,185,129,0.04);border-color:rgba(16,185,129,0.12);">
                     <h3>حالة التفويض</h3>
-                    <div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid #edf1f1;"><span>الموظف</span><b id="delegateName">أحمد حسن</b></div>
-                    <div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid #edf1f1;"><span>المدة</span><b id="delegatePeriod">16/05/2024 - 20/05/2024</b></div>
+                    <div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid #edf1f1;"><span>الموظف</span><b id="delegateName">-</b></div>
+                    <div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid #edf1f1;"><span>المدة</span><b id="delegatePeriod">-</b></div>
                     <div style="display:flex;justify-content:space-between;padding:6px 0;"><span>الحالة</span><b style="color:var(--green);" id="delegateStatusText">✅ فعال</b></div>
                 </div>
             </div>
@@ -1980,69 +1992,7 @@ function branch_report_data(PDO $pdo, string $type, string $from, string $to, in
                 </div>
 
                 <div id="payrollList">
-                    <div class="payroll-card" style="background:var(--bg-card);border-radius:var(--radius-md);border:1px solid #e2ebeb;padding:12px 14px;margin-bottom:8px;">
-                        <div class="payroll-header" style="display:flex;align-items:center;justify-content:space-between;">
-                            <span style="font-weight:800;font-size:14px;">👨🏻 أحمد حسن علي</span>
-                            <span class="badge ok">تم التسليم</span>
-                        </div>
-                        <div class="payroll-details" style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;margin-top:6px;font-size:12px;">
-                            <div class="detail-item" style="text-align:center;padding:4px;background:rgba(0,107,115,0.03);border-radius:6px;"><span class="value" style="font-weight:700;">1,200,000</span><div class="label" style="font-size:9px;color:var(--text-muted);">الراتب</div></div>
-                            <div class="detail-item" style="text-align:center;padding:4px;background:rgba(0,107,115,0.03);border-radius:6px;"><span class="value" style="font-weight:700;">0</span><div class="label" style="font-size:9px;color:var(--text-muted);">السلف</div></div>
-                            <div class="detail-item" style="text-align:center;padding:4px;background:rgba(0,107,115,0.03);border-radius:6px;"><span class="value" style="font-weight:700;color:var(--green);">1,200,000</span><div class="label" style="font-size:9px;color:var(--text-muted);">المستحق</div></div>
-                        </div>
-                        <div class="payroll-actions" style="display:flex;gap:6px;margin-top:8px;">
-                            <button class="btn green small" onclick="paySalary(1)"><i class="fas fa-check"></i> تسليم</button>
-                            <button class="btn light small" onclick="showToast('📄 تقرير الراتب','تم عرض تقرير الراتب','info')"><i class="fas fa-file"></i> تقرير</button>
-                        </div>
-                    </div>
-
-                    <div class="payroll-card" style="background:var(--bg-card);border-radius:var(--radius-md);border:1px solid #e2ebeb;padding:12px 14px;margin-bottom:8px;">
-                        <div class="payroll-header" style="display:flex;align-items:center;justify-content:space-between;">
-                            <span style="font-weight:800;font-size:14px;">👩🏻 سارة محمد حسين</span>
-                            <span class="badge wait">قيد الانتظار</span>
-                        </div>
-                        <div class="payroll-details" style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;margin-top:6px;font-size:12px;">
-                            <div class="detail-item" style="text-align:center;padding:4px;background:rgba(0,107,115,0.03);border-radius:6px;"><span class="value" style="font-weight:700;">900,000</span><div class="label" style="font-size:9px;color:var(--text-muted);">الراتب</div></div>
-                            <div class="detail-item" style="text-align:center;padding:4px;background:rgba(0,107,115,0.03);border-radius:6px;"><span class="value" style="font-weight:700;color:var(--red);">200,000</span><div class="label" style="font-size:9px;color:var(--text-muted);">السلف</div></div>
-                            <div class="detail-item" style="text-align:center;padding:4px;background:rgba(0,107,115,0.03);border-radius:6px;"><span class="value" style="font-weight:700;color:var(--green);">700,000</span><div class="label" style="font-size:9px;color:var(--text-muted);">المستحق</div></div>
-                        </div>
-                        <div class="payroll-actions" style="display:flex;gap:6px;margin-top:8px;">
-                            <button class="btn green small" onclick="paySalary(2)"><i class="fas fa-check"></i> تسليم</button>
-                            <button class="btn light small" onclick="showToast('📄 تقرير الراتب','تم عرض تقرير الراتب','info')"><i class="fas fa-file"></i> تقرير</button>
-                        </div>
-                    </div>
-
-                    <div class="payroll-card" style="background:var(--bg-card);border-radius:var(--radius-md);border:1px solid #e2ebeb;padding:12px 14px;margin-bottom:8px;">
-                        <div class="payroll-header" style="display:flex;align-items:center;justify-content:space-between;">
-                            <span style="font-weight:800;font-size:14px;">👨🏻 محمد باسم كريم</span>
-                            <span class="badge ok">تم التسليم</span>
-                        </div>
-                        <div class="payroll-details" style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;margin-top:6px;font-size:12px;">
-                            <div class="detail-item" style="text-align:center;padding:4px;background:rgba(0,107,115,0.03);border-radius:6px;"><span class="value" style="font-weight:700;">1,500,000</span><div class="label" style="font-size:9px;color:var(--text-muted);">الراتب</div></div>
-                            <div class="detail-item" style="text-align:center;padding:4px;background:rgba(0,107,115,0.03);border-radius:6px;"><span class="value" style="font-weight:700;color:var(--red);">500,000</span><div class="label" style="font-size:9px;color:var(--text-muted);">السلف</div></div>
-                            <div class="detail-item" style="text-align:center;padding:4px;background:rgba(0,107,115,0.03);border-radius:6px;"><span class="value" style="font-weight:700;color:var(--green);">1,000,000</span><div class="label" style="font-size:9px;color:var(--text-muted);">المستحق</div></div>
-                        </div>
-                        <div class="payroll-actions" style="display:flex;gap:6px;margin-top:8px;">
-                            <button class="btn green small" onclick="paySalary(3)"><i class="fas fa-check"></i> تسليم</button>
-                            <button class="btn light small" onclick="showToast('📄 تقرير الراتب','تم عرض تقرير الراتب','info')"><i class="fas fa-file"></i> تقرير</button>
-                        </div>
-                    </div>
-
-                    <div class="payroll-card" style="background:var(--bg-card);border-radius:var(--radius-md);border:1px solid #e2ebeb;padding:12px 14px;margin-bottom:8px;">
-                        <div class="payroll-header" style="display:flex;align-items:center;justify-content:space-between;">
-                            <span style="font-weight:800;font-size:14px;">👩🏻 نور صباح أحمد</span>
-                            <span class="badge wait">قيد الانتظار</span>
-                        </div>
-                        <div class="payroll-details" style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;margin-top:6px;font-size:12px;">
-                            <div class="detail-item" style="text-align:center;padding:4px;background:rgba(0,107,115,0.03);border-radius:6px;"><span class="value" style="font-weight:700;">750,000</span><div class="label" style="font-size:9px;color:var(--text-muted);">الراتب</div></div>
-                            <div class="detail-item" style="text-align:center;padding:4px;background:rgba(0,107,115,0.03);border-radius:6px;"><span class="value" style="font-weight:700;color:var(--red);">100,000</span><div class="label" style="font-size:9px;color:var(--text-muted);">السلف</div></div>
-                            <div class="detail-item" style="text-align:center;padding:4px;background:rgba(0,107,115,0.03);border-radius:6px;"><span class="value" style="font-weight:700;color:var(--green);">650,000</span><div class="label" style="font-size:9px;color:var(--text-muted);">المستحق</div></div>
-                        </div>
-                        <div class="payroll-actions" style="display:flex;gap:6px;margin-top:8px;">
-                            <button class="btn green small" onclick="paySalary(4)"><i class="fas fa-check"></i> تسليم</button>
-                            <button class="btn light small" onclick="showToast('📄 تقرير الراتب','تم عرض تقرير الراتب','info')"><i class="fas fa-file"></i> تقرير</button>
-                        </div>
-                    </div>
+                    <div class="card" style="text-align:center;padding:24px;color:var(--text-muted);">جاري التحميل...</div>
                 </div>
 
                 <button class="btn small light" onclick="savePayrollReport()"><i class="fas fa-save"></i> حفظ تقرير الرواتب</button>
@@ -2969,6 +2919,10 @@ function branch_report_data(PDO $pdo, string $type, string $from, string $to, in
             document.getElementById('mpCalendarGrid').innerHTML = html;
         }
 
+        function payrollDetailItem(value, label, color) {
+            return `<div class="detail-item" style="text-align:center;padding:4px;background:rgba(0,107,115,0.03);border-radius:6px;"><span class="value" style="font-weight:700;${color ? 'color:' + color + ';' : ''}">${Number(value).toLocaleString()}</span><div class="label" style="font-size:9px;color:var(--text-muted);">${label}</div></div>`;
+        }
+
         function renderPayroll(rows) {
             const container = document.getElementById('payrollList');
             if (!rows.length) {
@@ -2976,24 +2930,69 @@ function branch_report_data(PDO $pdo, string $type, string $from, string $to, in
                 return;
             }
             const monthLabel = new Date().toLocaleDateString('ar-SA', { month: 'long', year: 'numeric' });
-            container.innerHTML = rows.map(r => `
-                <div class="payroll-card" style="background:var(--bg-card);border-radius:var(--radius-md);border:1px solid #e2ebeb;padding:12px 14px;margin-bottom:8px;">
-                    <div class="payroll-header" style="display:flex;align-items:center;justify-content:space-between;">
-                        <span style="font-weight:800;font-size:14px;">👤 ${r.name}</span>
-                        <span class="badge ${r.status === 'تم التسليم' ? 'ok' : 'wait'}">${r.status === 'تم التسليم' ? `تم تسليم راتب ${monthLabel}` : r.status}</span>
-                    </div>
-                    <div class="payroll-details" style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;margin-top:6px;font-size:12px;">
-                        <div class="detail-item" style="text-align:center;padding:4px;background:rgba(0,107,115,0.03);border-radius:6px;"><span class="value" style="font-weight:700;">${r.salary.toLocaleString()}</span><div class="label" style="font-size:9px;color:var(--text-muted);">الراتب</div></div>
-                        <div class="detail-item" style="text-align:center;padding:4px;background:rgba(0,107,115,0.03);border-radius:6px;"><span class="value" style="font-weight:700;color:var(--red);">${r.loan.toLocaleString()}</span><div class="label" style="font-size:9px;color:var(--text-muted);">السلف</div></div>
-                        <div class="detail-item" style="text-align:center;padding:4px;background:rgba(0,107,115,0.03);border-radius:6px;"><span class="value" style="font-weight:700;color:var(--green);">${r.net.toLocaleString()}</span><div class="label" style="font-size:9px;color:var(--text-muted);">المستحق</div></div>
-                    </div>
-                    ${r.status === 'تم التسليم' ? '' : `
-                        <div class="payroll-actions" style="display:flex;gap:6px;margin-top:8px;">
-                            <button class="btn green small" onclick="paySalary(${r.id})" ${payrollWindowOpen ? '' : 'disabled'}><i class="fas fa-check"></i> تسليم</button>
+            container.innerHTML = rows.map(r => {
+                const morningDelivered = r.status === 'تم التسليم';
+                const eveningDelivered = r.eveningStatus === 'تم التسليم';
+                if (!r.hasEveningShift) {
+                    return `
+                        <div class="payroll-card" style="background:var(--bg-card);border-radius:var(--radius-md);border:1px solid #e2ebeb;padding:12px 14px;margin-bottom:8px;">
+                            <div class="payroll-header" style="display:flex;align-items:center;justify-content:space-between;">
+                                <span style="font-weight:800;font-size:14px;">👤 ${r.name}</span>
+                                <span class="badge ${morningDelivered ? 'ok' : 'wait'}">${morningDelivered ? `تم تسليم راتب ${monthLabel}` : r.status}</span>
+                            </div>
+                            <div class="payroll-details" style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;margin-top:6px;font-size:12px;">
+                                ${payrollDetailItem(r.base, 'الراتب')}
+                                ${payrollDetailItem(r.deduction, 'الخصومات', 'var(--red)')}
+                                ${payrollDetailItem(r.net, 'المستحق', 'var(--green)')}
+                            </div>
+                            ${morningDelivered ? '' : `
+                                <div class="payroll-actions" style="display:flex;gap:6px;margin-top:8px;">
+                                    <button class="btn green small" onclick="paySalary(${r.id},'morning')" ${payrollWindowOpen ? '' : 'disabled'}><i class="fas fa-check"></i> تسليم</button>
+                                </div>
+                            `}
                         </div>
-                    `}
-                </div>
-            `).join('');
+                    `;
+                }
+                return `
+                    <div class="payroll-card" style="background:var(--bg-card);border-radius:var(--radius-md);border:1px solid #e2ebeb;padding:12px 14px;margin-bottom:8px;">
+                        <div class="payroll-header" style="display:flex;align-items:center;justify-content:space-between;">
+                            <span style="font-weight:800;font-size:14px;">👤 ${r.name} <span style="font-size:10px;font-weight:700;color:var(--primary);background:rgba(0,107,115,0.08);border-radius:6px;padding:2px 8px;">صباحي ومسائي</span></span>
+                        </div>
+
+                        <div style="margin-top:8px;border-top:1px dashed #e2ebeb;padding-top:8px;">
+                            <div style="display:flex;align-items:center;justify-content:space-between;font-size:12px;font-weight:700;color:var(--text-muted);">
+                                <span><i class="fas fa-sun"></i> الشفت الصباحي</span>
+                                <span class="badge ${morningDelivered ? 'ok' : 'wait'}">${morningDelivered ? 'تم التسليم' : r.status}</span>
+                            </div>
+                            <div class="payroll-details" style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;margin-top:6px;font-size:12px;">
+                                ${payrollDetailItem(r.base, 'الراتب')}
+                                ${payrollDetailItem(r.deduction, 'الخصومات', 'var(--red)')}
+                                ${payrollDetailItem(r.net, 'المستحق', 'var(--green)')}
+                            </div>
+                            ${morningDelivered ? '' : `<div class="payroll-actions" style="display:flex;gap:6px;margin-top:8px;"><button class="btn green small" onclick="paySalary(${r.id},'morning')" ${payrollWindowOpen ? '' : 'disabled'}><i class="fas fa-check"></i> تسليم الصباحي</button></div>`}
+                        </div>
+
+                        <div style="margin-top:10px;border-top:1px dashed #e2ebeb;padding-top:8px;">
+                            <div style="display:flex;align-items:center;justify-content:space-between;font-size:12px;font-weight:700;color:var(--text-muted);">
+                                <span><i class="fas fa-moon"></i> الشفت المسائي</span>
+                                <span class="badge ${eveningDelivered ? 'ok' : 'wait'}">${eveningDelivered ? 'تم التسليم' : r.eveningStatus}</span>
+                            </div>
+                            <div class="payroll-details" style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;margin-top:6px;font-size:12px;">
+                                ${payrollDetailItem(r.eveningBase, 'الراتب')}
+                                ${payrollDetailItem(r.eveningDeduction, 'الخصومات', 'var(--red)')}
+                                ${payrollDetailItem(r.eveningNet, 'المستحق', 'var(--green)')}
+                            </div>
+                            ${eveningDelivered ? '' : `<div class="payroll-actions" style="display:flex;gap:6px;margin-top:8px;"><button class="btn green small" onclick="paySalary(${r.id},'evening')" ${payrollWindowOpen ? '' : 'disabled'}><i class="fas fa-check"></i> تسليم المسائي</button></div>`}
+                        </div>
+
+                        ${(!morningDelivered && !eveningDelivered) ? `
+                            <div class="payroll-actions" style="display:flex;gap:6px;margin-top:10px;border-top:1px solid #e2ebeb;padding-top:10px;">
+                                <button class="btn small" style="width:100%;" onclick="paySalary(${r.id},'both')" ${payrollWindowOpen ? '' : 'disabled'}><i class="fas fa-check-double"></i> تسليم الشفتين معاً (${Number(r.net + r.eveningNet).toLocaleString()})</button>
+                            </div>
+                        ` : ''}
+                    </div>
+                `;
+            }).join('');
         }
 
         // ============================================================
@@ -3458,9 +3457,13 @@ function branch_report_data(PDO $pdo, string $type, string $from, string $to, in
         // ============================================================
         // دوال الرواتب
         // ============================================================
-        function paySalary(employeeId) {
-            if (!confirm('تأكيد تسليم الراتب لهذا الموظف؟')) return;
-            fetch('?ajax=pay_salary', { method: 'POST', body: new URLSearchParams({ employeeId }) })
+        function paySalary(employeeId, period) {
+            period = period || 'morning';
+            const confirmMsg = period === 'both' ? 'تأكيد تسليم راتبي الشفت الصباحي والمسائي معاً لهذا الموظف؟'
+                : period === 'evening' ? 'تأكيد تسليم راتب الشفت المسائي لهذا الموظف؟'
+                : 'تأكيد تسليم راتب الشفت الصباحي لهذا الموظف؟';
+            if (!confirm(confirmMsg)) return;
+            fetch('?ajax=pay_salary', { method: 'POST', body: new URLSearchParams({ employeeId, period }) })
                 .then(r => r.json()).then(data => {
                     if (!data.ok) { showToast('⚠️ خطأ', data.error || 'تعذر تسليم الراتب', 'error'); return; }
                     showToast('✅ تم التسليم', 'تم تسليم الراتب بنجاح', 'success');
@@ -3932,7 +3935,8 @@ function branch_report_data(PDO $pdo, string $type, string $from, string $to, in
             const today = new Date();
             const dateStr = today.toLocaleDateString('ar-SA', { weekday: 'long', year: 'numeric', month: 'long',
                 day: 'numeric' });
-            document.getElementById('todayDate').textContent = dateStr;
+            const todayDateEl = document.getElementById('todayDate');
+            if (todayDateEl) todayDateEl.textContent = dateStr;
             document.getElementById('briefDate').textContent = dateStr;
             const topDateEl = document.getElementById('currentDateDisplayTop');
             if (topDateEl) topDateEl.textContent = dateStr;
