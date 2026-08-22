@@ -596,33 +596,34 @@ if (isset($_GET['ajax'])) {
             exit;
         }
 
-        case 'briefs_pending': {
-            $rate = (float) ($pdo->query("SELECT usd_exchange_rate FROM settings ORDER BY id DESC LIMIT 1")->fetchColumn() ?: 0);
-            $stmt = $pdo->query("
-                SELECT db.id, db.branch_id, b.name AS branch, DATE_FORMAT(db.brief_date, '%d/%m/%Y') AS date, db.brief_date AS rawDate,
-                       db.total_income AS revenue, db.total_expense AS expenses, db.travelers_count AS travelersCount,
-                       db.note, db.attachment, db.hr_note AS hrNote, db.status, db.hr_decision, db.gm_decision
-                FROM daily_briefs db JOIN branches b ON b.id = db.branch_id
-                WHERE db.gm_decision = 'pending' AND db.status NOT IN ('approved','rejected')
-                ORDER BY db.brief_date DESC, db.id DESC
+        case 'today_briefs': {
+            $today = date('Y-m-d');
+            $stmt = $pdo->prepare("
+                SELECT b.id AS branchId, b.name AS branchName,
+                       db.id AS briefId, db.total_income, db.total_expense, db.status, db.created_at
+                FROM branches b
+                LEFT JOIN daily_briefs db ON db.branch_id = b.id AND db.brief_date = ?
+                WHERE b.status = 'active'
+                ORDER BY (db.id IS NULL) ASC, db.created_at DESC, b.name ASC
             ");
-            $entriesStmt = $pdo->prepare("SELECT id, entry_type, amount, description, attachment FROM daily_ledger WHERE branch_id=? AND entry_date=? ORDER BY created_at ASC");
-            $prevStmt = $pdo->prepare("SELECT total_income, total_expense FROM daily_briefs WHERE branch_id=? AND brief_date=?");
-            $rows = array_map(function ($r) use ($entriesStmt, $prevStmt, $rate) {
-                $r['revenue'] = (float) $r['revenue'];
-                $r['expenses'] = (float) $r['expenses'];
-                $r['travelersCount'] = (int) $r['travelersCount'];
-                $r['netProfit'] = $r['revenue'] - $r['expenses'];
-                $r['netProfitUsd'] = $rate > 0 ? round($r['netProfit'] / $rate, 2) : null;
-                $r['hrStatusText'] = $r['hr_decision'] === 'approved' ? 'وافقت عليه الموارد البشرية' : 'بانتظار مراجعة الموارد البشرية أيضاً';
-                $entriesStmt->execute([$r['branch_id'], $r['rawDate']]);
-                $r['entries'] = array_map(fn($e) => ['id' => (int) $e['id'], 'type' => $e['entry_type'], 'amount' => (float) $e['amount'], 'note' => $e['description'], 'attachment' => $e['attachment']], $entriesStmt->fetchAll());
-                $prevStmt->execute([$r['branch_id'], date('Y-m-d', strtotime($r['rawDate'] . ' -1 day'))]);
-                $prevRow = $prevStmt->fetch();
-                $r['prevDayNetProfit'] = $prevRow ? ((float) $prevRow['total_income'] - (float) $prevRow['total_expense']) : null;
-                return $r;
+            $stmt->execute([$today]);
+            $statusAr = [
+                'pending' => 'بانتظار المراجعة', 'hr_approved' => 'وافقت HR، بانتظار اعتمادك', 'gm_approved' => 'اعتمدته، بانتظار HR',
+                'approved' => 'معتمد نهائياً', 'rejected' => 'مرفوض',
+            ];
+            $branches = array_map(function ($r) use ($statusAr) {
+                $submitted = $r['briefId'] !== null;
+                $netProfit = $submitted ? ((float) $r['total_income'] - (float) $r['total_expense']) : null;
+                return [
+                    'branchId' => (int) $r['branchId'],
+                    'branchName' => $r['branchName'],
+                    'submitted' => $submitted,
+                    'netProfit' => $netProfit,
+                    'statusText' => $submitted ? ($statusAr[$r['status']] ?? $r['status']) : 'لم يُرسل إيجاز اليوم بعد',
+                    'canApprove' => $submitted && in_array($r['status'], ['pending', 'hr_approved'], true),
+                ];
             }, $stmt->fetchAll());
-            echo json_encode(['ok' => true, 'briefs' => $rows], JSON_UNESCAPED_UNICODE);
+            echo json_encode(['ok' => true, 'branches' => $branches], JSON_UNESCAPED_UNICODE);
             exit;
         }
 
@@ -1184,6 +1185,7 @@ if (isset($_GET['ajax'])) {
                 $r['profit'] = $r['revenue'] - $r['expense'];
                 $r['statusText'] = $statusAr[$r['status']] ?? $r['status'];
                 $r['isToday'] = $r['rawDate'] === $today;
+                $r['canApprove'] = in_array($r['status'], ['pending', 'hr_approved'], true);
                 $gmEntriesStmt->execute([$branchId, $r['rawDate']]);
                 $r['entries'] = array_map(fn($e) => ['id' => (int) $e['id'], 'type' => $e['entry_type'], 'amount' => (float) $e['amount'], 'note' => $e['description'], 'attachment' => $e['attachment']], $gmEntriesStmt->fetchAll());
                 $gmPrevStmt->execute([$branchId, date('Y-m-d', strtotime($r['rawDate'] . ' -1 day'))]);
@@ -1502,7 +1504,7 @@ try {
                     <i class="fas fa-chart-pie"></i> لوحة تحكم
                 </button>
                 <button class="nav-item" id="sidenav-pending" onclick="switchTab('pending')">
-                    <i class="fas fa-inbox"></i> بانتظار الاعتماد
+                    <i class="fas fa-inbox"></i> إيجازات اليوم
                 </button>
                 <button class="nav-item" id="sidenav-history" onclick="switchTab('history')">
                     <i class="fas fa-history"></i> سجل الاعتمادات
@@ -2215,7 +2217,7 @@ try {
     }
 
     const gmPageTitles = {
-        pending: { title: 'بانتظار الاعتماد', sub: 'الإيجازات التي تحتاج اعتمادك النهائي', icon: 'fa-inbox' },
+        pending: { title: 'إيجازات اليوم', sub: 'كل الفروع وحالة إيجاز اليوم — اضغط على فرع لعرضه واعتماده', icon: 'fa-inbox' },
         history: { title: 'سجل الاعتمادات', sub: 'كل الإيجازات المعتمدة أو المرفوضة', icon: 'fa-history' },
         branches: { title: 'الفروع', sub: 'نظرة عامة على أداء كل فرع', icon: 'fa-building' },
         payroll: { title: 'الرواتب والمكافآت', sub: 'إدارة رواتب ومكافآت وخصومات الموظفين', icon: 'fa-money-check-dollar' },
@@ -2297,87 +2299,113 @@ try {
         return `<div style="margin:8px 0;border-radius:8px;overflow:hidden;border:1px solid rgba(0,107,115,0.06);">${inner}</div>`;
     }
 
-    let pendingBriefsData = [];
-    let pendingOpenId = null;
+    let todayBriefsData = [];
+    let todayBriefOpenBranchId = null;
+    let todayBriefDetail = null;
 
     function loadPending(autoOpenLatest) {
-        fetch('?ajax=briefs_pending').then(r => r.json()).then(data => {
+        fetch('?ajax=today_briefs').then(r => r.json()).then(data => {
             if (!data.ok) return;
-            pendingBriefsData = data.briefs;
-            if (autoOpenLatest && pendingBriefsData.length) pendingOpenId = pendingBriefsData[0].id;
-            renderPendingCards();
+            todayBriefsData = data.branches;
+            todayBriefOpenBranchId = null;
+            todayBriefDetail = null;
+            const target = autoOpenLatest ? todayBriefsData.find(b => b.canApprove) : null;
+            if (target) { openTodayBrief(target.branchId); return; }
+            renderTodayBriefsGrid();
         });
     }
 
-    function renderPendingCards() {
+    function renderTodayBriefsGrid() {
         const view = document.getElementById('view-pending');
-        if (!pendingBriefsData.length) {
-            view.innerHTML = '<div class="empty-state"><i class="fas fa-inbox"></i><p>لا توجد إيجازات بانتظار الاعتماد النهائي حالياً</p></div>';
+        if (!todayBriefsData.length) {
+            view.innerHTML = '<div class="empty-state"><i class="fas fa-inbox"></i><p>لا توجد فروع نشطة حالياً</p></div>';
             return;
         }
-        view.innerHTML = '<div class="branches-grid" style="margin-bottom:14px;">' + pendingBriefsData.map(b => `
-            <div class="branch-card" style="cursor:pointer;" onclick="togglePendingBrief(${b.id})">
-                <div class="name"><i class="fas fa-building" style="color:var(--primary);"></i> ${b.branch}</div>
-                <div class="muted">${b.date}</div>
-                <div style="display:flex;justify-content:space-between;align-items:center;margin-top:8px;padding-top:8px;border-top:1px solid #eef2f4;font-size:13px;">
-                    <span>صافي الرصيد</span>
-                    <b style="color:${b.netProfit >= 0 ? 'var(--green)' : 'var(--red)'};">${(b.netProfit >= 0 ? '+' : '') + Number(b.netProfit).toLocaleString()} د.ع</b>
-                </div>
-                ${b.netProfitUsd !== null ? `<div style="text-align:left;font-size:11px;color:var(--text-muted);">${(b.netProfitUsd >= 0 ? '+' : '') + Number(b.netProfitUsd).toLocaleString()} $</div>` : ''}
+        view.innerHTML = '<div class="branches-grid">' + todayBriefsData.map(b => {
+            const badgeColor = !b.submitted ? 'var(--text-muted)' : (b.canApprove ? '#D97706' : (b.statusText === 'مرفوض' ? 'var(--red)' : 'var(--green)'));
+            return `
+            <div class="branch-card" style="cursor:pointer;" onclick="openTodayBrief(${b.branchId})">
+                <div class="name"><i class="fas fa-building" style="color:var(--primary);"></i> ${b.branchName}</div>
+                ${b.submitted ? `
+                    <div style="display:flex;justify-content:space-between;align-items:center;margin-top:8px;padding-top:8px;border-top:1px solid #eef2f4;font-size:13px;">
+                        <span>صافي الرصيد</span>
+                        <b style="color:${b.netProfit >= 0 ? 'var(--green)' : 'var(--red)'};">${(b.netProfit >= 0 ? '+' : '') + Number(b.netProfit).toLocaleString()} د.ع</b>
+                    </div>
+                ` : ''}
+                <div class="muted" style="margin-top:6px;color:${badgeColor};font-weight:700;">${b.statusText}</div>
             </div>
-        `).join('') + '</div>' + (pendingOpenId !== null ? renderPendingDetail(pendingBriefsData.find(b => b.id === pendingOpenId)) : '');
+        `; }).join('') + '</div>';
     }
 
-    function togglePendingBrief(id) {
-        pendingOpenId = (pendingOpenId === id) ? null : id;
-        renderPendingCards();
-        if (pendingOpenId !== null) {
-            document.getElementById('pendingDetailBlock')?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    function openTodayBrief(branchId) {
+        todayBriefOpenBranchId = branchId;
+        const today = new Date().toISOString().slice(0, 10);
+        fetch('?ajax=branch_detail&id=' + branchId + '&date=' + today).then(r => r.json()).then(data => {
+            if (!data.ok) { showToast('⚠️ خطأ', data.error || 'تعذر تحميل بيانات الفرع', 'error'); return; }
+            todayBriefDetail = { branch: data.branch, brief: data.briefs.find(x => x.isToday) || null };
+            renderTodayBriefDetail();
+        });
+    }
+
+    function closeTodayBrief() {
+        todayBriefOpenBranchId = null;
+        todayBriefDetail = null;
+        renderTodayBriefsGrid();
+    }
+
+    function renderTodayBriefDetail() {
+        const view = document.getElementById('view-pending');
+        const branch = todayBriefDetail.branch;
+        const b = todayBriefDetail.brief;
+        let inner = `<button class="btn small" onclick="closeTodayBrief()" style="margin-bottom:12px;"><i class="fas fa-arrow-right"></i> رجوع لكل الفروع</button>`;
+        if (!b) {
+            inner += `<div class="empty-state"><i class="fas fa-file-circle-question"></i><p>لم يُرسل ${branch.name} إيجازاً اليوم بعد</p></div>`;
+            view.innerHTML = inner;
+            return;
         }
-    }
-
-    function renderPendingDetail(b) {
-        if (!b) return '';
-        return `
+        inner += `
             <div class="brief-card" id="pendingDetailBlock">
                 <div class="brief-top">
-                    <span class="branch"><i class="fas fa-building"></i> ${b.branch}</span>
+                    <span class="branch"><i class="fas fa-building"></i> ${branch.name}</span>
                     <span class="date">${b.date}</span>
                 </div>
                 <div class="brief-details">
                     <div class="item"><div class="v">${b.revenue.toLocaleString()}</div><div class="l">الإيرادات</div></div>
-                    <div class="item"><div class="v">${b.expenses.toLocaleString()}</div><div class="l">المصاريف</div></div>
-                    <div class="item"><div class="v">${b.travelersCount}</div><div class="l">المسافرون</div></div>
-                    <div class="item"><div class="v" style="color:var(--green);">${b.netProfit.toLocaleString()}</div><div class="l">صافي الرصيد</div></div>
+                    <div class="item"><div class="v">${b.expense.toLocaleString()}</div><div class="l">المصاريف</div></div>
+                    <div class="item"><div class="v">${b.travelers}</div><div class="l">المسافرون</div></div>
+                    <div class="item"><div class="v" style="color:var(--green);">${b.profit.toLocaleString()}</div><div class="l">صافي الرصيد</div></div>
                 </div>
-                <div class="muted" style="font-size:13px;margin:4px 0;">
-                    <i class="fas ${b.hr_decision === 'approved' ? 'fa-circle-check' : 'fa-clock'}" style="color:${b.hr_decision === 'approved' ? 'var(--green)' : '#D97706'};"></i>
-                    ${b.hrStatusText}
-                </div>
+                <div class="muted" style="font-size:13px;margin:4px 0;">${b.statusText}</div>
                 ${renderBriefEntriesBlock(b.entries, b.prevDayNetProfit)}
                 ${b.note ? `<div class="brief-note" style="font-size:15px;"><b>ملاحظة المرسل:</b> ${b.note}</div>` : ''}
                 ${b.attachment ? `<div class="brief-note"><a href="${b.attachment}" target="_blank"><i class="fas fa-paperclip"></i> عرض الملف المرفق مع الإيجاز</a></div>` : ''}
                 ${b.hrNote ? `<div class="brief-note" style="font-size:15px;"><b>ملاحظة HR:</b> ${b.hrNote}</div>` : ''}
-                ${currentRole !== 'shareholder' ? `
+                ${currentRole !== 'shareholder' && b.canApprove ? `
                     <div class="brief-actions">
-                        <input type="text" id="gmNote_${b.id}" placeholder="ملاحظة الاعتماد النهائي (اختياري)">
-                        <button class="btn small green" onclick="finalReview(${b.id}, 'approved')"><i class="fas fa-check"></i> اعتماد نهائي</button>
+                        <input type="text" id="gmNote_${b.id}" placeholder="ملاحظة الاعتماد (اختياري)">
+                        <button class="btn small green" onclick="finalReview(${b.id}, 'approved')"><i class="fas fa-check"></i> موافقة</button>
                         <button class="btn small red" onclick="finalReview(${b.id}, 'rejected')"><i class="fas fa-times"></i> رفض</button>
                     </div>
                 ` : ''}
             </div>
         `;
+        view.innerHTML = inner;
     }
 
     function finalReview(id, decision) {
-        const note = document.getElementById('gmNote_' + id).value;
+        const noteEl = document.getElementById('gmNote_' + id);
+        const note = noteEl ? noteEl.value : '';
         fetch('?ajax=brief_final_review', { method: 'POST', body: new URLSearchParams({ id, decision, note }) })
             .then(r => r.json()).then(data => {
                 if (!data.ok) { showToast('⚠️ خطأ', data.error || 'تعذر تنفيذ العملية', 'error'); return; }
-                showToast(decision === 'approved' ? '✅ تم الاعتماد النهائي' : '❌ تم الرفض',
-                    decision === 'approved' ? 'تم اعتماد الإيجاز نهائياً' : 'تم رفض الإيجاز', decision === 'approved' ? 'success' : 'error');
-                pendingOpenId = null;
-                loadPending();
+                showToast(decision === 'approved' ? '✅ تم الاعتماد' : '❌ تم الرفض',
+                    decision === 'approved' ? 'تم اعتماد الإيجاز' : 'تم رفض الإيجاز', decision === 'approved' ? 'success' : 'error');
+                const branchId = todayBriefOpenBranchId;
+                fetch('?ajax=today_briefs').then(r => r.json()).then(d2 => {
+                    if (d2.ok) todayBriefsData = d2.branches;
+                    if (branchId !== null) openTodayBrief(branchId);
+                    else renderTodayBriefsGrid();
+                });
                 loadBootstrap();
             });
     }
