@@ -16,6 +16,7 @@ import urllib.parse
 
 from flask import Flask, Response, jsonify, request
 from selenium import webdriver
+from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.common.by import By
 from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.support.ui import WebDriverWait
@@ -43,7 +44,9 @@ def start_driver():
     options.add_argument("--disable-gpu")
     options.add_argument("--window-size=1200,900")
     options.add_argument("--headless=new")  # يشتغل بدون شاشة، رمز QR يُعرض عبر /qr
-    driver = webdriver.Chrome(options=options)
+    driver_path = shutil.which("chromedriver")
+    service = Service(executable_path=driver_path) if driver_path else Service()
+    driver = webdriver.Chrome(service=service, options=options)
     driver.get("https://web.whatsapp.com")
 
 

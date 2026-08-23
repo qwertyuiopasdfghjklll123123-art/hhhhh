@@ -14,6 +14,7 @@ import time
 import urllib.parse
 
 from selenium import webdriver
+from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.common.by import By
 from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.support.ui import WebDriverWait
@@ -40,7 +41,9 @@ def build_driver():
     options.add_argument("--window-size=1200,900")
     if HEADLESS:
         options.add_argument("--headless=new")
-    return webdriver.Chrome(options=options)
+    driver_path = shutil.which("chromedriver")
+    service = Service(executable_path=driver_path) if driver_path else Service()
+    return webdriver.Chrome(service=service, options=options)
 
 
 def wait_for_login(driver):
