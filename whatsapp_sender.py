@@ -29,11 +29,6 @@ HEADLESS = False
 
 def build_driver():
     options = webdriver.ChromeOptions()
-    for name in ("google-chrome", "google-chrome-stable", "chromium-browser", "chromium"):
-        path = shutil.which(name)
-        if path:
-            options.binary_location = path  # يمنع خطأ "unable to find binary" لو الاسم غير المتوقع
-            break
     options.add_argument(f"--user-data-dir={SESSION_DIR}")
     options.add_argument("--no-sandbox")
     options.add_argument("--disable-dev-shm-usage")
