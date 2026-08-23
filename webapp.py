@@ -174,41 +174,139 @@ PAGE = """
 <html lang="ar" dir="rtl">
 <head>
 <meta charset="utf-8">
-<title>حملة واتساب</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>منصة حملات واتساب</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+<script src="https://cdn.tailwindcss.com"></script>
 <style>
-  body { font-family: sans-serif; max-width: 420px; margin: 60px auto; text-align: center; padding: 0 16px; }
-  img { width: 260px; height: 260px; border: 1px solid #ccc; }
-  input, textarea, button { padding: 10px; font-size: 16px; margin-top: 12px; width: 100%; box-sizing: border-box; font-family: inherit; }
+  html, body { margin: 0; padding: 0; background: #f5f0e8; color: #1a1a1a; font-family: 'IBM Plex Sans Arabic', 'Tajawal', system-ui, sans-serif; }
+  .phone-frame { width: 100%; max-width: 430px; min-height: 100vh; margin: 0 auto; display: flex; flex-direction: column; background: #f5f0e8; }
+
+  .dark-card { background: #ffffff; border: 1px solid rgba(184,134,11,.15); box-shadow: 0 4px 20px rgba(0,0,0,.04); }
+  .glossy-card {
+    background: linear-gradient(145deg, #ffffff, #fcf8f0);
+    border: 1.5px solid rgba(184,134,11,.2);
+    box-shadow: 0 0 30px rgba(184,134,11,.05), inset 0 1px 0 rgba(184,134,11,.08);
+    position: relative; overflow: hidden;
+  }
+  .glossy-card::before {
+    content: ''; position: absolute; top: -50%; left: -50%; width: 200%; height: 200%;
+    background: conic-gradient(from 0deg at 50% 50%, transparent 0%, rgba(184,134,11,.04) 25%, transparent 50%, rgba(184,134,11,.04) 75%, transparent 100%);
+    animation: shimmerRotate 10s linear infinite; pointer-events: none;
+  }
+  @keyframes shimmerRotate { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+  .glossy-card .relative-z { position: relative; z-index: 1; }
+
+  .text-gold { color: #b8860b; }
+  .text-gold-soft { color: rgba(184,134,11,.6); }
+  .border-gold { border-color: rgba(184,134,11,.25); }
+  .bg-gold-light { background: rgba(184,134,11,.07); }
+
+  .rule-item { display: flex; align-items: flex-start; gap: 12px; padding: 8px 0; border-bottom: 1px solid rgba(184,134,11,.08); }
+  .rule-item:last-child { border-bottom: 0; }
+  .rule-icon { width: 32px; height: 32px; border-radius: 10px; background: rgba(184,134,11,.08); display: flex; align-items: center; justify-content: center; font-size: 16px; flex-shrink: 0; color: #b8860b; }
+  .rule-text { font-size: 13px; color: #1a1a1a; font-weight: 500; }
+  .rule-text small { display: block; font-weight: 400; font-size: 11px; color: #8a8a8a; margin-top: 2px; }
+
+  .field-label { display: block; margin-top: 16px; margin-bottom: 6px; font-size: 12px; color: #8a8a8a; font-weight: 500; }
+  input, textarea {
+    width: 100%; box-sizing: border-box; padding: 11px 12px; font-size: 14px; font-family: inherit;
+    background: #ffffff; border: 1px solid rgba(184,134,11,.2); border-radius: 12px; color: #1a1a1a;
+  }
+  input:focus, textarea:focus { outline: none; border-color: #b8860b; }
   textarea { resize: vertical; }
-  button { cursor: pointer; }
-  label { display: block; margin-top: 16px; font-size: 14px; color: #555; text-align: right; }
-  #msg, #progress { margin-top: 12px; font-weight: bold; }
+  input[type="file"] { padding: 9px 12px; }
+
+  .btn-gold {
+    display: block; width: 100%; padding: 13px; margin-top: 18px; border: none; border-radius: 14px;
+    background: #b8860b; color: #fff; font-weight: 700; font-size: 15px; font-family: inherit;
+    cursor: pointer; transition: .2s ease;
+  }
+  .btn-gold:hover { background: #9a7209; }
+
+  #qrImg { width: 240px; height: 240px; border-radius: 16px; border: 1px solid rgba(184,134,11,.2); background: #fff; display: block; margin: 0 auto; }
+
+  .stat-row { display: flex; border-radius: 16px; overflow: hidden; margin-top: 14px; }
+  .stat-cell { flex: 1; text-align: center; padding: 12px 4px; background: #ffffff; border: 1px solid rgba(184,134,11,.12); }
+  .stat-cell + .stat-cell { border-right: none; }
+  .stat-num { font-size: 16px; font-weight: 800; }
+  .stat-label { font-size: 10px; color: #8a8a8a; margin-top: 2px; }
 </style>
 </head>
 <body>
-  <div id="login">
-    <h3>امسح رمز QR لتسجيل الدخول</h3>
-    <img id="qrImg" src="/qr">
-  </div>
-  <div id="app" style="display:none">
-    <h3>تم تسجيل الدخول</h3>
+<div class="phone-frame">
 
-    <label>الأرقام (رقم كل سطر، أو مفصولة بفواصل)</label>
-    <textarea id="numbersText" rows="4" placeholder="9647701234567&#10;9647709876543"></textarea>
+  <header class="px-5 pt-6 pb-3 text-center">
+    <div class="w-12 h-12 mx-auto mb-2 rounded-full bg-gold-light border border-gold flex items-center justify-center text-xl">💬</div>
+    <h1 class="text-base font-extrabold">منصة حملات واتساب</h1>
+    <p class="text-[11px] text-gold-soft font-light tracking-wide mt-0.5">أرسل حملتك التسويقية بأمان وسهولة</p>
+  </header>
 
-    <label>أو ارفع ملف Excel (.xlsx) فيه الأرقام بالعمود الأول</label>
-    <input type="file" id="numbersFile" accept=".xlsx">
+  <main class="flex-1 px-5 pb-8 space-y-3">
 
-    <label>نص الرسالة</label>
-    <input id="text" value="هلوو">
+    <div id="login">
+      <div class="glossy-card rounded-2xl p-4 border-gold">
+        <div class="relative-z">
+          <h2 class="text-sm font-extrabold text-gold text-center mb-1">مرحباً بك 👋</h2>
+          <p class="text-[11px] text-[#4a4a4a]/70 text-center mb-3">اربط رقم واتساب بثلاث خطوات بسيطة</p>
+          <div class="rule-item">
+            <div class="rule-icon">📱</div>
+            <div class="rule-text">افتح واتساب بجوالك<small>من التطبيق مباشرة</small></div>
+          </div>
+          <div class="rule-item">
+            <div class="rule-icon">🔗</div>
+            <div class="rule-text">الأجهزة المرتبطة<small>الإعدادات ← الأجهزة المرتبطة ← ربط جهاز</small></div>
+          </div>
+          <div class="rule-item">
+            <div class="rule-icon">📷</div>
+            <div class="rule-text">امسح الرمز أدناه<small>ينتظر المسح تلقائياً، ما تحتاج تضغط أي شيء</small></div>
+          </div>
+        </div>
+      </div>
 
-    <label>الفاصل الزمني بين كل رسالة وأخرى (بالثواني)</label>
-    <input id="delay" type="number" min="1" value="15">
+      <div class="dark-card rounded-2xl p-4 mt-3 text-center">
+        <img id="qrImg" src="/qr" alt="QR">
+        <p class="text-[10px] text-[#4a4a4a]/50 mt-2">يتحدّث الرمز تلقائياً كل بضع ثوانٍ</p>
+      </div>
+    </div>
 
-    <button onclick="startCampaign()">بدء الإرسال</button>
-    <div id="progress"></div>
-    <div id="msg"></div>
-  </div>
+    <div id="app" style="display:none">
+      <div class="glossy-card rounded-2xl p-4 border-gold text-center">
+        <div class="relative-z">
+          <div class="w-9 h-9 mx-auto mb-1 rounded-full bg-gold-light border border-gold flex items-center justify-center text-base">✅</div>
+          <h2 class="text-sm font-extrabold text-gold">تم تسجيل الدخول</h2>
+          <p class="text-[11px] text-[#4a4a4a]/70 mt-0.5">جهّز حملتك وابدأ الإرسال</p>
+        </div>
+      </div>
+
+      <div class="dark-card rounded-2xl p-4 mt-3">
+        <label class="field-label">الأرقام (رقم كل سطر، أو مفصولة بفواصل)</label>
+        <textarea id="numbersText" rows="4" placeholder="9647701234567&#10;9647709876543"></textarea>
+
+        <label class="field-label">أو ارفع ملف Excel (.xlsx) فيه الأرقام بالعمود الأول</label>
+        <input type="file" id="numbersFile" accept=".xlsx">
+
+        <label class="field-label">نص الرسالة</label>
+        <input id="text" value="هلوو">
+
+        <label class="field-label">الفاصل الزمني بين كل رسالة وأخرى (بالثواني)</label>
+        <input id="delay" type="number" min="1" value="15">
+
+        <button class="btn-gold" onclick="startCampaign()">بدء الإرسال</button>
+      </div>
+
+      <div class="stat-row" id="statRow" style="display:none">
+        <div class="stat-cell"><div class="stat-num text-emerald-600" id="statSent">0</div><div class="stat-label">تم الإرسال</div></div>
+        <div class="stat-cell"><div class="stat-num text-red-500" id="statFailed">0</div><div class="stat-label">فشل</div></div>
+        <div class="stat-cell"><div class="stat-num text-gold" id="statTotal">0</div><div class="stat-label">الإجمالي</div></div>
+      </div>
+      <div id="msg" class="text-center text-[12px] font-bold mt-2"></div>
+    </div>
+
+  </main>
+</div>
 
 <script>
 async function poll() {
@@ -232,24 +330,25 @@ async function startCampaign() {
   if (file) form.append('numbers_file', file);
 
   document.getElementById('msg').innerText = 'جارِ البدء...';
-  document.getElementById('progress').innerText = '';
   const r = await fetch('/campaign', { method: 'POST', body: form }).then(res => res.json());
   if (!r.ok) {
     document.getElementById('msg').innerText = 'فشل: ' + r.error;
     return;
   }
   document.getElementById('msg').innerText = '';
+  document.getElementById('statRow').style.display = 'flex';
   trackProgress();
 }
 
 async function trackProgress() {
   const r = await fetch('/campaign_status').then(res => res.json());
-  document.getElementById('progress').innerText =
-    'تم الإرسال: ' + r.sent + '  /  فشل: ' + r.failed + '  /  الإجمالي: ' + r.total;
+  document.getElementById('statSent').innerText = r.sent;
+  document.getElementById('statFailed').innerText = r.failed;
+  document.getElementById('statTotal').innerText = r.total;
   if (r.running) {
     setTimeout(trackProgress, 2000);
   } else if (r.total > 0) {
-    document.getElementById('msg').innerText = 'انتهت الحملة';
+    document.getElementById('msg').innerText = 'انتهت الحملة ✅';
   }
 }
 </script>
