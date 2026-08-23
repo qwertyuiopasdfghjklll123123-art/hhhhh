@@ -1,5 +1,5 @@
 """
-صفحة واحدة: تسجيل دخول واتساب عبر QR + خانة رقم + زر يرسل نص "هلوو".
+صفحة واحدة: تسجيل دخول واتساب عبر QR + خانة رقم + خانة نص + زر إرسال.
 
 تشغيل:
     pip install -r requirements.txt
@@ -8,6 +8,7 @@
 أول مرة امسح رمز QR من نفس الصفحة، والجلسة تُحفظ بمجلد wa_session لعدم تكرار المسح لاحقاً.
 """
 
+import shutil
 import threading
 import time
 import urllib.parse
@@ -30,9 +31,15 @@ lock = threading.Lock()
 def start_driver():
     global driver
     options = webdriver.ChromeOptions()
+    for name in ("google-chrome", "google-chrome-stable", "chromium-browser", "chromium"):
+        path = shutil.which(name)
+        if path:
+            options.binary_location = path  # يمنع خطأ "unable to find binary" لو الاسم غير المتوقع
+            break
     options.add_argument(f"--user-data-dir={SESSION_DIR}")
     options.add_argument("--no-sandbox")
     options.add_argument("--disable-dev-shm-usage")
+    options.add_argument("--disable-gpu")
     options.add_argument("--window-size=1200,900")
     options.add_argument("--headless=new")  # يشتغل بدون شاشة، رمز QR يُعرض عبر /qr
     driver = webdriver.Chrome(options=options)
@@ -63,12 +70,14 @@ def status():
 
 @app.route("/send", methods=["POST"])
 def send():
-    number = (request.json or {}).get("number", "").strip()
+    data = request.json or {}
+    number = data.get("number", "").strip()
+    text = data.get("text", "").strip() or MESSAGE
     if not number or driver is None:
         return jsonify(ok=False, error="أدخل رقماً، وتأكد من تسجيل الدخول أولاً"), 400
     with lock:
         try:
-            url = f"https://web.whatsapp.com/send?phone={number}&text={urllib.parse.quote(MESSAGE)}"
+            url = f"https://web.whatsapp.com/send?phone={number}&text={urllib.parse.quote(text)}"
             driver.get(url)
             box = WebDriverWait(driver, 30).until(
                 EC.presence_of_element_located((By.XPATH, '//footer//div[@contenteditable="true"]'))
@@ -102,7 +111,8 @@ PAGE = """
   <div id="app" style="display:none">
     <h3>تم تسجيل الدخول</h3>
     <input id="number" placeholder="الرقم مع مفتاح الدولة، مثال 9647701234567">
-    <button onclick="sendMsg()">إرسال "هلوو"</button>
+    <input id="text" placeholder="نص الرسالة" value="هلوو">
+    <button onclick="sendMsg()">إرسال</button>
     <div id="msg"></div>
   </div>
 
@@ -121,11 +131,12 @@ poll();
 
 async function sendMsg() {
   const number = document.getElementById('number').value.trim();
+  const text = document.getElementById('text').value.trim();
   document.getElementById('msg').innerText = 'جارِ الإرسال...';
   const r = await fetch('/send', {
     method: 'POST',
     headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({number})
+    body: JSON.stringify({number, text})
   }).then(res => res.json());
   document.getElementById('msg').innerText = r.ok ? 'تم الإرسال بنجاح' : ('فشل: ' + r.error);
 }

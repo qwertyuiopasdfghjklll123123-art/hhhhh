@@ -9,6 +9,7 @@
 5) على VPS غيّر HEADLESS = True وشغّل السكربت مباشرة بدون الحاجة لمسح QR مرة ثانية
 """
 
+import shutil
 import time
 import urllib.parse
 
@@ -27,9 +28,15 @@ HEADLESS = False
 
 def build_driver():
     options = webdriver.ChromeOptions()
+    for name in ("google-chrome", "google-chrome-stable", "chromium-browser", "chromium"):
+        path = shutil.which(name)
+        if path:
+            options.binary_location = path  # يمنع خطأ "unable to find binary" لو الاسم غير المتوقع
+            break
     options.add_argument(f"--user-data-dir={SESSION_DIR}")
     options.add_argument("--no-sandbox")
     options.add_argument("--disable-dev-shm-usage")
+    options.add_argument("--disable-gpu")
     options.add_argument("--window-size=1200,900")
     if HEADLESS:
         options.add_argument("--headless=new")
