@@ -61,6 +61,13 @@ def qr():
         return "", 204
 
 
+@app.route("/debug")
+def debug():
+    if driver is None:
+        return "driver لسا ما بدأ", 503
+    return Response(driver.get_screenshot_as_png(), mimetype="image/png")
+
+
 @app.route("/status")
 def status():
     logged_in = driver is not None and len(driver.find_elements(By.ID, "pane-side")) > 0
