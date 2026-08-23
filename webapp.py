@@ -8,6 +8,7 @@
 أول مرة امسح رمز QR من نفس الصفحة، والجلسة تُحفظ بمجلد wa_session لعدم تكرار المسح لاحقاً.
 """
 
+import os
 import shutil
 import threading
 import time
@@ -148,4 +149,4 @@ async function sendMsg() {
 
 if __name__ == "__main__":
     threading.Thread(target=start_driver, daemon=True).start()
-    app.run(host="0.0.0.0", port=5000)
+    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
