@@ -1,5 +1,5 @@
 """
-صفحة واحدة: تسجيل دخول واتساب عبر QR + خانة رقم + خانة نص + زر إرسال.
+صفحة واحدة: تسجيل دخول واتساب عبر QR + حملة إرسال لعدة أرقام (كتابة أو ملف Excel) + فاصل زمني.
 
 تشغيل:
     pip install -r requirements.txt
@@ -9,11 +9,13 @@
 """
 
 import os
+import re
 import shutil
 import threading
 import time
 import urllib.parse
 
+import openpyxl
 from flask import Flask, Response, jsonify, request
 from selenium import webdriver
 from selenium.webdriver.chrome.service import Service
@@ -23,11 +25,13 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 
 SESSION_DIR = "./wa_session"
-MESSAGE = "هلوو"
+DEFAULT_MESSAGE = "هلوو"
+DEFAULT_DELAY = 15
 
 app = Flask(__name__)
 driver = None
 lock = threading.Lock()
+campaign_state = {"total": 0, "sent": 0, "failed": 0, "running": False, "failed_numbers": []}
 
 
 def start_driver():
@@ -54,6 +58,54 @@ def start_driver():
         {"source": "Object.defineProperty(navigator, 'webdriver', {get: () => undefined})"},
     )
     driver.get("https://web.whatsapp.com")
+
+
+def numbers_from_text(text):
+    numbers = []
+    for part in re.split(r"[,\n\r]+", text):
+        digits = re.sub(r"\D", "", part)
+        if len(digits) >= 8:
+            numbers.append(digits)
+    return numbers
+
+
+def numbers_from_excel(file_storage):
+    wb = openpyxl.load_workbook(file_storage.stream, read_only=True)
+    numbers = []
+    for row in wb.active.iter_rows(values_only=True):
+        if not row or row[0] is None:
+            continue
+        value = row[0]
+        if isinstance(value, float) and value.is_integer():
+            value = int(value)
+        digits = re.sub(r"\D", "", str(value))
+        if len(digits) >= 8:
+            numbers.append(digits)
+    return numbers
+
+
+def send_to(number, text):
+    url = f"https://web.whatsapp.com/send?phone={number}&text={urllib.parse.quote(text)}"
+    driver.get(url)
+    box = WebDriverWait(driver, 30).until(
+        EC.presence_of_element_located((By.XPATH, '//footer//div[@contenteditable="true"]'))
+    )
+    time.sleep(2)  # مهلة حتى يكتمل تعبئة نص الرسالة تلقائياً بالحقل قبل الإرسال
+    box.send_keys(Keys.ENTER)
+
+
+def run_campaign(numbers, text, delay):
+    for i, number in enumerate(numbers):
+        with lock:
+            try:
+                send_to(number, text)
+                campaign_state["sent"] += 1
+            except Exception:
+                campaign_state["failed"] += 1
+                campaign_state["failed_numbers"].append(number)
+        if i < len(numbers) - 1:
+            time.sleep(delay)
+    campaign_state["running"] = False
 
 
 @app.route("/")
@@ -85,25 +137,36 @@ def status():
     return jsonify(logged_in=logged_in)
 
 
-@app.route("/send", methods=["POST"])
-def send():
-    data = request.json or {}
-    number = data.get("number", "").strip()
-    text = data.get("text", "").strip() or MESSAGE
-    if not number or driver is None:
-        return jsonify(ok=False, error="أدخل رقماً، وتأكد من تسجيل الدخول أولاً"), 400
-    with lock:
-        try:
-            url = f"https://web.whatsapp.com/send?phone={number}&text={urllib.parse.quote(text)}"
-            driver.get(url)
-            box = WebDriverWait(driver, 30).until(
-                EC.presence_of_element_located((By.XPATH, '//footer//div[@contenteditable="true"]'))
-            )
-            time.sleep(2)  # مهلة حتى يكتمل تعبئة نص الرسالة تلقائياً بالحقل قبل الإرسال
-            box.send_keys(Keys.ENTER)
-            return jsonify(ok=True)
-        except Exception as e:
-            return jsonify(ok=False, error=str(e)), 500
+@app.route("/campaign", methods=["POST"])
+def campaign():
+    if driver is None:
+        return jsonify(ok=False, error="تأكد من تسجيل الدخول أولاً"), 400
+    if campaign_state["running"]:
+        return jsonify(ok=False, error="فيه حملة شغالة حالياً، انتظر تخلص"), 400
+
+    numbers = list(numbers_from_text(request.form.get("numbers_text", "")))
+    file = request.files.get("numbers_file")
+    if file and file.filename:
+        numbers += numbers_from_excel(file)
+    numbers = list(dict.fromkeys(numbers))  # إزالة التكرار مع حفظ الترتيب
+
+    if not numbers:
+        return jsonify(ok=False, error="ما لقيت أي رقم صالح (اكتب أرقام أو ارفع ملف Excel)"), 400
+
+    text = request.form.get("text", "").strip() or DEFAULT_MESSAGE
+    try:
+        delay = max(1, int(request.form.get("delay", DEFAULT_DELAY)))
+    except (TypeError, ValueError):
+        delay = DEFAULT_DELAY
+
+    campaign_state.update(total=len(numbers), sent=0, failed=0, running=True, failed_numbers=[])
+    threading.Thread(target=run_campaign, args=(numbers, text, delay), daemon=True).start()
+    return jsonify(ok=True, total=len(numbers))
+
+
+@app.route("/campaign_status")
+def campaign_status():
+    return jsonify(**campaign_state)
 
 
 PAGE = """
@@ -111,13 +174,15 @@ PAGE = """
 <html lang="ar" dir="rtl">
 <head>
 <meta charset="utf-8">
-<title>إرسال واتساب</title>
+<title>حملة واتساب</title>
 <style>
-  body { font-family: sans-serif; max-width: 420px; margin: 60px auto; text-align: center; }
+  body { font-family: sans-serif; max-width: 420px; margin: 60px auto; text-align: center; padding: 0 16px; }
   img { width: 260px; height: 260px; border: 1px solid #ccc; }
-  input, button { padding: 10px; font-size: 16px; margin-top: 12px; width: 100%; box-sizing: border-box; }
+  input, textarea, button { padding: 10px; font-size: 16px; margin-top: 12px; width: 100%; box-sizing: border-box; font-family: inherit; }
+  textarea { resize: vertical; }
   button { cursor: pointer; }
-  #msg { margin-top: 12px; font-weight: bold; }
+  label { display: block; margin-top: 16px; font-size: 14px; color: #555; text-align: right; }
+  #msg, #progress { margin-top: 12px; font-weight: bold; }
 </style>
 </head>
 <body>
@@ -127,9 +192,21 @@ PAGE = """
   </div>
   <div id="app" style="display:none">
     <h3>تم تسجيل الدخول</h3>
-    <input id="number" placeholder="الرقم مع مفتاح الدولة، مثال 9647701234567">
-    <input id="text" placeholder="نص الرسالة" value="هلوو">
-    <button onclick="sendMsg()">إرسال</button>
+
+    <label>الأرقام (رقم كل سطر، أو مفصولة بفواصل)</label>
+    <textarea id="numbersText" rows="4" placeholder="9647701234567&#10;9647709876543"></textarea>
+
+    <label>أو ارفع ملف Excel (.xlsx) فيه الأرقام بالعمود الأول</label>
+    <input type="file" id="numbersFile" accept=".xlsx">
+
+    <label>نص الرسالة</label>
+    <input id="text" value="هلوو">
+
+    <label>الفاصل الزمني بين كل رسالة وأخرى (بالثواني)</label>
+    <input id="delay" type="number" min="1" value="15">
+
+    <button onclick="startCampaign()">بدء الإرسال</button>
+    <div id="progress"></div>
     <div id="msg"></div>
   </div>
 
@@ -146,16 +223,34 @@ async function poll() {
 }
 poll();
 
-async function sendMsg() {
-  const number = document.getElementById('number').value.trim();
-  const text = document.getElementById('text').value.trim();
-  document.getElementById('msg').innerText = 'جارِ الإرسال...';
-  const r = await fetch('/send', {
-    method: 'POST',
-    headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({number, text})
-  }).then(res => res.json());
-  document.getElementById('msg').innerText = r.ok ? 'تم الإرسال بنجاح' : ('فشل: ' + r.error);
+async function startCampaign() {
+  const form = new FormData();
+  form.append('numbers_text', document.getElementById('numbersText').value);
+  form.append('text', document.getElementById('text').value.trim());
+  form.append('delay', document.getElementById('delay').value || 15);
+  const file = document.getElementById('numbersFile').files[0];
+  if (file) form.append('numbers_file', file);
+
+  document.getElementById('msg').innerText = 'جارِ البدء...';
+  document.getElementById('progress').innerText = '';
+  const r = await fetch('/campaign', { method: 'POST', body: form }).then(res => res.json());
+  if (!r.ok) {
+    document.getElementById('msg').innerText = 'فشل: ' + r.error;
+    return;
+  }
+  document.getElementById('msg').innerText = '';
+  trackProgress();
+}
+
+async function trackProgress() {
+  const r = await fetch('/campaign_status').then(res => res.json());
+  document.getElementById('progress').innerText =
+    'تم الإرسال: ' + r.sent + '  /  فشل: ' + r.failed + '  /  الإجمالي: ' + r.total;
+  if (r.running) {
+    setTimeout(trackProgress, 2000);
+  } else if (r.total > 0) {
+    document.getElementById('msg').innerText = 'انتهت الحملة';
+  }
 }
 </script>
 </body>
