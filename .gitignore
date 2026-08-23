@@ -1,4 +1,6 @@
 wa_session/
+wa_sessions/
+uploads/
 numbers.txt
 __pycache__/
 *.pyc
