@@ -1,0 +1,4 @@
+wa_session/
+numbers.txt
+__pycache__/
+*.pyc
