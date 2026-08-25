@@ -21,6 +21,7 @@
 
 import os
 import re
+import secrets
 import shutil
 import sqlite3
 import threading
@@ -67,9 +68,11 @@ def get_or_create_secret_key():
 app = Flask(__name__)
 app.secret_key = get_or_create_secret_key()
 
-accounts = {}  # id -> {id, owner, name, driver, lock, campaign, history, auto_reply, watching}
+accounts = {}  # id -> {id, owner, name, driver, lock, campaign, history, auto_reply, watching, otp_sender}
 events = []
 events_lock = threading.Lock()
+otp_codes = {}  # phone -> {code, expires, verified}
+otp_lock = threading.Lock()
 
 
 # ---------------------------------------------------------------- قاعدة البيانات
@@ -101,6 +104,29 @@ def init_db():
         conn.execute("ALTER TABLE users ADD COLUMN plan_active INTEGER NOT NULL DEFAULT 0")
     if "created_at" not in cols:
         conn.execute("ALTER TABLE users ADD COLUMN created_at TEXT NOT NULL DEFAULT ''")
+    if "phone" not in cols:
+        conn.execute("ALTER TABLE users ADD COLUMN phone TEXT")
+    # تسجيل الدخول عبر واتساب يحتاج email تقبل NULL (حساب برقم بدون بريد) - نعيد بناء
+    # الجدول لو كان لسا يفرض NOT NULL من نسخة قديمة، حتى لا نفقد أي مستخدمين موجودين
+    email_notnull = any(r["name"] == "email" and r["notnull"] for r in conn.execute("PRAGMA table_info(users)").fetchall())
+    if email_notnull:
+        conn.execute("ALTER TABLE users RENAME TO users_old")
+        conn.execute("""
+            CREATE TABLE users (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                email TEXT UNIQUE,
+                phone TEXT UNIQUE,
+                password_hash TEXT NOT NULL,
+                is_admin INTEGER NOT NULL DEFAULT 0,
+                plan_active INTEGER NOT NULL DEFAULT 0,
+                created_at TEXT NOT NULL DEFAULT ''
+            )
+        """)
+        conn.execute(
+            "INSERT INTO users (id, email, phone, password_hash, is_admin, plan_active, created_at) "
+            "SELECT id, email, phone, password_hash, is_admin, plan_active, created_at FROM users_old"
+        )
+        conn.execute("DROP TABLE users_old")
     conn.execute("""
         CREATE TABLE IF NOT EXISTS ai_settings (
             id INTEGER PRIMARY KEY CHECK (id = 1),
@@ -136,6 +162,32 @@ def db_get_user_by_email(email):
     return row
 
 
+def db_get_user_by_phone(phone):
+    conn = get_db()
+    row = conn.execute("SELECT * FROM users WHERE phone = ?", (phone,)).fetchone()
+    conn.close()
+    return row
+
+
+def db_get_user_by_id(user_id):
+    conn = get_db()
+    row = conn.execute("SELECT * FROM users WHERE id = ?", (user_id,)).fetchone()
+    conn.close()
+    return row
+
+
+def db_create_user_by_phone(phone, password_hash, is_admin):
+    conn = get_db()
+    cur = conn.execute(
+        "INSERT INTO users (phone, password_hash, is_admin, plan_active, created_at) VALUES (?, ?, ?, 0, ?)",
+        (phone, password_hash, int(is_admin), datetime.now().strftime("%Y-%m-%d %H:%M")),
+    )
+    conn.commit()
+    user_id = cur.lastrowid
+    conn.close()
+    return user_id
+
+
 def db_count_users():
     conn = get_db()
     n = conn.execute("SELECT COUNT(*) c FROM users").fetchone()["c"]
@@ -157,7 +209,7 @@ def db_create_user(email, password_hash, is_admin):
 
 def db_list_users():
     conn = get_db()
-    rows = conn.execute("SELECT id, email, is_admin, plan_active, created_at FROM users ORDER BY id").fetchall()
+    rows = conn.execute("SELECT id, email, phone, is_admin, plan_active, created_at FROM users ORDER BY id").fetchall()
     conn.close()
     return rows
 
@@ -275,6 +327,7 @@ def new_account_entry(acc_id, owner, name):
         "history": [],
         "auto_reply": {"enabled": False, "ai_enabled": False, "rules": []},
         "watching": False,
+        "otp_sender": False,
     }
 
 
@@ -364,6 +417,14 @@ def send_to(driver, number, text, media_path=None):
     else:
         time.sleep(2)  # مهلة حتى يكتمل تعبئة نص الرسالة تلقائياً بالحقل قبل الإرسال
         driver.switch_to.active_element.send_keys(Keys.ENTER)
+
+
+def find_otp_sender_account():
+    """يبحث عن حساب واتساب واحد حدده الأدمن لإرسال رموز التحقق لتسجيل الدخول/الحسابات الجديدة."""
+    for acc in accounts.values():
+        if acc.get("otp_sender") and acc["driver"] is not None and account_logged_in(acc):
+            return acc
+    return None
 
 
 def run_campaign(acc, numbers, text, delay, media_path):
@@ -485,18 +546,29 @@ def render_auth_page(title, action, switch_html, error):
 <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@700;800;900&family=Tajawal:wght@300;400;500;700;800&display=swap" rel="stylesheet">
 <style>
   html, body {{ margin:0; padding:0; background:oklch(0.145 0.014 245); color:oklch(0.97 0.006 245); font-family:'Tajawal',system-ui,sans-serif; min-height:100vh; }}
-  .wrap {{ max-width: 360px; margin: 0 auto; padding: 70px 20px; }}
-  .logo {{ display:flex; align-items:center; justify-content:center; gap:9px; margin-bottom:26px; }}
+  .wrap {{ max-width: 360px; margin: 0 auto; padding: 60px 20px; }}
+  .logo {{ display:flex; align-items:center; justify-content:center; gap:9px; margin-bottom:10px; }}
   .logo span {{ font-family:'Cairo',sans-serif; font-weight:800; font-size:18px; }}
-  .box {{ background:oklch(0.195 0.017 245); border:1px solid oklch(1 0 0 / 9%); border-radius:20px; padding:28px 24px; box-shadow:0 20px 50px rgba(0,0,0,.4); }}
+  h1 {{ text-align:center; font-family:'Cairo',sans-serif; font-size:20px; font-weight:800; margin:14px 0 4px; }}
+  .subtitle {{ text-align:center; font-size:12.5px; color:oklch(0.72 0.02 245); margin:0 0 20px; line-height:1.7; }}
+  .tabs {{ display:flex; gap:8px; margin-bottom:14px; }}
+  .tab {{ flex:1; padding:11px 6px; border-radius:12px; border:1.5px solid oklch(1 0 0 / 15%); background:oklch(0.195 0.017 245); color:oklch(0.72 0.02 245); font-size:12.5px; font-weight:700; text-align:center; cursor:pointer; display:flex; align-items:center; justify-content:center; gap:6px; font-family:inherit; }}
+  .tab.active {{ border-color:oklch(0.78 0.17 152 / 45%); color:oklch(0.78 0.17 152); background:oklch(0.78 0.17 152 / 10%); }}
+  .box {{ background:oklch(0.195 0.017 245); border:1px solid oklch(1 0 0 / 9%); border-radius:20px; padding:24px 22px; box-shadow:0 20px 50px rgba(0,0,0,.4); }}
   .shield {{ display:flex; justify-content:center; margin-bottom:14px; color:oklch(0.78 0.17 152); }}
-  h2 {{ text-align:center; font-family:'Cairo',sans-serif; color:oklch(0.97 0.006 245); font-size:19px; font-weight:800; margin:0 0 18px; }}
+  h2 {{ text-align:center; font-family:'Cairo',sans-serif; color:oklch(0.97 0.006 245); font-size:17px; font-weight:800; margin:0 0 4px; }}
+  .step-sub {{ text-align:center; font-size:12px; color:oklch(0.72 0.02 245); margin:0 0 16px; }}
   input {{ width:100%; box-sizing:border-box; padding:12px 13px; font-size:14px; font-family:inherit; background:oklch(0.235 0.019 245); border:1px solid oklch(1 0 0 / 15%); border-radius:13px; margin-top:10px; color:oklch(0.97 0.006 245); }}
   input::placeholder {{ color:oklch(0.5 0.02 245); }}
   button {{ width:100%; padding:13px; margin-top:18px; border:none; border-radius:14px; background:linear-gradient(135deg, oklch(0.78 0.17 152), oklch(0.66 0.18 152)); color:oklch(0.2 0.05 152); font-weight:800; font-size:14px; font-family:inherit; cursor:pointer; box-shadow:0 8px 20px oklch(0.78 0.17 152 / 28%); }}
+  button:disabled {{ opacity:.7; cursor:default; }}
+  button.btn-ghost {{ background:transparent; border:1.5px solid oklch(1 0 0 / 18%); color:oklch(0.97 0.006 245); box-shadow:none; font-weight:700; }}
   p.switch {{ text-align:center; font-size:12px; margin-top:16px; color:oklch(0.72 0.02 245); }}
   p.switch a {{ color:oklch(0.78 0.17 152); font-weight:700; text-decoration:none; }}
   p.err {{ color:oklch(0.68 0.19 21); font-size:12px; text-align:center; margin:0 0 10px; }}
+  p.wa-msg {{ color:oklch(0.68 0.19 21); font-size:12px; text-align:center; margin:10px 0 0; min-height:14px; }}
+  .wa-hint {{ text-align:center; font-size:11px; color:oklch(0.72 0.02 245); margin-top:12px; }}
+  .wa-badge {{ display:flex; justify-content:center; margin-bottom:16px; }}
 </style>
 </head>
 <body>
@@ -512,9 +584,17 @@ def render_auth_page(title, action, switch_html, error):
       </svg>
       <span>واصل</span>
     </div>
-    <div class="box">
+    <h1>{title}</h1>
+    <p class="subtitle">سجّل دخولك للوصول إلى حسابك وإدارة حملاتك التسويقية بسهولة</p>
+
+    <div class="tabs">
+      <div class="tab" id="tabEmail" onclick="showTab('email')">البريد الإلكتروني</div>
+      <div class="tab active" id="tabWa" onclick="showTab('wa')">عبر واتساب</div>
+    </div>
+
+    <div class="box" id="panelEmail" style="display:none">
       <div class="shield">
-        <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+        <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
           <path d="M12 3l7 3v6c0 5-3 8-7 9-4-1-7-4-7-9V6l7-3z"/><path d="M9 12l2 2 4-4"/>
         </svg>
       </div>
@@ -527,7 +607,105 @@ def render_auth_page(title, action, switch_html, error):
       </form>
       {switch_html}
     </div>
+
+    <div class="box" id="panelWa">
+      <div class="wa-badge">
+        <svg width="56" height="56" viewBox="0 0 32 32" aria-hidden="true">
+          <rect x="1" y="1" width="30" height="30" rx="9" fill="url(#lg)"/>
+          <path d="M9 11a2 2 0 012-2h10a2 2 0 012 2v7a2 2 0 01-2 2h-7l-4 4v-4h-1a2 2 0 01-2-2v-7z" fill="#fff"/>
+          <path d="M10.5 15h3l1.5-3 2.5 6 1.5-3h3" fill="none" stroke="url(#lg)" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+      </div>
+
+      <div id="waStepPhone">
+        <h2>تسجيل الدخول عبر واتساب</h2>
+        <p class="step-sub">الطريقة الأسرع والأكثر أماناً</p>
+        <input id="waPhone" type="tel" placeholder="رقم واتساب مع مفتاح الدولة، مثال 9647701234567">
+        <button type="button" id="waSendBtn" data-label="متابعة عبر واتساب" onclick="waSendCode()">متابعة عبر واتساب</button>
+        <p class="wa-hint">آمن وسريع — بدون كلمة مرور لو رقمك مسجّل من قبل</p>
+      </div>
+
+      <div id="waStepCode" style="display:none">
+        <h2>أدخل رمز التحقق</h2>
+        <p class="step-sub">أرسلناه لك عبر واتساب على الرقم المدخل</p>
+        <input id="waCode" type="text" inputmode="numeric" placeholder="رمز التحقق (6 أرقام)">
+        <button type="button" id="waVerifyBtn" data-label="تحقق" onclick="waVerify()">تحقق</button>
+        <button type="button" class="btn-ghost" onclick="waStep('phone')">تعديل الرقم</button>
+      </div>
+
+      <div id="waStepPass" style="display:none">
+        <h2>عيّن كلمة مرور</h2>
+        <p class="step-sub">رقمك جديد — عيّن كلمة مرور لإنشاء حسابك</p>
+        <input id="waPass" type="password" placeholder="كلمة المرور (6 أحرف على الأقل)">
+        <button type="button" id="waCompleteBtn" data-label="إنشاء الحساب" onclick="waComplete()">إنشاء الحساب</button>
+      </div>
+
+      <p class="wa-msg" id="waMsg"></p>
+      {switch_html}
+    </div>
   </div>
+
+<script>
+function showTab(tab) {{
+  document.getElementById('tabEmail').classList.toggle('active', tab === 'email');
+  document.getElementById('tabWa').classList.toggle('active', tab === 'wa');
+  document.getElementById('panelEmail').style.display = tab === 'email' ? 'block' : 'none';
+  document.getElementById('panelWa').style.display = tab === 'wa' ? 'block' : 'none';
+}}
+
+function waStep(step) {{
+  document.getElementById('waStepPhone').style.display = step === 'phone' ? 'block' : 'none';
+  document.getElementById('waStepCode').style.display = step === 'code' ? 'block' : 'none';
+  document.getElementById('waStepPass').style.display = step === 'pass' ? 'block' : 'none';
+  waMsg('');
+}}
+
+function waMsg(t) {{ document.getElementById('waMsg').innerText = t || ''; }}
+
+function waBtnLoading(id, loading) {{
+  const btn = document.getElementById(id);
+  btn.disabled = loading;
+  btn.innerText = loading ? '...' : btn.dataset.label;
+}}
+
+let waPhone = '';
+
+async function waSendCode() {{
+  const phone = document.getElementById('waPhone').value.replace(/[^0-9]/g, '');
+  if (phone.length < 8) {{ waMsg('أدخل رقم واتساب صحيح مع مفتاح الدولة'); return; }}
+  waPhone = phone;
+  waBtnLoading('waSendBtn', true);
+  const r = await fetch('/auth/whatsapp/send_code', {{
+    method: 'POST', headers: {{'Content-Type': 'application/json'}}, body: JSON.stringify({{phone: phone}})
+  }}).then(res => res.json());
+  waBtnLoading('waSendBtn', false);
+  if (!r.ok) {{ waMsg(r.error); return; }}
+  waStep('code');
+}}
+
+async function waVerify() {{
+  const code = document.getElementById('waCode').value.trim();
+  waBtnLoading('waVerifyBtn', true);
+  const r = await fetch('/auth/whatsapp/verify', {{
+    method: 'POST', headers: {{'Content-Type': 'application/json'}}, body: JSON.stringify({{phone: waPhone, code: code}})
+  }}).then(res => res.json());
+  waBtnLoading('waVerifyBtn', false);
+  if (!r.ok) {{ waMsg(r.error); return; }}
+  if (r.logged_in) {{ window.location.href = '/'; return; }}
+  waStep('pass');
+}}
+
+async function waComplete() {{
+  const password = document.getElementById('waPass').value;
+  waBtnLoading('waCompleteBtn', true);
+  const r = await fetch('/auth/whatsapp/complete', {{
+    method: 'POST', headers: {{'Content-Type': 'application/json'}}, body: JSON.stringify({{phone: waPhone, password: password}})
+  }}).then(res => res.json());
+  waBtnLoading('waCompleteBtn', false);
+  if (!r.ok) {{ waMsg(r.error); return; }}
+  window.location.href = '/';
+}}
+</script>
 </body>
 </html>
 """
@@ -576,6 +754,77 @@ def signup_page():
 def logout_page():
     session.clear()
     return redirect("/login")
+
+
+# ---------------------------------------------------------------- تسجيل الدخول برقم واتساب
+
+@app.route("/auth/whatsapp/send_code", methods=["POST"])
+def send_whatsapp_code():
+    data = request.json or {}
+    phone = re.sub(r"\D", "", data.get("phone") or "")
+    if len(phone) < 8:
+        return jsonify(ok=False, error="أدخل رقم واتساب صحيح مع مفتاح الدولة"), 400
+    sender = find_otp_sender_account()
+    if not sender:
+        return jsonify(ok=False, error="تسجيل الدخول عبر واتساب غير مفعّل حالياً، جرّب البريد الإلكتروني"), 400
+    code = str(secrets.randbelow(900000) + 100000)
+    with otp_lock:
+        otp_codes[phone] = {"code": code, "expires": time.time() + 600, "verified": False}
+    try:
+        with sender["lock"]:
+            send_to(sender["driver"], phone, f"رمز التحقق الخاص بك في واصل: {code}\nصالح لمدة 10 دقائق.")
+    except Exception:
+        with otp_lock:
+            otp_codes.pop(phone, None)
+        return jsonify(ok=False, error="تعذر إرسال الرمز، تأكد إن الرقم يستخدم واتساب وحاول مرة أخرى"), 500
+    return jsonify(ok=True)
+
+
+@app.route("/auth/whatsapp/verify", methods=["POST"])
+def verify_whatsapp_code():
+    data = request.json or {}
+    phone = re.sub(r"\D", "", data.get("phone") or "")
+    code = (data.get("code") or "").strip()
+    with otp_lock:
+        entry = otp_codes.get(phone)
+        if not entry or entry["expires"] < time.time() or entry["code"] != code:
+            return jsonify(ok=False, error="الرمز غير صحيح أو منتهي الصلاحية"), 400
+        entry["verified"] = True
+    # رقم مسجّل من قبل: التحقق من الرمز عبر واتساب يكفي لتسجيل الدخول مباشرة بدون كلمة مرور
+    existing = db_get_user_by_phone(phone)
+    if existing:
+        with otp_lock:
+            otp_codes.pop(phone, None)
+        session["user_id"] = existing["id"]
+        session["email"] = existing["email"] or existing["phone"]
+        session["is_admin"] = bool(existing["is_admin"])
+        return jsonify(ok=True, logged_in=True)
+    return jsonify(ok=True, logged_in=False)
+
+
+@app.route("/auth/whatsapp/complete", methods=["POST"])
+def complete_whatsapp_signup():
+    """يُستدعى فقط لإنشاء حساب جديد برقم لم يُسجَّل من قبل (طُلب تعيين كلمة مرور بعد التحقق)."""
+    data = request.json or {}
+    phone = re.sub(r"\D", "", data.get("phone") or "")
+    password = data.get("password") or ""
+    with otp_lock:
+        entry = otp_codes.get(phone)
+        if not entry or not entry.get("verified"):
+            return jsonify(ok=False, error="تحقق من رقمك أولاً"), 400
+    if len(password) < 6:
+        return jsonify(ok=False, error="كلمة المرور قصيرة، لازم 6 أحرف على الأقل"), 400
+    if db_get_user_by_phone(phone):
+        return jsonify(ok=False, error="هذا الرقم مسجّل بالفعل"), 400
+    is_admin = db_count_users() == 0
+    user_id = db_create_user_by_phone(phone, generate_password_hash(password), is_admin)
+    user = db_get_user_by_id(user_id)
+    with otp_lock:
+        otp_codes.pop(phone, None)
+    session["user_id"] = user["id"]
+    session["email"] = user["email"] or user["phone"]
+    session["is_admin"] = bool(user["is_admin"])
+    return jsonify(ok=True)
 
 
 # ---------------------------------------------------------------- الصفحة الرئيسية وملفات PWA
@@ -723,7 +972,7 @@ def admin_reject_payment(payment_id):
 def list_accounts():
     uid = session["user_id"]
     return jsonify([
-        {"id": aid, "name": a["name"], "logged_in": account_logged_in(a)}
+        {"id": aid, "name": a["name"], "logged_in": account_logged_in(a), "otp_sender": a.get("otp_sender", False)}
         for aid, a in accounts.items() if a["owner"] == uid
     ])
 
@@ -750,6 +999,23 @@ def account_logout(acc_id):
             pass
     shutil.rmtree(f"{SESSIONS_ROOT}/{acc_id}", ignore_errors=True)
     del accounts[acc_id]
+    return jsonify(ok=True)
+
+
+@app.route("/accounts/<acc_id>/otp_sender", methods=["POST"])
+@login_required
+@admin_required
+def set_otp_sender(acc_id):
+    acc = get_owned_account(acc_id)
+    if not acc:
+        return jsonify(ok=False, error="حساب غير موجود"), 404
+    data = request.json or {}
+    if bool(data.get("enabled")):
+        for a in accounts.values():
+            a["otp_sender"] = False
+        acc["otp_sender"] = True
+    else:
+        acc["otp_sender"] = False
     return jsonify(ok=True)
 
 
@@ -1241,6 +1507,11 @@ function renderAccounts() {
     if (!acc.logged_in) {
       html += '<div class="text-center"><img id="qrImg-' + acc.id + '" src="/accounts/' + acc.id + '/qr" style="width:170px;height:170px;border-radius:12px;border:1px solid var(--gold-border);background:#fff"><p class="text-[10px] text-muted mt-1">امسح الرمز من واتساب بجوالك</p></div>';
     } else {
+      if (IS_ADMIN) {
+        html += '<label class="flex items-center gap-2 text-[12px] font-bold mb-2"><input type="checkbox" ' +
+          (acc.otp_sender ? 'checked' : '') + ' onchange="setOtpSender(\\'' + acc.id + '\\', this.checked)"> ' +
+          'استخدامه لإرسال رموز تسجيل الدخول عبر واتساب</label>';
+      }
       html += '<button class="btn-danger" onclick="logoutAccount(\\'' + acc.id + '\\')">تسجيل الخروج</button>';
     }
     html += '</div>';
@@ -1273,6 +1544,13 @@ async function logoutAccount(id) {
   if (!confirm('تسجيل الخروج من هذا الحساب؟ بيحتاج مسح رمز QR من جديد لاحقاً.')) return;
   await fetch('/accounts/' + id + '/logout', { method: 'POST' });
   activeId = null;
+  render();
+}
+
+async function setOtpSender(id, enabled) {
+  await fetch('/accounts/' + id + '/otp_sender', {
+    method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({enabled: enabled})
+  });
   render();
 }
 
@@ -1557,11 +1835,12 @@ async function loadCustomers() {
   const box = document.getElementById('customersBox');
   if (!box) return;
   box.innerHTML = rows.length
-    ? rows.map(u =>
-        '<div class="history-row"><span class="flex items-center gap-2">' + avatarHtml(u.email, String(u.id)) +
-        '<span>' + u.email + '</span></span><span class="pill ' + (u.plan_active ? 'pill-green' : 'pill-gray') + '">' +
-        (u.plan_active ? 'مفعّل' : 'غير مفعّل') + '</span><span class="text-muted">' + u.created_at + '</span></div>'
-      ).join('')
+    ? rows.map(u => {
+        const label = u.email || u.phone || '—';
+        return '<div class="history-row"><span class="flex items-center gap-2">' + avatarHtml(label, String(u.id)) +
+        '<span>' + label + '</span></span><span class="pill ' + (u.plan_active ? 'pill-green' : 'pill-gray') + '">' +
+        (u.plan_active ? 'مفعّل' : 'غير مفعّل') + '</span><span class="text-muted">' + u.created_at + '</span></div>';
+      }).join('')
     : '<div class="text-muted text-[11px]">ما فيه عملاء بعد</div>';
 }
 
