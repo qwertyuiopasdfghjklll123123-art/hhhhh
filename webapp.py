@@ -482,28 +482,51 @@ def render_auth_page(title, action, switch_html, error):
 <title>{title}</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@400;600;700;800&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Cairo:wght@700;800;900&family=Tajawal:wght@300;400;500;700;800&display=swap" rel="stylesheet">
 <style>
-  html, body {{ margin:0; padding:0; background:#f5f0e8; color:#1a1a1a; font-family:'IBM Plex Sans Arabic','Tajawal',system-ui,sans-serif; }}
-  .box {{ max-width: 360px; margin: 90px auto; background:#fff; border:1px solid rgba(184,134,11,.2); border-radius:20px; padding:28px 24px; box-shadow:0 10px 30px rgba(0,0,0,.05); }}
-  h2 {{ text-align:center; color:#b8860b; font-size:18px; margin:0 0 18px; }}
-  input {{ width:100%; box-sizing:border-box; padding:11px 12px; font-size:14px; font-family:inherit; border:1px solid rgba(184,134,11,.25); border-radius:12px; margin-top:10px; }}
-  button {{ width:100%; padding:12px; margin-top:16px; border:none; border-radius:12px; background:#b8860b; color:#fff; font-weight:700; font-size:14px; font-family:inherit; cursor:pointer; }}
-  p.switch {{ text-align:center; font-size:12px; margin-top:14px; }}
-  p.switch a {{ color:#b8860b; font-weight:700; text-decoration:none; }}
-  p.err {{ color:#dc2626; font-size:12px; text-align:center; margin:0 0 10px; }}
+  html, body {{ margin:0; padding:0; background:oklch(0.145 0.014 245); color:oklch(0.97 0.006 245); font-family:'Tajawal',system-ui,sans-serif; min-height:100vh; }}
+  .wrap {{ max-width: 360px; margin: 0 auto; padding: 70px 20px; }}
+  .logo {{ display:flex; align-items:center; justify-content:center; gap:9px; margin-bottom:26px; }}
+  .logo span {{ font-family:'Cairo',sans-serif; font-weight:800; font-size:18px; }}
+  .box {{ background:oklch(0.195 0.017 245); border:1px solid oklch(1 0 0 / 9%); border-radius:20px; padding:28px 24px; box-shadow:0 20px 50px rgba(0,0,0,.4); }}
+  .shield {{ display:flex; justify-content:center; margin-bottom:14px; color:oklch(0.78 0.17 152); }}
+  h2 {{ text-align:center; font-family:'Cairo',sans-serif; color:oklch(0.97 0.006 245); font-size:19px; font-weight:800; margin:0 0 18px; }}
+  input {{ width:100%; box-sizing:border-box; padding:12px 13px; font-size:14px; font-family:inherit; background:oklch(0.235 0.019 245); border:1px solid oklch(1 0 0 / 15%); border-radius:13px; margin-top:10px; color:oklch(0.97 0.006 245); }}
+  input::placeholder {{ color:oklch(0.5 0.02 245); }}
+  button {{ width:100%; padding:13px; margin-top:18px; border:none; border-radius:14px; background:linear-gradient(135deg, oklch(0.78 0.17 152), oklch(0.66 0.18 152)); color:oklch(0.2 0.05 152); font-weight:800; font-size:14px; font-family:inherit; cursor:pointer; box-shadow:0 8px 20px oklch(0.78 0.17 152 / 28%); }}
+  p.switch {{ text-align:center; font-size:12px; margin-top:16px; color:oklch(0.72 0.02 245); }}
+  p.switch a {{ color:oklch(0.78 0.17 152); font-weight:700; text-decoration:none; }}
+  p.err {{ color:oklch(0.68 0.19 21); font-size:12px; text-align:center; margin:0 0 10px; }}
 </style>
 </head>
 <body>
-  <div class="box">
-    <h2>{title}</h2>
-    {error_html}
-    <form method="post" action="{action}">
-      <input name="email" type="email" placeholder="البريد الإلكتروني" required>
-      <input name="password" type="password" placeholder="كلمة المرور" required>
-      <button type="submit">{title}</button>
-    </form>
-    {switch_html}
+  <div class="wrap">
+    <div class="logo">
+      <svg width="30" height="30" viewBox="0 0 32 32" aria-hidden="true">
+        <defs><linearGradient id="lg" x1="0" y1="0" x2="32" y2="32">
+          <stop offset="0" stop-color="oklch(0.78 0.17 152)"/><stop offset="1" stop-color="oklch(0.6 0.18 152)"/>
+        </linearGradient></defs>
+        <rect x="1" y="1" width="30" height="30" rx="9" fill="url(#lg)"/>
+        <path d="M9 11a2 2 0 012-2h10a2 2 0 012 2v7a2 2 0 01-2 2h-7l-4 4v-4h-1a2 2 0 01-2-2v-7z" fill="#fff"/>
+        <path d="M10.5 15h3l1.5-3 2.5 6 1.5-3h3" fill="none" stroke="url(#lg)" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+      <span>واصل</span>
+    </div>
+    <div class="box">
+      <div class="shield">
+        <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 3l7 3v6c0 5-3 8-7 9-4-1-7-4-7-9V6l7-3z"/><path d="M9 12l2 2 4-4"/>
+        </svg>
+      </div>
+      <h2>{title}</h2>
+      {error_html}
+      <form method="post" action="{action}">
+        <input name="email" type="email" placeholder="البريد الإلكتروني" required>
+        <input name="password" type="password" placeholder="كلمة المرور" required>
+        <button type="submit">{title}</button>
+      </form>
+      {switch_html}
+    </div>
   </div>
 </body>
 </html>
@@ -872,41 +895,51 @@ PAGE = """
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>منصة حملات واتساب</title>
 <link rel="manifest" href="/manifest.json">
-<meta name="theme-color" content="#b8860b">
+<meta name="theme-color" content="#123320">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Cairo:wght@700;800;900&family=Tajawal:wght@300;400;500;700;800&display=swap" rel="stylesheet">
 <script src="https://cdn.tailwindcss.com"></script>
 <style>
   :root {
-    --bg: #f5f0e8; --card: #ffffff; --card-soft: #fcf8f0; --ink: #1a1a1a; --muted: #8a8a8a;
-    --gold: #b8860b; --gold-border: rgba(184,134,11,.25); --gold-light: rgba(184,134,11,.07);
-    --shadow: rgba(0,0,0,.04);
+    --bg: oklch(0.145 0.014 245); --card: oklch(0.195 0.017 245); --card-soft: oklch(0.235 0.019 245); --card-3: oklch(0.29 0.02 245);
+    --border: oklch(1 0 0 / 9%); --border-2: oklch(1 0 0 / 15%);
+    --ink: oklch(0.97 0.006 245); --muted: oklch(0.72 0.02 245); --faint: oklch(0.5 0.02 245);
+    --gold: oklch(0.78 0.17 152); --gold-strong: oklch(0.66 0.18 152);
+    --gold-light: oklch(0.78 0.17 152 / 16%); --gold-border: oklch(0.78 0.17 152 / 30%); --gold-shadow: oklch(0.78 0.17 152 / 28%);
+    --green-ink: oklch(0.2 0.05 152); --red: oklch(0.68 0.19 21); --blue: oklch(0.72 0.13 238); --amber: oklch(0.8 0.14 78);
+    --shadow: rgba(0,0,0,.35);
   }
-  html[data-theme="dark"] {
-    --bg: #17140f; --card: #241f18; --card-soft: #2b2419; --ink: #f2ede0; --muted: #a89a80;
-    --gold: #e6b73e; --gold-border: rgba(230,183,62,.3); --gold-light: rgba(230,183,62,.1);
-    --shadow: rgba(0,0,0,.3);
+  :root[data-theme="light"] {
+    --bg: oklch(0.97 0.006 245); --card: oklch(1 0 0); --card-soft: oklch(0.955 0.006 245); --card-3: oklch(0.91 0.008 245);
+    --border: oklch(0 0 0 / 8%); --border-2: oklch(0 0 0 / 14%);
+    --ink: oklch(0.22 0.02 245); --muted: oklch(0.42 0.02 245); --faint: oklch(0.58 0.02 245);
+    --gold: oklch(0.6 0.17 152); --gold-strong: oklch(0.5 0.18 152);
+    --gold-light: oklch(0.6 0.17 152 / 12%); --gold-border: oklch(0.6 0.17 152 / 25%); --gold-shadow: oklch(0.6 0.17 152 / 20%);
+    --green-ink: oklch(0.99 0.01 152); --red: oklch(0.55 0.19 21); --blue: oklch(0.55 0.13 238); --amber: oklch(0.62 0.14 78);
+    --shadow: rgba(0,0,0,.08);
   }
-  html, body { margin: 0; padding: 0; background: var(--bg); color: var(--ink); font-family: 'IBM Plex Sans Arabic', 'Tajawal', system-ui, sans-serif; }
+  html, body { margin: 0; padding: 0; background: var(--bg); color: var(--ink); font-family: 'Tajawal', system-ui, sans-serif; }
   .app { display: flex; flex-direction: column; min-height: 100vh; }
+  h1, h2, h3, .topbar-title, .stat-num, .logo-word { font-family: 'Cairo', 'Tajawal', sans-serif; }
+  svg.icon { display: inline-block; vertical-align: middle; flex-shrink: 0; }
 
-  .topbar { display: flex; align-items: center; justify-content: space-between; padding: 10px 16px; background: var(--card); border-bottom: 1px solid var(--gold-border); position: sticky; top: 0; z-index: 30; }
-  .topbar-title { font-size: 14px; font-weight: 800; }
+  .topbar { display: flex; align-items: center; justify-content: space-between; padding: 10px 16px; background: var(--card); border-bottom: 1px solid var(--border); position: sticky; top: 0; z-index: 30; }
+  .topbar-title { font-size: 15px; font-weight: 800; }
   .topbar-actions { display: flex; gap: 6px; }
-  .icon-btn { position: relative; height: 34px; padding: 0 12px; border-radius: 10px; border: 1px solid var(--gold-border); background: var(--card); color: var(--gold); font-size: 12px; font-weight: 700; font-family: inherit; cursor: pointer; }
-  .badge { position: absolute; top: -3px; left: -3px; width: 9px; height: 9px; border-radius: 50%; background: #dc2626; }
+  .icon-btn { position: relative; width: 36px; height: 36px; border-radius: 11px; border: 1px solid var(--border-2); background: var(--card-soft); color: var(--ink); display: flex; align-items: center; justify-content: center; cursor: pointer; }
+  .badge { position: absolute; top: -3px; left: -3px; width: 9px; height: 9px; border-radius: 50%; background: var(--red); }
 
-  .notif-panel { position: absolute; top: 52px; left: 12px; width: 280px; max-height: 320px; overflow-y: auto; background: var(--card); border: 1px solid var(--gold-border); border-radius: 14px; box-shadow: 0 12px 30px var(--shadow); z-index: 40; padding: 8px; }
+  .notif-panel { position: absolute; top: 52px; left: 12px; width: 280px; max-height: 320px; overflow-y: auto; background: var(--card); border: 1px solid var(--border-2); border-radius: 16px; box-shadow: 0 12px 30px var(--shadow); z-index: 40; padding: 8px; }
   .notif-item { padding: 8px 10px; border-radius: 10px; font-size: 12px; }
   .notif-item + .notif-item { margin-top: 4px; }
   .notif-item b { display: block; font-size: 12px; color: var(--gold); }
   .notif-item span { color: var(--muted); font-size: 11px; }
 
   .body { display: flex; flex: 1; }
-  .nav { width: 220px; flex-shrink: 0; background: var(--card); border-left: 1px solid var(--gold-border); padding: 16px 10px; }
-  .nav-item { padding: 11px 12px; border-radius: 12px; font-size: 13px; font-weight: 700; cursor: pointer; margin-bottom: 4px; transition: .15s ease; }
-  .nav-item:hover { background: var(--gold-light); }
+  .nav { width: 220px; flex-shrink: 0; background: var(--card); border-left: 1px solid var(--border); padding: 16px 10px; }
+  .nav-item { display: flex; align-items: center; gap: 10px; padding: 11px 12px; border-radius: 12px; font-size: 13px; font-weight: 700; color: var(--muted); cursor: pointer; margin-bottom: 4px; transition: .15s ease; }
+  .nav-item:hover { background: var(--card-soft); color: var(--ink); }
   .nav-item.active { background: var(--gold-light); border: 1px solid var(--gold-border); color: var(--gold); }
   .content { flex: 1; padding: 28px; display: flex; justify-content: center; }
   .content-inner { width: 100%; max-width: 620px; }
@@ -914,19 +947,25 @@ PAGE = """
 
   @media (max-width: 780px) {
     .nav { display: none; }
-    .content { padding: 16px 16px 84px; }
+    .content { padding: 16px 16px 90px; }
     .bottom-tabs {
-      display: flex; position: fixed; bottom: 0; left: 0; right: 0; height: 62px;
-      background: var(--card); border-top: 1px solid var(--gold-border); z-index: 30;
+      display: flex; align-items: center; position: fixed; bottom: 0; left: 0; right: 0; height: 66px;
+      background: color-mix(in oklch, var(--card) 82%, transparent); backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px);
+      border-top: 1px solid var(--border); z-index: 30;
     }
-    .bottom-tab { flex: 1; display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 700; color: var(--muted); cursor: pointer; }
+    .bottom-tab { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; font-size: 10px; font-weight: 700; color: var(--faint); cursor: pointer; }
     .bottom-tab.active { color: var(--gold); }
+    .fab {
+      width: 46px; height: 46px; border-radius: 50%; flex-shrink: 0; margin: 0 6px; cursor: pointer;
+      background: linear-gradient(135deg, var(--gold), var(--gold-strong)); color: var(--green-ink);
+      display: flex; align-items: center; justify-content: center; box-shadow: 0 6px 18px var(--gold-shadow);
+    }
   }
 
-  .dark-card { background: var(--card); border: 1px solid var(--gold-border); box-shadow: 0 4px 20px var(--shadow); }
+  .dark-card { background: var(--card); border: 1px solid var(--border); border-radius: 18px; box-shadow: 0 4px 20px var(--shadow); }
   .glossy-card {
     background: linear-gradient(145deg, var(--card), var(--card-soft));
-    border: 1.5px solid var(--gold-border);
+    border: 1.5px solid var(--gold-border); border-radius: 18px;
     box-shadow: 0 0 30px var(--shadow), inset 0 1px 0 var(--gold-light);
     position: relative; overflow: hidden;
   }
@@ -939,11 +978,12 @@ PAGE = """
   .glossy-card .relative-z { position: relative; z-index: 1; }
 
   .text-gold { color: var(--gold); }
+  .text-red { color: var(--red); }
   .border-gold { border-color: var(--gold-border); }
   .bg-gold-light { background: var(--gold-light); }
   .text-muted { color: var(--muted); }
 
-  .step-item { display: flex; align-items: flex-start; gap: 12px; padding: 8px 0; border-bottom: 1px solid var(--gold-light); }
+  .step-item { display: flex; align-items: flex-start; gap: 12px; padding: 8px 0; border-bottom: 1px solid var(--border); }
   .step-item:last-child { border-bottom: 0; }
   .step-num { width: 26px; height: 26px; border-radius: 50%; background: var(--gold-light); border: 1px solid var(--gold-border); display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 800; flex-shrink: 0; color: var(--gold); }
   .step-text { font-size: 13px; color: var(--ink); font-weight: 500; }
@@ -952,7 +992,7 @@ PAGE = """
   .field-label { display: block; margin-top: 16px; margin-bottom: 6px; font-size: 12px; color: var(--muted); font-weight: 500; }
   input, textarea, select {
     width: 100%; box-sizing: border-box; padding: 11px 12px; font-size: 14px; font-family: inherit;
-    background: var(--card); border: 1px solid var(--gold-border); border-radius: 12px; color: var(--ink);
+    background: var(--card-soft); border: 1px solid var(--border-2); border-radius: 12px; color: var(--ink);
   }
   input:focus, textarea:focus, select:focus { outline: none; border-color: var(--gold); }
   textarea { resize: vertical; }
@@ -960,45 +1000,60 @@ PAGE = """
   input[type="checkbox"] { width: auto; }
 
   .btn-gold {
-    display: block; width: 100%; padding: 13px; margin-top: 18px; border: none; border-radius: 14px;
-    background: var(--gold); color: #fff; font-weight: 700; font-size: 15px; font-family: inherit;
-    cursor: pointer; transition: .2s ease;
+    display: block; width: 100%; padding: 13px; margin-top: 18px; border: none; border-radius: 15px;
+    background: linear-gradient(135deg, var(--gold), var(--gold-strong)); color: var(--green-ink);
+    font-weight: 800; font-size: 15px; font-family: inherit; cursor: pointer; transition: .2s ease;
+    box-shadow: 0 8px 20px var(--gold-shadow);
   }
-  .btn-gold:hover { filter: brightness(.92); }
+  .btn-gold:hover { filter: brightness(1.05); }
   .btn-outline {
     display: block; width: 100%; padding: 11px; margin-top: 10px; border-radius: 14px;
-    background: transparent; border: 1.5px solid var(--gold-border); color: var(--gold);
+    background: var(--card-soft); border: 1.5px solid var(--border-2); color: var(--ink);
     font-weight: 700; font-size: 13px; font-family: inherit; cursor: pointer; transition: .2s ease;
   }
-  .btn-outline:hover { background: var(--gold-light); }
+  .btn-outline:hover { border-color: var(--gold-border); color: var(--gold); }
   .btn-danger {
     display: block; width: 100%; padding: 10px; margin-top: 12px; border-radius: 14px;
-    background: transparent; border: 1.5px solid rgba(220,38,38,.3); color: #dc2626;
+    background: transparent; border: 1.5px solid color-mix(in oklch, var(--red) 35%, transparent); color: var(--red);
     font-weight: 700; font-size: 12px; font-family: inherit; cursor: pointer; transition: .2s ease;
   }
-  .btn-danger:hover { background: rgba(220,38,38,.06); }
+  .btn-danger:hover { background: color-mix(in oklch, var(--red) 8%, transparent); }
   .btn-small { width: auto; padding: 8px 14px; margin-top: 0; display: inline-block; }
 
-  #qrImg { width: 220px; height: 220px; border-radius: 16px; border: 1px solid var(--gold-border); background: #fff; display: block; margin: 0 auto; }
+  #qrImg { width: 220px; height: 220px; border-radius: 16px; border: 1px solid var(--border-2); background: #fff; display: block; margin: 0 auto; }
 
   .stat-row { display: flex; border-radius: 16px; overflow: hidden; margin-top: 14px; }
-  .stat-cell { flex: 1; text-align: center; padding: 12px 4px; background: var(--card); border: 1px solid var(--gold-light); }
+  .stat-cell { flex: 1; text-align: center; padding: 12px 4px; background: var(--card); border: 1px solid var(--border); }
   .stat-cell + .stat-cell { border-right: none; }
-  .stat-num { font-size: 16px; font-weight: 800; }
+  .stat-num { font-size: 18px; font-weight: 800; }
   .stat-label { font-size: 10px; color: var(--muted); margin-top: 2px; }
 
   .account-name { font-size: 13px; font-weight: 700; flex: 1; }
   .dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
-  .dot-on { background: #16a34a; box-shadow: 0 0 6px rgba(22,163,74,.6); }
-  .dot-off { background: #d1a83a; }
+  .dot-on { background: var(--gold); box-shadow: 0 0 6px var(--gold-shadow); }
+  .dot-off { background: var(--amber); }
   .empty-state { text-align: center; color: var(--muted); font-size: 13px; margin-top: 60px; }
 
-  .history-row { display: flex; justify-content: space-between; align-items: center; padding: 9px 4px; border-bottom: 1px solid var(--gold-light); font-size: 12px; }
+  .avatar { width: 36px; height: 36px; border-radius: 50%; flex-shrink: 0; display: flex; align-items: center; justify-content: center; color: #fff; font-weight: 800; font-size: 14px; }
+  .avatar-0 { background: linear-gradient(135deg, oklch(0.78 0.17 152), oklch(0.6 0.17 152)); }
+  .avatar-1 { background: linear-gradient(135deg, oklch(0.72 0.13 238), oklch(0.55 0.15 238)); }
+  .avatar-2 { background: linear-gradient(135deg, oklch(0.72 0.15 300), oklch(0.55 0.16 300)); }
+  .avatar-3 { background: linear-gradient(135deg, oklch(0.8 0.14 78), oklch(0.65 0.16 60)); }
+  .avatar-4 { background: linear-gradient(135deg, oklch(0.72 0.17 30), oklch(0.6 0.19 21)); }
+
+  .pill { display: inline-flex; align-items: center; padding: 3px 10px; border-radius: 999px; font-size: 10px; font-weight: 800; }
+  .pill-green { background: var(--gold-light); color: var(--gold); }
+  .pill-blue { background: color-mix(in oklch, var(--blue) 16%, transparent); color: var(--blue); }
+  .pill-red { background: color-mix(in oklch, var(--red) 14%, transparent); color: var(--red); }
+  .pill-amber { background: color-mix(in oklch, var(--amber) 18%, transparent); color: var(--amber); }
+  .pill-gray { background: var(--card-3); color: var(--muted); }
+
+  .history-row { display: flex; justify-content: space-between; align-items: center; padding: 9px 4px; border-bottom: 1px solid var(--border); font-size: 12px; }
   .history-row:last-child { border-bottom: none; }
 
   .rule-row { display: flex; gap: 8px; align-items: center; margin-top: 8px; }
   .rule-row input { margin-top: 0; }
-  .rule-remove { flex-shrink: 0; width: 32px; height: 32px; border-radius: 10px; border: 1px solid rgba(220,38,38,.3); background: transparent; color: #dc2626; cursor: pointer; }
+  .rule-remove { flex-shrink: 0; width: 32px; height: 32px; border-radius: 10px; border: 1px solid color-mix(in oklch, var(--red) 35%, transparent); background: transparent; color: var(--red); cursor: pointer; }
 </style>
 </head>
 <body>
@@ -1006,12 +1061,19 @@ PAGE = """
   <header class="topbar">
     <span class="text-[11px] text-muted">__USERNAME__</span>
     <div class="topbar-title" style="display:flex;align-items:center;gap:7px">
-      <svg width="22" height="22" viewBox="0 0 32 32" aria-hidden="true"><circle cx="16" cy="16" r="16" fill="var(--gold)"/><path d="M16 8a8 8 0 00-6.9 12l-1.1 4 4.1-1.1A8 8 0 1016 8z" fill="#fff"/><circle cx="12.5" cy="15.5" r="1.3" fill="var(--gold)"/><circle cx="16" cy="15.5" r="1.3" fill="var(--gold)"/><circle cx="19.5" cy="15.5" r="1.3" fill="var(--gold)"/></svg>
-      منصة حملات واتساب
+      <svg width="26" height="26" viewBox="0 0 32 32" aria-hidden="true">
+        <defs><linearGradient id="logoGrad" x1="0" y1="0" x2="32" y2="32">
+          <stop offset="0" stop-color="oklch(0.78 0.17 152)"/><stop offset="1" stop-color="oklch(0.6 0.18 152)"/>
+        </linearGradient></defs>
+        <rect x="1" y="1" width="30" height="30" rx="9" fill="url(#logoGrad)"/>
+        <path d="M9 11a2 2 0 012-2h10a2 2 0 012 2v7a2 2 0 01-2 2h-7l-4 4v-4h-1a2 2 0 01-2-2v-7z" fill="#fff"/>
+        <path d="M10.5 15h3l1.5-3 2.5 6 1.5-3h3" fill="none" stroke="url(#logoGrad)" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+      <span class="logo-word">واصل لحملات واتساب</span>
     </div>
     <div class="topbar-actions">
-      <button class="icon-btn" id="themeBtn" onclick="toggleTheme()">داكن</button>
-      <button class="icon-btn" id="bellBtn" onclick="toggleNotifPanel()">الإشعارات<span class="badge" id="bellBadge" style="display:none"></span></button>
+      <button class="icon-btn" id="themeBtn" onclick="toggleTheme()"></button>
+      <button class="icon-btn" id="bellBtn" onclick="toggleNotifPanel()"><span class="badge" id="bellBadge" style="display:none"></span></button>
     </div>
   </header>
 
@@ -1019,24 +1081,57 @@ PAGE = """
 
   <div class="body">
     <nav class="nav" id="nav">
-      <div class="nav-item" data-s="accounts" onclick="showSection('accounts')">حسابي</div>
-      <div class="nav-item" data-s="campaigns" onclick="showSection('campaigns')">الحملات</div>
-      <div class="nav-item" data-s="autoreply" onclick="showSection('autoreply')">الرد الآلي</div>
-      <div class="nav-item" data-s="settings" onclick="showSection('settings')">الإعدادات</div>
+      <div class="nav-item" data-s="accounts" onclick="showSection('accounts')"></div>
+      <div class="nav-item" data-s="campaigns" onclick="showSection('campaigns')"></div>
+      <div class="nav-item" data-s="autoreply" onclick="showSection('autoreply')"></div>
+      <div class="nav-item" data-s="settings" onclick="showSection('settings')"></div>
     </nav>
     <main class="content"><div class="content-inner" id="content"></div></main>
   </div>
 
   <nav class="bottom-tabs" id="bottomTabs">
-    <div class="bottom-tab" data-s="accounts" onclick="showSection('accounts')">حسابي</div>
-    <div class="bottom-tab" data-s="campaigns" onclick="showSection('campaigns')">الحملات</div>
-    <div class="bottom-tab" data-s="autoreply" onclick="showSection('autoreply')">الرد الآلي</div>
-    <div class="bottom-tab" data-s="settings" onclick="showSection('settings')">الإعدادات</div>
+    <div class="bottom-tab" data-s="accounts" onclick="showSection('accounts')"></div>
+    <div class="bottom-tab" data-s="campaigns" onclick="showSection('campaigns')"></div>
+    <div class="fab" onclick="showSection('campaigns')" title="بدء حملة جديدة"></div>
+    <div class="bottom-tab" data-s="autoreply" onclick="showSection('autoreply')"></div>
+    <div class="bottom-tab" data-s="settings" onclick="showSection('settings')"></div>
   </nav>
 </div>
 
 <script>
 const IS_ADMIN = __IS_ADMIN__;
+
+/* ---------- أيقونات خطية (بدون إيموجي) ---------- */
+const ICONS = {
+  accounts: '<circle cx="12" cy="8" r="3.2"/><path d="M5 20c0-3.5 3-6 7-6s7 2.5 7 6"/>',
+  campaigns: '<line x1="21" y1="3" x2="10" y2="14"/><polygon points="21 3 14 21 10 14 3 10 21 3"/>',
+  autoreply: '<path d="M4 5h16v11H8l-4 4V5z"/><circle cx="9" cy="10.3" r=".9" fill="currentColor" stroke="none"/><circle cx="12" cy="10.3" r=".9" fill="currentColor" stroke="none"/><circle cx="15" cy="10.3" r=".9" fill="currentColor" stroke="none"/>',
+  settings: '<line x1="4" y1="6" x2="20" y2="6"/><circle cx="15" cy="6" r="2"/><line x1="4" y1="12" x2="20" y2="12"/><circle cx="9" cy="12" r="2"/><line x1="4" y1="18" x2="20" y2="18"/><circle cx="17" cy="18" r="2"/>',
+  bell: '<path d="M6 8a6 6 0 0112 0c0 5 2 6 2 6H4s2-1 2-6"/><path d="M10 21a2 2 0 004 0"/>',
+  sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4 12H2M22 12h-2M5 5l1.5 1.5M17.5 17.5L19 19M19 5l-1.5 1.5M6.5 17.5L5 19"/>',
+  moon: '<path d="M20 14.5A8 8 0 119.5 4a6.5 6.5 0 1010.5 10.5z"/>',
+  plus: '<line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>',
+};
+function icon(name, size) {
+  size = size || 20;
+  return '<svg class="icon" width="' + size + '" height="' + size + '" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">' + (ICONS[name] || '') + '</svg>';
+}
+
+const SECTION_LABELS = { accounts: 'حسابي', campaigns: 'الحملات', autoreply: 'الرد الآلي', settings: 'الإعدادات' };
+
+function initChrome() {
+  document.getElementById('bellBtn').insertAdjacentHTML('afterbegin', icon('bell'));
+  document.querySelectorAll('.nav-item').forEach(function (el) {
+    el.innerHTML = icon(el.dataset.s) + '<span>' + SECTION_LABELS[el.dataset.s] + '</span>';
+  });
+  document.querySelectorAll('.bottom-tab').forEach(function (el) {
+    el.innerHTML = icon(el.dataset.s, 20) + SECTION_LABELS[el.dataset.s];
+  });
+  const fab = document.querySelector('.fab');
+  if (fab) fab.innerHTML = icon('plus', 22);
+}
+initChrome();
+
 let accounts = [];
 let section = 'accounts';
 let activeId = null;
@@ -1048,12 +1143,12 @@ function applyTheme(t) {
   document.documentElement.setAttribute('data-theme', t);
   localStorage.setItem('theme', t);
   const btn = document.getElementById('themeBtn');
-  if (btn) btn.innerText = t === 'dark' ? 'نهاري' : 'داكن';
+  if (btn) btn.innerHTML = icon(t === 'dark' ? 'sun' : 'moon');
 }
 function toggleTheme() {
-  applyTheme((document.documentElement.getAttribute('data-theme') || 'light') === 'dark' ? 'light' : 'dark');
+  applyTheme((document.documentElement.getAttribute('data-theme') || 'dark') === 'dark' ? 'light' : 'dark');
 }
-applyTheme(localStorage.getItem('theme') || (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'));
+applyTheme(localStorage.getItem('theme') || 'dark');
 
 /* ---------- PWA + إشعارات ---------- */
 if ('serviceWorker' in navigator) { navigator.serviceWorker.register('/sw.js').catch(() => {}); }
@@ -1123,6 +1218,13 @@ async function render() {
 }
 
 /* ---------- قسم حسابي ---------- */
+function avatarHtml(name, seed) {
+  let h = 0;
+  for (let i = 0; i < seed.length; i++) h = (h * 31 + seed.charCodeAt(i)) >>> 0;
+  const letter = (name || '؟').trim().charAt(0).toUpperCase();
+  return '<div class="avatar avatar-' + (h % 5) + '">' + letter + '</div>';
+}
+
 function renderAccounts() {
   const c = document.getElementById('content');
   let html = '<h2 class="text-sm font-extrabold text-gold mb-3">حسابي</h2>';
@@ -1132,9 +1234,9 @@ function renderAccounts() {
   accounts.forEach(acc => {
     html += '<div class="dark-card rounded-2xl p-3 mb-3">' +
       '<div class="flex items-center gap-2.5 mb-2">' +
-      '<span class="dot ' + (acc.logged_in ? 'dot-on' : 'dot-off') + '"></span>' +
+      avatarHtml(acc.name, acc.id) +
       '<span class="account-name">' + acc.name + '</span>' +
-      '<span class="text-[10px] text-muted">' + (acc.logged_in ? 'متصل' : 'غير متصل') + '</span>' +
+      '<span class="pill ' + (acc.logged_in ? 'pill-green' : 'pill-amber') + '">' + (acc.logged_in ? 'متصل' : 'غير متصل') + '</span>' +
       '</div>';
     if (!acc.logged_in) {
       html += '<div class="text-center"><img id="qrImg-' + acc.id + '" src="/accounts/' + acc.id + '/qr" style="width:170px;height:170px;border-radius:12px;border:1px solid var(--gold-border);background:#fff"><p class="text-[10px] text-muted mt-1">امسح الرمز من واتساب بجوالك</p></div>';
@@ -1218,8 +1320,8 @@ function renderCampaigns(myGen) {
     '<button class="btn-gold" onclick="startCampaign()">بدء الإرسال</button>' +
     '</div>' +
     '<div class="stat-row" id="statRow" style="display:none">' +
-    '<div class="stat-cell"><div class="stat-num text-emerald-600" id="statSent">0</div><div class="stat-label">تم الإرسال</div></div>' +
-    '<div class="stat-cell"><div class="stat-num text-red-500" id="statFailed">0</div><div class="stat-label">فشل</div></div>' +
+    '<div class="stat-cell"><div class="stat-num text-gold" id="statSent">0</div><div class="stat-label">تم الإرسال</div></div>' +
+    '<div class="stat-cell"><div class="stat-num text-red" id="statFailed">0</div><div class="stat-label">فشل</div></div>' +
     '<div class="stat-cell"><div class="stat-num text-gold" id="statTotal">0</div><div class="stat-label">الإجمالي</div></div>' +
     '</div>' +
     '<div id="msg" class="text-center text-[12px] font-bold mt-2"></div>' +
@@ -1243,7 +1345,7 @@ async function loadHistory(accId) {
   const box = document.getElementById('historyBox');
   if (!box) return;
   box.innerHTML = rows.length
-    ? rows.map(h => '<div class="history-row"><span>' + h.time + '</span><span class="text-emerald-600">نجح ' + h.sent + '</span><span class="text-red-500">فشل ' + h.failed + '</span><span class="text-muted">من ' + h.total + '</span></div>').join('')
+    ? rows.map(h => '<div class="history-row"><span>' + h.time + '</span><span class="pill pill-green">نجح ' + h.sent + '</span><span class="pill pill-red">فشل ' + h.failed + '</span><span class="text-muted">من ' + h.total + '</span></div>').join('')
     : '<div class="text-muted text-[11px]">ما فيه حملات سابقة</div>';
 }
 
@@ -1422,7 +1524,7 @@ async function loadSubscription() {
   if (!box) return;
   let html = '<p class="text-[13px] font-bold">' + d.plan_name + ' — ' + d.price_iqd.toLocaleString() + ' د.ع</p>';
   if (d.plan_active) {
-    html += '<p class="text-emerald-600 text-[12px] font-bold mt-1">خطتك مفعّلة</p>';
+    html += '<span class="pill pill-green mt-1">خطتك مفعّلة</span>';
   } else {
     html +=
       '<p class="text-[11px] text-muted mt-1">حوّل المبلغ عبر سوبر كي، وبعدين أدخل رقم إثبات التحويل هنا ليتم التفعيل من الإدارة.</p>' +
@@ -1432,8 +1534,8 @@ async function loadSubscription() {
   }
   if (d.payments && d.payments.length) {
     html += '<div class="mt-3">' + d.payments.map(p =>
-      '<div class="history-row"><span>' + p.created_at + '</span><span>' + p.reference + '</span><span class="' +
-      (p.status === 'approved' ? 'text-emerald-600' : p.status === 'rejected' ? 'text-red-500' : 'text-muted') + '">' +
+      '<div class="history-row"><span>' + p.created_at + '</span><span>' + p.reference + '</span><span class="pill ' +
+      (p.status === 'approved' ? 'pill-green' : p.status === 'rejected' ? 'pill-red' : 'pill-gray') + '">' +
       (p.status === 'approved' ? 'مقبول' : p.status === 'rejected' ? 'مرفوض' : 'قيد المراجعة') + '</span></div>'
     ).join('') + '</div>';
   }
@@ -1456,7 +1558,8 @@ async function loadCustomers() {
   if (!box) return;
   box.innerHTML = rows.length
     ? rows.map(u =>
-        '<div class="history-row"><span>' + u.email + '</span><span class="' + (u.plan_active ? 'text-emerald-600' : 'text-muted') + '">' +
+        '<div class="history-row"><span class="flex items-center gap-2">' + avatarHtml(u.email, String(u.id)) +
+        '<span>' + u.email + '</span></span><span class="pill ' + (u.plan_active ? 'pill-green' : 'pill-gray') + '">' +
         (u.plan_active ? 'مفعّل' : 'غير مفعّل') + '</span><span class="text-muted">' + u.created_at + '</span></div>'
       ).join('')
     : '<div class="text-muted text-[11px]">ما فيه عملاء بعد</div>';
