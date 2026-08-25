@@ -89,10 +89,13 @@ def init_db():
     conn.execute("""
         CREATE TABLE IF NOT EXISTS users (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            email TEXT UNIQUE NOT NULL,
-            password_hash TEXT NOT NULL,
+            email TEXT UNIQUE,
+            phone TEXT UNIQUE,
+            name TEXT,
+            password_hash TEXT,
             is_admin INTEGER NOT NULL DEFAULT 0,
             plan_active INTEGER NOT NULL DEFAULT 0,
+            trial_ends_at TEXT,
             created_at TEXT NOT NULL DEFAULT ''
         )
     """)
@@ -109,10 +112,16 @@ def init_db():
         conn.execute("ALTER TABLE users ADD COLUMN phone TEXT")
     if "name" not in cols:
         conn.execute("ALTER TABLE users ADD COLUMN name TEXT")
-    # تسجيل الدخول عبر واتساب يحتاج email تقبل NULL (حساب برقم بدون بريد) - نعيد بناء
-    # الجدول لو كان لسا يفرض NOT NULL من نسخة قديمة، حتى لا نفقد أي مستخدمين موجودين
-    email_notnull = any(r["name"] == "email" and r["notnull"] for r in conn.execute("PRAGMA table_info(users)").fetchall())
-    if email_notnull:
+    if "trial_ends_at" not in cols:
+        conn.execute("ALTER TABLE users ADD COLUMN trial_ends_at TEXT")
+        # كل حساب كان موجود قبل إضافة نظام التجربة/الاشتراك يبقى مفعّل تلقائياً، حتى لا
+        # نقفل الوصول عن حسابات حقيقية (وبينها حساب الأدمن نفسه) لمجرد إضافة هذا العمود
+        conn.execute("UPDATE users SET plan_active = 1 WHERE trial_ends_at IS NULL")
+    # الدخول عبر واتساب فقط (بدون كلمة مرور) يحتاج email و password_hash تقبل NULL - نعيد
+    # بناء الجدول لو كان لسا يفرض NOT NULL من نسخة قديمة، حتى لا نفقد أي مستخدمين موجودين
+    cols_info = conn.execute("PRAGMA table_info(users)").fetchall()
+    needs_recreate = any(r["name"] in ("email", "password_hash") and r["notnull"] for r in cols_info)
+    if needs_recreate:
         conn.execute("ALTER TABLE users RENAME TO users_old")
         conn.execute("""
             CREATE TABLE users (
@@ -120,15 +129,16 @@ def init_db():
                 email TEXT UNIQUE,
                 phone TEXT UNIQUE,
                 name TEXT,
-                password_hash TEXT NOT NULL,
+                password_hash TEXT,
                 is_admin INTEGER NOT NULL DEFAULT 0,
                 plan_active INTEGER NOT NULL DEFAULT 0,
+                trial_ends_at TEXT,
                 created_at TEXT NOT NULL DEFAULT ''
             )
         """)
         conn.execute(
-            "INSERT INTO users (id, email, phone, name, password_hash, is_admin, plan_active, created_at) "
-            "SELECT id, email, phone, name, password_hash, is_admin, plan_active, created_at FROM users_old"
+            "INSERT INTO users (id, email, phone, name, password_hash, is_admin, plan_active, trial_ends_at, created_at) "
+            "SELECT id, email, phone, name, password_hash, is_admin, plan_active, trial_ends_at, created_at FROM users_old"
         )
         conn.execute("DROP TABLE users_old")
     conn.execute("""
@@ -156,7 +166,22 @@ def init_db():
 init_db()
 
 PLAN_NAME = "الخطة الاحترافية"
-PLAN_PRICE_IQD = 25000  # سعر مبدئي، عدّله لسعرك الفعلي
+PLAN_PRICE_IQD = 60000
+TRIAL_DAYS = 3
+WHATSAPP_PAY_NUMBER = "9647763835403"  # رقم واتساب لتفعيل الاشتراك، عدّله لرقمك الفعلي لو تغيّر
+
+
+def user_has_access(user):
+    """مفعّل باشتراك حقيقي، أو لسا داخل فترة التجربة المجانية (3 أيام من إنشاء الحساب)."""
+    if user["plan_active"]:
+        return True
+    trial_ends_at = user["trial_ends_at"]
+    if not trial_ends_at:
+        return False
+    try:
+        return datetime.now() < datetime.strptime(trial_ends_at, "%Y-%m-%d %H:%M")
+    except ValueError:
+        return False
 
 
 def db_get_user_by_email(email):
@@ -182,9 +207,11 @@ def db_get_user_by_id(user_id):
 
 def db_create_user_by_phone(phone, password_hash, is_admin, name=None):
     conn = get_db()
+    now = datetime.now()
     cur = conn.execute(
-        "INSERT INTO users (phone, name, password_hash, is_admin, plan_active, created_at) VALUES (?, ?, ?, ?, 0, ?)",
-        (phone, name, password_hash, int(is_admin), datetime.now().strftime("%Y-%m-%d %H:%M")),
+        "INSERT INTO users (phone, name, password_hash, is_admin, plan_active, trial_ends_at, created_at) VALUES (?, ?, ?, ?, 0, ?, ?)",
+        (phone, name, password_hash, int(is_admin),
+         (now + timedelta(days=TRIAL_DAYS)).strftime("%Y-%m-%d %H:%M"), now.strftime("%Y-%m-%d %H:%M")),
     )
     conn.commit()
     user_id = cur.lastrowid
@@ -201,9 +228,11 @@ def db_count_users():
 
 def db_create_user(email, password_hash, is_admin, name=None):
     conn = get_db()
+    now = datetime.now()
     cur = conn.execute(
-        "INSERT INTO users (email, name, password_hash, is_admin, plan_active, created_at) VALUES (?, ?, ?, ?, 0, ?)",
-        (email, name, password_hash, int(is_admin), datetime.now().strftime("%Y-%m-%d %H:%M")),
+        "INSERT INTO users (email, name, password_hash, is_admin, plan_active, trial_ends_at, created_at) VALUES (?, ?, ?, ?, 0, ?, ?)",
+        (email, name, password_hash, int(is_admin),
+         (now + timedelta(days=TRIAL_DAYS)).strftime("%Y-%m-%d %H:%M"), now.strftime("%Y-%m-%d %H:%M")),
     )
     conn.commit()
     user_id = cur.lastrowid
@@ -213,7 +242,7 @@ def db_create_user(email, password_hash, is_admin, name=None):
 
 def db_list_users():
     conn = get_db()
-    rows = conn.execute("SELECT id, email, phone, name, is_admin, plan_active, created_at FROM users ORDER BY id").fetchall()
+    rows = conn.execute("SELECT id, email, phone, name, is_admin, plan_active, trial_ends_at, created_at FROM users ORDER BY id").fetchall()
     conn.close()
     return rows
 
@@ -259,6 +288,13 @@ def db_set_payment_status(payment_id, status):
     conn.commit()
     conn.close()
     return True
+
+
+def db_set_plan_active(user_id, active):
+    conn = get_db()
+    conn.execute("UPDATE users SET plan_active = ? WHERE id = ?", (int(active), user_id))
+    conn.commit()
+    conn.close()
 
 
 def db_get_ai_settings():
@@ -536,16 +572,10 @@ def watch_account(acc_id):
 
 # ---------------------------------------------------------------- صفحات المصادقة
 
-ICON_MAIL = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="m4 7 8 6 8-6"/></svg>'
 ICON_SEND_ARROW = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"><path d="M22 2L11 13"/><path d="M22 2l-7 20-4-9-9-4 20-7z"/></svg>'
 ICON_LOGIN_ARROW = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M15 3h6v6"/><path d="M10 14L21 3"/><path d="M12 11v7H5V5h7"/></svg>'
 ICON_PERSON_ADD = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="8.5" cy="7" r="4"/><line x1="20" y1="8" x2="20" y2="14"/><line x1="23" y1="11" x2="17" y2="11"/></svg>'
-ICON_LOCK = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 018 0v3"/></svg>'
 ICON_LOCK_SM = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 018 0v3"/></svg>'
-ICON_SHIELD_SM = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l7 3v6c0 5-3 8-7 9-4-1-7-4-7-9V6l7-3z"/><path d="M9 12l2 2 4-4"/></svg>'
-ICON_EYE = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7-11-7-11-7z"/><circle cx="12" cy="12" r="3"/></svg>'
-ICON_EYE_OFF = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.94 17.94A10.94 10.94 0 0112 19c-7 0-11-7-11-7a21.6 21.6 0 015.06-6.06M9.9 4.24A10.4 10.4 0 0112 4c7 0 11 7 11 7a21.6 21.6 0 01-2.65 3.79M14.12 14.12a3 3 0 11-4.24-4.24"/><path d="M1 1l22 22"/></svg>'
-ICON_WHATSAPP = '<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M17.6 6.32A7.85 7.85 0 0012.05 4a7.94 7.94 0 00-6.9 11.9L4 20l4.2-1.1a7.9 7.9 0 003.83 1h.02a7.94 7.94 0 007.94-7.94 7.9 7.9 0 00-2.4-5.64zm-5.55 12.2h-.01a6.6 6.6 0 01-3.36-.92l-.24-.14-2.5.65.67-2.44-.16-.25a6.6 6.6 0 01-1-3.5 6.62 6.62 0 016.62-6.62 6.58 6.58 0 016.6 6.63 6.62 6.62 0 01-6.62 6.6zm3.6-4.95c-.2-.1-1.17-.58-1.35-.64-.18-.07-.32-.1-.45.1-.13.2-.51.64-.63.77-.11.13-.23.14-.43.05-.2-.1-.85-.31-1.61-1-.6-.53-1-1.18-1.11-1.38-.12-.2-.01-.3.09-.4.09-.09.2-.23.3-.35.1-.12.13-.2.2-.33.06-.13.03-.25-.02-.35-.05-.1-.45-1.09-.62-1.49-.16-.39-.33-.34-.45-.34-.12 0-.25-.01-.38-.01-.13 0-.35.05-.53.25-.18.2-.7.68-.7 1.67 0 .98.72 1.93.82 2.06.1.13 1.4 2.15 3.4 3.01.48.2.85.33 1.14.42.48.15.91.13 1.26.08.38-.06 1.17-.48 1.34-.94.16-.46.16-.86.11-.94-.05-.08-.18-.13-.38-.23z"/></svg>'
 ICON_BACK = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5L8 12l7 7"/><path d="M8 12h12"/></svg>'
 ICON_CHECK = '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12 4 4L19 6"/></svg>'
 ICON_SEND = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 12l16-8-6 16-3-6-7-2Z"/><path d="M11 14l5-5"/></svg>'
@@ -566,7 +596,7 @@ def logo_svg(size=32):
 
 def render_auth_page(title, action, switch_html, error):
     error_html = f'<p class="status-msg error">{error}</p>' if error else ""
-    is_login = action == "/login"
+    is_login = action == "/login/email"
     if is_login:
         email_step_title = "تسجيل الدخول بالبريد"
         email_fields = f"""
@@ -583,7 +613,7 @@ def render_auth_page(title, action, switch_html, error):
           <a href="#" class="forgot-link" onclick="showForgot(event)">نسيت كلمة المرور؟</a>
         </div>
         <button class="btn-primary" type="submit">تسجيل الدخول {ICON_LOGIN_ARROW}</button>"""
-        email_secondary = '<a href="/signup" class="btn-secondary">إنشاء حساب جديد</a>'
+        email_secondary = '<a href="/signup/email" class="btn-secondary">إنشاء حساب جديد</a>'
     else:
         email_step_title = "إنشاء حساب"
         email_fields = f"""
@@ -600,7 +630,7 @@ def render_auth_page(title, action, switch_html, error):
           <input type="password" name="password" placeholder="•••••••• (6 أحرف على الأقل)" required>
         </div>
         <button class="btn-primary" type="submit">إنشاء حساب {ICON_PERSON_ADD}</button>"""
-        email_secondary = '<a href="/login" class="btn-outline">عودة لتسجيل الدخول</a>'
+        email_secondary = '<a href="/login/email" class="btn-outline">عودة لتسجيل الدخول</a>'
     return f"""
 <!doctype html>
 <html lang="ar" dir="rtl">
@@ -655,52 +685,20 @@ select option {{ background:#0a1a20; color:#fff; }}
   background:linear-gradient(135deg,#24d276,#0aa95c); -webkit-background-clip:text; -webkit-text-fill-color:transparent; background-clip:text; }}
 .subtitle {{ margin-top:3px; color:#aeb8bc; font-size:12.5px; line-height:1.6; font-weight:400; }}
 
-.tabs {{ position:relative; z-index:4; margin:12px 25px 10px; height:50px; border:1px solid #1b2b33; border-radius:14px; background:rgba(8,20,27,.55);
-  display:grid; grid-template-columns:1fr 1fr; overflow:hidden; flex-shrink:0; }}
-.tab {{ display:flex; align-items:center; justify-content:center; gap:6px; color:#e5e9ea; font-size:12px; font-weight:500; }}
-.tab svg {{ width:17px; height:17px; }}
-.tab.active {{ margin:0; border:2px solid #0dd56d; border-radius:14px; color:#fff; background:rgba(0,180,91,.05); }}
-.tab.active svg {{ color:#0ddd70; }}
-
-.login-card {{ position:relative; z-index:3; margin:0 25px; border:1px solid #1c2d35; border-radius:16px;
-  background:linear-gradient(145deg, rgba(9,23,30,.88), rgba(4,14,20,.92)); padding:16px 20px 18px; text-align:center; flex-shrink:0;
-  box-shadow:0 14px 40px rgba(0,0,0,.2), inset 0 1px rgba(255,255,255,.02); min-height:320px; }}
-
-.orbit {{ width:110px; height:110px; margin:0 auto 0; position:relative; display:flex; align-items:center; justify-content:center; }}
-.orbit::before, .orbit::after {{ content:""; position:absolute; border:2px solid rgba(0,255,123,.45); border-radius:50%; transform:rotate(-20deg); }}
-.orbit::before {{ width:86px; height:86px; }}
-.orbit::after {{ width:106px; height:106px; border-color:rgba(0,255,123,.20); }}
-.orbit-dot {{ position:absolute; width:5px; height:5px; background:#13e47b; border-radius:50%; top:10px; right:16px; box-shadow:0 0 10px #00db72; }}
-.phone {{ width:54px; height:78px; border:3px solid #415058; border-radius:10px; background:linear-gradient(150deg,#0a6d4c,#08201d 75%); position:relative; box-shadow:0 0 20px rgba(0,255,120,.12); }}
-.phone::before {{ content:""; position:absolute; top:3px; left:50%; transform:translateX(-50%); width:22px; height:4px; background:#17272c; border-radius:0 0 4px 4px; }}
-.phone svg {{ width:30px; height:30px; position:absolute; left:50%; top:48%; transform:translate(-50%,-50%); color:#12d96d; }}
-.check {{ position:absolute; right:18px; bottom:8px; width:32px; height:32px; border-radius:50%; background:#071d25; border:2px solid #173c3d; color:#13df72;
-  display:flex; align-items:center; justify-content:center; box-shadow:0 0 14px rgba(0,255,120,.10); }}
-.check svg {{ width:17px; height:17px; }}
-
-.tab-content {{ display:none; }}
-.tab-content.active {{ display:block; }}
+.login-card {{ position:relative; z-index:3; margin:22px 25px 0; border:1px solid #1c2d35; border-radius:16px;
+  background:linear-gradient(145deg, rgba(9,23,30,.88), rgba(4,14,20,.92)); padding:20px 20px 18px; text-align:center; flex-shrink:0;
+  box-shadow:0 14px 40px rgba(0,0,0,.2), inset 0 1px rgba(255,255,255,.02); }}
 
 .input-group {{ position:relative; margin-top:12px; text-align:right; }}
 .input-group:first-of-type {{ margin-top:4px; }}
 .input-group label {{ display:block; font-size:11.5px; color:#aeb7ba; font-weight:500; margin-bottom:4px; }}
-.input-group input, .input-group select {{ width:100%; padding:12px 14px; border-radius:12px; border:1.5px solid #1c2d35; background:rgba(255,255,255,.04); color:#fff; font-size:14px; font-weight:400; }}
-.input-group input:focus, .input-group select:focus {{ border-color:#0dd56d; background:rgba(255,255,255,.07); }}
+.input-group input {{ width:100%; padding:12px 14px; border-radius:12px; border:1.5px solid #1c2d35; background:rgba(255,255,255,.04); color:#fff; font-size:14px; font-weight:400; }}
+.input-group input:focus {{ border-color:#0dd56d; background:rgba(255,255,255,.07); }}
 .input-group input::placeholder {{ color:#6a7a80; }}
-
-.phone-input-row {{ display:flex; gap:8px; margin-top:4px; direction:ltr; }}
-.phone-input-row .country-code {{ flex:0 0 100px; }}
-.phone-input-row .country-code select {{ padding:12px 10px; border-radius:12px; border:1.5px solid #1c2d35; background:rgba(255,255,255,.04); color:#fff; font-size:14px; font-weight:500; width:100%; height:100%; direction:ltr; }}
-.phone-input-row .country-code select:focus {{ border-color:#0dd56d; background:rgba(255,255,255,.07); }}
-.phone-input-row .phone-number {{ flex:1; }}
-.phone-input-row .phone-number input {{ width:100%; padding:12px 14px; border-radius:12px; border:1.5px solid #1c2d35; background:rgba(255,255,255,.04); color:#fff; font-size:14px; height:100%; direction:ltr; text-align:left; }}
-.phone-input-row .phone-number input:focus {{ border-color:#0dd56d; background:rgba(255,255,255,.07); }}
-.phone-input-row .phone-number input::placeholder {{ color:#6a7a80; text-align:left; }}
 
 .btn-primary {{ width:100%; height:48px; margin-top:14px; border-radius:14px; background:linear-gradient(180deg,#1bc96c,#0eb85c); color:#fff; font-size:15px; font-weight:600;
   display:flex; align-items:center; justify-content:center; gap:8px; }}
 .btn-primary svg {{ width:18px; height:18px; }}
-.btn-primary:disabled {{ opacity:.7; }}
 .btn-secondary, .btn-outline {{ width:100%; height:44px; margin-top:8px; border-radius:14px; border:1.5px solid #1c2d35; background:rgba(255,255,255,.03); color:#aeb7ba; font-size:13.5px; font-weight:500;
   display:flex; align-items:center; justify-content:center; gap:8px; }}
 
@@ -713,10 +711,7 @@ select option {{ background:#0a1a20; color:#fff; }}
 .status-msg.error {{ color:#f87171; }}
 .status-msg.success {{ color:#34d399; }}
 
-.secure {{ color:#a6afb2; font-size:11px; margin-top:12px; display:flex; align-items:center; justify-content:center; gap:5px; font-weight:400; }}
-.secure svg {{ width:16px; height:16px; }}
-
-.bottom {{ position:relative; z-index:3; margin-top:10px; border-top:1px solid #182830; padding:12px 20px 8px; text-align:center; background:rgba(5,16,23,.5); flex-shrink:0; }}
+.bottom {{ position:relative; z-index:3; margin-top:auto; padding:14px 20px calc(10px + env(safe-area-inset-bottom)); text-align:center; flex-shrink:0; }}
 p.switch {{ text-align:center; font-size:12.5px; color:#9fa9ad; font-weight:400; }}
 p.switch a {{ color:#10d86b; text-decoration:none; font-weight:500; }}
 .terms {{ margin-top:6px; color:#9fa9ad; font-size:10px; line-height:1.7; font-weight:300; }}
@@ -731,27 +726,12 @@ p.switch a {{ color:#10d86b; text-decoration:none; font-weight:500; }}
   .logo svg {{ width:42px; height:42px; }}
   .title {{ font-size:22px; }}
   .subtitle {{ font-size:11px; }}
-  .tabs {{ height:42px; margin:8px 20px 6px; border-radius:12px; }}
-  .tab {{ font-size:10.5px; gap:4px; }}
-  .tab svg {{ width:14px; height:14px; }}
-  .tab.active {{ border-radius:12px; }}
-  .login-card {{ margin:0 20px; padding:12px 16px 14px; border-radius:14px; min-height:260px; }}
-  .orbit {{ width:90px; height:90px; }}
-  .orbit::before {{ width:70px; height:70px; }}
-  .orbit::after {{ width:86px; height:86px; }}
-  .phone {{ width:44px; height:64px; border-radius:8px; border-width:2.5px; }}
-  .phone svg {{ width:24px; height:24px; }}
-  .check {{ width:26px; height:26px; right:14px; bottom:4px; border-width:1.5px; }}
-  .check svg {{ width:14px; height:14px; }}
-  .orbit-dot {{ width:4px; height:4px; top:8px; right:12px; }}
+  .login-card {{ margin:16px 20px 0; padding:14px 16px 14px; border-radius:14px; }}
   .input-group {{ margin-top:8px; }}
-  .input-group input, .input-group select {{ padding:10px 12px; font-size:13px; border-radius:10px; }}
+  .input-group input {{ padding:10px 12px; font-size:13px; border-radius:10px; }}
   .input-group label {{ font-size:10.5px; }}
-  .phone-input-row .country-code {{ flex:0 0 80px; }}
-  .phone-input-row .country-code select, .phone-input-row .phone-number input {{ padding:10px; font-size:13px; border-radius:10px; }}
   .btn-primary {{ height:42px; font-size:13.5px; margin-top:10px; border-radius:12px; }}
   .btn-secondary, .btn-outline {{ height:38px; font-size:12px; margin-top:6px; border-radius:12px; }}
-  .bottom {{ margin-top:6px; padding:10px 16px 6px; }}
   .terms {{ font-size:9px; margin-top:4px; }}
   .home {{ width:70px; height:3px; margin:8px auto 0; }}
   .back {{ width:34px; height:34px; top:10px; right:12px; }}
@@ -764,28 +744,12 @@ p.switch a {{ color:#10d86b; text-decoration:none; font-weight:500; }}
   .logo svg {{ width:34px; height:34px; }}
   .title {{ font-size:18px; }}
   .subtitle {{ font-size:10px; }}
-  .tabs {{ height:34px; margin:4px 14px; border-radius:10px; }}
-  .tab {{ font-size:9px; gap:3px; }}
-  .tab svg {{ width:12px; height:12px; }}
-  .tab.active {{ border-radius:10px; border-width:1.5px; }}
-  .login-card {{ margin:0 14px; padding:8px 12px 10px; border-radius:12px; min-height:200px; }}
-  .orbit {{ width:70px; height:70px; }}
-  .orbit::before {{ width:54px; height:54px; }}
-  .orbit::after {{ width:66px; height:66px; }}
-  .phone {{ width:34px; height:48px; border-radius:6px; border-width:2px; }}
-  .phone svg {{ width:18px; height:18px; }}
-  .check {{ width:20px; height:20px; right:10px; bottom:2px; border-width:1.5px; }}
-  .check svg {{ width:10px; height:10px; }}
-  .orbit-dot {{ width:3px; height:3px; top:6px; right:8px; }}
+  .login-card {{ margin:10px 14px 0; padding:8px 12px 10px; border-radius:12px; }}
   .input-group {{ margin-top:4px; }}
-  .input-group input, .input-group select {{ padding:8px 10px; font-size:11px; border-radius:8px; }}
+  .input-group input {{ padding:8px 10px; font-size:11px; border-radius:8px; }}
   .input-group label {{ font-size:9px; margin-bottom:2px; }}
-  .phone-input-row .country-code {{ flex:0 0 65px; }}
-  .phone-input-row .country-code select, .phone-input-row .phone-number input {{ padding:8px; font-size:11px; border-radius:8px; }}
   .btn-primary {{ height:34px; font-size:11px; margin-top:6px; border-radius:10px; }}
-  .btn-primary svg {{ width:14px; height:14px; }}
   .btn-secondary, .btn-outline {{ height:30px; font-size:10px; margin-top:4px; border-radius:10px; }}
-  .bottom {{ margin-top:4px; padding:6px 12px 4px; }}
   .terms {{ font-size:8px; margin-top:2px; line-height:1.5; }}
   .home {{ width:50px; height:2px; margin:5px auto 0; }}
   .back {{ width:28px; height:28px; top:6px; right:8px; }}
@@ -794,9 +758,8 @@ p.switch a {{ color:#10d86b; text-decoration:none; font-weight:500; }}
   .status-msg {{ font-size:9px; margin-top:4px; min-height:12px; }}
 }}
 @media (max-width:360px) {{
-  .tabs, .login-card {{ margin-left:14px; margin-right:14px; }}
+  .login-card {{ margin-left:14px; margin-right:14px; }}
   .main-content {{ padding:40px 14px 4px; }}
-  .phone-input-row .country-code {{ flex:0 0 75px; }}
 }}
 @media (min-width:431px) {{ .page {{ border-left:1px solid rgba(255,255,255,.03); border-right:1px solid rgba(255,255,255,.03); }} }}
 </style>
@@ -817,122 +780,13 @@ p.switch a {{ color:#10d86b; text-decoration:none; font-weight:500; }}
       <p class="subtitle">سجل دخولك للوصول إلى حسابك وإدارة حملاتك</p>
     </header>
 
-    <div class="tabs">
-      <button class="tab" id="emailTab" onclick="selectTab('email')">
-        بريد إلكتروني {ICON_MAIL}
-      </button>
-      <button class="tab active" id="waTab" onclick="selectTab('wa')">
-        واتساب {ICON_WHATSAPP}
-      </button>
-    </div>
-
     <section class="login-card">
-      <div class="tab-content active" id="waContent">
-        <div class="orbit">
-          <span class="orbit-dot"></span>
-          <div class="phone">{ICON_WHATSAPP}</div>
-          <div class="check">{ICON_CHECK}</div>
-        </div>
-
-        <h2 class="title" style="font-size:17px;">تسجيل الدخول عبر واتساب</h2>
-
-        <div id="waPhoneStep">
-          <div class="input-group">
-            <label>رقم الهاتف</label>
-            <div class="phone-input-row">
-              <div class="country-code">
-                <select id="countryCode">
-                  <option value="20">🇪🇬 +20</option>
-                  <option value="212">🇲🇦 +212</option>
-                  <option value="213">🇩🇿 +213</option>
-                  <option value="216">🇹🇳 +216</option>
-                  <option value="218">🇱🇾 +218</option>
-                  <option value="90">🇹🇷 +90</option>
-                  <option value="91">🇮🇳 +91</option>
-                  <option value="92">🇵🇰 +92</option>
-                  <option value="93">🇦🇫 +93</option>
-                  <option value="94">🇱🇰 +94</option>
-                  <option value="95">🇲🇲 +95</option>
-                  <option value="960">🇲🇻 +960</option>
-                  <option value="961">🇱🇧 +961</option>
-                  <option value="962">🇯🇴 +962</option>
-                  <option value="963">🇸🇾 +963</option>
-                  <option value="964" selected>🇮🇶 +964</option>
-                  <option value="965">🇰🇼 +965</option>
-                  <option value="966">🇸🇦 +966</option>
-                  <option value="967">🇾🇪 +967</option>
-                  <option value="968">🇴🇲 +968</option>
-                  <option value="970">🇵🇸 +970</option>
-                  <option value="971">🇦🇪 +971</option>
-                  <option value="972">🇮🇱 +972</option>
-                  <option value="973">🇧🇭 +973</option>
-                  <option value="974">🇶🇦 +974</option>
-                  <option value="975">🇧🇹 +975</option>
-                  <option value="976">🇲🇳 +976</option>
-                  <option value="977">🇳🇵 +977</option>
-                  <option value="98">🇮🇷 +98</option>
-                  <option value="262">🇾🇹 +262</option>
-                  <option value="992">🇹🇯 +992</option>
-                  <option value="993">🇹🇲 +993</option>
-                  <option value="994">🇦🇿 +994</option>
-                  <option value="995">🇬🇪 +995</option>
-                  <option value="996">🇰🇬 +996</option>
-                  <option value="998">🇺🇿 +998</option>
-                  <option value="1">🇺🇸 +1</option>
-                  <option value="44">🇬🇧 +44</option>
-                  <option value="49">🇩🇪 +49</option>
-                  <option value="33">🇫🇷 +33</option>
-                  <option value="39">🇮🇹 +39</option>
-                  <option value="34">🇪🇸 +34</option>
-                  <option value="7">🇷🇺 +7</option>
-                  <option value="86">🇨🇳 +86</option>
-                  <option value="81">🇯🇵 +81</option>
-                  <option value="82">🇰🇷 +82</option>
-                  <option value="60">🇲🇾 +60</option>
-                  <option value="62">🇮🇩 +62</option>
-                  <option value="63">🇵🇭 +63</option>
-                  <option value="64">🇳🇿 +64</option>
-                  <option value="61">🇦🇺 +61</option>
-                </select>
-              </div>
-              <div class="phone-number">
-                <input type="tel" id="waPhone" placeholder="7701234567" dir="ltr">
-              </div>
-            </div>
-          </div>
-          <button class="btn-primary" id="waSendBtn" data-label="إرسال رمز التحقق" onclick="waSendCode()"><span class="btn-label">إرسال رمز التحقق</span> {ICON_SEND_ARROW}</button>
-        </div>
-
-        <div id="waCodeStep" style="display:none">
-          <div class="input-group">
-            <label>رمز التحقق</label>
-            <input type="text" id="waCode" placeholder="أدخل الرمز المكون من 6 أرقام" inputmode="numeric" dir="ltr">
-          </div>
-          <button class="btn-primary" id="waVerifyBtn" data-label="تحقق من الرمز" onclick="waVerify()"><span class="btn-label">تحقق من الرمز</span> {ICON_CHECK}</button>
-          <button class="btn-outline" onclick="showWaStep('phone')">تعديل الرقم</button>
-        </div>
-
-        <div id="waPassStep" style="display:none">
-          <div class="input-group">
-            <label>كلمة المرور</label>
-            <input type="password" id="waPass" placeholder="كلمة المرور (6 أحرف على الأقل)">
-          </div>
-          <button class="btn-primary" id="waCompleteBtn" data-label="إنشاء الحساب" onclick="waComplete()"><span class="btn-label">إنشاء الحساب</span> {ICON_PERSON_ADD}</button>
-        </div>
-
-        <div class="secure">آمن وسريع بدون كلمة مرور {ICON_LOCK_SM}</div>
-
-        <div class="status-msg" id="waStatus"></div>
-      </div>
-
-      <div class="tab-content" id="emailContent">
-        <h2 class="title" style="font-size:17px; margin-bottom:6px;">{email_step_title}</h2>
-        {error_html}
-        <form method="post" action="{action}">{email_fields}
-        </form>
-        {email_secondary}
-        <div class="status-msg" id="emailStatus"></div>
-      </div>
+      <h2 class="title" style="font-size:17px; margin-bottom:6px;">{email_step_title}</h2>
+      {error_html}
+      <form method="post" action="{action}">{email_fields}
+      </form>
+      {email_secondary}
+      <div class="status-msg" id="emailStatus"></div>
     </section>
   </div>
 
@@ -946,77 +800,15 @@ p.switch a {{ color:#10d86b; text-decoration:none; font-weight:500; }}
 <script>
 {PAGE_TRANSITION_JS}
 
-function selectTab(type) {{
-  document.getElementById('waTab').classList.toggle('active', type === 'wa');
-  document.getElementById('emailTab').classList.toggle('active', type === 'email');
-  document.getElementById('waContent').classList.toggle('active', type === 'wa');
-  document.getElementById('emailContent').classList.toggle('active', type === 'email');
-  if (type === 'wa') showWaStep('phone');
-}}
-
-function showWaStep(step) {{
-  document.getElementById('waPhoneStep').style.display = step === 'phone' ? 'block' : 'none';
-  document.getElementById('waCodeStep').style.display = step === 'code' ? 'block' : 'none';
-  document.getElementById('waPassStep').style.display = step === 'pass' ? 'block' : 'none';
-  setStatus('waStatus', '', false);
-}}
-
 function setStatus(id, msg, isError) {{
   const el = document.getElementById(id);
   el.textContent = msg || '';
   el.className = 'status-msg' + (msg ? (isError ? ' error' : ' success') : '');
 }}
 
-function btnLoading(id, loading) {{
-  const btn = document.getElementById(id);
-  btn.disabled = loading;
-  btn.querySelector('.btn-label').textContent = loading ? '...' : btn.dataset.label;
-}}
-
 function showForgot(e) {{
   e.preventDefault();
   setStatus('emailStatus', 'لإعادة تعيين كلمة المرور، تواصل مع إدارة المنصة.', false);
-}}
-
-let waPhone = '';
-
-async function waSendCode() {{
-  const code = document.getElementById('countryCode').value;
-  const phone = document.getElementById('waPhone').value.replace(/[^0-9]/g, '');
-  if (phone.length < 6) {{ setStatus('waStatus', 'أدخل رقم هاتف صحيح (بعد رمز الدولة)', true); return; }}
-  waPhone = code + phone;
-  btnLoading('waSendBtn', true);
-  const r = await fetch('/auth/whatsapp/send_code', {{
-    method: 'POST', headers: {{'Content-Type': 'application/json'}}, body: JSON.stringify({{phone: waPhone}})
-  }}).then(res => res.json());
-  btnLoading('waSendBtn', false);
-  if (!r.ok) {{ setStatus('waStatus', r.error, true); return; }}
-  setStatus('waStatus', 'تم إرسال الرمز، تحقق من واتساب', false);
-  showWaStep('code');
-}}
-
-async function waVerify() {{
-  const code = document.getElementById('waCode').value.trim();
-  if (code.length < 4) {{ setStatus('waStatus', 'أدخل رمز التحقق المكون من 6 أرقام', true); return; }}
-  btnLoading('waVerifyBtn', true);
-  const r = await fetch('/auth/whatsapp/verify', {{
-    method: 'POST', headers: {{'Content-Type': 'application/json'}}, body: JSON.stringify({{phone: waPhone, code: code}})
-  }}).then(res => res.json());
-  btnLoading('waVerifyBtn', false);
-  if (!r.ok) {{ setStatus('waStatus', r.error, true); return; }}
-  if (r.logged_in) {{ window.location.href = '/'; return; }}
-  showWaStep('pass');
-}}
-
-async function waComplete() {{
-  const password = document.getElementById('waPass').value;
-  btnLoading('waCompleteBtn', true);
-  const r = await fetch('/auth/whatsapp/complete', {{
-    method: 'POST', headers: {{'Content-Type': 'application/json'}}, body: JSON.stringify({{phone: waPhone, password: password}})
-  }}).then(res => res.json());
-  btnLoading('waCompleteBtn', false);
-  if (!r.ok) {{ setStatus('waStatus', r.error, true); return; }}
-  window.location.href = '/';
 }}
 </script>
 </body>
@@ -1067,23 +859,29 @@ def render_welcome_page():
 <title>واصل — Wasel Business</title>
 {FONT_LINKS}
 <style>
+  :root {{
+    --bg: oklch(0.145 0.014 245); --card: oklch(0.195 0.017 245); --card-soft: oklch(0.235 0.019 245);
+    --ink: oklch(0.97 0.006 245); --muted: oklch(0.72 0.02 245); --faint: oklch(0.5 0.02 245);
+    --gold: oklch(0.78 0.17 152); --gold-strong: oklch(0.66 0.18 152); --green-ink: oklch(0.2 0.05 152);
+    --border: oklch(1 0 0 / 9%); --border-2: oklch(1 0 0 / 15%);
+  }}
   * {{ box-sizing:border-box; margin:0; padding:0; -webkit-tap-highlight-color:transparent; user-select:none; -webkit-user-select:none; }}
-  html, body {{ width:100%; height:100%; background:#02090e; font-family:{FONT_STACK}; overflow:hidden; position:fixed; inset:0; }}
-  body {{ color:#fff; }}
+  html, body {{ width:100%; height:100%; background:var(--bg); font-family:{FONT_STACK}; overflow:hidden; position:fixed; inset:0; }}
+  body {{ color:var(--ink); }}
   img, svg, .card, .feature {{ -webkit-touch-callout:none; pointer-events:none; }}
   .app {{ position:relative; width:100%; max-width:430px; height:100vh; height:100dvh; margin:auto; overflow:hidden;
-    background: radial-gradient(circle at 50% 25%, rgba(0,255,125,.08), transparent 30%),
-                radial-gradient(circle at 18% 60%, rgba(0,255,125,.04), transparent 20%),
-                linear-gradient(180deg, #030b10 0%, #02090e 55%, #02090d 100%);
+    background: radial-gradient(circle at 50% 25%, oklch(0.78 0.17 152 / 8%), transparent 30%),
+                radial-gradient(circle at 18% 60%, oklch(0.78 0.17 152 / 4%), transparent 20%),
+                linear-gradient(180deg, oklch(0.16 0.015 245) 0%, var(--bg) 55%, oklch(0.135 0.013 245) 100%);
     display:flex; flex-direction:column; animation:fadeIn .3s ease; }}
   @keyframes fadeIn {{ from {{ opacity:0; }} to {{ opacity:1; }} }}
   .app::before {{ content:""; position:absolute; inset:0; pointer-events:none; opacity:.3;
-    background-image: radial-gradient(circle at 12% 25%, rgba(0,225,113,.7) 0 3px, transparent 4px),
-                       radial-gradient(circle at 88% 40%, rgba(0,225,113,.6) 0 3px, transparent 4px),
-                       radial-gradient(circle at 23% 10%, rgba(0,225,113,.7) 0 4px, transparent 5px),
-                       radial-gradient(circle at 84% 20%, rgba(0,225,113,.3) 0 2px, transparent 3px); }}
-  .bubble {{ position:absolute; border:1px solid rgba(0,255,133,.06); background:rgba(0,255,133,.02); border-radius:22px; opacity:.6; pointer-events:none; }}
-  .bubble::before, .bubble::after {{ content:""; position:absolute; width:30px; height:5px; right:12px; background:rgba(0,255,133,.06); border-radius:10px; }}
+    background-image: radial-gradient(circle at 12% 25%, oklch(0.78 0.17 152 / 70%) 0 3px, transparent 4px),
+                       radial-gradient(circle at 88% 40%, oklch(0.78 0.17 152 / 60%) 0 3px, transparent 4px),
+                       radial-gradient(circle at 23% 10%, oklch(0.78 0.17 152 / 70%) 0 4px, transparent 5px),
+                       radial-gradient(circle at 84% 20%, oklch(0.78 0.17 152 / 30%) 0 2px, transparent 3px); }}
+  .bubble {{ position:absolute; border:1px solid oklch(0.78 0.17 152 / 6%); background:oklch(0.78 0.17 152 / 2%); border-radius:22px; opacity:.6; pointer-events:none; }}
+  .bubble::before, .bubble::after {{ content:""; position:absolute; width:30px; height:5px; right:12px; background:oklch(0.78 0.17 152 / 6%); border-radius:10px; }}
   .bubble::before {{ top:14px; }}
   .bubble::after {{ top:25px; width:20px; }}
   .bubble.one {{ width:90px; height:68px; top:160px; right:-15px; }}
@@ -1091,33 +889,33 @@ def render_welcome_page():
   .bubble.three {{ width:75px; height:55px; top:540px; right:-20px; }}
   .main-content {{ flex:1; display:flex; flex-direction:column; justify-content:center; padding:10px 20px; position:relative; z-index:2; min-height:0; }}
   .hero {{ text-align:center; pointer-events:none; flex-shrink:0; }}
-  .logo {{ width:120px; height:120px; margin:0 auto 10px; border-radius:32px; background:linear-gradient(145deg,#24d276 0%,#0aa95c 100%);
-    box-shadow:0 10px 35px rgba(0,221,110,.2), inset 0 1px 0 rgba(255,255,255,.18); display:flex; align-items:center; justify-content:center; }}
+  .logo {{ width:120px; height:120px; margin:0 auto 10px; border-radius:32px; background:linear-gradient(145deg, var(--gold) 0%, var(--gold-strong) 100%);
+    box-shadow:0 10px 35px oklch(0.78 0.17 152 / 20%), inset 0 1px 0 oklch(1 0 0 / 18%); display:flex; align-items:center; justify-content:center; }}
   .logo svg {{ width:78px; height:78px; filter:drop-shadow(0 2px 1px rgba(0,0,0,.1)); }}
   .brand {{ font-family:{FONT_STACK}; font-size:34px; font-weight:800; line-height:1.1; letter-spacing:-1px;
-    background:linear-gradient(135deg,#20d276,#0ba65c); -webkit-background-clip:text; -webkit-text-fill-color:transparent; background-clip:text; }}
-  .en {{ margin-top:4px; color:#18d36d; font-size:14px; letter-spacing:2.5px; font-weight:700; direction:ltr; font-family:{FONT_STACK}; }}
-  .description {{ margin:10px auto 0; max-width:300px; color:#aeb7ba; font-size:15px; line-height:1.7; font-weight:500; }}
+    background:linear-gradient(135deg, var(--gold), var(--gold-strong)); -webkit-background-clip:text; -webkit-text-fill-color:transparent; background-clip:text; }}
+  .en {{ margin-top:4px; color:var(--gold); font-size:14px; letter-spacing:2.5px; font-weight:700; direction:ltr; font-family:{FONT_STACK}; }}
+  .description {{ margin:10px auto 0; max-width:300px; color:var(--muted); font-size:15px; line-height:1.7; font-weight:500; }}
   .carousel {{ position:relative; height:195px; margin-top:4px; flex-shrink:0; }}
   .slide {{ position:absolute; inset:0; display:flex; flex-direction:column; justify-content:center; opacity:0; pointer-events:none; transition:opacity .35s ease; }}
   .slide.active {{ opacity:1; }}
   .visual {{ height:195px; position:relative; pointer-events:none; flex-shrink:0; }}
-  .phone {{ position:absolute; width:145px; height:190px; left:50%; top:4px; transform:translateX(-50%); border:2.5px solid #10282b; border-radius:26px;
-    background:linear-gradient(145deg, rgba(15,95,72,.3), rgba(2,12,16,.95) 55%), #061117;
-    box-shadow:0 0 0 1px rgba(255,255,255,.025), 0 15px 40px rgba(0,0,0,.5), inset 0 0 30px rgba(0,255,120,.03); }}
-  .phone::before {{ content:""; position:absolute; width:58px; height:13px; top:3px; left:50%; transform:translateX(-50%); background:#071015; border-radius:0 0 10px 10px; }}
+  .phone {{ position:absolute; width:145px; height:190px; left:50%; top:4px; transform:translateX(-50%); border:2.5px solid var(--card-soft); border-radius:26px;
+    background:linear-gradient(145deg, oklch(0.78 0.17 152 / 15%), oklch(0.1 0.012 245 / 95%) 55%), oklch(0.1 0.012 245);
+    box-shadow:0 0 0 1px oklch(1 0 0 / 2.5%), 0 15px 40px rgba(0,0,0,.5), inset 0 0 30px oklch(0.78 0.17 152 / 3%); }}
+  .phone::before {{ content:""; position:absolute; width:58px; height:13px; top:3px; left:50%; transform:translateX(-50%); background:oklch(0.11 0.012 245); border-radius:0 0 10px 10px; }}
   .phone-screen {{ position:absolute; inset:17px 7px 7px; border-radius:20px; overflow:hidden;
-    background: radial-gradient(circle at 50% 55%, rgba(0,255,120,.10), transparent 35%), linear-gradient(180deg, #061319, #020b10); }}
-  .card {{ position:absolute; z-index:3; width:165px; min-height:65px; border:1px solid rgba(190,255,229,.12);
-    background:linear-gradient(135deg, rgba(26,45,48,.9), rgba(12,27,31,.9)); box-shadow:0 10px 25px rgba(0,0,0,.35), inset 0 1px 0 rgba(255,255,255,.03);
+    background: radial-gradient(circle at 50% 55%, oklch(0.78 0.17 152 / 10%), transparent 35%), linear-gradient(180deg, oklch(0.1 0.013 245), var(--bg)); }}
+  .card {{ position:absolute; z-index:3; width:165px; min-height:65px; border:1px solid oklch(0.78 0.17 152 / 12%);
+    background:linear-gradient(135deg, oklch(0.22 0.02 245 / 90%), oklch(0.16 0.015 245 / 90%)); box-shadow:0 10px 25px rgba(0,0,0,.35), inset 0 1px 0 oklch(1 0 0 / 3%);
     backdrop-filter:blur(10px); -webkit-backdrop-filter:blur(10px); border-radius:14px; padding:10px 12px;
     display:flex; align-items:center; gap:8px; text-align:right; pointer-events:none; }}
-  .card-icon {{ flex:0 0 35px; width:35px; height:35px; border-radius:11px; background:rgba(0,225,111,.08); color:#13d66d; display:flex; align-items:center; justify-content:center; }}
+  .card-icon {{ flex:0 0 35px; width:35px; height:35px; border-radius:11px; background:oklch(0.78 0.17 152 / 8%); color:var(--gold); display:flex; align-items:center; justify-content:center; }}
   .card-content {{ flex:1; }}
-  .card-title {{ color:#d9dfdf; font-size:10px; margin-bottom:2px; }}
-  .card-number {{ direction:ltr; text-align:right; color:#13d76e; font-size:15px; font-weight:800; font-family:{FONT_STACK}; }}
-  .progress {{ height:4px; border-radius:8px; background:#1b2c30; margin-top:5px; overflow:hidden; }}
-  .progress span {{ display:block; height:100%; border-radius:8px; background:#12d36b; box-shadow:0 0 7px rgba(0,255,120,.3); }}
+  .card-title {{ color:var(--ink); font-size:10px; margin-bottom:2px; }}
+  .card-number {{ direction:ltr; text-align:right; color:var(--gold); font-size:15px; font-weight:800; font-family:{FONT_STACK}; }}
+  .progress {{ height:4px; border-radius:8px; background:var(--card-soft); margin-top:5px; overflow:hidden; }}
+  .progress span {{ display:block; height:100%; border-radius:8px; background:var(--gold); box-shadow:0 0 7px oklch(0.78 0.17 152 / 30%); }}
   .card.target {{ right:2px; top:12px; }}
   .card.target .progress span {{ width:78%; }}
   .card.audience {{ left:2px; top:58px; }}
@@ -1126,30 +924,30 @@ def render_welcome_page():
   .card.engagement .progress span {{ width:67%; }}
   .features {{ display:grid; grid-template-columns:repeat(3,1fr); gap:6px; padding:0 2px; margin-top:4px; pointer-events:none; flex-shrink:0; }}
   .feature {{ text-align:center; pointer-events:none; }}
-  .feature-icon {{ width:54px; height:54px; margin:0 auto 6px; border-radius:50%; border:1px solid rgba(0,220,112,.10);
-    background:radial-gradient(circle, rgba(0,218,111,.10), rgba(0,218,111,.03)); display:flex; align-items:center; justify-content:center; color:#16d56e; }}
+  .feature-icon {{ width:54px; height:54px; margin:0 auto 6px; border-radius:50%; border:1px solid oklch(0.78 0.17 152 / 10%);
+    background:radial-gradient(circle, oklch(0.78 0.17 152 / 10%), oklch(0.78 0.17 152 / 3%)); display:flex; align-items:center; justify-content:center; color:var(--gold); }}
   .feature h3 {{ font-size:13px; line-height:1.3; font-weight:700; font-family:{FONT_STACK}; }}
-  .feature p {{ color:#899497; font-size:10px; line-height:1.5; margin-top:1px; }}
+  .feature p {{ color:var(--faint); font-size:10px; line-height:1.5; margin-top:1px; }}
   .howto {{ width:100%; display:flex; flex-direction:column; gap:9px; padding:0 8px; }}
   .howto-step {{ display:flex; align-items:center; gap:10px; text-align:right; }}
-  .howto-num {{ flex:0 0 28px; width:28px; height:28px; border-radius:50%; background:rgba(0,218,111,.12); border:1px solid rgba(0,220,112,.18);
-    color:#16d56e; display:flex; align-items:center; justify-content:center; font-family:{FONT_STACK}; font-weight:700; font-size:13px; }}
+  .howto-num {{ flex:0 0 28px; width:28px; height:28px; border-radius:50%; background:oklch(0.78 0.17 152 / 12%); border:1px solid oklch(0.78 0.17 152 / 18%);
+    color:var(--gold); display:flex; align-items:center; justify-content:center; font-family:{FONT_STACK}; font-weight:700; font-size:13px; }}
   .howto-text h3 {{ font-size:12.5px; line-height:1.3; font-weight:700; font-family:{FONT_STACK}; }}
-  .howto-text p {{ color:#899497; font-size:10px; line-height:1.4; margin-top:1px; }}
+  .howto-text p {{ color:var(--faint); font-size:10px; line-height:1.4; margin-top:1px; }}
   .dots {{ display:flex; justify-content:center; gap:8px; direction:ltr; margin:12px 0 10px; flex-shrink:0; }}
-  .dot {{ width:10px; height:10px; border-radius:50%; background:#243138; transition:.3s; cursor:pointer; }}
-  .dot.active {{ background:#12d56b; box-shadow:0 0 10px rgba(0,215,105,.25); width:26px; border-radius:6px; }}
+  .dot {{ width:10px; height:10px; border-radius:50%; background:var(--card-soft); transition:.3s; cursor:pointer; }}
+  .dot.active {{ background:var(--gold); box-shadow:0 0 10px oklch(0.78 0.17 152 / 25%); width:26px; border-radius:6px; }}
   {PAGE_TRANSITION_CSS}
   .actions {{ position:relative; z-index:4; padding:0 2px 6px; flex-shrink:0; }}
   .btn {{ width:100%; height:60px; border-radius:18px; display:flex; flex-direction:column; align-items:center; justify-content:center; text-decoration:none; font-family:{FONT_STACK}; }}
-  .primary {{ background:linear-gradient(180deg,#15c66a,#10b95e); box-shadow:0 8px 22px rgba(0,205,102,.12); color:#020b10; }}
+  .primary {{ background:linear-gradient(180deg, var(--gold), var(--gold-strong)); box-shadow:0 8px 22px oklch(0.78 0.17 152 / 12%); color:var(--green-ink); }}
   .primary strong {{ font-size:19px; font-weight:800; font-family:{FONT_STACK}; }}
-  .primary small {{ font-size:12px; color:#d8f5e5; margin-top:2px; }}
-  .whatsapp {{ height:50px; margin-top:10px; border:2px solid #18262c; background:rgba(3,12,17,.45); color:#12d56c; font-size:16px; font-weight:700; flex-direction:row; gap:8px; }}
+  .primary small {{ font-size:12px; color:oklch(0.92 0.04 152); margin-top:2px; }}
+  .whatsapp {{ height:50px; margin-top:10px; border:2px solid var(--border-2); background:oklch(0.12 0.013 245 / 45%); color:var(--gold); font-size:16px; font-weight:700; flex-direction:row; gap:8px; }}
   .whatsapp svg {{ width:22px; height:22px; flex-shrink:0; }}
-  .login {{ margin-top:12px; text-align:center; color:#a8b0b3; font-size:14px; }}
-  .login a {{ color:#12d56b; font-weight:700; margin-right:4px; text-decoration:none; }}
-  .home-indicator {{ width:100px; height:4px; background:#f4f4f4; border-radius:20px; margin:8px auto 4px; opacity:.15; flex-shrink:0; }}
+  .login {{ margin-top:12px; text-align:center; color:var(--muted); font-size:14px; }}
+  .login a {{ color:var(--gold); font-weight:700; margin-right:4px; text-decoration:none; }}
+  .home-indicator {{ width:100px; height:4px; background:var(--ink); border-radius:20px; margin:8px auto 4px; opacity:.15; flex-shrink:0; }}
   @media (max-height:700px) {{
     .logo {{ width:85px; height:85px; border-radius:24px; }}
     .logo svg {{ width:56px; height:56px; }}
@@ -1358,6 +1156,371 @@ def render_welcome_page():
 """
 
 
+def render_phone_login_page():
+    return f"""
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="theme-color" content="#02090f">
+<title>واصل - تسجيل الدخول</title>
+{FONT_LINKS}
+<style>
+:root {{
+  --bg: oklch(0.145 0.014 245); --card: oklch(0.195 0.017 245); --card-soft: oklch(0.235 0.019 245);
+  --ink: oklch(0.97 0.006 245); --muted: oklch(0.72 0.02 245); --faint: oklch(0.5 0.02 245);
+  --gold: oklch(0.78 0.17 152); --gold-strong: oklch(0.66 0.18 152); --green-ink: oklch(0.2 0.05 152);
+  --border: oklch(1 0 0 / 9%); --border-2: oklch(1 0 0 / 15%);
+}}
+* {{ box-sizing:border-box; margin:0; padding:0; -webkit-tap-highlight-color:transparent; }}
+html, body {{ width:100%; height:100%; background:var(--bg); overflow:hidden; position:fixed; inset:0; }}
+body {{ font-family:{FONT_STACK}; color:var(--ink); }}
+button, a {{ font:inherit; border:0; cursor:pointer; background:none; }}
+a {{ text-decoration:none; color:inherit; }}
+input, select {{ font:inherit; border:0; outline:none; background:none; color:var(--ink); }}
+select {{ appearance:none; -webkit-appearance:none; -moz-appearance:none; cursor:pointer; }}
+select option {{ background:var(--card-soft); color:var(--ink); }}
+
+.page {{ width:100%; max-width:430px; height:100vh; height:100dvh; margin:auto; position:relative; overflow:hidden; display:flex; flex-direction:column;
+  background: radial-gradient(circle at 50% 25%, oklch(0.78 0.17 152 / 9%), transparent 30%),
+              radial-gradient(circle at 52% 60%, oklch(0.78 0.17 152 / 3.5%), transparent 25%),
+              linear-gradient(180deg, oklch(0.16 0.015 245), var(--bg) 68%, oklch(0.19 0.018 245));
+  animation:fadeIn .3s ease; }}
+@keyframes fadeIn {{ from {{ opacity:0; }} to {{ opacity:1; }} }}
+{PAGE_TRANSITION_CSS}
+.page::before {{ content:""; position:absolute; inset:0; pointer-events:none; opacity:.7;
+  background: radial-gradient(circle at 70% 7%, oklch(0.78 0.17 152 / 90%) 0 2px, transparent 3px),
+              radial-gradient(circle at 86% 12%, oklch(0.78 0.17 152 / 80%) 0 3px, transparent 4px),
+              radial-gradient(circle at 38% 6%, oklch(0.78 0.17 152 / 70%) 0 3px, transparent 4px),
+              radial-gradient(circle at 13% 17%, oklch(0.78 0.17 152 / 90%) 0 2px, transparent 3px),
+              radial-gradient(circle at 75% 23%, oklch(0.78 0.17 152 / 80%) 0 2px, transparent 3px),
+              radial-gradient(circle at 29% 45%, oklch(0.78 0.17 152 / 90%) 0 3px, transparent 4px),
+              radial-gradient(circle at 78% 50%, oklch(0.78 0.17 152 / 80%) 0 3px, transparent 4px); }}
+.bubble {{ position:absolute; border:1px solid oklch(0.78 0.17 152 / 5%); background:oklch(0.78 0.17 152 / 1.5%); border-radius:18px; opacity:.5; pointer-events:none; }}
+.bubble::before, .bubble::after {{ content:""; position:absolute; width:20px; height:3px; right:8px; background:oklch(0.78 0.17 152 / 5%); border-radius:6px; }}
+.bubble::before {{ top:10px; }}
+.bubble::after {{ top:17px; width:14px; }}
+.bubble.one {{ width:60px; height:44px; top:130px; right:-10px; }}
+.bubble.two {{ width:52px; height:38px; top:330px; left:-10px; }}
+.bubble.three {{ width:48px; height:34px; top:500px; right:-12px; }}
+
+.back {{ position:absolute; top:14px; right:16px; z-index:5; width:44px; height:44px; border-radius:50%; background:oklch(0.22 0.02 245 / 60%);
+  border:1px solid var(--border-2); display:flex; align-items:center; justify-content:center; color:var(--ink); box-shadow:inset 0 1px oklch(1 0 0 / 3%); }}
+.back svg {{ width:20px; height:20px; }}
+
+.main-content {{ flex:1; display:flex; flex-direction:column; justify-content:center; padding:50px 22px 6px; position:relative; z-index:2; min-height:0; }}
+.header {{ text-align:center; flex-shrink:0; }}
+.logo {{ width:80px; height:80px; margin:0 auto 10px; border-radius:24px; background:linear-gradient(145deg, var(--gold), var(--gold-strong)); box-shadow:0 12px 35px oklch(0.78 0.17 152 / 14%); display:flex; align-items:center; justify-content:center; }}
+.logo svg {{ width:54px; height:54px; }}
+.title {{ font-family:{FONT_STACK}; font-size:26px; line-height:1.2; font-weight:800;
+  background:linear-gradient(135deg, var(--gold), var(--gold-strong)); -webkit-background-clip:text; -webkit-text-fill-color:transparent; background-clip:text; }}
+.subtitle {{ margin-top:3px; color:var(--muted); font-size:12.5px; line-height:1.6; font-weight:400; }}
+
+.login-card {{ position:relative; z-index:3; margin:22px 25px 0; border:1px solid var(--border); border-radius:16px;
+  background:linear-gradient(145deg, oklch(0.19 0.018 245 / 88%), oklch(0.13 0.014 245 / 92%)); padding:20px 20px 18px; text-align:center; flex-shrink:0;
+  box-shadow:0 14px 40px rgba(0,0,0,.2), inset 0 1px oklch(1 0 0 / 2%); min-height:320px; }}
+
+.orbit {{ width:110px; height:110px; margin:0 auto 4px; position:relative; display:flex; align-items:center; justify-content:center; }}
+.orbit::before, .orbit::after {{ content:""; position:absolute; border:2px solid oklch(0.78 0.17 152 / 45%); border-radius:50%; transform:rotate(-20deg); }}
+.orbit::before {{ width:86px; height:86px; }}
+.orbit::after {{ width:106px; height:106px; border-color:oklch(0.78 0.17 152 / 20%); }}
+.orbit-dot {{ position:absolute; width:5px; height:5px; background:var(--gold); border-radius:50%; top:10px; right:16px; box-shadow:0 0 10px oklch(0.78 0.17 152 / 60%); }}
+.phone {{ width:54px; height:78px; border:3px solid var(--card-soft); border-radius:10px; background:linear-gradient(150deg, oklch(0.4 0.1 152), oklch(0.13 0.02 152) 75%); position:relative; box-shadow:0 0 20px oklch(0.78 0.17 152 / 12%); display:flex; align-items:center; justify-content:center; color:var(--gold); }}
+.phone::before {{ content:""; position:absolute; top:3px; left:50%; transform:translateX(-50%); width:22px; height:4px; background:oklch(0.15 0.015 245); border-radius:0 0 4px 4px; }}
+.phone svg {{ width:26px; height:26px; }}
+.check {{ position:absolute; right:18px; bottom:8px; width:32px; height:32px; border-radius:50%; background:var(--card); border:2px solid var(--card-soft); color:var(--gold);
+  display:flex; align-items:center; justify-content:center; box-shadow:0 0 14px oklch(0.78 0.17 152 / 10%); }}
+.check svg {{ width:17px; height:17px; }}
+
+.input-group {{ position:relative; margin-top:12px; text-align:right; }}
+.input-group:first-of-type {{ margin-top:4px; }}
+.input-group label {{ display:block; font-size:11.5px; color:var(--muted); font-weight:500; margin-bottom:4px; }}
+.input-group input, .input-group select {{ width:100%; padding:12px 14px; border-radius:12px; border:1.5px solid var(--border-2); background:oklch(1 0 0 / 4%); color:var(--ink); font-size:14px; font-weight:400; }}
+.input-group input:focus, .input-group select:focus {{ border-color:var(--gold); background:oklch(1 0 0 / 7%); }}
+.input-group input::placeholder {{ color:var(--faint); }}
+
+.phone-input-row {{ display:flex; gap:8px; margin-top:4px; direction:ltr; }}
+.phone-input-row .country-code {{ flex:0 0 100px; }}
+.phone-input-row .country-code select {{ padding:12px 10px; border-radius:12px; border:1.5px solid var(--border-2); background:oklch(1 0 0 / 4%); color:var(--ink); font-size:14px; font-weight:500; width:100%; height:100%; direction:ltr; }}
+.phone-input-row .country-code select:focus {{ border-color:var(--gold); background:oklch(1 0 0 / 7%); }}
+.phone-input-row .phone-number {{ flex:1; }}
+.phone-input-row .phone-number input {{ width:100%; padding:12px 14px; border-radius:12px; border:1.5px solid var(--border-2); background:oklch(1 0 0 / 4%); color:var(--ink); font-size:14px; height:100%; direction:ltr; text-align:left; }}
+.phone-input-row .phone-number input:focus {{ border-color:var(--gold); background:oklch(1 0 0 / 7%); }}
+.phone-input-row .phone-number input::placeholder {{ color:var(--faint); text-align:left; }}
+
+.btn-primary {{ width:100%; height:48px; margin-top:14px; border-radius:14px; background:linear-gradient(180deg, var(--gold), var(--gold-strong)); color:var(--green-ink); font-size:15px; font-weight:600;
+  display:flex; align-items:center; justify-content:center; gap:8px; }}
+.btn-primary svg {{ width:18px; height:18px; }}
+.btn-primary:disabled {{ opacity:.7; }}
+.btn-outline {{ width:100%; height:44px; margin-top:8px; border-radius:14px; border:1.5px solid var(--border-2); background:oklch(1 0 0 / 3%); color:var(--muted); font-size:13.5px; font-weight:500;
+  display:flex; align-items:center; justify-content:center; gap:8px; }}
+
+.step-note {{ font-size:12px; color:var(--muted); line-height:1.7; margin:0 0 14px; }}
+.qr-box {{ width:172px; height:172px; margin:0 auto; border-radius:16px; background:var(--ink); padding:10px; display:flex; align-items:center; justify-content:center; box-shadow:0 10px 30px rgba(0,0,0,.3); }}
+.qr-box img {{ width:100%; height:100%; object-fit:contain; }}
+
+.status-msg {{ font-size:11.5px; color:var(--muted); margin-top:10px; font-weight:400; min-height:16px; }}
+.status-msg.error {{ color:#f87171; }}
+.status-msg.success {{ color:#34d399; }}
+
+.secure {{ color:var(--muted); font-size:11px; margin-top:12px; display:flex; align-items:center; justify-content:center; gap:5px; font-weight:400; }}
+.secure svg {{ width:16px; height:16px; }}
+
+.bottom {{ position:relative; z-index:3; margin-top:auto; padding:14px 20px calc(10px + env(safe-area-inset-bottom)); text-align:center; flex-shrink:0; }}
+.terms {{ color:var(--faint); font-size:10px; line-height:1.7; font-weight:300; }}
+.terms-link {{ color:var(--gold); font-weight:400; }}
+.home {{ width:90px; height:4px; background:var(--ink); border-radius:8px; margin:10px auto 0; opacity:.10; flex-shrink:0; }}
+
+::-webkit-scrollbar {{ display:none; }}
+* {{ scrollbar-width:none; }}
+
+@media (max-height:700px) {{
+  .logo {{ width:64px; height:64px; border-radius:18px; margin-bottom:6px; }}
+  .logo svg {{ width:42px; height:42px; }}
+  .title {{ font-size:22px; }}
+  .subtitle {{ font-size:11px; }}
+  .login-card {{ margin:16px 20px 0; padding:14px 16px 14px; border-radius:14px; min-height:270px; }}
+  .orbit {{ width:90px; height:90px; }}
+  .orbit::before {{ width:70px; height:70px; }}
+  .orbit::after {{ width:86px; height:86px; }}
+  .phone {{ width:44px; height:64px; border-radius:8px; border-width:2.5px; }}
+  .qr-box {{ width:140px; height:140px; }}
+  .check {{ width:26px; height:26px; right:14px; bottom:4px; border-width:1.5px; }}
+  .input-group {{ margin-top:8px; }}
+  .input-group input, .input-group select {{ padding:10px 12px; font-size:13px; border-radius:10px; }}
+  .phone-input-row .country-code {{ flex:0 0 80px; }}
+  .phone-input-row .country-code select, .phone-input-row .phone-number input {{ padding:10px; font-size:13px; border-radius:10px; }}
+  .btn-primary {{ height:42px; font-size:13.5px; margin-top:10px; border-radius:12px; }}
+  .btn-outline {{ height:38px; font-size:12px; margin-top:6px; border-radius:12px; }}
+  .back {{ width:34px; height:34px; top:10px; right:12px; }}
+  .back svg {{ width:16px; height:16px; }}
+  .main-content {{ padding:40px 16px 4px; }}
+}}
+@media (max-height:580px) {{
+  .logo {{ width:50px; height:50px; border-radius:14px; margin-bottom:4px; }}
+  .logo svg {{ width:34px; height:34px; }}
+  .title {{ font-size:18px; }}
+  .login-card {{ margin:10px 14px 0; padding:10px 12px 10px; border-radius:12px; min-height:220px; }}
+  .orbit {{ width:70px; height:70px; }}
+  .orbit::before {{ width:54px; height:54px; }}
+  .orbit::after {{ width:66px; height:66px; }}
+  .phone {{ width:34px; height:48px; border-radius:6px; border-width:2px; }}
+  .qr-box {{ width:110px; height:110px; }}
+  .check {{ width:20px; height:20px; right:10px; bottom:2px; border-width:1.5px; }}
+  .input-group {{ margin-top:4px; }}
+  .btn-primary {{ height:34px; font-size:11px; margin-top:6px; border-radius:10px; }}
+  .btn-outline {{ height:30px; font-size:10px; margin-top:4px; border-radius:10px; }}
+  .back {{ width:28px; height:28px; top:6px; right:8px; }}
+  .main-content {{ padding:30px 12px 2px; }}
+}}
+@media (max-width:360px) {{
+  .login-card {{ margin-left:14px; margin-right:14px; }}
+  .main-content {{ padding:40px 14px 4px; }}
+  .phone-input-row .country-code {{ flex:0 0 75px; }}
+}}
+@media (min-width:431px) {{ .page {{ border-left:1px solid var(--border); border-right:1px solid var(--border); }} }}
+</style>
+</head>
+<body>
+
+<div class="page">
+  <div class="bubble one"></div>
+  <div class="bubble two"></div>
+  <div class="bubble three"></div>
+
+  <a href="/welcome" class="back" aria-label="رجوع">{ICON_BACK}</a>
+
+  <div class="main-content">
+    <header class="header">
+      <div class="logo">{logo_svg(54)}</div>
+      <h1 class="title">تسجيل الدخول</h1>
+      <p class="subtitle">أدخل رقم واتساب للمتابعة - بدون بريد إلكتروني أو كلمة مرور</p>
+    </header>
+
+    <section class="login-card">
+      <div class="orbit">
+        <span class="orbit-dot"></span>
+        <div class="phone">{ICON_WHATSAPP}</div>
+        <div class="check">{ICON_CHECK}</div>
+      </div>
+
+      <div id="phoneStep">
+        <div class="input-group">
+          <label>رقم الهاتف</label>
+          <div class="phone-input-row">
+            <div class="country-code">
+              <select id="countryCode">
+                <option value="20">🇪🇬 +20</option>
+                <option value="212">🇲🇦 +212</option>
+                <option value="213">🇩🇿 +213</option>
+                <option value="216">🇹🇳 +216</option>
+                <option value="218">🇱🇾 +218</option>
+                <option value="90">🇹🇷 +90</option>
+                <option value="91">🇮🇳 +91</option>
+                <option value="92">🇵🇰 +92</option>
+                <option value="93">🇦🇫 +93</option>
+                <option value="94">🇱🇰 +94</option>
+                <option value="95">🇲🇲 +95</option>
+                <option value="960">🇲🇻 +960</option>
+                <option value="961">🇱🇧 +961</option>
+                <option value="962">🇯🇴 +962</option>
+                <option value="963">🇸🇾 +963</option>
+                <option value="964" selected>🇮🇶 +964</option>
+                <option value="965">🇰🇼 +965</option>
+                <option value="966">🇸🇦 +966</option>
+                <option value="967">🇾🇪 +967</option>
+                <option value="968">🇴🇲 +968</option>
+                <option value="970">🇵🇸 +970</option>
+                <option value="971">🇦🇪 +971</option>
+                <option value="972">🇮🇱 +972</option>
+                <option value="973">🇧🇭 +973</option>
+                <option value="974">🇶🇦 +974</option>
+                <option value="975">🇧🇹 +975</option>
+                <option value="976">🇲🇳 +976</option>
+                <option value="977">🇳🇵 +977</option>
+                <option value="98">🇮🇷 +98</option>
+                <option value="262">🇾🇹 +262</option>
+                <option value="992">🇹🇯 +992</option>
+                <option value="993">🇹🇲 +993</option>
+                <option value="994">🇦🇿 +994</option>
+                <option value="995">🇬🇪 +995</option>
+                <option value="996">🇰🇬 +996</option>
+                <option value="998">🇺🇿 +998</option>
+                <option value="1">🇺🇸 +1</option>
+                <option value="44">🇬🇧 +44</option>
+                <option value="49">🇩🇪 +49</option>
+                <option value="33">🇫🇷 +33</option>
+                <option value="39">🇮🇹 +39</option>
+                <option value="34">🇪🇸 +34</option>
+                <option value="7">🇷🇺 +7</option>
+                <option value="86">🇨🇳 +86</option>
+                <option value="81">🇯🇵 +81</option>
+                <option value="82">🇰🇷 +82</option>
+                <option value="60">🇲🇾 +60</option>
+                <option value="62">🇮🇩 +62</option>
+                <option value="63">🇵🇭 +63</option>
+                <option value="64">🇳🇿 +64</option>
+                <option value="61">🇦🇺 +61</option>
+              </select>
+            </div>
+            <div class="phone-number">
+              <input type="tel" id="phoneInput" placeholder="7701234567" dir="ltr">
+            </div>
+          </div>
+        </div>
+        <button class="btn-primary" id="sendBtn" data-label="متابعة" onclick="sendCode()"><span class="btn-label">متابعة</span> {ICON_SEND_ARROW}</button>
+        <div class="secure">آمن وسريع بدون كلمة مرور {ICON_LOCK_SM}</div>
+      </div>
+
+      <div id="qrStep" style="display:none">
+        <p class="step-note">هذا أول استخدام للموقع. امسح رمز QR من واتساب هاتفك لتفعيل حسابك كمدير المنصة، وسنرسل لك رمز التحقق تلقائياً بعد الاتصال</p>
+        <div class="qr-box"><img id="qrImg" alt="QR"></div>
+      </div>
+
+      <div id="codeStep" style="display:none">
+        <p class="step-note">أرسلنا رمز التحقق عبر واتساب على الرقم المدخل</p>
+        <div class="input-group">
+          <label>رمز التحقق</label>
+          <input type="text" id="codeInput" placeholder="أدخل الرمز المكون من 6 أرقام" inputmode="numeric" dir="ltr">
+        </div>
+        <button class="btn-primary" id="verifyBtn" data-label="تحقق" onclick="verifyCode()"><span class="btn-label">تحقق</span> {ICON_CHECK}</button>
+        <button class="btn-outline" onclick="showStep('phone')">تعديل الرقم</button>
+      </div>
+
+      <div class="status-msg" id="authStatus"></div>
+    </section>
+  </div>
+
+  <footer class="bottom">
+    <div class="terms">بتسجيل الدخول فإنك توافق على <span class="terms-link">الشروط والأحكام</span> و<span class="terms-link">سياسة الخصوصية</span></div>
+    <div class="home"></div>
+  </footer>
+</div>
+
+<script>
+{PAGE_TRANSITION_JS}
+
+let waPhone = '';
+let bootstrapAccId = null;
+let bootstrapPoll = null;
+
+function showStep(step) {{
+  document.getElementById('phoneStep').style.display = step === 'phone' ? 'block' : 'none';
+  document.getElementById('qrStep').style.display = step === 'qr' ? 'block' : 'none';
+  document.getElementById('codeStep').style.display = step === 'code' ? 'block' : 'none';
+  setStatus('authStatus', '', false);
+  if (step !== 'qr') clearInterval(bootstrapPoll);
+}}
+
+function setStatus(id, msg, isError) {{
+  const el = document.getElementById(id);
+  el.textContent = msg || '';
+  el.className = 'status-msg' + (msg ? (isError ? ' error' : ' success') : '');
+}}
+
+function btnLoading(id, loading) {{
+  const btn = document.getElementById(id);
+  btn.disabled = loading;
+  btn.querySelector('.btn-label').textContent = loading ? '...' : btn.dataset.label;
+}}
+
+async function sendCode() {{
+  const code = document.getElementById('countryCode').value;
+  const phone = document.getElementById('phoneInput').value.replace(/[^0-9]/g, '');
+  if (phone.length < 6) {{ setStatus('authStatus', 'أدخل رقم هاتف صحيح (بعد رمز الدولة)', true); return; }}
+  waPhone = code + phone;
+  btnLoading('sendBtn', true);
+  const r = await fetch('/auth/whatsapp/send_code', {{
+    method: 'POST', headers: {{'Content-Type': 'application/json'}}, body: JSON.stringify({{phone: waPhone}})
+  }}).then(res => res.json());
+  btnLoading('sendBtn', false);
+  if (!r.ok) {{ setStatus('authStatus', r.error, true); return; }}
+  if (r.bootstrap) {{
+    bootstrapAccId = r.acc_id;
+    showStep('qr');
+    startBootstrapPoll();
+    return;
+  }}
+  setStatus('authStatus', 'تم إرسال الرمز، تحقق من واتساب', false);
+  showStep('code');
+}}
+
+function refreshQr() {{
+  document.getElementById('qrImg').src = '/auth/bootstrap/qr/' + bootstrapAccId + '?t=' + Date.now();
+}}
+
+function startBootstrapPoll() {{
+  refreshQr();
+  clearInterval(bootstrapPoll);
+  bootstrapPoll = setInterval(async function() {{
+    refreshQr();
+    const r = await fetch('/auth/bootstrap/status/' + bootstrapAccId).then(res => res.json());
+    if (r.connected && r.code_sent) {{
+      clearInterval(bootstrapPoll);
+      setStatus('authStatus', 'تم الاتصال وإرسال رمز التحقق', false);
+      showStep('code');
+    }}
+  }}, 2500);
+}}
+
+async function verifyCode() {{
+  const c = document.getElementById('codeInput').value.trim();
+  if (!c) {{ setStatus('authStatus', 'أدخل رمز التحقق', true); return; }}
+  btnLoading('verifyBtn', true);
+  const r = await fetch('/auth/whatsapp/verify', {{
+    method: 'POST', headers: {{'Content-Type': 'application/json'}}, body: JSON.stringify({{phone: waPhone, code: c}})
+  }}).then(res => res.json());
+  btnLoading('verifyBtn', false);
+  if (!r.ok) {{ setStatus('authStatus', r.error, true); return; }}
+  window.location.href = '/';
+}}
+</script>
+</body>
+</html>
+"""
+
+
 EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
 
@@ -1368,15 +1531,30 @@ def welcome_page():
     return render_welcome_page()
 
 
-@app.route("/login", methods=["GET", "POST"])
+@app.route("/login", methods=["GET"])
 def login_page():
+    return render_phone_login_page()
+
+
+@app.route("/signup")
+def signup_page():
+    # ما عاد فيه خطوة "إنشاء حساب" منفصلة - رقم واتساب الجديد ينشئ حسابه تلقائياً
+    # بمجرد التحقق من الرمز، فنفس صفحة الدخول تكفي لكل الحالتين
+    return redirect("/login")
+
+
+# صفحة الدخول القديمة بالبريد وكلمة المرور: أبقيناها شغالة على رابط غير معلن (لا يوجد أي
+# زر بالواجهة يوصلها) كمنفذ احتياطي لأي حساب بريد/كلمة مرور حقيقي أُنشئ بجولات سابقة قبل
+# التحويل لتسجيل الدخول برقم واتساب فقط، حتى لا يُقفل أحد عن حسابه الحقيقي على الموقع الفعلي
+@app.route("/login/email", methods=["GET", "POST"])
+def legacy_email_login_page():
     if request.method == "GET":
-        return render_auth_page("تسجيل الدخول", "/login", '<p class="switch">ما عندك حساب؟ <a href="/signup">أنشئ حساب</a></p>', "")
+        return render_auth_page("تسجيل الدخول", "/login/email", '<p class="switch">ما عندك حساب؟ <a href="/signup/email">أنشئ حساب</a></p>', "")
     email = request.form.get("email", "").strip().lower()
     password = request.form.get("password", "")
     user = db_get_user_by_email(email)
-    if not user or not check_password_hash(user["password_hash"], password):
-        return render_auth_page("تسجيل الدخول", "/login", '<p class="switch">ما عندك حساب؟ <a href="/signup">أنشئ حساب</a></p>', "البريد الإلكتروني أو كلمة المرور غير صحيحة")
+    if not user or not user["password_hash"] or not check_password_hash(user["password_hash"], password):
+        return render_auth_page("تسجيل الدخول", "/login/email", '<p class="switch">ما عندك حساب؟ <a href="/signup/email">أنشئ حساب</a></p>', "البريد الإلكتروني أو كلمة المرور غير صحيحة")
     session["user_id"] = user["id"]
     session["email"] = user["email"]
     session["name"] = user["name"]
@@ -1385,20 +1563,20 @@ def login_page():
     return redirect("/")
 
 
-@app.route("/signup", methods=["GET", "POST"])
-def signup_page():
+@app.route("/signup/email", methods=["GET", "POST"])
+def legacy_email_signup_page():
     if request.method == "GET":
-        return render_auth_page("إنشاء حساب", "/signup", '<p class="switch">عندك حساب؟ <a href="/login">سجّل الدخول</a></p>', "")
+        return render_auth_page("إنشاء حساب", "/signup/email", '<p class="switch">عندك حساب؟ <a href="/login/email">سجّل الدخول</a></p>', "")
     name = request.form.get("name", "").strip()
     email = request.form.get("email", "").strip().lower()
     password = request.form.get("password", "")
-    switch = '<p class="switch">عندك حساب؟ <a href="/login">سجّل الدخول</a></p>'
+    switch = '<p class="switch">عندك حساب؟ <a href="/login/email">سجّل الدخول</a></p>'
     if not name or not email or not password:
-        return render_auth_page("إنشاء حساب", "/signup", switch, "عبّي كل الحقول")
+        return render_auth_page("إنشاء حساب", "/signup/email", switch, "عبّي كل الحقول")
     if not EMAIL_RE.match(email):
-        return render_auth_page("إنشاء حساب", "/signup", switch, "أدخل بريد إلكتروني صحيح")
+        return render_auth_page("إنشاء حساب", "/signup/email", switch, "أدخل بريد إلكتروني صحيح")
     if db_get_user_by_email(email):
-        return render_auth_page("إنشاء حساب", "/signup", switch, "هذا البريد مسجّل من قبل")
+        return render_auth_page("إنشاء حساب", "/signup/email", switch, "هذا البريد مسجّل من قبل")
     is_admin = db_count_users() == 0
     user_id = db_create_user(email, generate_password_hash(password), is_admin, name)
     session["user_id"] = user_id
@@ -1416,6 +1594,16 @@ def logout_page():
 
 # ---------------------------------------------------------------- تسجيل الدخول برقم واتساب
 
+bootstrap_lock = threading.Lock()
+
+
+def find_pending_bootstrap_account():
+    for acc in accounts.values():
+        if acc.get("bootstrap") and acc["owner"] is None:
+            return acc
+    return None
+
+
 @app.route("/auth/whatsapp/send_code", methods=["POST"])
 def send_whatsapp_code():
     data = request.json or {}
@@ -1424,7 +1612,28 @@ def send_whatsapp_code():
         return jsonify(ok=False, error="أدخل رقم واتساب صحيح مع مفتاح الدولة"), 400
     sender = find_otp_sender_account()
     if not sender:
-        return jsonify(ok=False, error="تسجيل الدخول عبر واتساب غير مفعّل حالياً، جرّب البريد الإلكتروني"), 400
+        # ما فيه حساب واتساب مفعّل لإرسال رموز التحقق بعد. لو هذا أول استخدام للموقع (ولا
+        # يوجد أي مستخدم بعد) نبدأ إعداد أولي: نفتح جلسة واتساب جديدة، والمستخدم يمسح رمز QR
+        # منها بنفسه، وبمجرد اتصالها نرسل له رمز التحقق من نفس الحساب - فيصير هو المدير
+        # وحساب واتساب هذا يصير حسابه الأول تلقائياً، بدون أي حاجة لحساب سابق يرسل له الرمز
+        if db_count_users() == 0:
+            with bootstrap_lock:
+                acc = find_pending_bootstrap_account()
+                if not acc:
+                    acc_id = uuid.uuid4().hex[:8]
+                    accounts[acc_id] = new_account_entry(acc_id, None, "حساب الإعداد الأولي")
+                    accounts[acc_id]["bootstrap"] = True
+                    accounts[acc_id]["bootstrap_phone"] = phone
+                    accounts[acc_id]["bootstrap_code_sent"] = False
+                    threading.Thread(target=start_account_driver, args=(acc_id,), daemon=True).start()
+                    acc = accounts[acc_id]
+                elif acc["bootstrap_phone"] != phone:
+                    # المستخدم غيّر الرقم قبل إكمال الإعداد - نعيد تصفير علم "أُرسل الرمز"
+                    # حتى يرسل status الرمز للرقم الجديد أول ما تتصل نفس جلسة واتساب المفتوحة
+                    acc["bootstrap_phone"] = phone
+                    acc["bootstrap_code_sent"] = False
+            return jsonify(ok=True, bootstrap=True, acc_id=acc["id"])
+        return jsonify(ok=False, error="تسجيل الدخول عبر واتساب غير مفعّل حالياً، تواصل مع إدارة المنصة"), 400
     code = str(secrets.randbelow(900000) + 100000)
     with otp_lock:
         otp_codes[phone] = {"code": code, "expires": time.time() + 600, "verified": False}
@@ -1438,6 +1647,41 @@ def send_whatsapp_code():
     return jsonify(ok=True)
 
 
+@app.route("/auth/bootstrap/qr/<acc_id>")
+def bootstrap_qr(acc_id):
+    if db_count_users() > 0:
+        return "", 204
+    acc = accounts.get(acc_id)
+    if not acc or not acc.get("bootstrap") or acc["driver"] is None:
+        return "", 204
+    try:
+        canvas = acc["driver"].find_element(By.TAG_NAME, "canvas")
+        return Response(canvas.screenshot_as_png, mimetype="image/png")
+    except Exception:
+        return "", 204
+
+
+@app.route("/auth/bootstrap/status/<acc_id>")
+def bootstrap_status(acc_id):
+    if db_count_users() > 0:
+        return jsonify(connected=False)
+    acc = accounts.get(acc_id)
+    if not acc or not acc.get("bootstrap") or not account_logged_in(acc):
+        return jsonify(connected=False)
+    if not acc.get("bootstrap_code_sent"):
+        phone = acc.get("bootstrap_phone", "")
+        code = str(secrets.randbelow(900000) + 100000)
+        with otp_lock:
+            otp_codes[phone] = {"code": code, "expires": time.time() + 600, "verified": False}
+        try:
+            with acc["lock"]:
+                send_to(acc["driver"], phone, f"رمز التحقق الخاص بك في واصل: {code}\nصالح لمدة 10 دقائق.")
+            acc["bootstrap_code_sent"] = True
+        except Exception:
+            return jsonify(connected=True, code_sent=False)
+    return jsonify(connected=True, code_sent=True)
+
+
 @app.route("/auth/whatsapp/verify", methods=["POST"])
 def verify_whatsapp_code():
     data = request.json or {}
@@ -1447,39 +1691,21 @@ def verify_whatsapp_code():
         entry = otp_codes.get(phone)
         if not entry or entry["expires"] < time.time() or entry["code"] != code:
             return jsonify(ok=False, error="الرمز غير صحيح أو منتهي الصلاحية"), 400
-        entry["verified"] = True
-    # رقم مسجّل من قبل: التحقق من الرمز عبر واتساب يكفي لتسجيل الدخول مباشرة بدون كلمة مرور
-    existing = db_get_user_by_phone(phone)
-    if existing:
-        with otp_lock:
-            otp_codes.pop(phone, None)
-        session["user_id"] = existing["id"]
-        session["email"] = existing["email"] or existing["phone"]
-        session["name"] = existing["name"]
-        session["is_admin"] = bool(existing["is_admin"])
-        return jsonify(ok=True, logged_in=True)
-    return jsonify(ok=True, logged_in=False)
-
-
-@app.route("/auth/whatsapp/complete", methods=["POST"])
-def complete_whatsapp_signup():
-    """يُستدعى فقط لإنشاء حساب جديد برقم لم يُسجَّل من قبل (طُلب تعيين كلمة مرور بعد التحقق)."""
-    data = request.json or {}
-    phone = re.sub(r"\D", "", data.get("phone") or "")
-    password = data.get("password") or ""
-    with otp_lock:
-        entry = otp_codes.get(phone)
-        if not entry or not entry.get("verified"):
-            return jsonify(ok=False, error="تحقق من رقمك أولاً"), 400
-    if len(password) < 6:
-        return jsonify(ok=False, error="كلمة المرور قصيرة، لازم 6 أحرف على الأقل"), 400
-    if db_get_user_by_phone(phone):
-        return jsonify(ok=False, error="هذا الرقم مسجّل بالفعل"), 400
-    is_admin = db_count_users() == 0
-    user_id = db_create_user_by_phone(phone, generate_password_hash(password), is_admin)
-    user = db_get_user_by_id(user_id)
-    with otp_lock:
         otp_codes.pop(phone, None)
+    # الدخول برقم واتساب فقط بدون كلمة مرور: رقم مسجّل من قبل يسجّل دخوله مباشرة، ورقم جديد
+    # ينشئ حسابه تلقائياً بمجرد التحقق من الرمز - لا خطوة كلمة مرور بعدها بأي الحالتين
+    user = db_get_user_by_phone(phone)
+    if not user:
+        is_admin = db_count_users() == 0
+        user_id = db_create_user_by_phone(phone, None, is_admin)
+        user = db_get_user_by_id(user_id)
+        if is_admin:
+            boot_acc = find_pending_bootstrap_account()
+            if boot_acc and boot_acc.get("bootstrap_phone") == phone:
+                boot_acc["owner"] = user_id
+                boot_acc["bootstrap"] = False
+                boot_acc["otp_sender"] = True
+                boot_acc["name"] = "حسابي الأول"
     session["user_id"] = user["id"]
     session["email"] = user["email"] or user["phone"]
     session["name"] = user["name"]
@@ -1578,10 +1804,20 @@ def set_ai_settings():
 def get_subscription():
     user = db_get_user_by_id(session["user_id"])
     payments = db_list_payments_for_user(session["user_id"])
+    trial_days_left = 0
+    if user and not user["plan_active"] and user["trial_ends_at"]:
+        try:
+            trial_days_left = max(0, (datetime.strptime(user["trial_ends_at"], "%Y-%m-%d %H:%M") - datetime.now()).days + 1)
+        except ValueError:
+            trial_days_left = 0
+    pay_text = urllib.parse.quote(f"أرغب بتفعيل اشتراكي في منصة واصل ({PLAN_PRICE_IQD:,} د.ع)")
     return jsonify(
         plan_active=bool(user and user["plan_active"]),
+        has_access=user_has_access(user) if user else False,
+        trial_days_left=trial_days_left,
         plan_name=PLAN_NAME,
         price_iqd=PLAN_PRICE_IQD,
+        wa_pay_link=f"https://wa.me/{WHATSAPP_PAY_NUMBER}?text={pay_text}",
         payments=[dict(p) for p in payments],
     )
 
@@ -1602,6 +1838,15 @@ def submit_payment():
 @admin_required
 def admin_customers():
     return jsonify([dict(u) for u in db_list_users()])
+
+
+@app.route("/admin/customers/<int:user_id>/plan", methods=["POST"])
+@login_required
+@admin_required
+def admin_set_plan(user_id):
+    data = request.json or {}
+    db_set_plan_active(user_id, bool(data.get("active")))
+    return jsonify(ok=True)
 
 
 @app.route("/admin/payments")
@@ -1728,6 +1973,9 @@ def status(acc_id):
 @app.route("/accounts/<acc_id>/campaign", methods=["POST"])
 @login_required
 def campaign(acc_id):
+    user = db_get_user_by_id(session["user_id"])
+    if not user_has_access(user):
+        return jsonify(ok=False, error="انتهت فترتك التجريبية، فعّل الاشتراك من قسم الإعدادات للمتابعة", needs_subscription=True), 402
     acc = get_owned_account(acc_id)
     if not acc or acc["driver"] is None:
         return jsonify(ok=False, error="تأكد من تسجيل الدخول أولاً"), 400
@@ -1821,6 +2069,10 @@ def set_auto_reply(acc_id):
     acc["auto_reply"]["ai_enabled"] = bool(data.get("ai_enabled"))
     was_enabled = acc["auto_reply"]["enabled"]
     enabled = bool(data.get("enabled"))
+    if enabled and not was_enabled:
+        user = db_get_user_by_id(session["user_id"])
+        if not user_has_access(user):
+            return jsonify(ok=False, error="انتهت فترتك التجريبية، فعّل الاشتراك من قسم الإعدادات للمتابعة", needs_subscription=True), 402
     acc["auto_reply"]["enabled"] = enabled
     if enabled and not was_enabled:
         acc["watching"] = True
@@ -1966,6 +2218,22 @@ PAGE = """
   .btn-danger:hover { background: color-mix(in oklch, var(--red) 8%, transparent); }
   .btn-small { width: auto; padding: 8px 14px; margin-top: 0; display: inline-block; }
 
+  .confirm-overlay { position: fixed; inset: 0; background: rgba(0,0,0,.5); backdrop-filter: blur(4px); z-index: 90; display: none; }
+  .confirm-overlay.show { display: block; }
+  .confirm-sheet { position: fixed; bottom: 0; left: 50%; transform: translateX(-50%); width: 100%; max-width: 480px;
+    background: var(--card); border-radius: 20px 20px 0 0; box-shadow: 0 -8px 40px var(--shadow); z-index: 91; display: none;
+    padding: 22px 20px calc(20px + env(safe-area-inset-bottom)); }
+  .confirm-sheet.show { display: block; animation: sheetUp .3s cubic-bezier(.34,1.56,.64,1); }
+  @keyframes sheetUp { from { transform: translate(-50%, 100%); } to { transform: translate(-50%, 0); } }
+  .confirm-sheet .sheet-handle { width: 40px; height: 4px; background: var(--border-2); border-radius: 4px; margin: 0 auto 16px; }
+  .confirm-sheet .sheet-title { font-size: 16px; font-weight: 800; color: var(--ink); text-align: center; margin-bottom: 6px; font-family: 'Cairo','Tajawal',sans-serif; }
+  .confirm-sheet .sheet-message { font-size: 13px; color: var(--muted); text-align: center; margin-bottom: 20px; }
+  .confirm-sheet .sheet-actions { display: flex; gap: 10px; }
+  .confirm-sheet .sheet-actions button { flex: 1; height: 46px; border: none; border-radius: 14px; font-size: 14px; font-weight: 700;
+    cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 8px; font-family: inherit; }
+  .confirm-sheet .btn-cancel { background: var(--card-soft); color: var(--muted); }
+  .confirm-sheet .btn-confirm { background: var(--red); color: #fff; }
+
   #qrImg { width: 220px; height: 220px; border-radius: 16px; border: 1px solid var(--border-2); background: #fff; display: block; margin: 0 auto; }
 
   .stat-row { display: flex; border-radius: 16px; overflow: hidden; margin-top: 14px; }
@@ -2003,6 +2271,16 @@ PAGE = """
 </style>
 </head>
 <body>
+<div class="confirm-overlay" id="confirmOverlay" onclick="closeConfirmSheet()"></div>
+<div class="confirm-sheet" id="confirmSheet">
+  <div class="sheet-handle"></div>
+  <div class="sheet-title">تسجيل الخروج</div>
+  <div class="sheet-message">هل أنت متأكد من رغبتك في تسجيل الخروج؟</div>
+  <div class="sheet-actions">
+    <button class="btn-cancel" onclick="closeConfirmSheet()">إلغاء</button>
+    <button class="btn-confirm" onclick="confirmLogout()">تأكيد</button>
+  </div>
+</div>
 <div class="app">
   <header class="topbar">
     <span class="text-[11px] text-muted">__USERNAME__</span>
@@ -2065,6 +2343,7 @@ const ICONS = {
   sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4 12H2M22 12h-2M5 5l1.5 1.5M17.5 17.5L19 19M19 5l-1.5 1.5M6.5 17.5L5 19"/>',
   moon: '<path d="M20 14.5A8 8 0 119.5 4a6.5 6.5 0 1010.5 10.5z"/>',
   plus: '<line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>',
+  whatsapp: '<path d="M20.5 11.5a8.5 8.5 0 0 1-12.6 7.4L3.5 20l1.2-4.2A8.5 8.5 0 1 1 20.5 11.5Z"/><path d="M8.5 8.2c.3-.4.6-.4.9-.2l1.1 1.7c.2.3.1.6-.1.9l-.6.6c.7 1.4 1.8 2.4 3.2 3.1l.6-.7c.2-.2.6-.3.9-.1l1.7 1c.3.2.3.6.1.9-.4.7-1 1.1-1.8 1-3.7-.5-7.2-3.8-7.9-7.6-.1-.2.1-.5.2-.6l1.7-.9Z"/>',
 };
 function icon(name, size) {
   size = size || 20;
@@ -2151,6 +2430,12 @@ function toggleNotifPanel() {
     ? evs.map(e => '<div class="notif-item"><b>' + e.title + '</b>' + e.account + ' — ' + e.body + '<br><span>' + e.time + '</span></div>').join('')
     : '<div class="notif-item text-muted">ما فيه إشعارات بعد</div>';
   panel.style.display = 'block';
+}
+
+function handleSubscriptionError(r, msgElId) {
+  if (!r.needs_subscription) return false;
+  document.getElementById(msgElId).innerHTML = r.error + ' — <span style="text-decoration:underline;cursor:pointer" onclick="showSection(\\'settings\\')">فتح الاشتراك</span>';
+  return true;
 }
 
 /* ---------- التنقل بين الأقسام ---------- */
@@ -2372,7 +2657,7 @@ async function startCampaign() {
   ensureNotifPermission();
   document.getElementById('msg').innerText = 'جارِ البدء...';
   const r = await fetch('/accounts/' + accId + '/campaign', { method: 'POST', body: form }).then(res => res.json());
-  if (!r.ok) { document.getElementById('msg').innerText = 'فشل: ' + r.error; return; }
+  if (!r.ok) { if (!handleSubscriptionError(r, 'msg')) document.getElementById('msg').innerText = 'فشل: ' + r.error; return; }
   document.getElementById('msg').innerText = r.scheduled_for ? ('مجدولة لـ ' + r.scheduled_for) : '';
   document.getElementById('statRow').style.display = 'flex';
   refreshCampaignState(accId, gen);
@@ -2464,7 +2749,8 @@ async function saveAutoReply() {
     method: 'POST', headers: {'Content-Type': 'application/json'},
     body: JSON.stringify({enabled: enabled, ai_enabled: aiEnabled, rules: autoReplyRules})
   }).then(res => res.json());
-  document.getElementById('arMsg').innerText = r.ok ? 'تم الحفظ' : ('فشل: ' + r.error);
+  if (r.ok) document.getElementById('arMsg').innerText = 'تم الحفظ';
+  else if (!handleSubscriptionError(r, 'arMsg')) document.getElementById('arMsg').innerText = 'فشل: ' + r.error;
 }
 
 /* ---------- قسم الإعدادات ---------- */
@@ -2526,15 +2812,19 @@ async function loadSubscription() {
   const d = await fetch('/subscription').then(r => r.json());
   const box = document.getElementById('subBox');
   if (!box) return;
-  let html = '<p class="text-[13px] font-bold">' + d.plan_name + ' — ' + d.price_iqd.toLocaleString() + ' د.ع</p>';
+  let html = '<p class="text-[13px] font-bold">' + d.plan_name + ' — ' + d.price_iqd.toLocaleString() + ' د.ع / شهرياً</p>';
   if (d.plan_active) {
     html += '<span class="pill pill-green mt-1">خطتك مفعّلة</span>';
-  } else {
+  } else if (d.trial_days_left > 0) {
     html +=
-      '<p class="text-[11px] text-muted mt-1">حوّل المبلغ عبر سوبر كي، وبعدين أدخل رقم إثبات التحويل هنا ليتم التفعيل من الإدارة.</p>' +
-      '<input id="payRef" placeholder="رقم إثبات التحويل">' +
-      '<button class="btn-gold" onclick="submitPayment()">إرسال</button>' +
-      '<div id="payMsg" class="text-center text-[12px] font-bold mt-2"></div>';
+      '<span class="pill pill-amber mt-1">تجربة مجانية — تبقى ' + d.trial_days_left + ' يوم</span>' +
+      '<p class="text-[11px] text-muted mt-2">فعّل اشتراكك قبل انتهاء التجربة حتى تستمر الحملات والرد الآلي بالعمل بدون توقف.</p>';
+  } else {
+    html += '<span class="pill pill-red mt-1">انتهت الفترة التجريبية</span>' +
+      '<p class="text-[11px] text-muted mt-2">لازم تفعّل الاشتراك حتى تكدر ترسل حملات أو تستخدم الرد الآلي.</p>';
+  }
+  if (!d.plan_active) {
+    html += '<a class="btn-gold" style="display:flex;align-items:center;justify-content:center;gap:8px;text-decoration:none" href="' + d.wa_pay_link + '" target="_blank">' + icon('whatsapp', 16) + ' اشتراك الآن عبر واتساب</a>';
   }
   if (d.payments && d.payments.length) {
     html += '<div class="mt-3">' + d.payments.map(p =>
@@ -2546,14 +2836,13 @@ async function loadSubscription() {
   box.innerHTML = html;
 }
 
-async function submitPayment() {
-  const reference = document.getElementById('payRef').value.trim();
-  if (!reference) return;
-  const r = await fetch('/subscription/pay', {
-    method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({reference: reference})
-  }).then(res => res.json());
-  if (r.ok) { loadSubscription(); return; }
-  document.getElementById('payMsg').innerText = 'فشل: ' + r.error;
+function customerStatusPill(u) {
+  if (u.plan_active) return '<span class="pill pill-green">مفعّل</span>';
+  if (u.trial_ends_at) {
+    const days = Math.ceil((new Date(u.trial_ends_at.replace(' ', 'T')) - new Date()) / 86400000);
+    if (days > 0) return '<span class="pill pill-amber">تجربة ' + days + ' يوم</span>';
+  }
+  return '<span class="pill pill-red">منتهي</span>';
 }
 
 async function loadCustomers() {
@@ -2565,10 +2854,18 @@ async function loadCustomers() {
         const contact = u.email || u.phone || '—';
         const label = u.name ? (u.name + ' · ' + contact) : contact;
         return '<div class="history-row"><span class="flex items-center gap-2">' + avatarHtml(label, String(u.id)) +
-        '<span>' + label + '</span></span><span class="pill ' + (u.plan_active ? 'pill-green' : 'pill-gray') + '">' +
-        (u.plan_active ? 'مفعّل' : 'غير مفعّل') + '</span><span class="text-muted">' + u.created_at + '</span></div>';
+        '<span>' + label + '</span></span>' + customerStatusPill(u) +
+        '<button class="btn-outline btn-small" onclick="toggleCustomerPlan(' + u.id + ', ' + (u.plan_active ? 'false' : 'true') + ')">' +
+        (u.plan_active ? 'إلغاء' : 'تفعيل') + '</button></div>';
       }).join('')
     : '<div class="text-muted text-[11px]">ما فيه عملاء بعد</div>';
+}
+
+async function toggleCustomerPlan(userId, active) {
+  await fetch('/admin/customers/' + userId + '/plan', {
+    method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({active: active})
+  });
+  loadCustomers();
 }
 
 async function loadPendingPayments() {
@@ -2605,8 +2902,17 @@ async function saveAiSettings() {
   document.getElementById('aiKey').value = '';
 }
 
-async function logoutPlatform() {
-  if (!confirm('تسجيل الخروج من المنصة؟')) return;
+function logoutPlatform() {
+  document.getElementById('confirmOverlay').classList.add('show');
+  document.getElementById('confirmSheet').classList.add('show');
+}
+
+function closeConfirmSheet() {
+  document.getElementById('confirmOverlay').classList.remove('show');
+  document.getElementById('confirmSheet').classList.remove('show');
+}
+
+function confirmLogout() {
   const form = document.createElement('form');
   form.method = 'POST';
   form.action = '/logout';
