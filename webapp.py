@@ -482,7 +482,7 @@ def run_campaign(acc, numbers, text, delay, media_path):
             time.sleep(delay)
     state["running"] = False
     state["scheduled_for"] = None
-    acc["history"].insert(0, {"time": started, "total": state["total"], "sent": state["sent"], "failed": state["failed"]})
+    acc["history"].insert(0, {"time": started, "total": state["total"], "sent": state["sent"], "failed": state["failed"], "text": text})
     del acc["history"][20:]
     add_event(acc["name"], "انتهت الحملة", f'نجح {state["sent"]} من {state["total"]}، فشل {state["failed"]}')
 
@@ -860,26 +860,26 @@ def render_welcome_page():
 {FONT_LINKS}
 <style>
   :root {{
-    --bg: oklch(0.145 0.014 245); --card: oklch(0.195 0.017 245); --card-soft: oklch(0.235 0.019 245);
-    --ink: oklch(0.97 0.006 245); --muted: oklch(0.72 0.02 245); --faint: oklch(0.5 0.02 245);
-    --gold: oklch(0.78 0.17 152); --gold-strong: oklch(0.66 0.18 152); --green-ink: oklch(0.2 0.05 152);
-    --border: oklch(1 0 0 / 9%); --border-2: oklch(1 0 0 / 15%);
+    --bg: #F5F7FA; --card: #FFFFFF; --card-soft: #EEF2F5;
+    --ink: #1A2E35; --muted: #4A6A78; --faint: #8AA0B0;
+    --gold: #058693; --gold-strong: #046C76; --green-ink: #ffffff;
+    --border: rgba(5,134,147,.08); --border-2: rgba(5,134,147,.16);
   }}
   * {{ box-sizing:border-box; margin:0; padding:0; -webkit-tap-highlight-color:transparent; user-select:none; -webkit-user-select:none; }}
   html, body {{ width:100%; height:100%; background:var(--bg); font-family:{FONT_STACK}; overflow:hidden; position:fixed; inset:0; }}
   body {{ color:var(--ink); }}
   img, svg, .card, .feature {{ -webkit-touch-callout:none; pointer-events:none; }}
   .app {{ position:relative; width:100%; max-width:430px; height:100vh; height:100dvh; margin:auto; overflow:hidden;
-    background: radial-gradient(circle at 50% 25%, oklch(0.78 0.17 152 / 8%), transparent 30%),
+    background: radial-gradient(circle at 50% 25%, oklch(0.78 0.17 152 / 7%), transparent 30%),
                 radial-gradient(circle at 18% 60%, oklch(0.78 0.17 152 / 4%), transparent 20%),
-                linear-gradient(180deg, oklch(0.16 0.015 245) 0%, var(--bg) 55%, oklch(0.135 0.013 245) 100%);
+                var(--bg);
     display:flex; flex-direction:column; animation:fadeIn .3s ease; }}
   @keyframes fadeIn {{ from {{ opacity:0; }} to {{ opacity:1; }} }}
-  .app::before {{ content:""; position:absolute; inset:0; pointer-events:none; opacity:.3;
-    background-image: radial-gradient(circle at 12% 25%, oklch(0.78 0.17 152 / 70%) 0 3px, transparent 4px),
-                       radial-gradient(circle at 88% 40%, oklch(0.78 0.17 152 / 60%) 0 3px, transparent 4px),
-                       radial-gradient(circle at 23% 10%, oklch(0.78 0.17 152 / 70%) 0 4px, transparent 5px),
-                       radial-gradient(circle at 84% 20%, oklch(0.78 0.17 152 / 30%) 0 2px, transparent 3px); }}
+  .app::before {{ content:""; position:absolute; inset:0; pointer-events:none; opacity:.5;
+    background-image: radial-gradient(circle at 12% 25%, oklch(0.78 0.17 152 / 35%) 0 3px, transparent 4px),
+                       radial-gradient(circle at 88% 40%, oklch(0.78 0.17 152 / 30%) 0 3px, transparent 4px),
+                       radial-gradient(circle at 23% 10%, oklch(0.78 0.17 152 / 35%) 0 4px, transparent 5px),
+                       radial-gradient(circle at 84% 20%, oklch(0.78 0.17 152 / 18%) 0 2px, transparent 3px); }}
   .bubble {{ position:absolute; border:1px solid oklch(0.78 0.17 152 / 6%); background:oklch(0.78 0.17 152 / 2%); border-radius:22px; opacity:.6; pointer-events:none; }}
   .bubble::before, .bubble::after {{ content:""; position:absolute; width:30px; height:5px; right:12px; background:oklch(0.78 0.17 152 / 6%); border-radius:10px; }}
   .bubble::before {{ top:14px; }}
@@ -906,8 +906,8 @@ def render_welcome_page():
   .phone::before {{ content:""; position:absolute; width:58px; height:13px; top:3px; left:50%; transform:translateX(-50%); background:oklch(0.11 0.012 245); border-radius:0 0 10px 10px; }}
   .phone-screen {{ position:absolute; inset:17px 7px 7px; border-radius:20px; overflow:hidden;
     background: radial-gradient(circle at 50% 55%, oklch(0.78 0.17 152 / 10%), transparent 35%), linear-gradient(180deg, oklch(0.1 0.013 245), var(--bg)); }}
-  .card {{ position:absolute; z-index:3; width:165px; min-height:65px; border:1px solid oklch(0.78 0.17 152 / 12%);
-    background:linear-gradient(135deg, oklch(0.22 0.02 245 / 90%), oklch(0.16 0.015 245 / 90%)); box-shadow:0 10px 25px rgba(0,0,0,.35), inset 0 1px 0 oklch(1 0 0 / 3%);
+  .card {{ position:absolute; z-index:3; width:165px; min-height:65px; border:1px solid oklch(0.78 0.17 152 / 14%);
+    background:linear-gradient(135deg, rgba(255,255,255,.97), rgba(255,255,255,.9)); box-shadow:0 10px 25px rgba(5,134,147,.12), inset 0 1px 0 rgba(255,255,255,.6);
     backdrop-filter:blur(10px); -webkit-backdrop-filter:blur(10px); border-radius:14px; padding:10px 12px;
     display:flex; align-items:center; gap:8px; text-align:right; pointer-events:none; }}
   .card-icon {{ flex:0 0 35px; width:35px; height:35px; border-radius:11px; background:oklch(0.78 0.17 152 / 8%); color:var(--gold); display:flex; align-items:center; justify-content:center; }}
@@ -942,8 +942,8 @@ def render_welcome_page():
   .btn {{ width:100%; height:60px; border-radius:18px; display:flex; flex-direction:column; align-items:center; justify-content:center; text-decoration:none; font-family:{FONT_STACK}; }}
   .primary {{ background:linear-gradient(180deg, var(--gold), var(--gold-strong)); box-shadow:0 8px 22px oklch(0.78 0.17 152 / 12%); color:var(--green-ink); }}
   .primary strong {{ font-size:19px; font-weight:800; font-family:{FONT_STACK}; }}
-  .primary small {{ font-size:12px; color:oklch(0.92 0.04 152); margin-top:2px; }}
-  .whatsapp {{ height:50px; margin-top:10px; border:2px solid var(--border-2); background:oklch(0.12 0.013 245 / 45%); color:var(--gold); font-size:16px; font-weight:700; flex-direction:row; gap:8px; }}
+  .primary small {{ font-size:12px; color:rgba(255,255,255,.85); margin-top:2px; }}
+  .whatsapp {{ height:50px; margin-top:10px; border:2px solid var(--border-2); background:var(--card); color:var(--gold); font-size:16px; font-weight:700; flex-direction:row; gap:8px; }}
   .whatsapp svg {{ width:22px; height:22px; flex-shrink:0; }}
   .login {{ margin-top:12px; text-align:center; color:var(--muted); font-size:14px; }}
   .login a {{ color:var(--gold); font-weight:700; margin-right:4px; text-decoration:none; }}
@@ -1009,7 +1009,7 @@ def render_welcome_page():
     .home-indicator {{ width:60px; height:3px; margin:2px auto; }}
     .main-content {{ padding:4px 10px; }}
   }}
-  @media (min-width:431px) {{ .app {{ border-left:1px solid rgba(255,255,255,.03); border-right:1px solid rgba(255,255,255,.03); }} }}
+  @media (min-width:431px) {{ .app {{ border-left:1px solid var(--border); border-right:1px solid var(--border); }} }}
 </style>
 </head>
 <body>
@@ -1168,10 +1168,10 @@ def render_phone_login_page():
 {FONT_LINKS}
 <style>
 :root {{
-  --bg: oklch(0.145 0.014 245); --card: oklch(0.195 0.017 245); --card-soft: oklch(0.235 0.019 245);
-  --ink: oklch(0.97 0.006 245); --muted: oklch(0.72 0.02 245); --faint: oklch(0.5 0.02 245);
-  --gold: oklch(0.78 0.17 152); --gold-strong: oklch(0.66 0.18 152); --green-ink: oklch(0.2 0.05 152);
-  --border: oklch(1 0 0 / 9%); --border-2: oklch(1 0 0 / 15%);
+  --bg: #F5F7FA; --card: #FFFFFF; --card-soft: #EEF2F5;
+  --ink: #1A2E35; --muted: #4A6A78; --faint: #8AA0B0;
+  --gold: #058693; --gold-strong: #046C76; --green-ink: #ffffff;
+  --border: rgba(5,134,147,.08); --border-2: rgba(5,134,147,.16);
 }}
 * {{ box-sizing:border-box; margin:0; padding:0; -webkit-tap-highlight-color:transparent; }}
 html, body {{ width:100%; height:100%; background:var(--bg); overflow:hidden; position:fixed; inset:0; }}
@@ -1183,20 +1183,20 @@ select {{ appearance:none; -webkit-appearance:none; -moz-appearance:none; cursor
 select option {{ background:var(--card-soft); color:var(--ink); }}
 
 .page {{ width:100%; max-width:430px; height:100vh; height:100dvh; margin:auto; position:relative; overflow:hidden; display:flex; flex-direction:column;
-  background: radial-gradient(circle at 50% 25%, oklch(0.78 0.17 152 / 9%), transparent 30%),
-              radial-gradient(circle at 52% 60%, oklch(0.78 0.17 152 / 3.5%), transparent 25%),
-              linear-gradient(180deg, oklch(0.16 0.015 245), var(--bg) 68%, oklch(0.19 0.018 245));
+  background: radial-gradient(circle at 50% 25%, oklch(0.78 0.17 152 / 8%), transparent 30%),
+              radial-gradient(circle at 52% 60%, oklch(0.78 0.17 152 / 3%), transparent 25%),
+              var(--bg);
   animation:fadeIn .3s ease; }}
 @keyframes fadeIn {{ from {{ opacity:0; }} to {{ opacity:1; }} }}
 {PAGE_TRANSITION_CSS}
-.page::before {{ content:""; position:absolute; inset:0; pointer-events:none; opacity:.7;
-  background: radial-gradient(circle at 70% 7%, oklch(0.78 0.17 152 / 90%) 0 2px, transparent 3px),
-              radial-gradient(circle at 86% 12%, oklch(0.78 0.17 152 / 80%) 0 3px, transparent 4px),
-              radial-gradient(circle at 38% 6%, oklch(0.78 0.17 152 / 70%) 0 3px, transparent 4px),
-              radial-gradient(circle at 13% 17%, oklch(0.78 0.17 152 / 90%) 0 2px, transparent 3px),
-              radial-gradient(circle at 75% 23%, oklch(0.78 0.17 152 / 80%) 0 2px, transparent 3px),
-              radial-gradient(circle at 29% 45%, oklch(0.78 0.17 152 / 90%) 0 3px, transparent 4px),
-              radial-gradient(circle at 78% 50%, oklch(0.78 0.17 152 / 80%) 0 3px, transparent 4px); }}
+.page::before {{ content:""; position:absolute; inset:0; pointer-events:none; opacity:.5;
+  background: radial-gradient(circle at 70% 7%, oklch(0.78 0.17 152 / 45%) 0 2px, transparent 3px),
+              radial-gradient(circle at 86% 12%, oklch(0.78 0.17 152 / 40%) 0 3px, transparent 4px),
+              radial-gradient(circle at 38% 6%, oklch(0.78 0.17 152 / 35%) 0 3px, transparent 4px),
+              radial-gradient(circle at 13% 17%, oklch(0.78 0.17 152 / 45%) 0 2px, transparent 3px),
+              radial-gradient(circle at 75% 23%, oklch(0.78 0.17 152 / 40%) 0 2px, transparent 3px),
+              radial-gradient(circle at 29% 45%, oklch(0.78 0.17 152 / 45%) 0 3px, transparent 4px),
+              radial-gradient(circle at 78% 50%, oklch(0.78 0.17 152 / 40%) 0 3px, transparent 4px); }}
 .bubble {{ position:absolute; border:1px solid oklch(0.78 0.17 152 / 5%); background:oklch(0.78 0.17 152 / 1.5%); border-radius:18px; opacity:.5; pointer-events:none; }}
 .bubble::before, .bubble::after {{ content:""; position:absolute; width:20px; height:3px; right:8px; background:oklch(0.78 0.17 152 / 5%); border-radius:6px; }}
 .bubble::before {{ top:10px; }}
@@ -1205,8 +1205,8 @@ select option {{ background:var(--card-soft); color:var(--ink); }}
 .bubble.two {{ width:52px; height:38px; top:330px; left:-10px; }}
 .bubble.three {{ width:48px; height:34px; top:500px; right:-12px; }}
 
-.back {{ position:absolute; top:14px; right:16px; z-index:5; width:44px; height:44px; border-radius:50%; background:oklch(0.22 0.02 245 / 60%);
-  border:1px solid var(--border-2); display:flex; align-items:center; justify-content:center; color:var(--ink); box-shadow:inset 0 1px oklch(1 0 0 / 3%); }}
+.back {{ position:absolute; top:14px; right:16px; z-index:5; width:44px; height:44px; border-radius:50%; background:var(--card);
+  border:1px solid var(--border-2); display:flex; align-items:center; justify-content:center; color:var(--ink); box-shadow:0 2px 10px rgba(5,134,147,.1); }}
 .back svg {{ width:20px; height:20px; }}
 
 .main-content {{ flex:1; display:flex; flex-direction:column; justify-content:center; padding:50px 22px 6px; position:relative; z-index:2; min-height:0; }}
@@ -1218,8 +1218,8 @@ select option {{ background:var(--card-soft); color:var(--ink); }}
 .subtitle {{ margin-top:3px; color:var(--muted); font-size:12.5px; line-height:1.6; font-weight:400; }}
 
 .login-card {{ position:relative; z-index:3; margin:22px 25px 0; border:1px solid var(--border); border-radius:16px;
-  background:linear-gradient(145deg, oklch(0.19 0.018 245 / 88%), oklch(0.13 0.014 245 / 92%)); padding:20px 20px 18px; text-align:center; flex-shrink:0;
-  box-shadow:0 14px 40px rgba(0,0,0,.2), inset 0 1px oklch(1 0 0 / 2%); min-height:320px; }}
+  background:var(--card); padding:20px 20px 18px; text-align:center; flex-shrink:0;
+  box-shadow:0 14px 40px rgba(5,134,147,.1); min-height:320px; }}
 
 .orbit {{ width:110px; height:110px; margin:0 auto 4px; position:relative; display:flex; align-items:center; justify-content:center; }}
 .orbit::before, .orbit::after {{ content:""; position:absolute; border:2px solid oklch(0.78 0.17 152 / 45%); border-radius:50%; transform:rotate(-20deg); }}
@@ -1236,28 +1236,28 @@ select option {{ background:var(--card-soft); color:var(--ink); }}
 .input-group {{ position:relative; margin-top:12px; text-align:right; }}
 .input-group:first-of-type {{ margin-top:4px; }}
 .input-group label {{ display:block; font-size:11.5px; color:var(--muted); font-weight:500; margin-bottom:4px; }}
-.input-group input, .input-group select {{ width:100%; padding:12px 14px; border-radius:12px; border:1.5px solid var(--border-2); background:oklch(1 0 0 / 4%); color:var(--ink); font-size:14px; font-weight:400; }}
-.input-group input:focus, .input-group select:focus {{ border-color:var(--gold); background:oklch(1 0 0 / 7%); }}
+.input-group input, .input-group select {{ width:100%; padding:12px 14px; border-radius:12px; border:1.5px solid var(--border-2); background:var(--card-soft); color:var(--ink); font-size:14px; font-weight:400; }}
+.input-group input:focus, .input-group select:focus {{ border-color:var(--gold); background:var(--card); }}
 .input-group input::placeholder {{ color:var(--faint); }}
 
 .phone-input-row {{ display:flex; gap:8px; margin-top:4px; direction:ltr; }}
 .phone-input-row .country-code {{ flex:0 0 100px; }}
-.phone-input-row .country-code select {{ padding:12px 10px; border-radius:12px; border:1.5px solid var(--border-2); background:oklch(1 0 0 / 4%); color:var(--ink); font-size:14px; font-weight:500; width:100%; height:100%; direction:ltr; }}
-.phone-input-row .country-code select:focus {{ border-color:var(--gold); background:oklch(1 0 0 / 7%); }}
+.phone-input-row .country-code select {{ padding:12px 10px; border-radius:12px; border:1.5px solid var(--border-2); background:var(--card-soft); color:var(--ink); font-size:14px; font-weight:500; width:100%; height:100%; direction:ltr; }}
+.phone-input-row .country-code select:focus {{ border-color:var(--gold); background:var(--card); }}
 .phone-input-row .phone-number {{ flex:1; }}
-.phone-input-row .phone-number input {{ width:100%; padding:12px 14px; border-radius:12px; border:1.5px solid var(--border-2); background:oklch(1 0 0 / 4%); color:var(--ink); font-size:14px; height:100%; direction:ltr; text-align:left; }}
-.phone-input-row .phone-number input:focus {{ border-color:var(--gold); background:oklch(1 0 0 / 7%); }}
+.phone-input-row .phone-number input {{ width:100%; padding:12px 14px; border-radius:12px; border:1.5px solid var(--border-2); background:var(--card-soft); color:var(--ink); font-size:14px; height:100%; direction:ltr; text-align:left; }}
+.phone-input-row .phone-number input:focus {{ border-color:var(--gold); background:var(--card); }}
 .phone-input-row .phone-number input::placeholder {{ color:var(--faint); text-align:left; }}
 
 .btn-primary {{ width:100%; height:48px; margin-top:14px; border-radius:14px; background:linear-gradient(180deg, var(--gold), var(--gold-strong)); color:var(--green-ink); font-size:15px; font-weight:600;
   display:flex; align-items:center; justify-content:center; gap:8px; }}
 .btn-primary svg {{ width:18px; height:18px; }}
 .btn-primary:disabled {{ opacity:.7; }}
-.btn-outline {{ width:100%; height:44px; margin-top:8px; border-radius:14px; border:1.5px solid var(--border-2); background:oklch(1 0 0 / 3%); color:var(--muted); font-size:13.5px; font-weight:500;
+.btn-outline {{ width:100%; height:44px; margin-top:8px; border-radius:14px; border:1.5px solid var(--border-2); background:var(--card-soft); color:var(--muted); font-size:13.5px; font-weight:500;
   display:flex; align-items:center; justify-content:center; gap:8px; }}
 
 .step-note {{ font-size:12px; color:var(--muted); line-height:1.7; margin:0 0 14px; }}
-.qr-box {{ width:172px; height:172px; margin:0 auto; border-radius:16px; background:var(--ink); padding:10px; display:flex; align-items:center; justify-content:center; box-shadow:0 10px 30px rgba(0,0,0,.3); }}
+.qr-box {{ width:172px; height:172px; margin:0 auto; border-radius:16px; background:#fff; padding:10px; display:flex; align-items:center; justify-content:center; box-shadow:0 10px 30px rgba(5,134,147,.15); border:1px solid var(--border); }}
 .qr-box img {{ width:100%; height:100%; object-fit:contain; }}
 
 .status-msg {{ font-size:11.5px; color:var(--muted); margin-top:10px; font-weight:400; min-height:16px; }}
@@ -1877,16 +1877,32 @@ def admin_reject_payment(payment_id):
 def dashboard_stats():
     uid = session["user_id"]
     my_accounts = [a for a in accounts.values() if a["owner"] == uid]
-    sent = sum(h["sent"] for a in my_accounts for h in a["history"])
-    failed = sum(h["failed"] for a in my_accounts for h in a["history"])
+    all_history = [h for a in my_accounts for h in a["history"]]
+    sent = sum(h["sent"] for h in all_history)
+    failed = sum(h["failed"] for h in all_history)
     total_msgs = sent + failed
     return jsonify(
         accounts_total=len(my_accounts),
         accounts_connected=sum(1 for a in my_accounts if account_logged_in(a)),
         messages_sent=sent,
         success_rate=round((sent / total_msgs) * 100) if total_msgs else 0,
-        campaigns_total=sum(len(a["history"]) for a in my_accounts),
+        campaigns_total=len(all_history),
+        campaigns_success=sum(1 for h in all_history if h["failed"] == 0),
+        campaigns_with_failures=sum(1 for h in all_history if h["failed"] > 0),
     )
+
+
+@app.route("/dashboard/campaigns")
+@login_required
+def dashboard_campaigns():
+    uid = session["user_id"]
+    my_accounts = [a for a in accounts.values() if a["owner"] == uid]
+    rows = []
+    for a in my_accounts:
+        for h in a["history"]:
+            rows.append({**h, "account_name": a["name"]})
+    rows.sort(key=lambda r: r["time"], reverse=True)
+    return jsonify(rows[:20])
 
 
 @app.route("/accounts", methods=["GET"])
@@ -2090,34 +2106,35 @@ PAGE = """
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>منصة حملات واتساب</title>
 <link rel="manifest" href="/manifest.json">
-<meta name="theme-color" content="#123320">
+<meta name="theme-color" content="#F5F7FA">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
 <script src="https://cdn.tailwindcss.com"></script>
 <style>
   :root {
-    --bg: oklch(0.145 0.014 245); --card: oklch(0.195 0.017 245); --card-soft: oklch(0.235 0.019 245); --card-3: oklch(0.29 0.02 245);
-    --border: oklch(1 0 0 / 9%); --border-2: oklch(1 0 0 / 15%);
-    --ink: oklch(0.97 0.006 245); --muted: oklch(0.72 0.02 245); --faint: oklch(0.5 0.02 245);
-    --gold: oklch(0.78 0.17 152); --gold-strong: oklch(0.66 0.18 152);
-    --gold-light: oklch(0.78 0.17 152 / 16%); --gold-border: oklch(0.78 0.17 152 / 30%); --gold-shadow: oklch(0.78 0.17 152 / 28%);
-    --green-ink: oklch(0.2 0.05 152); --red: oklch(0.68 0.19 21); --blue: oklch(0.72 0.13 238); --amber: oklch(0.8 0.14 78);
-    --shadow: rgba(0,0,0,.35);
+    --bg: #F5F7FA; --card: #FFFFFF; --card-soft: #EEF2F5; --card-3: #E4E9EE;
+    --border: rgba(5,134,147,.08); --border-2: rgba(5,134,147,.16);
+    --ink: #1A2E35; --muted: #4A6A78; --faint: #8AA0B0;
+    --gold: #058693; --gold-strong: #046C76;
+    --gold-light: rgba(5,134,147,.08); --gold-border: rgba(5,134,147,.20); --gold-shadow: rgba(5,134,147,.25);
+    --green-ink: #ffffff; --red: #EF4444; --blue: #3B82F6; --amber: #D97706;
+    --shadow: rgba(5,134,147,.08);
   }
-  :root[data-theme="light"] {
-    --bg: oklch(0.97 0.006 245); --card: oklch(1 0 0); --card-soft: oklch(0.955 0.006 245); --card-3: oklch(0.91 0.008 245);
-    --border: oklch(0 0 0 / 8%); --border-2: oklch(0 0 0 / 14%);
-    --ink: oklch(0.22 0.02 245); --muted: oklch(0.42 0.02 245); --faint: oklch(0.58 0.02 245);
-    --gold: oklch(0.6 0.17 152); --gold-strong: oklch(0.5 0.18 152);
-    --gold-light: oklch(0.6 0.17 152 / 12%); --gold-border: oklch(0.6 0.17 152 / 25%); --gold-shadow: oklch(0.6 0.17 152 / 20%);
-    --green-ink: oklch(0.99 0.01 152); --red: oklch(0.55 0.19 21); --blue: oklch(0.55 0.13 238); --amber: oklch(0.62 0.14 78);
-    --shadow: rgba(0,0,0,.08);
+  :root[data-theme="dark"] {
+    --bg: #0D1117; --card: #161B22; --card-soft: #1C232C; --card-3: #262E38;
+    --border: rgba(255,255,255,.06); --border-2: rgba(255,255,255,.12);
+    --ink: #F0F6FC; --muted: #8B949E; --faint: #6A8098;
+    --gold: #0AA6B5; --gold-strong: #058693;
+    --gold-light: rgba(10,166,181,.12); --gold-border: rgba(10,166,181,.28); --gold-shadow: rgba(10,166,181,.3);
+    --green-ink: #ffffff; --red: #EF4444; --blue: #3B82F6; --amber: #D97706;
+    --shadow: rgba(0,0,0,.4);
   }
   html, body { margin: 0; padding: 0; background: var(--bg); color: var(--ink); font-family: 'IBM Plex Sans Arabic', 'Cairo', 'Tajawal', system-ui, sans-serif; }
   .app { display: flex; flex-direction: column; min-height: 100vh; }
   h1, h2, h3, .topbar-title, .stat-num, .logo-word { font-family: 'IBM Plex Sans Arabic', 'Cairo', 'Tajawal', sans-serif; }
-  svg.icon { display: inline-block; vertical-align: middle; flex-shrink: 0; }
+  .icon { display: inline-block; vertical-align: middle; flex-shrink: 0; }
 
   .topbar { display: flex; align-items: center; justify-content: space-between; padding: 10px 16px; background: var(--card); border-bottom: 1px solid var(--border); position: sticky; top: 0; z-index: 30; }
   .topbar-title { font-size: 15px; font-weight: 800; }
@@ -2249,7 +2266,7 @@ PAGE = """
   .empty-state { text-align: center; color: var(--muted); font-size: 13px; margin-top: 60px; }
 
   .avatar { width: 36px; height: 36px; border-radius: 50%; flex-shrink: 0; display: flex; align-items: center; justify-content: center; color: #fff; font-weight: 800; font-size: 14px; }
-  .avatar-0 { background: linear-gradient(135deg, oklch(0.78 0.17 152), oklch(0.6 0.17 152)); }
+  .avatar-0 { background: linear-gradient(135deg, var(--gold), var(--gold-strong)); }
   .avatar-1 { background: linear-gradient(135deg, oklch(0.72 0.13 238), oklch(0.55 0.15 238)); }
   .avatar-2 { background: linear-gradient(135deg, oklch(0.72 0.15 300), oklch(0.55 0.16 300)); }
   .avatar-3 { background: linear-gradient(135deg, oklch(0.8 0.14 78), oklch(0.65 0.16 60)); }
@@ -2264,10 +2281,72 @@ PAGE = """
 
   .history-row { display: flex; justify-content: space-between; align-items: center; padding: 9px 4px; border-bottom: 1px solid var(--border); font-size: 12px; }
   .history-row:last-child { border-bottom: none; }
+  .history-row.clickable { cursor: pointer; }
+  .history-row .campaign-name { font-weight: 700; color: var(--ink); display: block; }
+  .history-row .campaign-detail { font-size: 10px; color: var(--muted); }
+  .history-row .see-detail { color: var(--gold); font-weight: 700; margin-right: 8px; }
+
+  .campaign-detail-card { background: var(--card); border: 1px solid var(--border); border-radius: 18px; box-shadow: 0 4px 20px var(--shadow); padding: 18px; margin-bottom: 14px; }
+  .campaign-detail-card .detail-row { display: flex; justify-content: space-between; align-items: center; padding: 9px 0; border-bottom: 1px solid var(--border); font-size: 13px; gap: 10px; }
+  .campaign-detail-card .detail-row:last-child { border-bottom: none; }
+  .campaign-detail-card .detail-row .label { color: var(--muted); font-weight: 600; flex-shrink: 0; }
+  .campaign-detail-card .detail-row .value { font-weight: 700; color: var(--ink); text-align: left; }
 
   .rule-row { display: flex; gap: 8px; align-items: center; margin-top: 8px; }
   .rule-row input { margin-top: 0; }
   .rule-remove { flex-shrink: 0; width: 32px; height: 32px; border-radius: 10px; border: 1px solid color-mix(in oklch, var(--red) 35%, transparent); background: transparent; color: var(--red); cursor: pointer; }
+
+  .hero-main { background: var(--card); border: 1.5px solid var(--gold-border); border-radius: 20px; padding: 22px 18px; text-align: center; margin-bottom: 16px; box-shadow: 0 4px 24px var(--shadow); }
+  .hero-main .hero-icon { width: 54px; height: 54px; margin: 0 auto 10px; border-radius: 50%; background: var(--gold-light); border: 1.5px solid var(--gold-border); display: flex; align-items: center; justify-content: center; font-size: 22px; color: var(--gold); }
+  .hero-main h1 { font-size: 18px; font-weight: 900; color: var(--gold); margin-bottom: 4px; }
+  .hero-main p { font-size: 12px; color: var(--muted); line-height: 1.7; margin: 0 auto; max-width: 340px; }
+  .hero-badges { display: flex; justify-content: center; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
+  .hero-badges span { font-size: 10.5px; font-weight: 700; color: var(--gold); background: var(--gold-light); padding: 4px 12px; border-radius: 20px; border: 1px solid var(--gold-border); }
+
+  .stats-mini-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-bottom: 14px; }
+  .stat-mini-box { background: var(--card); border: 1px solid var(--border); border-radius: 14px; padding: 10px 4px; text-align: center; box-shadow: 0 4px 16px var(--shadow); }
+  .stat-mini-box .num { font-size: 17px; font-weight: 900; color: var(--ink); line-height: 1.2; }
+  .stat-mini-box .num.gold { color: var(--gold); }
+  .stat-mini-box .label { font-size: 9px; color: var(--faint); margin-top: 2px; font-weight: 500; }
+
+  .quick-actions { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-bottom: 14px; }
+  .quick-action-btn { padding: 12px 6px; border-radius: 14px; border: 1.5px solid var(--border); background: var(--card); text-align: center; cursor: pointer; font-weight: 700; font-size: 11px; color: var(--ink); font-family: inherit; }
+  .quick-action-btn:hover { border-color: var(--gold-border); }
+  .quick-action-btn i { font-size: 19px; display: block; margin-bottom: 4px; color: var(--gold); }
+
+  .account-item { display: flex; align-items: center; gap: 10px; padding: 10px 12px; background: var(--card); border: 1px solid var(--border); border-radius: 12px; margin-bottom: 8px; }
+  .account-item .info { flex: 1; min-width: 0; }
+  .account-item .info .name { font-size: 13px; font-weight: 700; color: var(--ink); }
+  .account-item .info .status { font-size: 10px; color: var(--muted); margin-top: 2px; }
+
+  .profile-hero { display: flex; align-items: center; gap: 14px; background: var(--card); border: 1px solid var(--border); border-radius: 18px; padding: 18px; margin-bottom: 14px; box-shadow: 0 4px 16px var(--shadow); }
+  .profile-hero .avatar { width: 56px; height: 56px; font-size: 22px; }
+  .profile-hero .name { font-size: 16px; font-weight: 800; color: var(--ink); }
+
+  .settings-list { background: var(--card); border-radius: 18px; border: 1px solid var(--border); overflow: hidden; margin-bottom: 14px; box-shadow: 0 4px 16px var(--shadow); }
+  .settings-head { padding: 12px 16px; background: var(--gold-light); border-bottom: 1px solid var(--border); font-size: 12px; font-weight: 700; color: var(--muted); display: flex; align-items: center; gap: 8px; }
+  .settings-item { display: flex; align-items: center; justify-content: space-between; padding: 13px 16px; border-bottom: 1px solid var(--border); cursor: pointer; }
+  .settings-item:last-child { border-bottom: none; }
+  .settings-item:hover { background: var(--card-soft); }
+  .settings-item .left { display: flex; align-items: center; gap: 12px; }
+  .settings-item .icon-wrap { width: 34px; height: 34px; border-radius: 10px; display: flex; align-items: center; justify-content: center; font-size: 15px; flex-shrink: 0; }
+  .settings-item .icon-wrap.primary { background: var(--gold-light); color: var(--gold); }
+  .settings-item .icon-wrap.blue { background: color-mix(in oklch, var(--blue) 14%, transparent); color: var(--blue); }
+  .settings-item .icon-wrap.red { background: color-mix(in oklch, var(--red) 12%, transparent); color: var(--red); }
+  .settings-item .text { font-size: 13px; font-weight: 600; color: var(--ink); display: block; }
+  .settings-item .sub-text { font-size: 10.5px; color: var(--faint); display: block; }
+  .settings-item .chevron { color: var(--faint); font-size: 12px; }
+
+  .toggle-switch { position: relative; display: inline-block; width: 42px; height: 23px; flex-shrink: 0; }
+  .toggle-switch input { opacity: 0; width: 0; height: 0; }
+  .toggle-switch .slider { position: absolute; cursor: pointer; inset: 0; background: var(--border-2); border-radius: 999px; transition: .2s; }
+  .toggle-switch .slider:before { position: absolute; content: ''; height: 17px; width: 17px; left: 3px; bottom: 3px; background: #fff; border-radius: 50%; transition: .2s; box-shadow: 0 1px 3px rgba(0,0,0,.2); }
+  .toggle-switch input:checked + .slider { background: var(--gold); }
+  .toggle-switch input:checked + .slider:before { transform: translateX(-19px); }
+
+  .subscription-card { background: var(--card); border: 2px solid var(--gold-border); border-radius: 16px; padding: 18px 16px; text-align: center; margin-bottom: 14px; box-shadow: 0 4px 16px var(--shadow); }
+  .subscription-card .plan-name { font-size: 15px; font-weight: 800; color: var(--ink); }
+  .subscription-card .plan-price { font-size: 26px; font-weight: 900; color: var(--gold); margin: 6px 0; }
 </style>
 </head>
 <body>
@@ -2287,7 +2366,7 @@ PAGE = """
     <div class="topbar-title" style="display:flex;align-items:center;gap:7px">
       <svg width="26" height="26" viewBox="0 0 32 32" aria-hidden="true">
         <defs><linearGradient id="logoGrad" x1="0" y1="0" x2="32" y2="32">
-          <stop offset="0" stop-color="oklch(0.78 0.17 152)"/><stop offset="1" stop-color="oklch(0.6 0.18 152)"/>
+          <stop offset="0" style="stop-color:var(--gold)"/><stop offset="1" style="stop-color:var(--gold-strong)"/>
         </linearGradient></defs>
         <rect x="1" y="1" width="30" height="30" rx="9" fill="url(#logoGrad)"/>
         <path d="M9 11a2 2 0 012-2h10a2 2 0 012 2v7a2 2 0 01-2 2h-7l-4 4v-4h-1a2 2 0 01-2-2v-7z" fill="#fff"/>
@@ -2309,6 +2388,7 @@ PAGE = """
         <div class="nav-item" data-s="home" onclick="showSection('home')"></div>
         <div class="nav-item" data-s="accounts" onclick="showSection('accounts')"></div>
         <div class="nav-item" data-s="campaigns" onclick="showSection('campaigns')"></div>
+        <div class="nav-item" data-s="analytics" onclick="showSection('analytics')"></div>
         <div class="nav-item" data-s="autoreply" onclick="showSection('autoreply')"></div>
         <div class="nav-item" data-s="admin" id="navAdmin" onclick="showSection('admin')"></div>
         <div class="nav-item" data-s="settings" onclick="showSection('settings')"></div>
@@ -2333,25 +2413,18 @@ const IS_ADMIN = __IS_ADMIN__;
 
 /* ---------- أيقونات خطية (بدون إيموجي) ---------- */
 const ICONS = {
-  home: '<path d="M4 11l8-7 8 7"/><path d="M6 10v9a1 1 0 001 1h10a1 1 0 001-1v-9"/><path d="M10 20v-6h4v6"/>',
-  accounts: '<circle cx="12" cy="8" r="3.2"/><path d="M5 20c0-3.5 3-6 7-6s7 2.5 7 6"/>',
-  campaigns: '<line x1="21" y1="3" x2="10" y2="14"/><polygon points="21 3 14 21 10 14 3 10 21 3"/>',
-  autoreply: '<path d="M4 5h16v11H8l-4 4V5z"/><circle cx="9" cy="10.3" r=".9" fill="currentColor" stroke="none"/><circle cx="12" cy="10.3" r=".9" fill="currentColor" stroke="none"/><circle cx="15" cy="10.3" r=".9" fill="currentColor" stroke="none"/>',
-  admin: '<path d="M12 3l7 3v6c0 5-3 8-7 9-4-1-7-4-7-9V6l7-3z"/><path d="M9 12l2 2 4-4"/>',
-  settings: '<line x1="4" y1="6" x2="20" y2="6"/><circle cx="15" cy="6" r="2"/><line x1="4" y1="12" x2="20" y2="12"/><circle cx="9" cy="12" r="2"/><line x1="4" y1="18" x2="20" y2="18"/><circle cx="17" cy="18" r="2"/>',
-  bell: '<path d="M6 8a6 6 0 0112 0c0 5 2 6 2 6H4s2-1 2-6"/><path d="M10 21a2 2 0 004 0"/>',
-  sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4 12H2M22 12h-2M5 5l1.5 1.5M17.5 17.5L19 19M19 5l-1.5 1.5M6.5 17.5L5 19"/>',
-  moon: '<path d="M20 14.5A8 8 0 119.5 4a6.5 6.5 0 1010.5 10.5z"/>',
-  plus: '<line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>',
-  whatsapp: '<path d="M20.5 11.5a8.5 8.5 0 0 1-12.6 7.4L3.5 20l1.2-4.2A8.5 8.5 0 1 1 20.5 11.5Z"/><path d="M8.5 8.2c.3-.4.6-.4.9-.2l1.1 1.7c.2.3.1.6-.1.9l-.6.6c.7 1.4 1.8 2.4 3.2 3.1l.6-.7c.2-.2.6-.3.9-.1l1.7 1c.3.2.3.6.1.9-.4.7-1 1.1-1.8 1-3.7-.5-7.2-3.8-7.9-7.6-.1-.2.1-.5.2-.6l1.7-.9Z"/>',
+  home: 'fas fa-house', accounts: 'fas fa-phone', campaigns: 'fas fa-bullhorn', autoreply: 'fas fa-comment-dots',
+  analytics: 'fas fa-chart-column', admin: 'fas fa-shield-halved', settings: 'fas fa-gear',
+  bell: 'fas fa-bell', sun: 'fas fa-sun', moon: 'fas fa-moon', plus: 'fas fa-plus', whatsapp: 'fab fa-whatsapp',
+  logout: 'fas fa-right-from-bracket', ai: 'fas fa-robot', users: 'fas fa-users', payments: 'fas fa-receipt',
 };
 function icon(name, size) {
   size = size || 20;
-  return '<svg class="icon" width="' + size + '" height="' + size + '" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">' + (ICONS[name] || '') + '</svg>';
+  return '<i class="icon ' + (ICONS[name] || 'fas fa-circle') + '" style="font-size:' + size + 'px; width:' + size + 'px; display:inline-flex; align-items:center; justify-content:center;"></i>';
 }
 
 const CURRENT_USER = "__USERNAME__";
-const SECTION_LABELS = { home: 'الرئيسية', accounts: 'حسابي', campaigns: 'الحملات', autoreply: 'الرد الآلي', admin: 'التحكم', settings: 'الإعدادات' };
+const SECTION_LABELS = { home: 'الرئيسية', accounts: 'حسابي', campaigns: 'الحملات', autoreply: 'الرد الآلي', analytics: 'إحصائيات', admin: 'التحكم', settings: 'الإعدادات' };
 
 function initChrome() {
   document.getElementById('bellBtn').insertAdjacentHTML('afterbegin', icon('bell'));
@@ -2377,6 +2450,8 @@ let section = 'home';
 let activeId = null;
 let gen = 0;
 let lastSeenEventId = -1;
+let campaignHistory = [];
+let campaignHistoryAccName = '';
 
 /* ---------- تصميم داكن/نهاري ---------- */
 function applyTheme(t) {
@@ -2384,11 +2459,13 @@ function applyTheme(t) {
   localStorage.setItem('theme', t);
   const btn = document.getElementById('themeBtn');
   if (btn) btn.innerHTML = icon(t === 'dark' ? 'sun' : 'moon');
+  const cb = document.getElementById('darkModeToggle');
+  if (cb) cb.checked = (t === 'dark');
 }
 function toggleTheme() {
-  applyTheme((document.documentElement.getAttribute('data-theme') || 'dark') === 'dark' ? 'light' : 'dark');
+  applyTheme((document.documentElement.getAttribute('data-theme') || 'light') === 'light' ? 'dark' : 'light');
 }
-applyTheme(localStorage.getItem('theme') || 'dark');
+applyTheme(localStorage.getItem('theme') || 'light');
 
 /* ---------- PWA + إشعارات ---------- */
 if ('serviceWorker' in navigator) { navigator.serviceWorker.register('/sw.js').catch(() => {}); }
@@ -2460,32 +2537,52 @@ async function render() {
   if (section === 'home') renderHome();
   else if (section === 'accounts') renderAccounts();
   else if (section === 'campaigns') renderCampaigns(myGen);
+  else if (section === 'analytics') renderAnalytics();
   else if (section === 'autoreply') renderAutoReply();
   else if (section === 'admin') renderAdmin();
   else renderSettings();
 }
 
 /* ---------- قسم الرئيسية ---------- */
-function statCardHtml(iconName, label, value) {
-  return '<div class="dark-card rounded-2xl p-4">' +
-    '<div style="width:34px;height:34px;border-radius:10px;background:var(--gold-light);display:flex;align-items:center;justify-content:center;color:var(--gold);margin-bottom:10px">' + icon(iconName, 18) + '</div>' +
-    '<div class="stat-num text-gold" style="font-size:22px">' + value + '</div>' +
-    '<div class="text-[11px] text-muted mt-1">' + label + '</div></div>';
+function statMiniHtml(value, label, gold) {
+  return '<div class="stat-mini-box"><div class="num' + (gold ? ' gold' : '') + '">' + value + '</div><div class="label">' + label + '</div></div>';
 }
 
 function renderHome() {
   const c = document.getElementById('content');
+  const displayName = CURRENT_USER.split('@')[0] || CURRENT_USER;
   c.innerHTML =
-    '<h2 class="text-sm font-extrabold text-gold mb-1">مرحباً، ' + (CURRENT_USER.split('@')[0] || CURRENT_USER) + '</h2>' +
+    '<div class="hero-main">' +
+      '<div class="hero-icon">' + icon('whatsapp', 24) + '</div>' +
+      '<h1>منصة واصل</h1>' +
+      '<p>أتمتة حملاتك التسويقية عبر واتساب — أرسل رسائل، صور، وفيديوهات لعملائك بضغطة واحدة.</p>' +
+      '<div class="hero-badges"><span>' + icon('campaigns', 11) + ' إرسال جماعي</span><span>' + icon('analytics', 11) + ' تحليلات</span><span>' + icon('autoreply', 11) + ' رد آلي</span></div>' +
+    '</div>' +
+    '<h2 class="text-sm font-extrabold text-gold mb-1">مرحباً، ' + displayName + '</h2>' +
     '<p class="text-[12px] text-muted mb-3">نظرة عامة على نشاطك</p>' +
-    '<div class="grid grid-cols-2 gap-3" id="homeStats"><div class="text-muted text-[11px]">جارِ التحميل...</div></div>';
+    '<div class="stats-mini-row" id="homeStats"><div class="text-muted text-[11px]">جارِ التحميل...</div></div>' +
+    '<div class="quick-actions">' +
+      '<button class="quick-action-btn" onclick="showSection(\\'campaigns\\')">' + icon('campaigns', 20) + 'حملات</button>' +
+      '<button class="quick-action-btn" onclick="showSection(\\'analytics\\')">' + icon('analytics', 20) + 'إحصائيات</button>' +
+      '<button class="quick-action-btn" onclick="showSection(\\'accounts\\')">' + icon('accounts', 20) + 'حساباتي</button>' +
+      '<button class="quick-action-btn" onclick="showSection(\\'settings\\')">' + icon('settings', 20) + 'اشتراك</button>' +
+    '</div>' +
+    '<h3 class="text-[12px] font-extrabold text-gold mb-1">حساباتي</h3>' +
+    '<div id="homeAccounts"></div>';
   fetch('/dashboard/stats').then(r => r.json()).then(d => {
     document.getElementById('homeStats').innerHTML =
-      statCardHtml('campaigns', 'رسائل مرسلة', d.messages_sent.toLocaleString()) +
-      statCardHtml('settings', 'معدل النجاح', d.success_rate + '%') +
-      statCardHtml('accounts', 'حسابات متصلة', d.accounts_connected + ' / ' + d.accounts_total) +
-      statCardHtml('autoreply', 'إجمالي الحملات', d.campaigns_total);
+      statMiniHtml(d.messages_sent.toLocaleString(), 'رسائل مرسلة', true) +
+      statMiniHtml(d.success_rate + '%', 'معدل النجاح', false) +
+      statMiniHtml(d.accounts_connected + '/' + d.accounts_total, 'حسابات متصلة', false) +
+      statMiniHtml(d.campaigns_total, 'إجمالي الحملات', false);
   });
+  const accBox = document.getElementById('homeAccounts');
+  accBox.innerHTML = accounts.length
+    ? accounts.slice(0, 3).map(a =>
+        '<div class="account-item">' + avatarHtml(a.name, a.id) +
+        '<div class="info"><div class="name">' + a.name + '</div><div class="status"><span class="pill ' + (a.logged_in ? 'pill-green' : 'pill-amber') + '">' + (a.logged_in ? 'متصل' : 'غير متصل') + '</span></div></div></div>'
+      ).join('') + (accounts.length > 3 ? '<button class="btn-outline" onclick="showSection(\\'accounts\\')">عرض كل الحسابات</button>' : '')
+    : '<div class="text-muted text-[11px] text-center" style="padding:20px 0">ما عندك حسابات واتساب بعد. <span style="color:var(--gold);cursor:pointer" onclick="showSection(\\'accounts\\')">أضف حساب</span></div>';
 }
 
 /* ---------- قسم حسابي ---------- */
@@ -2498,7 +2595,7 @@ function avatarHtml(name, seed) {
 
 function renderAccounts() {
   const c = document.getElementById('content');
-  let html = '<h2 class="text-sm font-extrabold text-gold mb-3">حسابي</h2>';
+  let html = '<h2 class="text-sm font-extrabold text-gold mb-3">' + icon('accounts', 14) + ' حسابي</h2>';
   if (!accounts.length) {
     html += '<div class="empty-state">ما عندك حسابات بعد، ضيف واحد للبدء</div>';
   }
@@ -2521,7 +2618,7 @@ function renderAccounts() {
     }
     html += '</div>';
   });
-  html += '<button class="btn-outline" onclick="addAccount()">+ إضافة حساب</button>';
+  html += '<button class="btn-outline" onclick="addAccount()">' + icon('plus', 12) + ' إضافة حساب</button>';
   c.innerHTML = html;
 
   accounts.filter(a => !a.logged_in).forEach(acc => pollLogin(acc.id, gen));
@@ -2576,7 +2673,7 @@ function renderCampaigns(myGen) {
   if (!accounts.length) { c.innerHTML = '<div class="empty-state">ضيف حساباً من قسم "حسابي" أول</div>'; return; }
   const acc = accounts.find(a => a.id === activeId);
 
-  let html = '<h2 class="text-sm font-extrabold text-gold mb-3">الحملات</h2>';
+  let html = '<h2 class="text-sm font-extrabold text-gold mb-3">' + icon('campaigns', 14) + ' الحملات</h2>';
   html += '<label class="field-label">الحساب</label>' + accountSelectHtml('switchCampaignAccount');
 
   if (!acc || !acc.logged_in) {
@@ -2623,13 +2720,48 @@ function renderCampaigns(myGen) {
 
 function switchCampaignAccount(id) { activeId = id; render(); }
 
+function historyRowsHtml(rows) {
+  return rows.length
+    ? rows.map((h, i) =>
+        '<div class="history-row clickable" onclick="showCampaignDetail(' + i + ')">' +
+          '<div><span class="campaign-name">' + (h.text ? h.text.slice(0, 24) : '(بدون نص)') + '</span>' +
+          '<div class="campaign-detail">' + (h.account_name ? h.account_name + ' · ' : '') + h.time + '</div></div>' +
+          '<div style="text-align:left">' +
+            '<span class="pill pill-green">نجح ' + h.sent + '</span> ' +
+            '<span class="pill pill-red">فشل ' + h.failed + '</span>' +
+            '<span class="see-detail">تفاصيل</span>' +
+          '</div>' +
+        '</div>'
+      ).join('')
+    : '<div class="text-muted text-[11px]">ما فيه حملات سابقة</div>';
+}
+
 async function loadHistory(accId) {
   const rows = await fetch('/accounts/' + accId + '/campaigns').then(r => r.json());
+  campaignHistory = rows;
+  const acc = accounts.find(a => a.id === accId);
+  campaignHistoryAccName = acc ? acc.name : '';
   const box = document.getElementById('historyBox');
   if (!box) return;
-  box.innerHTML = rows.length
-    ? rows.map(h => '<div class="history-row"><span>' + h.time + '</span><span class="pill pill-green">نجح ' + h.sent + '</span><span class="pill pill-red">فشل ' + h.failed + '</span><span class="text-muted">من ' + h.total + '</span></div>').join('')
-    : '<div class="text-muted text-[11px]">ما فيه حملات سابقة</div>';
+  box.innerHTML = historyRowsHtml(rows);
+}
+
+function showCampaignDetail(i) {
+  const h = campaignHistory[i];
+  if (!h) return;
+  const c = document.getElementById('content');
+  c.innerHTML =
+    '<h2 class="text-sm font-extrabold text-gold mb-3">' + icon('campaigns', 14) + ' تفاصيل الحملة</h2>' +
+    '<div class="campaign-detail-card">' +
+      '<div class="detail-row"><span class="label">النص</span><span class="value">' + (h.text || '(بدون نص)') + '</span></div>' +
+      '<div class="detail-row"><span class="label">الحساب</span><span class="value">' + (h.account_name || campaignHistoryAccName) + '</span></div>' +
+      '<div class="detail-row"><span class="label">تاريخ الإرسال</span><span class="value">' + h.time + '</span></div>' +
+      '<div class="detail-row"><span class="label">الناجح</span><span class="value" style="color:var(--gold)">' + h.sent + '</span></div>' +
+      '<div class="detail-row"><span class="label">الفاشل</span><span class="value" style="color:var(--red)">' + h.failed + '</span></div>' +
+      '<div class="detail-row"><span class="label">الإجمالي</span><span class="value">' + h.total + '</span></div>' +
+      '<div class="detail-row"><span class="label">الحالة</span><span class="value"><span class="pill pill-green">مكتملة</span></span></div>' +
+    '</div>' +
+    '<button class="btn-outline" onclick="render()">رجوع إلى قائمة الحملات</button>';
 }
 
 async function pickContacts() {
@@ -2684,6 +2816,41 @@ async function refreshCampaignState(accId, myGen) {
   }
 }
 
+/* ---------- قسم الإحصائيات ---------- */
+async function renderAnalytics() {
+  const c = document.getElementById('content');
+  c.innerHTML =
+    '<h2 class="text-sm font-extrabold text-gold mb-3">' + icon('analytics', 14) + ' الإحصائيات</h2>' +
+    '<div class="stats-mini-row" id="analyticsStats" style="grid-template-columns:repeat(3,1fr)"><div class="text-muted text-[11px]">جارِ التحميل...</div></div>' +
+    '<div class="dark-card rounded-2xl p-4 mt-3">' +
+      '<h4 class="text-[12px] font-extrabold text-gold mb-2">' + icon('campaigns', 12) + ' أداء الحملات</h4>' +
+      '<div id="analyticsPerf"><div class="text-muted text-[11px]">جارِ التحميل...</div></div>' +
+    '</div>' +
+    '<h3 class="text-[12px] font-extrabold text-gold mt-5 mb-1">توزيع الرسائل حسب الحملة</h3>' +
+    '<div class="dark-card rounded-2xl p-3" id="analyticsHistory"><div class="text-muted text-[11px]">جارِ التحميل...</div></div>';
+
+  const [stats, rows] = await Promise.all([
+    fetch('/dashboard/stats').then(r => r.json()),
+    fetch('/dashboard/campaigns').then(r => r.json()),
+  ]);
+
+  document.getElementById('analyticsStats').innerHTML =
+    statMiniHtml(stats.messages_sent.toLocaleString(), 'إجمالي الرسائل', true) +
+    statMiniHtml(stats.success_rate + '%', 'معدل النجاح', false) +
+    statMiniHtml(stats.accounts_total, 'الحسابات', false);
+
+  const avgRate = stats.campaigns_total ? Math.round((stats.campaigns_success / stats.campaigns_total) * 100) : 0;
+  document.getElementById('analyticsPerf').innerHTML =
+    '<div class="history-row"><span>إجمالي الحملات</span><span style="font-weight:700">' + stats.campaigns_total + '</span></div>' +
+    '<div class="history-row"><span>الحملات الناجحة (بدون أي فشل)</span><span class="pill pill-green">' + stats.campaigns_success + '</span></div>' +
+    '<div class="history-row"><span>حملات فيها إخفاقات</span><span class="pill pill-red">' + stats.campaigns_with_failures + '</span></div>' +
+    '<div class="history-row"><span>معدل نجاح الحملات</span><span class="pill pill-green">' + avgRate + '%</span></div>';
+
+  campaignHistory = rows;
+  campaignHistoryAccName = '';
+  document.getElementById('analyticsHistory').innerHTML = historyRowsHtml(rows);
+}
+
 /* ---------- قسم الرد الآلي ---------- */
 let autoReplyRules = [];
 
@@ -2692,7 +2859,7 @@ function renderAutoReply() {
   if (!accounts.length) { c.innerHTML = '<div class="empty-state">ضيف حساباً من قسم "حسابي" أول</div>'; return; }
   const acc = accounts.find(a => a.id === activeId);
 
-  let html = '<h2 class="text-sm font-extrabold text-gold mb-3">الرد الآلي</h2>';
+  let html = '<h2 class="text-sm font-extrabold text-gold mb-3">' + icon('autoreply', 14) + ' الرد الآلي</h2>';
   html += '<label class="field-label">الحساب</label>' + accountSelectHtml('switchAutoReplyAccount');
 
   if (!acc || !acc.logged_in) {
@@ -2703,12 +2870,14 @@ function renderAutoReply() {
 
   html +=
     '<div class="dark-card rounded-2xl p-4 mt-3">' +
-    '<label class="flex items-center gap-2 text-[13px] font-bold"><input type="checkbox" id="arEnabled"> تفعيل الرد الآلي لهذا الحساب</label>' +
+    '<div class="flex items-center justify-between"><span class="text-[13px] font-bold">تفعيل الرد الآلي لهذا الحساب</span>' +
+    '<label class="toggle-switch"><input type="checkbox" id="arEnabled"><span class="slider"></span></label></div>' +
     '<p class="text-[11px] text-muted mt-1">يفحص كل رسالة جديدة تجيك من أي شخص (مو رقم واحد بس)، ويرد أول شي إذا طابقت إحدى الكلمات أدناه.</p>' +
     '<label class="field-label">كلمات مفتاحية وردودها (لها الأولوية)</label>' +
     '<div id="rulesBox" class="mt-1"></div>' +
-    '<button class="btn-outline" onclick="addRule()">+ إضافة كلمة مفتاحية</button>' +
-    '<label class="flex items-center gap-2 text-[13px] font-bold mt-4"><input type="checkbox" id="arAiEnabled"> رد بالذكاء الاصطناعي (DeepSeek) لو ما طابقت أي كلمة مفتاحية</label>' +
+    '<button class="btn-outline" onclick="addRule()">' + icon('plus', 12) + ' إضافة كلمة مفتاحية</button>' +
+    '<div class="flex items-center justify-between mt-4"><span class="text-[13px] font-bold">رد بالذكاء الاصطناعي (DeepSeek) لو ما طابقت أي كلمة مفتاحية</span>' +
+    '<label class="toggle-switch"><input type="checkbox" id="arAiEnabled"><span class="slider"></span></label></div>' +
     '<p class="text-[11px] text-muted mt-1">يحتاج مفتاح DeepSeek محفوظ من قسم الإعدادات (يضيفه أدمن المنصة).</p>' +
     '<button class="btn-gold" onclick="saveAutoReply()">حفظ</button>' +
     '<div id="arMsg" class="text-center text-[12px] font-bold mt-2"></div>' +
@@ -2757,24 +2926,45 @@ async function saveAutoReply() {
 function renderSettings() {
   const c = document.getElementById('content');
   const notifState = ('Notification' in window) ? Notification.permission : 'غير مدعوم';
+  const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
+  const initial = (CURRENT_USER || '؟').trim().charAt(0).toUpperCase();
+
   let html =
-    '<h2 class="text-sm font-extrabold text-gold mb-3">الإعدادات</h2>' +
-    '<div class="dark-card rounded-2xl p-4">' +
-    '<div class="flex items-center justify-between mb-3"><span class="text-[13px] font-bold">المظهر</span>' +
-    '<button class="btn-outline btn-small" onclick="toggleTheme()">تبديل داكن/نهاري</button></div>' +
-    '<div class="flex items-center justify-between"><span class="text-[13px] font-bold">الإشعارات (' + notifState + ')</span>' +
-    '<button class="btn-outline btn-small" onclick="ensureNotifPermission()">تفعيل</button></div>' +
-    '<p class="text-[11px] text-muted mt-3">هذا التطبيق PWA — تقدر تضيفه لشاشتك الرئيسية من قائمة المتصفح "إضافة إلى الشاشة الرئيسية".</p>' +
-    '</div>';
+    '<h2 class="text-sm font-extrabold text-gold mb-3">' + icon('settings', 14) + ' الإعدادات</h2>' +
+    '<div class="profile-hero">' +
+      '<div class="avatar avatar-0">' + initial + '</div>' +
+      '<div><div class="name">' + CURRENT_USER + '</div><span class="pill pill-green" style="margin-top:4px">' + (IS_ADMIN ? 'أدمن المنصة' : 'مستخدم') + '</span></div>' +
+    '</div>' +
 
-  if (IS_ADMIN) {
-    html += '<button class="btn-outline" onclick="showSection(\\'admin\\')">فتح لوحة تحكم الأدمن</button>';
-  }
+    '<div class="settings-list">' +
+      '<div class="settings-head">' + icon('settings', 12) + ' الإعدادات العامة</div>' +
+      '<div class="settings-item">' +
+        '<div class="left"><div class="icon-wrap primary">' + icon('moon', 15) + '</div><div><span class="text">الوضع الداكن</span><span class="sub-text">تفعيل المظهر الداكن للتطبيق</span></div></div>' +
+        '<label class="toggle-switch"><input type="checkbox" id="darkModeToggle"' + (isDark ? ' checked' : '') + ' onchange="toggleTheme()"><span class="slider"></span></label>' +
+      '</div>' +
+      '<div class="settings-item" onclick="ensureNotifPermission()">' +
+        '<div class="left"><div class="icon-wrap blue">' + icon('bell', 15) + '</div><div><span class="text">الإشعارات</span><span class="sub-text">الحالة الحالية: ' + notifState + '</span></div></div>' +
+        '<i class="fas fa-chevron-left chevron"></i>' +
+      '</div>' +
+      (IS_ADMIN ? (
+        '<div class="settings-item" onclick="showSection(\\'admin\\')">' +
+          '<div class="left"><div class="icon-wrap primary">' + icon('admin', 15) + '</div><div><span class="text">لوحة تحكم الأدمن</span><span class="sub-text">إدارة الاشتراكات والذكاء الاصطناعي</span></div></div>' +
+          '<i class="fas fa-chevron-left chevron"></i>' +
+        '</div>'
+      ) : '') +
+    '</div>' +
 
-  html +=
-    '<h3 class="text-[12px] font-extrabold text-gold mt-5 mb-1">الاشتراك</h3>' +
-    '<div class="dark-card rounded-2xl p-4" id="subBox"><div class="text-muted text-[11px]">جارِ التحميل...</div></div>' +
-    '<button class="btn-danger" onclick="logoutPlatform()">تسجيل الخروج من المنصة</button>';
+    '<div class="subscription-card" id="subBox"><div class="text-muted text-[11px]">جارِ التحميل...</div></div>' +
+
+    '<div class="settings-list">' +
+      '<div class="settings-head">' + icon('whatsapp', 12) + ' حول التطبيق</div>' +
+      '<a class="settings-item" id="supportLink" href="#" target="_blank" style="text-decoration:none;color:inherit">' +
+        '<div class="left"><div class="icon-wrap primary">' + icon('whatsapp', 15) + '</div><div><span class="text">الدعم الفني عبر واتساب</span><span class="sub-text">تواصل مع فريق الدعم</span></div></div>' +
+        '<i class="fas fa-chevron-left chevron"></i>' +
+      '</a>' +
+    '</div>' +
+
+    '<button class="btn-danger" onclick="logoutPlatform()">' + icon('logout', 14) + ' تسجيل الخروج من المنصة</button>';
 
   c.innerHTML = html;
   loadSubscription();
@@ -2785,8 +2975,8 @@ function renderAdmin() {
   const c = document.getElementById('content');
   if (!IS_ADMIN) { c.innerHTML = '<div class="empty-state">هذا القسم لأدمن المنصة فقط</div>'; return; }
   c.innerHTML =
-    '<h2 class="text-sm font-extrabold text-gold mb-3">لوحة التحكم</h2>' +
-    '<h3 class="text-[12px] font-extrabold text-gold mb-1">الرد الذكي (DeepSeek)</h3>' +
+    '<h2 class="text-sm font-extrabold text-gold mb-3">' + icon('admin', 14) + ' لوحة التحكم</h2>' +
+    '<h3 class="text-[12px] font-extrabold text-gold mb-1">' + icon('ai', 12) + ' الرد الذكي (DeepSeek)</h3>' +
     '<div class="dark-card rounded-2xl p-4">' +
     '<label class="field-label">مفتاح API (يُترك فاضي لعدم التغيير)</label>' +
     '<input id="aiKey" type="password" placeholder="sk-...">' +
@@ -2795,9 +2985,9 @@ function renderAdmin() {
     '<button class="btn-gold" onclick="saveAiSettings()">حفظ إعدادات الأدمن</button>' +
     '<div id="aiMsg" class="text-center text-[12px] font-bold mt-2"></div>' +
     '</div>' +
-    '<h3 class="text-[12px] font-extrabold text-gold mt-5 mb-1">العملاء</h3>' +
+    '<h3 class="text-[12px] font-extrabold text-gold mt-5 mb-1">' + icon('users', 12) + ' العملاء</h3>' +
     '<div class="dark-card rounded-2xl p-3" id="customersBox"><div class="text-muted text-[11px]">جارِ التحميل...</div></div>' +
-    '<h3 class="text-[12px] font-extrabold text-gold mt-5 mb-1">طلبات الدفع بانتظار المراجعة</h3>' +
+    '<h3 class="text-[12px] font-extrabold text-gold mt-5 mb-1">' + icon('payments', 12) + ' طلبات الدفع بانتظار المراجعة</h3>' +
     '<div class="dark-card rounded-2xl p-3" id="paymentsBox"><div class="text-muted text-[11px]">جارِ التحميل...</div></div>';
 
   fetch('/admin/ai_settings').then(r => r.json()).then(d => {
@@ -2810,24 +3000,29 @@ function renderAdmin() {
 
 async function loadSubscription() {
   const d = await fetch('/subscription').then(r => r.json());
+  const supportLink = document.getElementById('supportLink');
+  if (supportLink) supportLink.href = d.wa_pay_link;
+
   const box = document.getElementById('subBox');
   if (!box) return;
-  let html = '<p class="text-[13px] font-bold">' + d.plan_name + ' — ' + d.price_iqd.toLocaleString() + ' د.ع / شهرياً</p>';
+  let html =
+    '<div class="plan-name">' + d.plan_name + '</div>' +
+    '<div class="plan-price">' + d.price_iqd.toLocaleString() + ' <span style="font-size:12px;font-weight:600;color:var(--muted)">د.ع / شهرياً</span></div>';
   if (d.plan_active) {
-    html += '<span class="pill pill-green mt-1">خطتك مفعّلة</span>';
+    html += '<span class="pill pill-green">خطتك مفعّلة</span>';
   } else if (d.trial_days_left > 0) {
     html +=
-      '<span class="pill pill-amber mt-1">تجربة مجانية — تبقى ' + d.trial_days_left + ' يوم</span>' +
+      '<span class="pill pill-amber">تجربة مجانية — تبقى ' + d.trial_days_left + ' يوم</span>' +
       '<p class="text-[11px] text-muted mt-2">فعّل اشتراكك قبل انتهاء التجربة حتى تستمر الحملات والرد الآلي بالعمل بدون توقف.</p>';
   } else {
-    html += '<span class="pill pill-red mt-1">انتهت الفترة التجريبية</span>' +
+    html += '<span class="pill pill-red">انتهت الفترة التجريبية</span>' +
       '<p class="text-[11px] text-muted mt-2">لازم تفعّل الاشتراك حتى تكدر ترسل حملات أو تستخدم الرد الآلي.</p>';
   }
   if (!d.plan_active) {
-    html += '<a class="btn-gold" style="display:flex;align-items:center;justify-content:center;gap:8px;text-decoration:none" href="' + d.wa_pay_link + '" target="_blank">' + icon('whatsapp', 16) + ' اشتراك الآن عبر واتساب</a>';
+    html += '<a class="btn-gold" style="display:flex;align-items:center;justify-content:center;gap:8px;text-decoration:none;margin-top:12px" href="' + d.wa_pay_link + '" target="_blank">' + icon('whatsapp', 16) + ' اشتراك الآن عبر واتساب</a>';
   }
   if (d.payments && d.payments.length) {
-    html += '<div class="mt-3">' + d.payments.map(p =>
+    html += '<div class="mt-3" style="text-align:right">' + d.payments.map(p =>
       '<div class="history-row"><span>' + p.created_at + '</span><span>' + p.reference + '</span><span class="pill ' +
       (p.status === 'approved' ? 'pill-green' : p.status === 'rejected' ? 'pill-red' : 'pill-gray') + '">' +
       (p.status === 'approved' ? 'مقبول' : p.status === 'rejected' ? 'مرفوض' : 'قيد المراجعة') + '</span></div>'
