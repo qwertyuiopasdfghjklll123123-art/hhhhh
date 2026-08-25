@@ -28,7 +28,7 @@ import threading
 import time
 import urllib.parse
 import uuid
-from datetime import datetime
+from datetime import datetime, timedelta
 from functools import wraps
 
 import openpyxl
@@ -67,6 +67,7 @@ def get_or_create_secret_key():
 
 app = Flask(__name__)
 app.secret_key = get_or_create_secret_key()
+app.config["PERMANENT_SESSION_LIFETIME"] = timedelta(days=30)
 
 accounts = {}  # id -> {id, owner, name, driver, lock, campaign, history, auto_reply, watching, otp_sender}
 events = []
@@ -532,8 +533,47 @@ def watch_account(acc_id):
 
 # ---------------------------------------------------------------- صفحات المصادقة
 
+ICON_MAIL = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6h16v12H4z"/><path d="M4 7l8 6 8-6"/></svg>'
+ICON_LOCK = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 018 0v3"/></svg>'
+ICON_LOCK_SM = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 018 0v3"/></svg>'
+ICON_SHIELD_SM = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l7 3v6c0 5-3 8-7 9-4-1-7-4-7-9V6l7-3z"/><path d="M9 12l2 2 4-4"/></svg>'
+ICON_EYE = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7-11-7-11-7z"/><circle cx="12" cy="12" r="3"/></svg>'
+ICON_EYE_OFF = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.94 17.94A10.94 10.94 0 0112 19c-7 0-11-7-11-7a21.6 21.6 0 015.06-6.06M9.9 4.24A10.4 10.4 0 0112 4c7 0 11 7 11 7a21.6 21.6 0 01-2.65 3.79M14.12 14.12a3 3 0 11-4.24-4.24"/><path d="M1 1l22 22"/></svg>'
+ICON_WHATSAPP = '<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M17.6 6.32A7.85 7.85 0 0012.05 4a7.94 7.94 0 00-6.9 11.9L4 20l4.2-1.1a7.9 7.9 0 003.83 1h.02a7.94 7.94 0 007.94-7.94 7.9 7.9 0 00-2.4-5.64zm-5.55 12.2h-.01a6.6 6.6 0 01-3.36-.92l-.24-.14-2.5.65.67-2.44-.16-.25a6.6 6.6 0 01-1-3.5 6.62 6.62 0 016.62-6.62 6.58 6.58 0 016.6 6.63 6.62 6.62 0 01-6.62 6.6zm3.6-4.95c-.2-.1-1.17-.58-1.35-.64-.18-.07-.32-.1-.45.1-.13.2-.51.64-.63.77-.11.13-.23.14-.43.05-.2-.1-.85-.31-1.61-1-.6-.53-1-1.18-1.11-1.38-.12-.2-.01-.3.09-.4.09-.09.2-.23.3-.35.1-.12.13-.2.2-.33.06-.13.03-.25-.02-.35-.05-.1-.45-1.09-.62-1.49-.16-.39-.33-.34-.45-.34-.12 0-.25-.01-.38-.01-.13 0-.35.05-.53.25-.18.2-.7.68-.7 1.67 0 .98.72 1.93.82 2.06.1.13 1.4 2.15 3.4 3.01.48.2.85.33 1.14.42.48.15.91.13 1.26.08.38-.06 1.17-.48 1.34-.94.16-.46.16-.86.11-.94-.05-.08-.18-.13-.38-.23z"/></svg>'
+ICON_BACK = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg>'
+ICON_CHECK = '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg>'
+ICON_SEND = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 2L11 13"/><path d="M22 2l-7 20-4-9-9-4 20-7z"/></svg>'
+ICON_USERS = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87"/><path d="M16 3.13a4 4 0 010 7.75"/></svg>'
+ICON_TREND = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M23 6l-9.5 9.5-5-5L1 18"/><path d="M17 6h6v6"/></svg>'
+ICON_BOLT = '<svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>'
+ICON_CHART = '<svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><rect x="7" y="12" width="3" height="6"/><rect x="12" y="8" width="3" height="10"/><rect x="17" y="5" width="3" height="13"/></svg>'
+ICON_TARGET = '<svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1"/></svg>'
+
+
+def logo_svg(size=32, grad_id="lg"):
+    return f"""<svg width="{size}" height="{size}" viewBox="0 0 32 32" aria-hidden="true">
+      <defs><linearGradient id="{grad_id}" x1="0" y1="0" x2="32" y2="32">
+        <stop offset="0" stop-color="oklch(0.78 0.17 152)"/><stop offset="1" stop-color="oklch(0.6 0.18 152)"/>
+      </linearGradient></defs>
+      <rect x="1" y="1" width="30" height="30" rx="9" fill="url(#{grad_id})"/>
+      <path d="M9 11a2 2 0 012-2h10a2 2 0 012 2v7a2 2 0 01-2 2h-7l-4 4v-4h-1a2 2 0 01-2-2v-7z" fill="#fff"/>
+      <path d="M10.5 15h3l1.5-3 2.5 6 1.5-3h3" fill="none" stroke="url(#{grad_id})" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+    </svg>"""
+
+
 def render_auth_page(title, action, switch_html, error):
     error_html = f'<p class="err">{error}</p>' if error else ""
+    is_login = action == "/login"
+    if is_login:
+        remember_row = (
+            '<div class="form-row-between">'
+            '<label class="remember-row"><input type="checkbox" name="remember" value="1"><span>تذكرني</span></label>'
+            '<a href="#" class="forgot-link" onclick="showForgot(event)">نسيت كلمة المرور؟</a>'
+            '</div>'
+        )
+    else:
+        remember_row = ""
+    email_switch_label = f"{title} بالبريد الإلكتروني"
     return f"""
 <!doctype html>
 <html lang="ar" dir="rtl">
@@ -546,7 +586,8 @@ def render_auth_page(title, action, switch_html, error):
 <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@700;800;900&family=Tajawal:wght@300;400;500;700;800&display=swap" rel="stylesheet">
 <style>
   html, body {{ margin:0; padding:0; background:oklch(0.145 0.014 245); color:oklch(0.97 0.006 245); font-family:'Tajawal',system-ui,sans-serif; min-height:100vh; }}
-  .wrap {{ max-width: 360px; margin: 0 auto; padding: 60px 20px; }}
+  .wrap {{ position:relative; max-width: 360px; margin: 0 auto; padding: 60px 20px 40px; }}
+  .back-btn {{ position:absolute; top:22px; left:20px; width:36px; height:36px; border-radius:12px; background:oklch(0.195 0.017 245); border:1px solid oklch(1 0 0 / 10%); display:flex; align-items:center; justify-content:center; color:oklch(0.97 0.006 245); text-decoration:none; }}
   .logo {{ display:flex; align-items:center; justify-content:center; gap:9px; margin-bottom:10px; }}
   .logo span {{ font-family:'Cairo',sans-serif; font-weight:800; font-size:18px; }}
   h1 {{ text-align:center; font-family:'Cairo',sans-serif; font-size:20px; font-weight:800; margin:14px 0 4px; }}
@@ -555,74 +596,97 @@ def render_auth_page(title, action, switch_html, error):
   .tab {{ flex:1; padding:11px 6px; border-radius:12px; border:1.5px solid oklch(1 0 0 / 15%); background:oklch(0.195 0.017 245); color:oklch(0.72 0.02 245); font-size:12.5px; font-weight:700; text-align:center; cursor:pointer; display:flex; align-items:center; justify-content:center; gap:6px; font-family:inherit; }}
   .tab.active {{ border-color:oklch(0.78 0.17 152 / 45%); color:oklch(0.78 0.17 152); background:oklch(0.78 0.17 152 / 10%); }}
   .box {{ background:oklch(0.195 0.017 245); border:1px solid oklch(1 0 0 / 9%); border-radius:20px; padding:24px 22px; box-shadow:0 20px 50px rgba(0,0,0,.4); }}
-  .shield {{ display:flex; justify-content:center; margin-bottom:14px; color:oklch(0.78 0.17 152); }}
   h2 {{ text-align:center; font-family:'Cairo',sans-serif; color:oklch(0.97 0.006 245); font-size:17px; font-weight:800; margin:0 0 4px; }}
-  .step-sub {{ text-align:center; font-size:12px; color:oklch(0.72 0.02 245); margin:0 0 16px; }}
+  .step-sub {{ display:flex; align-items:center; justify-content:center; gap:6px; text-align:center; font-size:12px; color:oklch(0.72 0.02 245); margin:0 0 16px; }}
+  .input-group {{ position:relative; margin-top:10px; }}
+  .input-group > svg {{ position:absolute; top:50%; right:13px; transform:translateY(-50%); color:oklch(0.5 0.02 245); pointer-events:none; }}
+  .input-group input {{ margin-top:0; padding-right:38px; }}
+  .input-group.pw input {{ padding-left:38px; }}
   input {{ width:100%; box-sizing:border-box; padding:12px 13px; font-size:14px; font-family:inherit; background:oklch(0.235 0.019 245); border:1px solid oklch(1 0 0 / 15%); border-radius:13px; margin-top:10px; color:oklch(0.97 0.006 245); }}
   input::placeholder {{ color:oklch(0.5 0.02 245); }}
-  button {{ width:100%; padding:13px; margin-top:18px; border:none; border-radius:14px; background:linear-gradient(135deg, oklch(0.78 0.17 152), oklch(0.66 0.18 152)); color:oklch(0.2 0.05 152); font-weight:800; font-size:14px; font-family:inherit; cursor:pointer; box-shadow:0 8px 20px oklch(0.78 0.17 152 / 28%); }}
+  button {{ width:100%; box-sizing:border-box; display:flex; align-items:center; justify-content:center; gap:8px; padding:13px; margin-top:18px; border:none; border-radius:14px; background:linear-gradient(135deg, oklch(0.78 0.17 152), oklch(0.66 0.18 152)); color:oklch(0.2 0.05 152); font-weight:800; font-size:14px; font-family:inherit; cursor:pointer; box-shadow:0 8px 20px oklch(0.78 0.17 152 / 28%); }}
   button:disabled {{ opacity:.7; cursor:default; }}
   button.btn-ghost {{ background:transparent; border:1.5px solid oklch(1 0 0 / 18%); color:oklch(0.97 0.006 245); box-shadow:none; font-weight:700; }}
+  button.eye-toggle {{ position:absolute; top:50%; left:8px; transform:translateY(-50%); width:auto; margin:0; padding:4px; background:none; border:none; box-shadow:none; color:oklch(0.5 0.02 245); cursor:pointer; }}
+  .form-row-between {{ display:flex; align-items:center; justify-content:space-between; margin-top:12px; }}
+  .remember-row {{ display:flex; align-items:center; gap:6px; color:oklch(0.85 0.01 245); cursor:pointer; font-size:12px; }}
+  .remember-row input {{ width:auto; margin:0; padding:0; accent-color:oklch(0.78 0.17 152); }}
+  .forgot-link {{ color:oklch(0.78 0.17 152); text-decoration:none; font-weight:700; font-size:12px; }}
   p.switch {{ text-align:center; font-size:12px; margin-top:16px; color:oklch(0.72 0.02 245); }}
   p.switch a {{ color:oklch(0.78 0.17 152); font-weight:700; text-decoration:none; }}
   p.err {{ color:oklch(0.68 0.19 21); font-size:12px; text-align:center; margin:0 0 10px; }}
+  p.notice {{ color:oklch(0.78 0.17 152); font-size:11.5px; text-align:center; margin:10px 0 0; line-height:1.6; }}
+  p.terms {{ text-align:center; font-size:10.5px; color:oklch(0.5 0.02 245); line-height:1.7; margin:16px 0 0; }}
   p.wa-msg {{ color:oklch(0.68 0.19 21); font-size:12px; text-align:center; margin:10px 0 0; min-height:14px; }}
-  .wa-hint {{ text-align:center; font-size:11px; color:oklch(0.72 0.02 245); margin-top:12px; }}
+  .wa-hint {{ display:flex; align-items:center; justify-content:center; gap:5px; text-align:center; font-size:11px; color:oklch(0.72 0.02 245); margin-top:12px; }}
   .wa-badge {{ display:flex; justify-content:center; margin-bottom:16px; }}
+  .badge-rings {{ position:relative; width:88px; height:88px; display:flex; align-items:center; justify-content:center; }}
+  .ring {{ position:absolute; width:56px; height:56px; border-radius:50%; border:1.5px solid oklch(0.78 0.17 152 / 40%); animation:ringPulse 2.4s ease-out infinite; }}
+  .ring.r2 {{ animation-delay:.8s; }}
+  .ring.r3 {{ animation-delay:1.6s; }}
+  @keyframes ringPulse {{ 0% {{ width:56px; height:56px; opacity:.8; }} 100% {{ width:92px; height:92px; opacity:0; }} }}
+  .badge-core {{ position:relative; z-index:2; display:flex; }}
+  .badge-check {{ position:absolute; z-index:3; bottom:-2px; left:-2px; width:22px; height:22px; border-radius:50%; background:oklch(0.78 0.17 152); border:3px solid oklch(0.195 0.017 245); display:flex; align-items:center; justify-content:center; }}
+  .divider {{ display:flex; align-items:center; gap:10px; margin:16px 0; color:oklch(0.5 0.02 245); font-size:11px; }}
+  .divider::before, .divider::after {{ content:''; flex:1; height:1px; background:oklch(1 0 0 / 12%); }}
 </style>
 </head>
 <body>
   <div class="wrap">
+    <a href="/welcome" class="back-btn" aria-label="رجوع">{ICON_BACK}</a>
     <div class="logo">
-      <svg width="30" height="30" viewBox="0 0 32 32" aria-hidden="true">
-        <defs><linearGradient id="lg" x1="0" y1="0" x2="32" y2="32">
-          <stop offset="0" stop-color="oklch(0.78 0.17 152)"/><stop offset="1" stop-color="oklch(0.6 0.18 152)"/>
-        </linearGradient></defs>
-        <rect x="1" y="1" width="30" height="30" rx="9" fill="url(#lg)"/>
-        <path d="M9 11a2 2 0 012-2h10a2 2 0 012 2v7a2 2 0 01-2 2h-7l-4 4v-4h-1a2 2 0 01-2-2v-7z" fill="#fff"/>
-        <path d="M10.5 15h3l1.5-3 2.5 6 1.5-3h3" fill="none" stroke="url(#lg)" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
-      </svg>
+      {logo_svg(30)}
       <span>واصل</span>
     </div>
     <h1>{title}</h1>
     <p class="subtitle">سجّل دخولك للوصول إلى حسابك وإدارة حملاتك التسويقية بسهولة</p>
 
     <div class="tabs">
-      <div class="tab" id="tabEmail" onclick="showTab('email')">البريد الإلكتروني</div>
-      <div class="tab active" id="tabWa" onclick="showTab('wa')">عبر واتساب</div>
+      <div class="tab" id="tabEmail" onclick="showTab('email')">{ICON_MAIL}<span>البريد الإلكتروني</span></div>
+      <div class="tab active" id="tabWa" onclick="showTab('wa')">{ICON_WHATSAPP}<span>عبر واتساب</span></div>
     </div>
 
     <div class="box" id="panelEmail" style="display:none">
-      <div class="shield">
-        <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M12 3l7 3v6c0 5-3 8-7 9-4-1-7-4-7-9V6l7-3z"/><path d="M9 12l2 2 4-4"/>
-        </svg>
-      </div>
       <h2>{title}</h2>
       {error_html}
       <form method="post" action="{action}">
-        <input name="email" type="email" placeholder="البريد الإلكتروني" required>
-        <input name="password" type="password" placeholder="كلمة المرور" required>
+        <div class="input-group">
+          {ICON_MAIL}
+          <input name="email" type="email" placeholder="البريد الإلكتروني" required>
+        </div>
+        <div class="input-group pw">
+          {ICON_LOCK}
+          <input name="password" id="passwordInput" type="password" placeholder="كلمة المرور" required>
+          <button type="button" class="eye-toggle" onclick="togglePassword()">
+            <span id="eyeShow">{ICON_EYE}</span>
+            <span id="eyeHide" style="display:none">{ICON_EYE_OFF}</span>
+          </button>
+        </div>
+        {remember_row}
         <button type="submit">{title}</button>
       </form>
+      <p class="notice" id="emailNotice" style="display:none"></p>
       {switch_html}
+      <p class="terms">بالتسجيل، فإنك توافق على الشروط والأحكام وسياسة الخصوصية</p>
     </div>
 
     <div class="box" id="panelWa">
       <div class="wa-badge">
-        <svg width="56" height="56" viewBox="0 0 32 32" aria-hidden="true">
-          <rect x="1" y="1" width="30" height="30" rx="9" fill="url(#lg)"/>
-          <path d="M9 11a2 2 0 012-2h10a2 2 0 012 2v7a2 2 0 01-2 2h-7l-4 4v-4h-1a2 2 0 01-2-2v-7z" fill="#fff"/>
-          <path d="M10.5 15h3l1.5-3 2.5 6 1.5-3h3" fill="none" stroke="url(#lg)" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
-        </svg>
+        <div class="badge-rings">
+          <span class="ring r1"></span><span class="ring r2"></span><span class="ring r3"></span>
+          <div class="badge-core">{logo_svg(56, "lgb")}</div>
+          <div class="badge-check">{ICON_CHECK}</div>
+        </div>
       </div>
 
       <div id="waStepPhone">
         <h2>تسجيل الدخول عبر واتساب</h2>
-        <p class="step-sub">الطريقة الأسرع والأكثر أماناً</p>
+        <p class="step-sub">{ICON_SHIELD_SM}<span>الطريقة الأسرع والأكثر أماناً</span></p>
         <input id="waPhone" type="tel" placeholder="رقم واتساب مع مفتاح الدولة، مثال 9647701234567">
-        <button type="button" id="waSendBtn" data-label="متابعة عبر واتساب" onclick="waSendCode()">متابعة عبر واتساب</button>
-        <p class="wa-hint">آمن وسريع — بدون كلمة مرور لو رقمك مسجّل من قبل</p>
+        <button type="button" id="waSendBtn" data-label="متابعة عبر واتساب" onclick="waSendCode()">{ICON_WHATSAPP}<span>متابعة عبر واتساب</span></button>
+        <p class="wa-hint">{ICON_LOCK_SM}<span>آمن وسريع بدون كلمة مرور</span></p>
+        <div class="divider"><span>أو</span></div>
+        <button type="button" class="btn-ghost" onclick="showTab('email')">{email_switch_label}</button>
       </div>
 
       <div id="waStepCode" style="display:none">
@@ -642,6 +706,7 @@ def render_auth_page(title, action, switch_html, error):
 
       <p class="wa-msg" id="waMsg"></p>
       {switch_html}
+      <p class="terms">بالتسجيل، فإنك توافق على الشروط والأحكام وسياسة الخصوصية</p>
     </div>
   </div>
 
@@ -666,6 +731,21 @@ function waBtnLoading(id, loading) {{
   const btn = document.getElementById(id);
   btn.disabled = loading;
   btn.innerText = loading ? '...' : btn.dataset.label;
+}}
+
+function togglePassword() {{
+  const input = document.getElementById('passwordInput');
+  const show = input.type === 'password';
+  input.type = show ? 'text' : 'password';
+  document.getElementById('eyeShow').style.display = show ? 'none' : 'inline-flex';
+  document.getElementById('eyeHide').style.display = show ? 'inline-flex' : 'none';
+}}
+
+function showForgot(e) {{
+  e.preventDefault();
+  const n = document.getElementById('emailNotice');
+  n.style.display = 'block';
+  n.innerText = 'لإعادة تعيين كلمة المرور، تواصل مع إدارة المنصة.';
 }}
 
 let waPhone = '';
@@ -711,7 +791,108 @@ async function waComplete() {{
 """
 
 
+def render_welcome_page():
+    return f"""
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>واصل — Wasel Business</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Cairo:wght@700;800;900&family=Tajawal:wght@300;400;500;700;800&display=swap" rel="stylesheet">
+<style>
+  html, body {{ margin:0; padding:0; background:oklch(0.145 0.014 245); color:oklch(0.97 0.006 245); font-family:'Tajawal',system-ui,sans-serif; min-height:100vh; }}
+  .wrap {{ max-width: 360px; margin: 0 auto; padding: 44px 22px 34px; box-sizing:border-box; }}
+  .welcome-logo {{ display:flex; justify-content:center; margin-bottom:14px; }}
+  .brand-name {{ text-align:center; font-family:'Cairo',sans-serif; font-weight:900; font-size:26px; margin:0; }}
+  .brand-sub {{ text-align:center; font-family:'Cairo',sans-serif; font-weight:700; font-size:11px; letter-spacing:3px; color:oklch(0.72 0.02 245); margin:3px 0 14px; }}
+  .tagline {{ text-align:center; font-size:13px; color:oklch(0.72 0.02 245); line-height:1.8; margin:0 0 8px; padding:0 6px; }}
+  .hero {{ position:relative; height:236px; margin:26px 0 22px; }}
+  .hero-glow {{ position:absolute; inset:14px 34px; border-radius:50%; background:radial-gradient(circle, oklch(0.78 0.17 152 / 22%), transparent 70%); filter:blur(6px); }}
+  .stat-card {{ position:absolute; z-index:1; width:152px; box-sizing:border-box; background:oklch(0.195 0.017 245); border:1px solid oklch(1 0 0 / 10%); border-radius:16px; padding:12px 14px; box-shadow:0 14px 30px rgba(0,0,0,.35); animation:floatCard 4s ease-in-out infinite; }}
+  .stat-1 {{ top:0; right:0; animation-delay:0s; }}
+  .stat-2 {{ top:86px; left:0; animation-delay:.5s; }}
+  .stat-3 {{ bottom:0; right:14px; animation-delay:1s; }}
+  @keyframes floatCard {{ 0%, 100% {{ transform:translateY(0); }} 50% {{ transform:translateY(-8px); }} }}
+  .stat-icon {{ width:26px; height:26px; border-radius:8px; background:oklch(0.78 0.17 152 / 15%); color:oklch(0.78 0.17 152); display:flex; align-items:center; justify-content:center; margin-bottom:8px; }}
+  .stat-label {{ font-size:10.5px; color:oklch(0.72 0.02 245); margin:0 0 2px; }}
+  .stat-value {{ font-family:'Cairo',sans-serif; font-weight:800; font-size:16px; margin:0 0 8px; }}
+  .progress {{ height:4px; border-radius:2px; background:oklch(1 0 0 / 10%); overflow:hidden; }}
+  .progress-fill {{ height:100%; border-radius:2px; background:linear-gradient(90deg, oklch(0.78 0.17 152), oklch(0.6 0.18 152)); }}
+  .features-row {{ display:flex; justify-content:space-between; gap:10px; margin-bottom:22px; }}
+  .feature {{ flex:1; display:flex; flex-direction:column; align-items:center; gap:7px; text-align:center; }}
+  .feature-icon {{ width:42px; height:42px; border-radius:13px; background:oklch(0.195 0.017 245); border:1px solid oklch(1 0 0 / 9%); color:oklch(0.78 0.17 152); display:flex; align-items:center; justify-content:center; }}
+  .feature span {{ font-size:11px; color:oklch(0.85 0.01 245); font-weight:600; }}
+  .dots {{ display:flex; justify-content:center; gap:6px; margin-bottom:26px; }}
+  .dot {{ width:6px; height:6px; border-radius:50%; background:oklch(1 0 0 / 18%); transition:all .2s; }}
+  .dot.active {{ width:20px; border-radius:3px; background:oklch(0.78 0.17 152); }}
+  .btn-primary-lg {{ display:flex; flex-direction:column; align-items:center; justify-content:center; gap:2px; width:100%; box-sizing:border-box; padding:14px; border-radius:16px; background:linear-gradient(135deg, oklch(0.78 0.17 152), oklch(0.66 0.18 152)); color:oklch(0.16 0.03 152); text-decoration:none; box-shadow:0 10px 24px oklch(0.78 0.17 152 / 30%); margin-bottom:12px; }}
+  .btn-primary-lg .btn-main {{ font-family:'Cairo',sans-serif; font-weight:800; font-size:15px; }}
+  .btn-primary-lg .btn-sub {{ font-size:11px; opacity:.85; font-weight:600; }}
+  .btn-outline-lg {{ display:flex; align-items:center; justify-content:center; gap:8px; width:100%; box-sizing:border-box; padding:13px; border-radius:16px; border:1.5px solid oklch(1 0 0 / 18%); color:oklch(0.97 0.006 245); text-decoration:none; font-weight:700; font-size:13.5px; margin-bottom:18px; }}
+  p.switch {{ text-align:center; font-size:12.5px; margin:0; color:oklch(0.72 0.02 245); }}
+  p.switch a {{ color:oklch(0.78 0.17 152); font-weight:700; text-decoration:none; }}
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="welcome-logo">{logo_svg(46, "lgw")}</div>
+    <p class="brand-name">واصل</p>
+    <p class="brand-sub">WASEL BUSINESS</p>
+    <p class="tagline">منصّتك لإدارة حملات واتساب التسويقية بذكاء وسهولة</p>
+
+    <div class="hero">
+      <div class="hero-glow"></div>
+      <div class="stat-card stat-1">
+        <div class="stat-icon">{ICON_SEND}</div>
+        <p class="stat-label">رسائل مرسلة</p>
+        <p class="stat-value">12,680</p>
+        <div class="progress"><div class="progress-fill" style="width:82%"></div></div>
+      </div>
+      <div class="stat-card stat-2">
+        <div class="stat-icon">{ICON_USERS}</div>
+        <p class="stat-label">جمهورك المستهدف</p>
+        <p class="stat-value">2,450</p>
+        <div class="progress"><div class="progress-fill" style="width:65%"></div></div>
+      </div>
+      <div class="stat-card stat-3">
+        <div class="stat-icon">{ICON_TREND}</div>
+        <p class="stat-label">معدل التفاعل</p>
+        <p class="stat-value">68%</p>
+        <div class="progress"><div class="progress-fill" style="width:68%"></div></div>
+      </div>
+    </div>
+
+    <div class="features-row">
+      <div class="feature"><div class="feature-icon">{ICON_BOLT}</div><span>أتمتة كاملة</span></div>
+      <div class="feature"><div class="feature-icon">{ICON_CHART}</div><span>تحليلات دقيقة</span></div>
+      <div class="feature"><div class="feature-icon">{ICON_TARGET}</div><span>نتائج أفضل</span></div>
+    </div>
+
+    <div class="dots"><span class="dot active"></span><span class="dot"></span><span class="dot"></span></div>
+
+    <a href="/signup" class="btn-primary-lg">
+      <span class="btn-main">ابدأ الآن</span>
+      <span class="btn-sub">إنشاء حساب جديد</span>
+    </a>
+    <a href="/login" class="btn-outline-lg">{ICON_WHATSAPP}<span>تسجيل الدخول عبر واتساب</span></a>
+    <p class="switch">لديك حساب بالفعل؟ <a href="/login">تسجيل الدخول</a></p>
+  </div>
+</body>
+</html>
+"""
+
+
 EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+
+
+@app.route("/welcome")
+def welcome_page():
+    if session.get("user_id"):
+        return redirect("/")
+    return render_welcome_page()
 
 
 @app.route("/login", methods=["GET", "POST"])
@@ -726,6 +907,7 @@ def login_page():
     session["user_id"] = user["id"]
     session["email"] = user["email"]
     session["is_admin"] = bool(user["is_admin"])
+    session.permanent = bool(request.form.get("remember"))
     return redirect("/")
 
 
@@ -832,7 +1014,7 @@ def complete_whatsapp_signup():
 @app.route("/")
 def home():
     if not session.get("user_id"):
-        return redirect("/login")
+        return redirect("/welcome")
     page = PAGE.replace("__IS_ADMIN__", "true" if session.get("is_admin") else "false")
     page = page.replace("__USERNAME__", session.get("email", ""))
     return page
