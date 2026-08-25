@@ -916,7 +916,7 @@ def set_ai_settings():
 @app.route("/subscription")
 @login_required
 def get_subscription():
-    user = db_get_user_by_email(session["email"])
+    user = db_get_user_by_id(session["user_id"])
     payments = db_list_payments_for_user(session["user_id"])
     return jsonify(
         plan_active=bool(user and user["plan_active"]),
@@ -966,6 +966,23 @@ def admin_reject_payment(payment_id):
 
 
 # ---------------------------------------------------------------- حسابات واتساب (لكل مستخدم)
+
+@app.route("/dashboard/stats")
+@login_required
+def dashboard_stats():
+    uid = session["user_id"]
+    my_accounts = [a for a in accounts.values() if a["owner"] == uid]
+    sent = sum(h["sent"] for a in my_accounts for h in a["history"])
+    failed = sum(h["failed"] for a in my_accounts for h in a["history"])
+    total_msgs = sent + failed
+    return jsonify(
+        accounts_total=len(my_accounts),
+        accounts_connected=sum(1 for a in my_accounts if account_logged_in(a)),
+        messages_sent=sent,
+        success_rate=round((sent / total_msgs) * 100) if total_msgs else 0,
+        campaigns_total=sum(len(a["history"]) for a in my_accounts),
+    )
+
 
 @app.route("/accounts", methods=["GET"])
 @login_required
@@ -1203,10 +1220,13 @@ PAGE = """
   .notif-item span { color: var(--muted); font-size: 11px; }
 
   .body { display: flex; flex: 1; }
-  .nav { width: 220px; flex-shrink: 0; background: var(--card); border-left: 1px solid var(--border); padding: 16px 10px; }
+  .nav { width: 220px; flex-shrink: 0; background: var(--card); border-left: 1px solid var(--border); padding: 16px 10px; display: flex; flex-direction: column; }
+  .nav-items { flex: 1; }
   .nav-item { display: flex; align-items: center; gap: 10px; padding: 11px 12px; border-radius: 12px; font-size: 13px; font-weight: 700; color: var(--muted); cursor: pointer; margin-bottom: 4px; transition: .15s ease; }
   .nav-item:hover { background: var(--card-soft); color: var(--ink); }
   .nav-item.active { background: var(--gold-light); border: 1px solid var(--gold-border); color: var(--gold); }
+  .profile-card { display: flex; align-items: center; gap: 10px; padding: 12px 10px; border-top: 1px solid var(--border); margin-top: 8px; }
+  .profile-name { font-size: 12px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .content { flex: 1; padding: 28px; display: flex; justify-content: center; }
   .content-inner { width: 100%; max-width: 620px; }
   .bottom-tabs { display: none; }
@@ -1347,18 +1367,24 @@ PAGE = """
 
   <div class="body">
     <nav class="nav" id="nav">
-      <div class="nav-item" data-s="accounts" onclick="showSection('accounts')"></div>
-      <div class="nav-item" data-s="campaigns" onclick="showSection('campaigns')"></div>
-      <div class="nav-item" data-s="autoreply" onclick="showSection('autoreply')"></div>
-      <div class="nav-item" data-s="settings" onclick="showSection('settings')"></div>
+      <div class="nav-items">
+        <div class="nav-item" data-s="home" onclick="showSection('home')"></div>
+        <div class="nav-item" data-s="accounts" onclick="showSection('accounts')"></div>
+        <div class="nav-item" data-s="campaigns" onclick="showSection('campaigns')"></div>
+        <div class="nav-item" data-s="autoreply" onclick="showSection('autoreply')"></div>
+        <div class="nav-item" data-s="admin" id="navAdmin" onclick="showSection('admin')"></div>
+        <div class="nav-item" data-s="settings" onclick="showSection('settings')"></div>
+      </div>
+      <div class="profile-card" id="profileCard"></div>
     </nav>
     <main class="content"><div class="content-inner" id="content"></div></main>
   </div>
 
   <nav class="bottom-tabs" id="bottomTabs">
+    <div class="bottom-tab" data-s="home" onclick="showSection('home')"></div>
     <div class="bottom-tab" data-s="accounts" onclick="showSection('accounts')"></div>
-    <div class="bottom-tab" data-s="campaigns" onclick="showSection('campaigns')"></div>
     <div class="fab" onclick="showSection('campaigns')" title="بدء حملة جديدة"></div>
+    <div class="bottom-tab" data-s="campaigns" onclick="showSection('campaigns')"></div>
     <div class="bottom-tab" data-s="autoreply" onclick="showSection('autoreply')"></div>
     <div class="bottom-tab" data-s="settings" onclick="showSection('settings')"></div>
   </nav>
@@ -1369,9 +1395,11 @@ const IS_ADMIN = __IS_ADMIN__;
 
 /* ---------- أيقونات خطية (بدون إيموجي) ---------- */
 const ICONS = {
+  home: '<path d="M4 11l8-7 8 7"/><path d="M6 10v9a1 1 0 001 1h10a1 1 0 001-1v-9"/><path d="M10 20v-6h4v6"/>',
   accounts: '<circle cx="12" cy="8" r="3.2"/><path d="M5 20c0-3.5 3-6 7-6s7 2.5 7 6"/>',
   campaigns: '<line x1="21" y1="3" x2="10" y2="14"/><polygon points="21 3 14 21 10 14 3 10 21 3"/>',
   autoreply: '<path d="M4 5h16v11H8l-4 4V5z"/><circle cx="9" cy="10.3" r=".9" fill="currentColor" stroke="none"/><circle cx="12" cy="10.3" r=".9" fill="currentColor" stroke="none"/><circle cx="15" cy="10.3" r=".9" fill="currentColor" stroke="none"/>',
+  admin: '<path d="M12 3l7 3v6c0 5-3 8-7 9-4-1-7-4-7-9V6l7-3z"/><path d="M9 12l2 2 4-4"/>',
   settings: '<line x1="4" y1="6" x2="20" y2="6"/><circle cx="15" cy="6" r="2"/><line x1="4" y1="12" x2="20" y2="12"/><circle cx="9" cy="12" r="2"/><line x1="4" y1="18" x2="20" y2="18"/><circle cx="17" cy="18" r="2"/>',
   bell: '<path d="M6 8a6 6 0 0112 0c0 5 2 6 2 6H4s2-1 2-6"/><path d="M10 21a2 2 0 004 0"/>',
   sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4 12H2M22 12h-2M5 5l1.5 1.5M17.5 17.5L19 19M19 5l-1.5 1.5M6.5 17.5L5 19"/>',
@@ -1383,7 +1411,8 @@ function icon(name, size) {
   return '<svg class="icon" width="' + size + '" height="' + size + '" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">' + (ICONS[name] || '') + '</svg>';
 }
 
-const SECTION_LABELS = { accounts: 'حسابي', campaigns: 'الحملات', autoreply: 'الرد الآلي', settings: 'الإعدادات' };
+const CURRENT_USER = "__USERNAME__";
+const SECTION_LABELS = { home: 'الرئيسية', accounts: 'حسابي', campaigns: 'الحملات', autoreply: 'الرد الآلي', admin: 'التحكم', settings: 'الإعدادات' };
 
 function initChrome() {
   document.getElementById('bellBtn').insertAdjacentHTML('afterbegin', icon('bell'));
@@ -1395,11 +1424,17 @@ function initChrome() {
   });
   const fab = document.querySelector('.fab');
   if (fab) fab.innerHTML = icon('plus', 22);
+  if (!IS_ADMIN) document.getElementById('navAdmin').style.display = 'none';
+  const initial = (CURRENT_USER || '؟').trim().charAt(0).toUpperCase();
+  document.getElementById('profileCard').innerHTML =
+    '<div class="avatar avatar-0">' + initial + '</div>' +
+    '<div style="overflow:hidden"><div class="profile-name">' + CURRENT_USER + '</div>' +
+    '<div class="pill pill-green" style="margin-top:3px">' + (IS_ADMIN ? 'أدمن المنصة' : 'مستخدم') + '</div></div>';
 }
 initChrome();
 
 let accounts = [];
-let section = 'accounts';
+let section = 'home';
 let activeId = null;
 let gen = 0;
 let lastSeenEventId = -1;
@@ -1464,7 +1499,7 @@ function showSection(s) {
   document.querySelectorAll('.nav-item, .bottom-tab').forEach(n => n.classList.toggle('active', n.dataset.s === s));
   render();
 }
-showSection('accounts');
+showSection('home');
 
 async function loadAccounts(preferId) {
   accounts = await fetch('/accounts').then(r => r.json());
@@ -1477,10 +1512,35 @@ async function render() {
   const myGen = gen;
   await loadAccounts();
   if (myGen !== gen) return;
-  if (section === 'accounts') renderAccounts();
+  if (section === 'home') renderHome();
+  else if (section === 'accounts') renderAccounts();
   else if (section === 'campaigns') renderCampaigns(myGen);
   else if (section === 'autoreply') renderAutoReply();
+  else if (section === 'admin') renderAdmin();
   else renderSettings();
+}
+
+/* ---------- قسم الرئيسية ---------- */
+function statCardHtml(iconName, label, value) {
+  return '<div class="dark-card rounded-2xl p-4">' +
+    '<div style="width:34px;height:34px;border-radius:10px;background:var(--gold-light);display:flex;align-items:center;justify-content:center;color:var(--gold);margin-bottom:10px">' + icon(iconName, 18) + '</div>' +
+    '<div class="stat-num text-gold" style="font-size:22px">' + value + '</div>' +
+    '<div class="text-[11px] text-muted mt-1">' + label + '</div></div>';
+}
+
+function renderHome() {
+  const c = document.getElementById('content');
+  c.innerHTML =
+    '<h2 class="text-sm font-extrabold text-gold mb-1">مرحباً، ' + (CURRENT_USER.split('@')[0] || CURRENT_USER) + '</h2>' +
+    '<p class="text-[12px] text-muted mb-3">نظرة عامة على نشاطك</p>' +
+    '<div class="grid grid-cols-2 gap-3" id="homeStats"><div class="text-muted text-[11px]">جارِ التحميل...</div></div>';
+  fetch('/dashboard/stats').then(r => r.json()).then(d => {
+    document.getElementById('homeStats').innerHTML =
+      statCardHtml('campaigns', 'رسائل مرسلة', d.messages_sent.toLocaleString()) +
+      statCardHtml('settings', 'معدل النجاح', d.success_rate + '%') +
+      statCardHtml('accounts', 'حسابات متصلة', d.accounts_connected + ' / ' + d.accounts_total) +
+      statCardHtml('autoreply', 'إجمالي الحملات', d.campaigns_total);
+  });
 }
 
 /* ---------- قسم حسابي ---------- */
@@ -1759,41 +1819,47 @@ function renderSettings() {
     '<div class="flex items-center justify-between"><span class="text-[13px] font-bold">الإشعارات (' + notifState + ')</span>' +
     '<button class="btn-outline btn-small" onclick="ensureNotifPermission()">تفعيل</button></div>' +
     '<p class="text-[11px] text-muted mt-3">هذا التطبيق PWA — تقدر تضيفه لشاشتك الرئيسية من قائمة المتصفح "إضافة إلى الشاشة الرئيسية".</p>' +
-    '</div>' +
-    '<button class="btn-danger" onclick="logoutPlatform()">تسجيل الخروج من المنصة</button>';
+    '</div>';
+
+  if (IS_ADMIN) {
+    html += '<button class="btn-outline" onclick="showSection(\\'admin\\')">فتح لوحة تحكم الأدمن</button>';
+  }
 
   html +=
     '<h3 class="text-[12px] font-extrabold text-gold mt-5 mb-1">الاشتراك</h3>' +
-    '<div class="dark-card rounded-2xl p-4" id="subBox"><div class="text-muted text-[11px]">جارِ التحميل...</div></div>';
-
-  if (IS_ADMIN) {
-    html +=
-      '<h3 class="text-[12px] font-extrabold text-gold mt-5 mb-1">إعدادات الأدمن — الرد الذكي (DeepSeek)</h3>' +
-      '<div class="dark-card rounded-2xl p-4">' +
-      '<label class="field-label">مفتاح API (يُترك فاضي لعدم التغيير)</label>' +
-      '<input id="aiKey" type="password" placeholder="sk-...">' +
-      '<label class="field-label">قائمة المنتجات والأسعار (يعتمد عليها الرد الذكي)</label>' +
-      '<textarea id="aiKb" rows="6" placeholder="مثال:&#10;منتج أ - 10 دولار&#10;منتج ب - 15 دولار"></textarea>' +
-      '<button class="btn-gold" onclick="saveAiSettings()">حفظ إعدادات الأدمن</button>' +
-      '<div id="aiMsg" class="text-center text-[12px] font-bold mt-2"></div>' +
-      '</div>' +
-      '<h3 class="text-[12px] font-extrabold text-gold mt-5 mb-1">العملاء</h3>' +
-      '<div class="dark-card rounded-2xl p-3" id="customersBox"><div class="text-muted text-[11px]">جارِ التحميل...</div></div>' +
-      '<h3 class="text-[12px] font-extrabold text-gold mt-5 mb-1">طلبات الدفع بانتظار المراجعة</h3>' +
-      '<div class="dark-card rounded-2xl p-3" id="paymentsBox"><div class="text-muted text-[11px]">جارِ التحميل...</div></div>';
-  }
+    '<div class="dark-card rounded-2xl p-4" id="subBox"><div class="text-muted text-[11px]">جارِ التحميل...</div></div>' +
+    '<button class="btn-danger" onclick="logoutPlatform()">تسجيل الخروج من المنصة</button>';
 
   c.innerHTML = html;
   loadSubscription();
+}
 
-  if (IS_ADMIN) {
-    fetch('/admin/ai_settings').then(r => r.json()).then(d => {
-      document.getElementById('aiKey').placeholder = d.api_key_set ? 'محفوظ مسبقاً (اتركه فاضي للإبقاء عليه)' : 'sk-...';
-      document.getElementById('aiKb').value = d.knowledge_base || '';
-    });
-    loadCustomers();
-    loadPendingPayments();
-  }
+/* ---------- قسم التحكم (أدمن فقط) ---------- */
+function renderAdmin() {
+  const c = document.getElementById('content');
+  if (!IS_ADMIN) { c.innerHTML = '<div class="empty-state">هذا القسم لأدمن المنصة فقط</div>'; return; }
+  c.innerHTML =
+    '<h2 class="text-sm font-extrabold text-gold mb-3">لوحة التحكم</h2>' +
+    '<h3 class="text-[12px] font-extrabold text-gold mb-1">الرد الذكي (DeepSeek)</h3>' +
+    '<div class="dark-card rounded-2xl p-4">' +
+    '<label class="field-label">مفتاح API (يُترك فاضي لعدم التغيير)</label>' +
+    '<input id="aiKey" type="password" placeholder="sk-...">' +
+    '<label class="field-label">قائمة المنتجات والأسعار (يعتمد عليها الرد الذكي)</label>' +
+    '<textarea id="aiKb" rows="6" placeholder="مثال:&#10;منتج أ - 10 دولار&#10;منتج ب - 15 دولار"></textarea>' +
+    '<button class="btn-gold" onclick="saveAiSettings()">حفظ إعدادات الأدمن</button>' +
+    '<div id="aiMsg" class="text-center text-[12px] font-bold mt-2"></div>' +
+    '</div>' +
+    '<h3 class="text-[12px] font-extrabold text-gold mt-5 mb-1">العملاء</h3>' +
+    '<div class="dark-card rounded-2xl p-3" id="customersBox"><div class="text-muted text-[11px]">جارِ التحميل...</div></div>' +
+    '<h3 class="text-[12px] font-extrabold text-gold mt-5 mb-1">طلبات الدفع بانتظار المراجعة</h3>' +
+    '<div class="dark-card rounded-2xl p-3" id="paymentsBox"><div class="text-muted text-[11px]">جارِ التحميل...</div></div>';
+
+  fetch('/admin/ai_settings').then(r => r.json()).then(d => {
+    document.getElementById('aiKey').placeholder = d.api_key_set ? 'محفوظ مسبقاً (اتركه فاضي للإبقاء عليه)' : 'sk-...';
+    document.getElementById('aiKb').value = d.knowledge_base || '';
+  });
+  loadCustomers();
+  loadPendingPayments();
 }
 
 async function loadSubscription() {
