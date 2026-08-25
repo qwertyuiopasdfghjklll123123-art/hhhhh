@@ -1,49 +1,165 @@
 """
-منصة حملات واتساب: تطبيق PWA بقائمة أقسام (حسابات / حملات / رد آلي / إعدادات)،
-حسابات متعددة (كل حساب بجلسة Chrome مستقلة)، حملات مجدولة أو فورية (نص/صورة/صوت)،
-رد آلي بكلمات مفتاحية لكل حساب، وضع داكن/نهاري، وإشعارات داخل التطبيق.
+منصة حملات واتساب: تسجيل دخول/إنشاء حساب لكل مستخدم (بيانات معزولة لكل واحد)،
+تطبيق PWA بشريط تبويب أسفل الشاشة على الجوال وقائمة جانبية على اللابتوب، حسابات
+واتساب متعددة لكل مستخدم، حملات فورية أو مجدولة (نص/صورة/فيديو/ملف)، رد آلي
+بكلمات مفتاحية أو بالذكاء الاصطناعي (DeepSeek، يفعّله الأدمن)، وضع داكن/نهاري.
 
 تشغيل:
     pip install -r requirements.txt
     python webapp.py
-ثم افتح بالمتصفح: http://localhost:5000 (أو http://IP_السيرفر:5000 على VPS)
-كل حساب تضيفه يحتاج مسح QR مرة وحدة، وتُحفظ جلسته بمجلد wa_sessions/<id>.
+ثم افتح: http://localhost:5000 (أو http://IP_السيرفر:5000 على VPS)
+أول مستخدم يسوي "إنشاء حساب" يصير أدمن المنصة تلقائياً (يقدر يضيف مفتاح DeepSeek
+من قسم الإعدادات). بيانات المستخدمين تُحفظ بملف app.db (SQLite) وتبقى بعد إعادة
+تشغيل السيرفر، لكن حسابات واتساب المتصلة نفسها (المتصفح/الجلسة) تحتاج إعادة ربط
+لو انطفى السيرفر بالكامل، بنفس ما كان الوضع قبل هذي الإضافة.
 
-ملاحظة: ميزة "الرد الآلي" تعتمد على مراقبة الدردشة الأولى بقائمة واتساب بشكل دوري
-(لا يوجد حدث رسمي "رسالة جديدة" يقدر Selenium يستمع له)، وهي الجزء الأقل تأكداً
-بكل هذا الكود لأنها تعتمد على محددات DOM قابلة للتغيّر مع تحديثات واتساب — توقّع
-إنها تحتاج جولة تصحيح إذا ما اشتغلت أول مرة، بنفس طريقة تصحيح إرفاق الصور سابقاً.
+ملاحظة صدق: "الرد الآلي" (كلمات مفتاحية أو AI) يعتمد على مراقبة أول محادثة بقائمة
+واتساب بشكل دوري لعدم وجود حدث رسمي "رسالة جديدة"، وهذا أضعف جزء بكل الكود لأنه
+مبني على تخمين لمحددات DOM قابلة للتغيّر — توقّع حاجتها لجولة تصحيح لو ما اشتغلت
+أول مرة، بنفس طريقة تصحيح إرفاق الصور سابقاً.
 """
 
 import os
 import re
 import shutil
+import sqlite3
 import threading
 import time
 import urllib.parse
 import uuid
 from datetime import datetime
+from functools import wraps
 
 import openpyxl
-from flask import Flask, Response, jsonify, request
+import requests
+from flask import Flask, Response, jsonify, redirect, request, session
 from selenium import webdriver
 from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.common.by import By
 from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
+from werkzeug.security import check_password_hash, generate_password_hash
 
 SESSIONS_ROOT = "./wa_sessions"
 UPLOADS_DIR = "./uploads"
+DB_PATH = "./app.db"
 DEFAULT_MESSAGE = "هلوو"
 DEFAULT_DELAY = 15
 EVENTS_MAX = 50
 
 app = Flask(__name__)
-accounts = {}  # id -> {id, name, driver, lock, campaign, history, auto_reply, watching}
+app.secret_key = os.environ.get("SECRET_KEY", uuid.uuid4().hex)
+
+accounts = {}  # id -> {id, owner, name, driver, lock, campaign, history, auto_reply, watching}
 events = []
 events_lock = threading.Lock()
 
+
+# ---------------------------------------------------------------- قاعدة البيانات
+
+def get_db():
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    return conn
+
+
+def init_db():
+    conn = get_db()
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS users (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT UNIQUE NOT NULL,
+            password_hash TEXT NOT NULL,
+            is_admin INTEGER NOT NULL DEFAULT 0
+        )
+    """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS ai_settings (
+            id INTEGER PRIMARY KEY CHECK (id = 1),
+            api_key TEXT DEFAULT '',
+            knowledge_base TEXT DEFAULT ''
+        )
+    """)
+    conn.commit()
+    conn.close()
+
+
+init_db()
+
+
+def db_get_user_by_username(username):
+    conn = get_db()
+    row = conn.execute("SELECT * FROM users WHERE username = ?", (username,)).fetchone()
+    conn.close()
+    return row
+
+
+def db_count_users():
+    conn = get_db()
+    n = conn.execute("SELECT COUNT(*) c FROM users").fetchone()["c"]
+    conn.close()
+    return n
+
+
+def db_create_user(username, password_hash, is_admin):
+    conn = get_db()
+    cur = conn.execute(
+        "INSERT INTO users (username, password_hash, is_admin) VALUES (?, ?, ?)",
+        (username, password_hash, int(is_admin)),
+    )
+    conn.commit()
+    user_id = cur.lastrowid
+    conn.close()
+    return user_id
+
+
+def db_get_ai_settings():
+    conn = get_db()
+    row = conn.execute("SELECT * FROM ai_settings WHERE id = 1").fetchone()
+    conn.close()
+    return row
+
+
+def db_set_ai_settings(api_key, knowledge_base):
+    conn = get_db()
+    conn.execute(
+        "INSERT INTO ai_settings (id, api_key, knowledge_base) VALUES (1, ?, ?) "
+        "ON CONFLICT(id) DO UPDATE SET api_key = excluded.api_key, knowledge_base = excluded.knowledge_base",
+        (api_key, knowledge_base),
+    )
+    conn.commit()
+    conn.close()
+
+
+# ---------------------------------------------------------------- المصادقة
+
+def login_required(f):
+    @wraps(f)
+    def wrapper(*args, **kwargs):
+        if not session.get("user_id"):
+            return jsonify(ok=False, error="سجّل الدخول أولاً"), 401
+        return f(*args, **kwargs)
+    return wrapper
+
+
+def admin_required(f):
+    @wraps(f)
+    def wrapper(*args, **kwargs):
+        if not session.get("is_admin"):
+            return jsonify(ok=False, error="هذا الإجراء لأدمن المنصة فقط"), 403
+        return f(*args, **kwargs)
+    return wrapper
+
+
+def get_owned_account(acc_id):
+    acc = accounts.get(acc_id)
+    if not acc or acc["owner"] != session.get("user_id"):
+        return None
+    return acc
+
+
+# ---------------------------------------------------------------- حسابات واتساب
 
 def add_event(account_name, title, body):
     with events_lock:
@@ -57,15 +173,16 @@ def add_event(account_name, title, body):
         del events[:-EVENTS_MAX]
 
 
-def new_account_entry(acc_id, name):
+def new_account_entry(acc_id, owner, name):
     return {
         "id": acc_id,
+        "owner": owner,
         "name": name or f"حساب {len(accounts) + 1}",
         "driver": None,
         "lock": threading.Lock(),
         "campaign": {"total": 0, "sent": 0, "failed": 0, "running": False, "failed_numbers": [], "scheduled_for": None},
         "history": [],
-        "auto_reply": {"enabled": False, "rules": []},
+        "auto_reply": {"enabled": False, "mode": "keywords", "rules": []},
         "watching": False,
     }
 
@@ -87,7 +204,6 @@ def start_account_driver(acc_id):
     driver_path = shutil.which("chromedriver")
     service = Service(executable_path=driver_path) if driver_path else Service()
     driver = webdriver.Chrome(service=service, options=options)
-    # واتساب يعرض صفحة "حدّث المتصفح" لو لقى علامات أتمتة Selenium حتى مع Chrome حديث
     driver.execute_cdp_cmd(
         "Page.addScriptToEvaluateOnNewDocument",
         {"source": "Object.defineProperty(navigator, 'webdriver', {get: () => undefined})"},
@@ -96,9 +212,9 @@ def start_account_driver(acc_id):
     accounts[acc_id]["driver"] = driver
 
 
-def add_account(name):
+def add_account(owner, name):
     acc_id = uuid.uuid4().hex[:8]
-    accounts[acc_id] = new_account_entry(acc_id, name)
+    accounts[acc_id] = new_account_entry(acc_id, owner, name)
     threading.Thread(target=start_account_driver, args=(acc_id,), daemon=True).start()
     return acc_id
 
@@ -146,7 +262,7 @@ def send_to(driver, number, text, media_path=None):
         if not file_inputs:
             raise RuntimeError("ما لقيت عنصر رفع الملفات بواجهة واتساب")
         file_inputs[0].send_keys(media_path)
-        caption_box = WebDriverWait(driver, 20).until(
+        caption_box = WebDriverWait(driver, 25).until(
             EC.presence_of_element_located((By.XPATH, '//div[@contenteditable="true"][@data-tab]'))
         )
         if text:
@@ -179,8 +295,38 @@ def run_campaign(acc, numbers, text, delay, media_path):
     add_event(acc["name"], "انتهت الحملة", f'نجح {state["sent"]} من {state["total"]}، فشل {state["failed"]}')
 
 
+def ai_reply(customer_message):
+    settings = db_get_ai_settings()
+    if not settings or not settings["api_key"]:
+        return None
+    try:
+        resp = requests.post(
+            "https://api.deepseek.com/chat/completions",
+            headers={"Authorization": f"Bearer {settings['api_key']}", "Content-Type": "application/json"},
+            json={
+                "model": "deepseek-chat",
+                "messages": [
+                    {
+                        "role": "system",
+                        "content": (
+                            "أنت مساعد خدمة عملاء لمتجر عبر واتساب. هذه قائمة المنتجات والأسعار "
+                            "التي تعتمد عليها فقط بالرد:\n" + settings["knowledge_base"] +
+                            "\nرد بإيجاز ووضوح باللهجة العربية، ولا تخترع معلومات غير موجودة أعلاه."
+                        ),
+                    },
+                    {"role": "user", "content": customer_message},
+                ],
+            },
+            timeout=25,
+        )
+        resp.raise_for_status()
+        return resp.json()["choices"][0]["message"]["content"].strip()
+    except Exception:
+        return None
+
+
 def watch_account(acc_id):
-    """مراقبة أفضل-جهد لأول محادثة بالقائمة والرد التلقائي حسب الكلمات المفتاحية."""
+    """مراقبة أفضل-جهد لأول محادثة بالقائمة، ورد آلي بكلمات مفتاحية أو بالذكاء الاصطناعي."""
     last_seen = {}
     while True:
         acc = accounts.get(acc_id)
@@ -198,21 +344,114 @@ def watch_account(acc_id):
                 last_text = incoming[-1].text.strip() if incoming else ""
                 if last_text and last_seen.get(chat_name) != last_text:
                     last_seen[chat_name] = last_text
-                    for rule in acc["auto_reply"]["rules"]:
-                        if rule["keyword"] and rule["keyword"] in last_text:
-                            box = driver.find_element(By.XPATH, '//footer//div[@contenteditable="true"]')
-                            box.send_keys(rule["reply"])
-                            box.send_keys(Keys.ENTER)
-                            add_event(acc["name"], "رد تلقائي", f'{chat_name}: "{rule["keyword"]}" → "{rule["reply"]}"')
-                            break
+                    reply_text = None
+                    if acc["auto_reply"]["mode"] == "ai":
+                        reply_text = ai_reply(last_text)
+                    else:
+                        for rule in acc["auto_reply"]["rules"]:
+                            if rule["keyword"] and rule["keyword"] in last_text:
+                                reply_text = rule["reply"]
+                                break
+                    if reply_text:
+                        box = driver.find_element(By.XPATH, '//footer//div[@contenteditable="true"]')
+                        box.send_keys(reply_text)
+                        box.send_keys(Keys.ENTER)
+                        add_event(acc["name"], "رد تلقائي", f"{chat_name}: {reply_text[:60]}")
         except Exception:
             pass
         time.sleep(6)
 
 
+# ---------------------------------------------------------------- صفحات المصادقة
+
+def render_auth_page(title, action, switch_html, error):
+    error_html = f'<p class="err">{error}</p>' if error else ""
+    return f"""
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>{title}</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@400;600;700;800&display=swap" rel="stylesheet">
+<style>
+  html, body {{ margin:0; padding:0; background:#f5f0e8; color:#1a1a1a; font-family:'IBM Plex Sans Arabic','Tajawal',system-ui,sans-serif; }}
+  .box {{ max-width: 360px; margin: 90px auto; background:#fff; border:1px solid rgba(184,134,11,.2); border-radius:20px; padding:28px 24px; box-shadow:0 10px 30px rgba(0,0,0,.05); }}
+  h2 {{ text-align:center; color:#b8860b; font-size:18px; margin:0 0 18px; }}
+  input {{ width:100%; box-sizing:border-box; padding:11px 12px; font-size:14px; font-family:inherit; border:1px solid rgba(184,134,11,.25); border-radius:12px; margin-top:10px; }}
+  button {{ width:100%; padding:12px; margin-top:16px; border:none; border-radius:12px; background:#b8860b; color:#fff; font-weight:700; font-size:14px; font-family:inherit; cursor:pointer; }}
+  p.switch {{ text-align:center; font-size:12px; margin-top:14px; }}
+  p.switch a {{ color:#b8860b; font-weight:700; text-decoration:none; }}
+  p.err {{ color:#dc2626; font-size:12px; text-align:center; margin:0 0 10px; }}
+</style>
+</head>
+<body>
+  <div class="box">
+    <h2>{title}</h2>
+    {error_html}
+    <form method="post" action="{action}">
+      <input name="username" placeholder="اسم المستخدم" required>
+      <input name="password" type="password" placeholder="كلمة المرور" required>
+      <button type="submit">{title}</button>
+    </form>
+    {switch_html}
+  </div>
+</body>
+</html>
+"""
+
+
+@app.route("/login", methods=["GET", "POST"])
+def login_page():
+    if request.method == "GET":
+        return render_auth_page("تسجيل الدخول", "/login", '<p class="switch">ما عندك حساب؟ <a href="/signup">أنشئ حساب</a></p>', "")
+    username = request.form.get("username", "").strip()
+    password = request.form.get("password", "")
+    user = db_get_user_by_username(username)
+    if not user or not check_password_hash(user["password_hash"], password):
+        return render_auth_page("تسجيل الدخول", "/login", '<p class="switch">ما عندك حساب؟ <a href="/signup">أنشئ حساب</a></p>', "اسم المستخدم أو كلمة المرور غير صحيحة")
+    session["user_id"] = user["id"]
+    session["username"] = user["username"]
+    session["is_admin"] = bool(user["is_admin"])
+    return redirect("/")
+
+
+@app.route("/signup", methods=["GET", "POST"])
+def signup_page():
+    if request.method == "GET":
+        return render_auth_page("إنشاء حساب", "/signup", '<p class="switch">عندك حساب؟ <a href="/login">سجّل الدخول</a></p>', "")
+    username = request.form.get("username", "").strip()
+    password = request.form.get("password", "")
+    switch = '<p class="switch">عندك حساب؟ <a href="/login">سجّل الدخول</a></p>'
+    if not username or not password:
+        return render_auth_page("إنشاء حساب", "/signup", switch, "عبّي كل الحقول")
+    if db_get_user_by_username(username):
+        return render_auth_page("إنشاء حساب", "/signup", switch, "اسم المستخدم مستخدم من قبل")
+    is_admin = db_count_users() == 0
+    user_id = db_create_user(username, generate_password_hash(password), is_admin)
+    session["user_id"] = user_id
+    session["username"] = username
+    session["is_admin"] = is_admin
+    return redirect("/")
+
+
+@app.route("/logout", methods=["POST"])
+def logout_page():
+    session.clear()
+    return redirect("/login")
+
+
+# ---------------------------------------------------------------- الصفحة الرئيسية وملفات PWA
+
 @app.route("/")
 def home():
-    return PAGE
+    if not session.get("user_id"):
+        return redirect("/login")
+    page = PAGE.replace("__IS_ADMIN__", "true" if session.get("is_admin") else "false")
+    page = page.replace("__USERNAME__", session.get("username", ""))
+    return page
 
 
 @app.route("/manifest.json")
@@ -235,7 +474,7 @@ def icon():
     svg = (
         '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128">'
         '<rect width="128" height="128" rx="28" fill="#b8860b"/>'
-        '<text x="64" y="88" font-size="64" text-anchor="middle" font-family="sans-serif">💬</text>'
+        '<circle cx="64" cy="64" r="30" fill="#fff"/>'
         "</svg>"
     )
     return Response(svg, mimetype="image/svg+xml")
@@ -255,30 +494,63 @@ def service_worker():
 
 
 @app.route("/events")
+@login_required
 def get_events():
     since = int(request.args.get("since", 0) or 0)
+    uid = session["user_id"]
+    my_account_names = {a["name"] for a in accounts.values() if a["owner"] == uid}
     with events_lock:
-        return jsonify([e for e in events if e["id"] > since])
+        return jsonify([e for e in events if e["id"] > since and e["account"] in my_account_names])
 
+
+# ---------------------------------------------------------------- إعدادات الأدمن (AI)
+
+@app.route("/admin/ai_settings", methods=["GET"])
+@login_required
+@admin_required
+def get_ai_settings():
+    row = db_get_ai_settings()
+    return jsonify(api_key_set=bool(row and row["api_key"]), knowledge_base=(row["knowledge_base"] if row else ""))
+
+
+@app.route("/admin/ai_settings", methods=["POST"])
+@login_required
+@admin_required
+def set_ai_settings():
+    data = request.json or {}
+    existing = db_get_ai_settings()
+    api_key = (data.get("api_key") or "").strip()
+    if not api_key and existing:
+        api_key = existing["api_key"]
+    knowledge_base = data.get("knowledge_base") or ""
+    db_set_ai_settings(api_key, knowledge_base)
+    return jsonify(ok=True)
+
+
+# ---------------------------------------------------------------- حسابات واتساب (لكل مستخدم)
 
 @app.route("/accounts", methods=["GET"])
+@login_required
 def list_accounts():
+    uid = session["user_id"]
     return jsonify([
         {"id": aid, "name": a["name"], "logged_in": account_logged_in(a)}
-        for aid, a in accounts.items()
+        for aid, a in accounts.items() if a["owner"] == uid
     ])
 
 
 @app.route("/accounts", methods=["POST"])
+@login_required
 def create_account():
     data = request.json or {}
-    acc_id = add_account((data.get("name") or "").strip())
+    acc_id = add_account(session["user_id"], (data.get("name") or "").strip())
     return jsonify(id=acc_id, name=accounts[acc_id]["name"])
 
 
 @app.route("/accounts/<acc_id>/logout", methods=["POST"])
-def logout(acc_id):
-    acc = accounts.get(acc_id)
+@login_required
+def account_logout(acc_id):
+    acc = get_owned_account(acc_id)
     if not acc:
         return jsonify(ok=False, error="حساب غير موجود"), 404
     acc["watching"] = False
@@ -293,8 +565,9 @@ def logout(acc_id):
 
 
 @app.route("/accounts/<acc_id>/qr")
+@login_required
 def qr(acc_id):
-    acc = accounts.get(acc_id)
+    acc = get_owned_account(acc_id)
     if not acc or acc["driver"] is None:
         return "", 204
     try:
@@ -305,22 +578,25 @@ def qr(acc_id):
 
 
 @app.route("/accounts/<acc_id>/debug")
+@login_required
 def debug(acc_id):
-    acc = accounts.get(acc_id)
+    acc = get_owned_account(acc_id)
     if not acc or acc["driver"] is None:
         return "driver لسا ما بدأ", 503
     return Response(acc["driver"].get_screenshot_as_png(), mimetype="image/png")
 
 
 @app.route("/accounts/<acc_id>/status")
+@login_required
 def status(acc_id):
-    acc = accounts.get(acc_id)
+    acc = get_owned_account(acc_id)
     return jsonify(logged_in=bool(acc) and account_logged_in(acc))
 
 
 @app.route("/accounts/<acc_id>/campaign", methods=["POST"])
+@login_required
 def campaign(acc_id):
-    acc = accounts.get(acc_id)
+    acc = get_owned_account(acc_id)
     if not acc or acc["driver"] is None:
         return jsonify(ok=False, error="تأكد من تسجيل الدخول أولاً"), 400
     if acc["campaign"]["running"]:
@@ -374,30 +650,34 @@ def campaign(acc_id):
 
 
 @app.route("/accounts/<acc_id>/campaign_status")
+@login_required
 def campaign_status(acc_id):
-    acc = accounts.get(acc_id)
+    acc = get_owned_account(acc_id)
     if not acc:
         return jsonify(total=0, sent=0, failed=0, running=False, failed_numbers=[], scheduled_for=None)
     return jsonify(**acc["campaign"])
 
 
 @app.route("/accounts/<acc_id>/campaigns")
+@login_required
 def campaign_history(acc_id):
-    acc = accounts.get(acc_id)
+    acc = get_owned_account(acc_id)
     return jsonify(acc["history"] if acc else [])
 
 
 @app.route("/accounts/<acc_id>/auto_reply", methods=["GET"])
+@login_required
 def get_auto_reply(acc_id):
-    acc = accounts.get(acc_id)
+    acc = get_owned_account(acc_id)
     if not acc:
-        return jsonify(enabled=False, rules=[])
+        return jsonify(enabled=False, mode="keywords", rules=[])
     return jsonify(**acc["auto_reply"])
 
 
 @app.route("/accounts/<acc_id>/auto_reply", methods=["POST"])
+@login_required
 def set_auto_reply(acc_id):
-    acc = accounts.get(acc_id)
+    acc = get_owned_account(acc_id)
     if not acc:
         return jsonify(ok=False, error="حساب غير موجود"), 404
     data = request.json or {}
@@ -406,6 +686,7 @@ def set_auto_reply(acc_id):
         for r in data.get("rules", [])
         if (r.get("keyword") or "").strip()
     ]
+    acc["auto_reply"]["mode"] = "ai" if data.get("mode") == "ai" else "keywords"
     was_enabled = acc["auto_reply"]["enabled"]
     enabled = bool(data.get("enabled"))
     acc["auto_reply"]["enabled"] = enabled
@@ -447,7 +728,7 @@ PAGE = """
   .topbar { display: flex; align-items: center; justify-content: space-between; padding: 10px 16px; background: var(--card); border-bottom: 1px solid var(--gold-border); position: sticky; top: 0; z-index: 30; }
   .topbar-title { font-size: 14px; font-weight: 800; }
   .topbar-actions { display: flex; gap: 6px; }
-  .icon-btn { position: relative; width: 36px; height: 36px; border-radius: 10px; border: 1px solid var(--gold-border); background: var(--card); color: var(--gold); font-size: 15px; cursor: pointer; display: flex; align-items: center; justify-content: center; }
+  .icon-btn { position: relative; height: 34px; padding: 0 12px; border-radius: 10px; border: 1px solid var(--gold-border); background: var(--card); color: var(--gold); font-size: 12px; font-weight: 700; font-family: inherit; cursor: pointer; }
   .badge { position: absolute; top: -3px; left: -3px; width: 9px; height: 9px; border-radius: 50%; background: #dc2626; }
 
   .notif-panel { position: absolute; top: 52px; left: 12px; width: 280px; max-height: 320px; overflow-y: auto; background: var(--card); border: 1px solid var(--gold-border); border-radius: 14px; box-shadow: 0 12px 30px var(--shadow); z-index: 40; padding: 8px; }
@@ -458,17 +739,22 @@ PAGE = """
 
   .body { display: flex; flex: 1; }
   .nav { width: 220px; flex-shrink: 0; background: var(--card); border-left: 1px solid var(--gold-border); padding: 16px 10px; }
-  .nav-item { padding: 11px 12px; border-radius: 12px; font-size: 13px; font-weight: 600; cursor: pointer; margin-bottom: 4px; transition: .15s ease; }
+  .nav-item { padding: 11px 12px; border-radius: 12px; font-size: 13px; font-weight: 700; cursor: pointer; margin-bottom: 4px; transition: .15s ease; }
   .nav-item:hover { background: var(--gold-light); }
   .nav-item.active { background: var(--gold-light); border: 1px solid var(--gold-border); color: var(--gold); }
   .content { flex: 1; padding: 28px; display: flex; justify-content: center; }
   .content-inner { width: 100%; max-width: 620px; }
+  .bottom-tabs { display: none; }
 
   @media (max-width: 780px) {
-    .body { position: relative; }
-    .nav { position: fixed; inset: 0 20% 0 0; z-index: 50; transform: translateX(105%); transition: transform .2s ease; box-shadow: 0 0 30px var(--shadow); }
-    .nav.open { transform: translateX(0); }
-    .content { padding: 16px; }
+    .nav { display: none; }
+    .content { padding: 16px 16px 84px; }
+    .bottom-tabs {
+      display: flex; position: fixed; bottom: 0; left: 0; right: 0; height: 62px;
+      background: var(--card); border-top: 1px solid var(--gold-border); z-index: 30;
+    }
+    .bottom-tab { flex: 1; display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 700; color: var(--muted); cursor: pointer; }
+    .bottom-tab.active { color: var(--gold); }
   }
 
   .dark-card { background: var(--card); border: 1px solid var(--gold-border); box-shadow: 0 4px 20px var(--shadow); }
@@ -491,11 +777,11 @@ PAGE = """
   .bg-gold-light { background: var(--gold-light); }
   .text-muted { color: var(--muted); }
 
-  .rule-item { display: flex; align-items: flex-start; gap: 12px; padding: 8px 0; border-bottom: 1px solid var(--gold-light); }
-  .rule-item:last-child { border-bottom: 0; }
-  .rule-icon { width: 32px; height: 32px; border-radius: 10px; background: var(--gold-light); display: flex; align-items: center; justify-content: center; font-size: 16px; flex-shrink: 0; color: var(--gold); }
-  .rule-text { font-size: 13px; color: var(--ink); font-weight: 500; }
-  .rule-text small { display: block; font-weight: 400; font-size: 11px; color: var(--muted); margin-top: 2px; }
+  .step-item { display: flex; align-items: flex-start; gap: 12px; padding: 8px 0; border-bottom: 1px solid var(--gold-light); }
+  .step-item:last-child { border-bottom: 0; }
+  .step-num { width: 26px; height: 26px; border-radius: 50%; background: var(--gold-light); border: 1px solid var(--gold-border); display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 800; flex-shrink: 0; color: var(--gold); }
+  .step-text { font-size: 13px; color: var(--ink); font-weight: 500; }
+  .step-text small { display: block; font-weight: 400; font-size: 11px; color: var(--muted); margin-top: 2px; }
 
   .field-label { display: block; margin-top: 16px; margin-bottom: 6px; font-size: 12px; color: var(--muted); font-weight: 500; }
   input, textarea, select {
@@ -505,6 +791,7 @@ PAGE = """
   input:focus, textarea:focus, select:focus { outline: none; border-color: var(--gold); }
   textarea { resize: vertical; }
   input[type="file"] { padding: 9px 12px; }
+  input[type="checkbox"] { width: auto; }
 
   .btn-gold {
     display: block; width: 100%; padding: 13px; margin-top: 18px; border: none; border-radius: 14px;
@@ -534,10 +821,7 @@ PAGE = """
   .stat-num { font-size: 16px; font-weight: 800; }
   .stat-label { font-size: 10px; color: var(--muted); margin-top: 2px; }
 
-  .account-item { display: flex; align-items: center; gap: 10px; padding: 12px 14px; border-radius: 14px; cursor: pointer; margin-bottom: 8px; transition: .15s ease; }
-  .account-item:hover { background: var(--gold-light); }
-  .account-item.active { background: var(--gold-light); border: 1px solid var(--gold-border); }
-  .account-name { font-size: 13px; font-weight: 600; flex: 1; }
+  .account-name { font-size: 13px; font-weight: 700; flex: 1; }
   .dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
   .dot-on { background: #16a34a; box-shadow: 0 0 6px rgba(22,163,74,.6); }
   .dot-off { background: #d1a83a; }
@@ -549,60 +833,58 @@ PAGE = """
   .rule-row { display: flex; gap: 8px; align-items: center; margin-top: 8px; }
   .rule-row input { margin-top: 0; }
   .rule-remove { flex-shrink: 0; width: 32px; height: 32px; border-radius: 10px; border: 1px solid rgba(220,38,38,.3); background: transparent; color: #dc2626; cursor: pointer; }
-
-  .overlay { position: fixed; inset: 0; background: rgba(0,0,0,.35); z-index: 45; display: none; }
-  .overlay.show { display: block; }
 </style>
 </head>
 <body>
 <div class="app">
   <header class="topbar">
-    <button class="icon-btn" onclick="toggleNav()">☰</button>
-    <div class="topbar-title">💬 منصة حملات واتساب</div>
+    <span class="text-[11px] text-muted">__USERNAME__</span>
+    <div class="topbar-title">منصة حملات واتساب</div>
     <div class="topbar-actions">
-      <button class="icon-btn" id="themeBtn" onclick="toggleTheme()">🌙</button>
-      <button class="icon-btn" id="bellBtn" onclick="toggleNotifPanel()">🔔<span class="badge" id="bellBadge" style="display:none"></span></button>
+      <button class="icon-btn" id="themeBtn" onclick="toggleTheme()">داكن</button>
+      <button class="icon-btn" id="bellBtn" onclick="toggleNotifPanel()">الإشعارات<span class="badge" id="bellBadge" style="display:none"></span></button>
     </div>
   </header>
 
   <div class="notif-panel" id="notifPanel" style="display:none"></div>
-  <div class="overlay" id="overlay" onclick="closeNav()"></div>
 
   <div class="body">
     <nav class="nav" id="nav">
-      <div class="nav-item" data-s="accounts" onclick="showSection('accounts')">👤 حساباتي</div>
-      <div class="nav-item" data-s="campaigns" onclick="showSection('campaigns')">📢 الحملات</div>
-      <div class="nav-item" data-s="autoreply" onclick="showSection('autoreply')">🤖 الرد الآلي</div>
-      <div class="nav-item" data-s="settings" onclick="showSection('settings')">⚙️ الإعدادات</div>
+      <div class="nav-item" data-s="accounts" onclick="showSection('accounts')">حسابي</div>
+      <div class="nav-item" data-s="campaigns" onclick="showSection('campaigns')">الحملات</div>
+      <div class="nav-item" data-s="autoreply" onclick="showSection('autoreply')">الرد الآلي</div>
+      <div class="nav-item" data-s="settings" onclick="showSection('settings')">الإعدادات</div>
     </nav>
     <main class="content"><div class="content-inner" id="content"></div></main>
   </div>
+
+  <nav class="bottom-tabs" id="bottomTabs">
+    <div class="bottom-tab" data-s="accounts" onclick="showSection('accounts')">حسابي</div>
+    <div class="bottom-tab" data-s="campaigns" onclick="showSection('campaigns')">الحملات</div>
+    <div class="bottom-tab" data-s="autoreply" onclick="showSection('autoreply')">الرد الآلي</div>
+    <div class="bottom-tab" data-s="settings" onclick="showSection('settings')">الإعدادات</div>
+  </nav>
 </div>
 
 <script>
+const IS_ADMIN = __IS_ADMIN__;
 let accounts = [];
 let section = 'accounts';
 let activeId = null;
 let gen = 0;
 let lastSeenEventId = -1;
 
-function el(html) { const t = document.createElement('template'); t.innerHTML = html.trim(); return t.content.firstChild; }
-
 /* ---------- تصميم داكن/نهاري ---------- */
 function applyTheme(t) {
   document.documentElement.setAttribute('data-theme', t);
   localStorage.setItem('theme', t);
   const btn = document.getElementById('themeBtn');
-  if (btn) btn.innerText = t === 'dark' ? '☀️' : '🌙';
+  if (btn) btn.innerText = t === 'dark' ? 'نهاري' : 'داكن';
 }
 function toggleTheme() {
   applyTheme((document.documentElement.getAttribute('data-theme') || 'light') === 'dark' ? 'light' : 'dark');
 }
 applyTheme(localStorage.getItem('theme') || (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'));
-
-/* ---------- القائمة الجانبية على الجوال ---------- */
-function toggleNav() { document.getElementById('nav').classList.toggle('open'); document.getElementById('overlay').classList.toggle('show'); }
-function closeNav() { document.getElementById('nav').classList.remove('open'); document.getElementById('overlay').classList.remove('show'); }
 
 /* ---------- PWA + إشعارات ---------- */
 if ('serviceWorker' in navigator) { navigator.serviceWorker.register('/sw.js').catch(() => {}); }
@@ -613,7 +895,7 @@ function ensureNotifPermission() {
 function showLocalNotification(title, body) {
   if (!('Notification' in window) || Notification.permission !== 'granted') return;
   if (navigator.serviceWorker && navigator.serviceWorker.ready) {
-    navigator.serviceWorker.ready.then(reg => reg.showNotification(title, { body: body, icon: '/icon.svg' })).catch(() => new Notification(title, { body: body }));
+    navigator.serviceWorker.ready.then(reg => reg.showNotification(title, { body: body })).catch(() => new Notification(title, { body: body }));
   } else {
     new Notification(title, { body: body });
   }
@@ -649,8 +931,7 @@ function toggleNotifPanel() {
 /* ---------- التنقل بين الأقسام ---------- */
 function showSection(s) {
   section = s;
-  document.querySelectorAll('.nav-item').forEach(n => n.classList.toggle('active', n.dataset.s === s));
-  closeNav();
+  document.querySelectorAll('.nav-item, .bottom-tab').forEach(n => n.classList.toggle('active', n.dataset.s === s));
   render();
 }
 showSection('accounts');
@@ -672,10 +953,10 @@ async function render() {
   else renderSettings();
 }
 
-/* ---------- قسم حساباتي ---------- */
+/* ---------- قسم حسابي ---------- */
 function renderAccounts() {
   const c = document.getElementById('content');
-  let html = '<h2 class="text-sm font-extrabold text-gold mb-3">حساباتي</h2>';
+  let html = '<h2 class="text-sm font-extrabold text-gold mb-3">حسابي</h2>';
   if (!accounts.length) {
     html += '<div class="empty-state">ما عندك حسابات بعد، ضيف واحد للبدء</div>';
   }
@@ -724,9 +1005,9 @@ async function logoutAccount(id) {
   render();
 }
 
-/* ---------- منتقي الحساب المشترك (الحملات + الرد الآلي) ---------- */
+/* ---------- منتقي الحساب المشترك ---------- */
 function accountSelectHtml(onchangeFn) {
-  if (!accounts.length) return '<div class="empty-state">ضيف حساباً من قسم "حساباتي" أول</div>';
+  if (!accounts.length) return '<div class="empty-state">ضيف حساباً من قسم "حسابي" أول</div>';
   let html = '<select id="accPicker" onchange="' + onchangeFn + '(this.value)">';
   accounts.forEach(a => {
     html += '<option value="' + a.id + '"' + (a.id === activeId ? ' selected' : '') + '>' + a.name + (a.logged_in ? '' : ' (غير متصل)') + '</option>';
@@ -738,14 +1019,14 @@ function accountSelectHtml(onchangeFn) {
 /* ---------- قسم الحملات ---------- */
 function renderCampaigns(myGen) {
   const c = document.getElementById('content');
-  if (!accounts.length) { c.innerHTML = '<div class="empty-state">ضيف حساباً من قسم "حساباتي" أول</div>'; return; }
+  if (!accounts.length) { c.innerHTML = '<div class="empty-state">ضيف حساباً من قسم "حسابي" أول</div>'; return; }
   const acc = accounts.find(a => a.id === activeId);
 
   let html = '<h2 class="text-sm font-extrabold text-gold mb-3">الحملات</h2>';
   html += '<label class="field-label">الحساب</label>' + accountSelectHtml('switchCampaignAccount');
 
   if (!acc || !acc.logged_in) {
-    html += '<div class="dark-card rounded-2xl p-4 mt-3 text-center text-muted text-[12px]">هذا الحساب غير متصل بعد — أكمل تسجيل الدخول من قسم "حساباتي"</div>';
+    html += '<div class="dark-card rounded-2xl p-4 mt-3 text-center text-muted text-[12px]">هذا الحساب غير متصل بعد — أكمل تسجيل الدخول من قسم "حسابي"</div>';
     c.innerHTML = html;
     return;
   }
@@ -754,13 +1035,13 @@ function renderCampaigns(myGen) {
     '<div class="dark-card rounded-2xl p-4 mt-3">' +
     '<label class="field-label">الأرقام (رقم كل سطر، أو مفصولة بفواصل)</label>' +
     '<textarea id="numbersText" rows="4" placeholder="9647701234567&#10;9647709876543"></textarea>' +
-    '<button class="btn-outline" id="contactPickerBtn" style="display:none" onclick="pickContacts()">📇 استيراد من جهات الاتصال</button>' +
+    '<button class="btn-outline" id="contactPickerBtn" style="display:none" onclick="pickContacts()">استيراد من جهات الاتصال</button>' +
     '<label class="field-label">أو ارفع ملف Excel (.xlsx) فيه الأرقام بالعمود الأول</label>' +
     '<input type="file" id="numbersFile" accept=".xlsx">' +
     '<label class="field-label">نص الرسالة / التعليق</label>' +
     '<input id="text" value="هلوو">' +
-    '<label class="field-label">صورة أو ملف صوتي (اختياري)</label>' +
-    '<input type="file" id="mediaFile" accept="image/*,audio/*">' +
+    '<label class="field-label">صورة، فيديو، أو ملف (اختياري)</label>' +
+    '<input type="file" id="mediaFile" accept="image/*,video/*,audio/*,.pdf,.doc,.docx,.zip">' +
     '<label class="field-label">الفاصل الزمني بين كل رسالة وأخرى (بالثواني)</label>' +
     '<input id="delay" type="number" min="1" value="15">' +
     '<label class="field-label">جدولة الإرسال (اختياري — اتركه فاضي للإرسال الفوري)</label>' +
@@ -844,7 +1125,7 @@ async function refreshCampaignState(accId, myGen) {
   if (r.running || r.scheduled_for) {
     setTimeout(() => refreshCampaignState(accId, myGen), 2000);
   } else if (r.total > 0 && msg.innerText === '') {
-    msg.innerText = 'انتهت الحملة ✅';
+    msg.innerText = 'انتهت الحملة';
     loadHistory(accId);
   }
 }
@@ -854,7 +1135,7 @@ let autoReplyRules = [];
 
 function renderAutoReply() {
   const c = document.getElementById('content');
-  if (!accounts.length) { c.innerHTML = '<div class="empty-state">ضيف حساباً من قسم "حساباتي" أول</div>'; return; }
+  if (!accounts.length) { c.innerHTML = '<div class="empty-state">ضيف حساباً من قسم "حسابي" أول</div>'; return; }
   const acc = accounts.find(a => a.id === activeId);
 
   let html = '<h2 class="text-sm font-extrabold text-gold mb-3">الرد الآلي</h2>';
@@ -868,20 +1149,33 @@ function renderAutoReply() {
 
   html +=
     '<div class="dark-card rounded-2xl p-4 mt-3">' +
-    '<label class="flex items-center gap-2 text-[13px] font-bold"><input type="checkbox" id="arEnabled" style="width:auto"> تفعيل الرد الآلي لهذا الحساب</label>' +
-    '<p class="text-[11px] text-muted mt-1">لو الرسالة الواردة تحتوي الكلمة المفتاحية، يُرسل الرد تلقائياً.</p>' +
+    '<label class="flex items-center gap-2 text-[13px] font-bold"><input type="checkbox" id="arEnabled"> تفعيل الرد الآلي لهذا الحساب</label>' +
+    '<label class="field-label">طريقة الرد</label>' +
+    '<select id="arMode"><option value="keywords">كلمات مفتاحية</option><option value="ai">ذكاء اصطناعي (DeepSeek)</option></select>' +
     '<div id="rulesBox" class="mt-3"></div>' +
-    '<button class="btn-outline" onclick="addRule()">+ إضافة كلمة مفتاحية</button>' +
+    '<button class="btn-outline" id="addRuleBtn" onclick="addRule()">+ إضافة كلمة مفتاحية</button>' +
+    '<p id="aiNote" class="text-[11px] text-muted mt-2" style="display:none">الرد يعتمد على مفتاح DeepSeek وقائمة المنتجات/الأسعار اللي يضيفها الأدمن من قسم الإعدادات.</p>' +
     '<button class="btn-gold" onclick="saveAutoReply()">حفظ</button>' +
     '<div id="arMsg" class="text-center text-[12px] font-bold mt-2"></div>' +
     '</div>';
   c.innerHTML = html;
 
+  document.getElementById('arMode').onchange = updateAutoReplyModeUI;
+
   fetch('/accounts/' + acc.id + '/auto_reply').then(r => r.json()).then(d => {
     document.getElementById('arEnabled').checked = !!d.enabled;
+    document.getElementById('arMode').value = d.mode || 'keywords';
     autoReplyRules = d.rules && d.rules.length ? d.rules : [{keyword: 'سلام', reply: 'سلام عليكم'}];
     renderRules();
+    updateAutoReplyModeUI();
   });
+}
+
+function updateAutoReplyModeUI() {
+  const ai = document.getElementById('arMode').value === 'ai';
+  document.getElementById('rulesBox').style.display = ai ? 'none' : 'block';
+  document.getElementById('addRuleBtn').style.display = ai ? 'none' : 'block';
+  document.getElementById('aiNote').style.display = ai ? 'block' : 'none';
 }
 
 function switchAutoReplyAccount(id) { activeId = id; render(); }
@@ -905,9 +1199,10 @@ async function saveAutoReply() {
   if (!acc) return;
   ensureNotifPermission();
   const enabled = document.getElementById('arEnabled').checked;
+  const mode = document.getElementById('arMode').value;
   const r = await fetch('/accounts/' + acc.id + '/auto_reply', {
     method: 'POST', headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({enabled: enabled, rules: autoReplyRules})
+    body: JSON.stringify({enabled: enabled, mode: mode, rules: autoReplyRules})
   }).then(res => res.json());
   document.getElementById('arMsg').innerText = r.ok ? 'تم الحفظ' : ('فشل: ' + r.error);
 }
@@ -916,7 +1211,7 @@ async function saveAutoReply() {
 function renderSettings() {
   const c = document.getElementById('content');
   const notifState = ('Notification' in window) ? Notification.permission : 'غير مدعوم';
-  c.innerHTML =
+  let html =
     '<h2 class="text-sm font-extrabold text-gold mb-3">الإعدادات</h2>' +
     '<div class="dark-card rounded-2xl p-4">' +
     '<div class="flex items-center justify-between mb-3"><span class="text-[13px] font-bold">المظهر</span>' +
@@ -924,7 +1219,48 @@ function renderSettings() {
     '<div class="flex items-center justify-between"><span class="text-[13px] font-bold">الإشعارات (' + notifState + ')</span>' +
     '<button class="btn-outline btn-small" onclick="ensureNotifPermission()">تفعيل</button></div>' +
     '<p class="text-[11px] text-muted mt-3">هذا التطبيق PWA — تقدر تضيفه لشاشتك الرئيسية من قائمة المتصفح "إضافة إلى الشاشة الرئيسية".</p>' +
-    '</div>';
+    '</div>' +
+    '<button class="btn-danger" onclick="logoutPlatform()">تسجيل الخروج من المنصة</button>';
+
+  if (IS_ADMIN) {
+    html +=
+      '<h3 class="text-[12px] font-extrabold text-gold mt-5 mb-1">إعدادات الأدمن — الرد الذكي (DeepSeek)</h3>' +
+      '<div class="dark-card rounded-2xl p-4">' +
+      '<label class="field-label">مفتاح API (يُترك فاضي لعدم التغيير)</label>' +
+      '<input id="aiKey" type="password" placeholder="sk-...">' +
+      '<label class="field-label">قائمة المنتجات والأسعار (يعتمد عليها الرد الذكي)</label>' +
+      '<textarea id="aiKb" rows="6" placeholder="مثال:&#10;منتج أ - 10 دولار&#10;منتج ب - 15 دولار"></textarea>' +
+      '<button class="btn-gold" onclick="saveAiSettings()">حفظ إعدادات الأدمن</button>' +
+      '<div id="aiMsg" class="text-center text-[12px] font-bold mt-2"></div>' +
+      '</div>';
+  }
+
+  c.innerHTML = html;
+
+  if (IS_ADMIN) {
+    fetch('/admin/ai_settings').then(r => r.json()).then(d => {
+      document.getElementById('aiKey').placeholder = d.api_key_set ? 'محفوظ مسبقاً (اتركه فاضي للإبقاء عليه)' : 'sk-...';
+      document.getElementById('aiKb').value = d.knowledge_base || '';
+    });
+  }
+}
+
+async function saveAiSettings() {
+  const r = await fetch('/admin/ai_settings', {
+    method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({api_key: document.getElementById('aiKey').value.trim(), knowledge_base: document.getElementById('aiKb').value})
+  }).then(res => res.json());
+  document.getElementById('aiMsg').innerText = r.ok ? 'تم الحفظ' : ('فشل: ' + r.error);
+  document.getElementById('aiKey').value = '';
+}
+
+async function logoutPlatform() {
+  if (!confirm('تسجيل الخروج من المنصة؟')) return;
+  const form = document.createElement('form');
+  form.method = 'POST';
+  form.action = '/logout';
+  document.body.appendChild(form);
+  form.submit();
 }
 </script>
 </body>

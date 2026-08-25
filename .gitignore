@@ -1,6 +1,7 @@
 wa_session/
 wa_sessions/
 uploads/
+app.db
 numbers.txt
 __pycache__/
 *.pyc
