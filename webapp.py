@@ -626,6 +626,7 @@ select option {{ background:#0a1a20; color:#fff; }}
               linear-gradient(180deg, #020a10, #030d13 68%, #07141c);
   animation:fadeIn .3s ease; }}
 @keyframes fadeIn {{ from {{ opacity:0; }} to {{ opacity:1; }} }}
+{PAGE_TRANSITION_CSS}
 .page::before {{ content:""; position:absolute; inset:0; pointer-events:none; opacity:.7;
   background: radial-gradient(circle at 70% 7%, #00bd68 0 2px, transparent 3px),
               radial-gradient(circle at 86% 12%, #00c96c 0 3px, transparent 4px),
@@ -943,6 +944,8 @@ p.switch a {{ color:#10d86b; text-decoration:none; font-weight:500; }}
 </div>
 
 <script>
+{PAGE_TRANSITION_JS}
+
 function selectTab(type) {{
   document.getElementById('waTab').classList.toggle('active', type === 'wa');
   document.getElementById('emailTab').classList.toggle('active', type === 'email');
@@ -1027,6 +1030,31 @@ FONT_LINKS = """<link rel="preconnect" href="https://fonts.googleapis.com">
 
 FONT_STACK = "'IBM Plex Sans Arabic','Cairo','Tajawal',system-ui,sans-serif"
 
+PAGE_TRANSITION_CSS = """body.leaving { animation: pageFadeOut .2s ease forwards; }
+@keyframes pageFadeOut { to { opacity:0; transform:scale(.98); } }"""
+
+PAGE_TRANSITION_JS = """(function() {
+  function leaveAndGo(action) {
+    if (document.body.classList.contains('leaving')) return;
+    document.body.classList.add('leaving');
+    setTimeout(action, 200);
+  }
+  document.addEventListener('click', function(e) {
+    var a = e.target.closest('a[href^="/"]');
+    if (!a || a.target === '_blank' || e.metaKey || e.ctrlKey || e.button !== 0) return;
+    var href = a.getAttribute('href');
+    if (!href || href === '#') return;
+    e.preventDefault();
+    leaveAndGo(function() { window.location.href = href; });
+  });
+  document.querySelectorAll('form').forEach(function(form) {
+    form.addEventListener('submit', function(e) {
+      e.preventDefault();
+      leaveAndGo(function() { form.submit(); });
+    });
+  });
+})();"""
+
 
 def render_welcome_page():
     return f"""
@@ -1070,7 +1098,10 @@ def render_welcome_page():
     background:linear-gradient(135deg,#20d276,#0ba65c); -webkit-background-clip:text; -webkit-text-fill-color:transparent; background-clip:text; }}
   .en {{ margin-top:4px; color:#18d36d; font-size:14px; letter-spacing:2.5px; font-weight:700; direction:ltr; font-family:{FONT_STACK}; }}
   .description {{ margin:10px auto 0; max-width:300px; color:#aeb7ba; font-size:15px; line-height:1.7; font-weight:500; }}
-  .visual {{ height:195px; position:relative; margin-top:4px; pointer-events:none; flex-shrink:0; }}
+  .carousel {{ position:relative; height:195px; margin-top:4px; flex-shrink:0; }}
+  .slide {{ position:absolute; inset:0; display:flex; flex-direction:column; justify-content:center; opacity:0; pointer-events:none; transition:opacity .35s ease; }}
+  .slide.active {{ opacity:1; }}
+  .visual {{ height:195px; position:relative; pointer-events:none; flex-shrink:0; }}
   .phone {{ position:absolute; width:145px; height:190px; left:50%; top:4px; transform:translateX(-50%); border:2.5px solid #10282b; border-radius:26px;
     background:linear-gradient(145deg, rgba(15,95,72,.3), rgba(2,12,16,.95) 55%), #061117;
     box-shadow:0 0 0 1px rgba(255,255,255,.025), 0 15px 40px rgba(0,0,0,.5), inset 0 0 30px rgba(0,255,120,.03); }}
@@ -1099,9 +1130,16 @@ def render_welcome_page():
     background:radial-gradient(circle, rgba(0,218,111,.10), rgba(0,218,111,.03)); display:flex; align-items:center; justify-content:center; color:#16d56e; }}
   .feature h3 {{ font-size:13px; line-height:1.3; font-weight:700; font-family:{FONT_STACK}; }}
   .feature p {{ color:#899497; font-size:10px; line-height:1.5; margin-top:1px; }}
-  .dots {{ display:flex; justify-content:center; gap:8px; direction:ltr; margin:12px 0 10px; pointer-events:none; flex-shrink:0; }}
-  .dot {{ width:10px; height:10px; border-radius:50%; background:#243138; transition:.3s; }}
+  .howto {{ width:100%; display:flex; flex-direction:column; gap:9px; padding:0 8px; }}
+  .howto-step {{ display:flex; align-items:center; gap:10px; text-align:right; }}
+  .howto-num {{ flex:0 0 28px; width:28px; height:28px; border-radius:50%; background:rgba(0,218,111,.12); border:1px solid rgba(0,220,112,.18);
+    color:#16d56e; display:flex; align-items:center; justify-content:center; font-family:{FONT_STACK}; font-weight:700; font-size:13px; }}
+  .howto-text h3 {{ font-size:12.5px; line-height:1.3; font-weight:700; font-family:{FONT_STACK}; }}
+  .howto-text p {{ color:#899497; font-size:10px; line-height:1.4; margin-top:1px; }}
+  .dots {{ display:flex; justify-content:center; gap:8px; direction:ltr; margin:12px 0 10px; flex-shrink:0; }}
+  .dot {{ width:10px; height:10px; border-radius:50%; background:#243138; transition:.3s; cursor:pointer; }}
   .dot.active {{ background:#12d56b; box-shadow:0 0 10px rgba(0,215,105,.25); width:26px; border-radius:6px; }}
+  {PAGE_TRANSITION_CSS}
   .actions {{ position:relative; z-index:4; padding:0 2px 6px; flex-shrink:0; }}
   .btn {{ width:100%; height:60px; border-radius:18px; display:flex; flex-direction:column; align-items:center; justify-content:center; text-decoration:none; font-family:{FONT_STACK}; }}
   .primary {{ background:linear-gradient(180deg,#15c66a,#10b95e); box-shadow:0 8px 22px rgba(0,205,102,.12); color:#020b10; }}
@@ -1118,6 +1156,7 @@ def render_welcome_page():
     .brand {{ font-size:26px; }}
     .en {{ font-size:11px; }}
     .description {{ font-size:12px; max-width:260px; margin-top:6px; }}
+    .carousel {{ height:155px; }}
     .visual {{ height:155px; }}
     .phone {{ width:115px; height:152px; }}
     .card {{ width:135px; min-height:52px; padding:7px 9px; }}
@@ -1147,6 +1186,7 @@ def render_welcome_page():
     .logo svg {{ width:44px; height:44px; }}
     .brand {{ font-size:22px; }}
     .description {{ font-size:11px; margin-top:4px; }}
+    .carousel {{ height:125px; }}
     .visual {{ height:125px; }}
     .phone {{ width:95px; height:125px; border-radius:20px; }}
     .card {{ width:115px; min-height:42px; padding:5px 7px; border-radius:10px; }}
@@ -1188,54 +1228,77 @@ def render_welcome_page():
         <p class="description">منصة احترافية لإدارة حملاتك<br>التسويقية عبر واتساب بسهولة</p>
       </section>
 
-      <section class="visual">
-        <div class="phone"><div class="phone-screen"></div></div>
+      <div class="carousel" id="welcomeCarousel">
+        <div class="slide active">
+          <section class="visual">
+            <div class="phone"><div class="phone-screen"></div></div>
 
-        <div class="card target">
-          <div class="card-icon">{ICON_SEND}</div>
-          <div class="card-content">
-            <div class="card-title">رسائل مرسلة</div>
-            <div class="card-number">12,680</div>
-            <div class="progress"><span></span></div>
-          </div>
+            <div class="card target">
+              <div class="card-icon">{ICON_SEND}</div>
+              <div class="card-content">
+                <div class="card-title">رسائل مرسلة</div>
+                <div class="card-number">12,680</div>
+                <div class="progress"><span></span></div>
+              </div>
+            </div>
+
+            <div class="card audience">
+              <div class="card-icon">{ICON_USERS}</div>
+              <div class="card-content">
+                <div class="card-title">جمهورك المستهدف</div>
+                <div class="card-number">2,450</div>
+                <div class="progress"><span></span></div>
+              </div>
+            </div>
+
+            <div class="card engagement">
+              <div class="card-icon">{ICON_TREND}</div>
+              <div class="card-content">
+                <div class="card-title">معدل التفاعل</div>
+                <div class="card-number">68%</div>
+                <div class="progress"><span></span></div>
+              </div>
+            </div>
+          </section>
         </div>
 
-        <div class="card audience">
-          <div class="card-icon">{ICON_USERS}</div>
-          <div class="card-content">
-            <div class="card-title">جمهورك المستهدف</div>
-            <div class="card-number">2,450</div>
-            <div class="progress"><span></span></div>
-          </div>
+        <div class="slide">
+          <section class="features">
+            <div class="feature">
+              <div class="feature-icon">{ICON_BOLT}</div>
+              <h3>أتمتة كاملة</h3>
+              <p>وفر الوقت والجهد</p>
+            </div>
+            <div class="feature">
+              <div class="feature-icon">{ICON_CHART}</div>
+              <h3>تحليلات دقيقة</h3>
+              <p>تقارير مفصلة</p>
+            </div>
+            <div class="feature">
+              <div class="feature-icon">{ICON_TARGET}</div>
+              <h3>أفضل نتائج</h3>
+              <p>زيادة المبيعات</p>
+            </div>
+          </section>
         </div>
 
-        <div class="card engagement">
-          <div class="card-icon">{ICON_TREND}</div>
-          <div class="card-content">
-            <div class="card-title">معدل التفاعل</div>
-            <div class="card-number">68%</div>
-            <div class="progress"><span></span></div>
-          </div>
+        <div class="slide">
+          <section class="howto">
+            <div class="howto-step">
+              <div class="howto-num">١</div>
+              <div class="howto-text"><h3>اربط حساب واتساب</h3><p>سجّل دخولك برقمك خلال ثوانٍ</p></div>
+            </div>
+            <div class="howto-step">
+              <div class="howto-num">٢</div>
+              <div class="howto-text"><h3>استورد جهات الاتصال</h3><p>من ملف إكسل أو الصق الأرقام مباشرة</p></div>
+            </div>
+            <div class="howto-step">
+              <div class="howto-num">٣</div>
+              <div class="howto-text"><h3>أرسل حملتك</h3><p>بضغطة واحدة لكل جمهورك</p></div>
+            </div>
+          </section>
         </div>
-      </section>
-
-      <section class="features">
-        <div class="feature">
-          <div class="feature-icon">{ICON_BOLT}</div>
-          <h3>أتمتة كاملة</h3>
-          <p>وفر الوقت والجهد</p>
-        </div>
-        <div class="feature">
-          <div class="feature-icon">{ICON_CHART}</div>
-          <h3>تحليلات دقيقة</h3>
-          <p>تقارير مفصلة</p>
-        </div>
-        <div class="feature">
-          <div class="feature-icon">{ICON_TARGET}</div>
-          <h3>أفضل نتائج</h3>
-          <p>زيادة المبيعات</p>
-        </div>
-      </section>
+      </div>
 
       <div class="dots">
         <span class="dot active"></span><span class="dot"></span><span class="dot"></span>
@@ -1255,6 +1318,41 @@ def render_welcome_page():
       </section>
     </div>
   </div>
+
+<script>
+{PAGE_TRANSITION_JS}
+
+(function() {{
+  var slides = document.querySelectorAll('.slide');
+  var dots = document.querySelectorAll('.dot');
+  var idx = 0;
+  var timer;
+  function show(i) {{
+    idx = (i + slides.length) % slides.length;
+    slides.forEach(function(s, n) {{ s.classList.toggle('active', n === idx); }});
+    dots.forEach(function(d, n) {{ d.classList.toggle('active', n === idx); }});
+  }}
+  function restart() {{
+    clearInterval(timer);
+    timer = setInterval(function() {{ show(idx + 1); }}, 4000);
+  }}
+  dots.forEach(function(d, n) {{
+    d.addEventListener('click', function() {{ show(n); restart(); }});
+  }});
+  var carousel = document.getElementById('welcomeCarousel');
+  var touchX = null;
+  carousel.addEventListener('touchstart', function(e) {{ touchX = e.touches[0].clientX; }}, {{passive:true}});
+  carousel.addEventListener('touchend', function(e) {{
+    if (touchX === null) return;
+    var dx = e.changedTouches[0].clientX - touchX;
+    touchX = null;
+    if (Math.abs(dx) < 30) return;
+    show(idx + (dx < 0 ? 1 : -1));
+    restart();
+  }}, {{passive:true}});
+  restart();
+}})();
+</script>
 </body>
 </html>
 """
