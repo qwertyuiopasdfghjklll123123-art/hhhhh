@@ -1,0 +1,123 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Cairo:wght@700;800;900&family=Tajawal:wght@300;400;500;700;800&display=swap');
+*{box-sizing:border-box;}
+html,body{margin:0;padding:0;height:100%;}
+body{background:#000;padding:16px;font-family:'Tajawal',sans-serif;}
+:root{
+  --app-bg:oklch(0.145 0.014 245);
+  --panel:oklch(0.195 0.017 245);
+  --panel-2:oklch(0.235 0.019 245);
+  --panel-3:oklch(0.29 0.02 245);
+  --border:oklch(1 0 0 / 9%);
+  --border-2:oklch(1 0 0 / 15%);
+  --text:oklch(0.97 0.006 245);
+  --text-dim:oklch(0.72 0.02 245);
+  --text-faint:oklch(0.5 0.02 245);
+  --green:oklch(0.78 0.17 152);
+  --green-strong:oklch(0.66 0.18 152);
+  --green-ink:oklch(0.2 0.05 152);
+}
+.screen{width:100%;height:100%;background:var(--app-bg);border-radius:34px;overflow:hidden;position:relative;display:flex;flex-direction:column;direction:rtl;border:1px solid var(--border-2);box-shadow:0 30px 60px -20px rgba(0,0,0,.7);color:var(--text);}
+h1,h2,h3{margin:0;font-family:'Cairo',sans-serif;}
+p{margin:0;}
+.icon{width:20px;height:20px;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round;flex-shrink:0;}
+.bottom-nav{position:absolute;bottom:0;left:0;right:0;height:82px;background:oklch(0.16 0.016 245/94%);backdrop-filter:blur(20px);border-top:1px solid var(--border);display:flex;align-items:center;justify-content:space-around;padding:0 6px 12px;}
+.nav-item{display:flex;flex-direction:column;align-items:center;gap:5px;color:var(--text-faint);font-size:10.5px;font-weight:500;width:56px;}
+.nav-item.active{color:var(--green);}
+.nav-fab{width:54px;height:54px;border-radius:17px;background:linear-gradient(135deg,var(--green),var(--green-strong));display:flex;align-items:center;justify-content:center;margin-top:-34px;box-shadow:0 12px 26px -8px oklch(0.7 0.18 152/65%);border:5px solid var(--app-bg);}
+.nav-fab .icon{stroke:var(--green-ink);width:23px;height:23px;stroke-width:2.4;}
+.header{padding:24px 20px 2px;display:flex;align-items:center;justify-content:space-between;flex-shrink:0;}
+.chip{background:var(--panel);border:1px solid var(--border-2);border-radius:11px;padding:8px 12px;display:flex;align-items:center;gap:6px;font-size:11.5px;color:var(--text-dim);font-weight:600;}
+.scroll{flex:1;overflow:hidden;padding:16px 20px 0;display:flex;flex-direction:column;gap:14px;}
+.card{background:var(--panel);border:1px solid var(--border);border-radius:18px;padding:16px;}
+.mini-stat{flex:1;background:var(--panel);border:1px solid var(--border);border-radius:15px;padding:12px;}
+.mini-stat p{font-size:10.5px;color:var(--text-faint);font-weight:500;}
+.mini-stat b{display:block;font-size:16.5px;font-weight:800;font-family:'Cairo',sans-serif;margin-top:6px;}
+.mini-stat .tr{font-size:10.5px;color:var(--green);font-weight:700;margin-top:5px;}
+.bars{display:flex;align-items:flex-end;justify-content:space-between;gap:9px;height:120px;}
+.bar-col{flex:1;display:flex;flex-direction:column;align-items:center;gap:8px;height:100%;justify-content:flex-end;}
+.bar{width:100%;border-radius:7px 7px 3px 3px;background:linear-gradient(180deg,var(--green),var(--green-strong));}
+.bar-label{font-size:9.5px;color:var(--text-faint);}
+.top-item{display:flex;flex-direction:column;gap:7px;}
+.top-item .lbl{display:flex;align-items:center;justify-content:space-between;font-size:12.5px;font-weight:600;}
+.track{height:8px;border-radius:5px;background:var(--panel-3);overflow:hidden;}
+.fill{height:100%;border-radius:5px;background:linear-gradient(90deg,var(--green-strong),var(--green));}
+</style>
+</helmet>
+
+<div class="screen">
+  <div class="header">
+    <h1 style="font-size:21px;font-weight:800;">التقارير</h1>
+    <div class="chip">
+      <svg class="icon" style="width:13px;height:13px;" viewBox="0 0 24 24"><rect x="3.5" y="5" width="17" height="15.5" rx="3"/><path d="M3.5 9.5h17"/><path d="M8 3v4"/><path d="M16 3v4"/></svg>
+      <span>آخر 30 يوم</span>
+    </div>
+  </div>
+
+  <div class="scroll">
+    <div style="display:flex;gap:9px;">
+      <div class="mini-stat"><p>إجمالي الرسائل</p><b>45,231</b><div class="tr">+18%</div></div>
+      <div class="mini-stat"><p>معدل القراءة</p><b>68%</b><div class="tr">+8%</div></div>
+      <div class="mini-stat"><p>إجمالي الردود</p><b>2,847</b><div class="tr">+15%</div></div>
+    </div>
+
+    <div class="card">
+      <h3 style="font-size:14.5px;font-weight:700;margin-bottom:14px;">أداء الرسائل</h3>
+      <div class="bars">
+        <div class="bar-col"><div class="bar" style="height:46%;"></div><span class="bar-label">5</span></div>
+        <div class="bar-col"><div class="bar" style="height:64%;"></div><span class="bar-label">10</span></div>
+        <div class="bar-col"><div class="bar" style="height:52%;"></div><span class="bar-label">15</span></div>
+        <div class="bar-col"><div class="bar" style="height:82%;"></div><span class="bar-label">20</span></div>
+        <div class="bar-col"><div class="bar" style="height:60%;"></div><span class="bar-label">25</span></div>
+        <div class="bar-col"><div class="bar" style="height:96%;"></div><span class="bar-label">30</span></div>
+      </div>
+      <p style="text-align:center;font-size:10.5px;color:var(--text-faint);margin-top:10px;">مايو</p>
+    </div>
+
+    <div class="card" style="display:flex;flex-direction:column;gap:16px;">
+      <h3 style="font-size:14.5px;font-weight:700;">أفضل الحملات</h3>
+      <div class="top-item">
+        <div class="lbl"><span>عرض الصيف</span><span style="color:var(--green);">72%</span></div>
+        <div class="track"><div class="fill" style="width:72%;"></div></div>
+      </div>
+      <div class="top-item">
+        <div class="lbl"><span>تخفيضات الجمعة</span><span style="color:var(--green);">68%</span></div>
+        <div class="track"><div class="fill" style="width:68%;"></div></div>
+      </div>
+    </div>
+
+    <div style="height:100px;flex-shrink:0;"></div>
+  </div>
+
+  <div class="bottom-nav">
+    <div class="nav-item">
+      <svg class="icon" viewBox="0 0 24 24"><path d="M4 11.5 12 4l8 7.5"/><path d="M6 10v9a1 1 0 0 0 1 1h4v-6h2v6h4a1 1 0 0 0 1-1v-9"/></svg>
+      <span>الرئيسية</span>
+    </div>
+    <div class="nav-item">
+      <svg class="icon" viewBox="0 0 24 24"><path d="M20.5 3.5 3 10.8l6.2 2.3M20.5 3.5 13.7 21l-2.3-6.2M20.5 3.5 9.2 13.1"/></svg>
+      <span>الحملات</span>
+    </div>
+    <div class="nav-fab"><svg class="icon" viewBox="0 0 24 24" stroke-width="2.4"><path d="M12 5v14"/><path d="M5 12h14"/></svg></div>
+    <div class="nav-item">
+      <svg class="icon" viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.2"/><path d="M3.3 20a5.7 5.7 0 0 1 11.4 0"/><circle cx="17.5" cy="9.5" r="2.3"/><path d="M15 13.8a4.6 4.6 0 0 1 6 4.3"/></svg>
+      <span>العملاء</span>
+    </div>
+    <div class="nav-item active">
+      <svg class="icon" viewBox="0 0 24 24"><path d="M4.5 19.5V11"/><path d="M10.5 19.5V6"/><path d="M16.5 19.5v-8.5"/><path d="M2.5 19.5h19"/></svg>
+      <span>التقارير</span>
+    </div>
+  </div>
+</div>
+</x-dc>
+</body>
+</html>

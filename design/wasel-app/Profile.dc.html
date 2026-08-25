@@ -1,0 +1,101 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Cairo:wght@700;800;900&family=Tajawal:wght@300;400;500;700;800&display=swap');
+*{box-sizing:border-box;}
+html,body{margin:0;padding:0;height:100%;}
+body{background:#000;padding:16px;font-family:'Tajawal',sans-serif;}
+:root{
+  --app-bg:oklch(0.145 0.014 245);
+  --panel:oklch(0.195 0.017 245);
+  --panel-2:oklch(0.235 0.019 245);
+  --border:oklch(1 0 0 / 9%);
+  --border-2:oklch(1 0 0 / 15%);
+  --text:oklch(0.97 0.006 245);
+  --text-dim:oklch(0.72 0.02 245);
+  --text-faint:oklch(0.5 0.02 245);
+  --green:oklch(0.78 0.17 152);
+  --green-strong:oklch(0.66 0.18 152);
+  --green-soft:oklch(0.78 0.17 152 / 16%);
+  --green-ink:oklch(0.2 0.05 152);
+  --red:oklch(0.68 0.19 21);
+}
+.screen{width:100%;height:100%;background:var(--app-bg);border-radius:34px;overflow:hidden;position:relative;display:flex;flex-direction:column;direction:rtl;border:1px solid var(--border-2);box-shadow:0 30px 60px -20px rgba(0,0,0,.7);color:var(--text);}
+h1,h2,h3{margin:0;font-family:'Cairo',sans-serif;}
+p{margin:0;}
+.icon{width:20px;height:20px;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round;flex-shrink:0;}
+.iconbtn{width:38px;height:38px;border-radius:12px;background:var(--panel-2);border:1px solid var(--border-2);display:flex;align-items:center;justify-content:center;color:var(--text-dim);flex-shrink:0;}
+.header{padding:24px 20px 2px;display:flex;align-items:center;gap:14px;flex-shrink:0;}
+.scroll{flex:1;overflow:hidden;padding:20px 20px 0;display:flex;flex-direction:column;gap:16px;}
+.avatar{border-radius:50%;display:flex;align-items:center;justify-content:center;font-family:'Cairo',sans-serif;font-weight:800;color:#fff;flex-shrink:0;}
+.profile-card{background:var(--panel);border:1px solid var(--border);border-radius:20px;padding:24px 16px;display:flex;flex-direction:column;align-items:center;}
+.plan-badge{background:var(--green-soft);color:var(--green);font-size:11px;font-weight:700;padding:5px 13px;border-radius:20px;margin-top:10px;}
+.menu-card{background:var(--panel);border:1px solid var(--border);border-radius:18px;overflow:hidden;}
+.menu-row{display:flex;align-items:center;gap:12px;padding:14px 16px;border-top:1px solid var(--border);}
+.menu-row:first-child{border-top:none;}
+.menu-row .chip{width:36px;height:36px;border-radius:11px;background:var(--panel-2);display:flex;align-items:center;justify-content:center;flex-shrink:0;color:var(--text-dim);}
+.menu-row span{flex:1;font-size:13.5px;font-weight:600;}
+.menu-row .chev{color:var(--text-faint);}
+.menu-row.danger span, .menu-row.danger .chip{color:var(--red);}
+</style>
+</helmet>
+
+<div class="screen">
+  <div class="header">
+    <div class="iconbtn"><svg class="icon" viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></svg></div>
+    <h1 style="font-size:18px;font-weight:800;">الملف الشخصي</h1>
+  </div>
+
+  <div class="scroll">
+    <div class="profile-card">
+      <div class="avatar" style="width:74px;height:74px;font-size:24px;background:linear-gradient(145deg,oklch(0.7 0.15 152),oklch(0.53 0.15 152));">أم</div>
+      <h3 style="font-size:17px;font-weight:800;margin-top:12px;">أحمد محمد</h3>
+      <p style="font-size:12.5px;color:var(--text-faint);margin-top:4px;direction:ltr;">ahmed@example.com</p>
+      <span class="plan-badge">خطة احترافية</span>
+    </div>
+
+    <div class="menu-card">
+      <div class="menu-row">
+        <div class="chip"><svg class="icon" style="width:17px;height:17px;" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 3v2.5M12 18.5V21M21 12h-2.5M5.5 12H3M18.4 5.6l-1.8 1.8M7.4 16.6l-1.8 1.8M18.4 18.4l-1.8-1.8M7.4 7.4 5.6 5.6"/></svg></div>
+        <span>الحساب والإعدادات</span>
+        <svg class="icon chev" style="width:16px;height:16px;" viewBox="0 0 24 24"><path d="M14 6l-6 6 6 6"/></svg>
+      </div>
+      <div class="menu-row">
+        <div class="chip"><svg class="icon" style="width:17px;height:17px;" viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.2"/><path d="M3.3 20a5.7 5.7 0 0 1 11.4 0"/><circle cx="17.5" cy="9.5" r="2.3"/><path d="M15 13.8a4.6 4.6 0 0 1 6 4.3"/></svg></div>
+        <span>فريق العمل</span>
+        <svg class="icon chev" style="width:16px;height:16px;" viewBox="0 0 24 24"><path d="M14 6l-6 6 6 6"/></svg>
+      </div>
+      <div class="menu-row">
+        <div class="chip"><svg class="icon" style="width:17px;height:17px;" viewBox="0 0 24 24"><rect x="2.5" y="5.5" width="19" height="13" rx="2.5"/><path d="M2.5 10h19"/><path d="M6 15h4"/></svg></div>
+        <span>الفواتير والدفع</span>
+        <svg class="icon chev" style="width:16px;height:16px;" viewBox="0 0 24 24"><path d="M14 6l-6 6 6 6"/></svg>
+      </div>
+      <div class="menu-row">
+        <div class="chip"><svg class="icon" style="width:17px;height:17px;" viewBox="0 0 24 24"><path d="m9 8-4 4 4 4"/><path d="m15 8 4 4-4 4"/></svg></div>
+        <span>استخدام واجهة API</span>
+        <svg class="icon chev" style="width:16px;height:16px;" viewBox="0 0 24 24"><path d="M14 6l-6 6 6 6"/></svg>
+      </div>
+      <div class="menu-row">
+        <div class="chip"><svg class="icon" style="width:17px;height:17px;" viewBox="0 0 24 24"><rect x="5" y="11" width="14" height="9" rx="2.5"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg></div>
+        <span>الأمان والخصوصية</span>
+        <svg class="icon chev" style="width:16px;height:16px;" viewBox="0 0 24 24"><path d="M14 6l-6 6 6 6"/></svg>
+      </div>
+      <div class="menu-row danger">
+        <div class="chip"><svg class="icon" style="width:17px;height:17px;" viewBox="0 0 24 24"><path d="M15 4H7a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h8"/><path d="M10 12h11"/><path d="m17 8 4 4-4 4"/></svg></div>
+        <span>تسجيل الخروج</span>
+      </div>
+    </div>
+
+    <div style="height:20px;flex-shrink:0;"></div>
+  </div>
+</div>
+</x-dc>
+</body>
+</html>

@@ -1,0 +1,120 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Cairo:wght@700;800;900&family=Tajawal:wght@300;400;500;700;800&display=swap');
+*{box-sizing:border-box;}
+html,body{margin:0;padding:0;height:100%;}
+body{background:#000;padding:16px;font-family:'Tajawal',sans-serif;}
+:root{
+  --app-bg:oklch(0.145 0.014 245);
+  --panel:oklch(0.195 0.017 245);
+  --panel-2:oklch(0.235 0.019 245);
+  --border:oklch(1 0 0 / 9%);
+  --border-2:oklch(1 0 0 / 15%);
+  --text:oklch(0.97 0.006 245);
+  --text-dim:oklch(0.72 0.02 245);
+  --text-faint:oklch(0.5 0.02 245);
+  --green:oklch(0.78 0.17 152);
+  --green-strong:oklch(0.66 0.18 152);
+  --green-ink:oklch(0.2 0.05 152);
+}
+.screen{width:100%;height:100%;background:var(--app-bg);border-radius:34px;overflow:hidden;position:relative;display:flex;flex-direction:column;direction:rtl;border:1px solid var(--border-2);box-shadow:0 30px 60px -20px rgba(0,0,0,.7);color:var(--text);}
+h1,h2,h3{margin:0;font-family:'Cairo',sans-serif;}
+p{margin:0;}
+.icon{width:20px;height:20px;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round;flex-shrink:0;}
+.iconbtn{width:38px;height:38px;border-radius:12px;background:var(--panel-2);border:1px solid var(--border-2);display:flex;align-items:center;justify-content:center;color:var(--text-dim);flex-shrink:0;}
+.header{padding:24px 20px 2px;display:flex;align-items:center;gap:14px;flex-shrink:0;}
+.scroll{flex:1;overflow:hidden;padding:22px 20px 0;display:flex;flex-direction:column;gap:22px;}
+.stepper{display:flex;align-items:center;}
+.step-dot{width:30px;height:30px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:800;font-family:'Cairo',sans-serif;flex-shrink:0;}
+.step-dot.on{background:var(--green);color:var(--green-ink);}
+.step-dot.off{background:var(--panel-2);color:var(--text-faint);border:1px solid var(--border-2);}
+.step-line{flex:1;height:2px;background:var(--border-2);margin:0 4px;}
+.step-wrap{display:flex;flex-direction:column;align-items:center;gap:7px;}
+.step-label{font-size:10px;color:var(--text-faint);font-weight:600;white-space:nowrap;}
+.step-label.on{color:var(--green);}
+.field{display:flex;flex-direction:column;gap:8px;}
+.field label{font-size:12.5px;color:var(--text-dim);font-weight:600;}
+.select-row{background:var(--panel);border:1px solid var(--border-2);border-radius:14px;padding:15px;display:flex;align-items:center;justify-content:space-between;font-size:14px;}
+.input-field{background:var(--panel);border:1px solid var(--border-2);border-radius:14px;padding:15px;font-size:14px;color:var(--text);width:100%;font-family:'Tajawal',sans-serif;}
+.radio-row{display:flex;align-items:center;justify-content:space-between;background:var(--panel);border:1px solid var(--border-2);border-radius:14px;padding:15px;}
+.radio-row.picked{border-color:oklch(0.78 0.17 152/50%);background:oklch(0.78 0.17 152/8%);}
+.radio-dot{width:19px;height:19px;border-radius:50%;border:2px solid var(--border-2);flex-shrink:0;display:flex;align-items:center;justify-content:center;}
+.radio-dot.picked{border-color:var(--green);}
+.radio-dot.picked::after{content:"";width:10px;height:10px;border-radius:50%;background:var(--green);}
+.btn-primary{background:linear-gradient(135deg,var(--green),var(--green-strong));color:var(--green-ink);font-weight:800;border:none;border-radius:15px;padding:16px;font-size:15px;box-shadow:0 10px 24px -10px oklch(0.7 0.18 152/55%);width:100%;text-align:center;font-family:'Tajawal',sans-serif;}
+.sticky-bottom{position:absolute;left:0;right:0;bottom:0;padding:16px 20px 26px;background:linear-gradient(to top,var(--app-bg) 60%,transparent);}
+</style>
+</helmet>
+
+<div class="screen">
+  <div class="header">
+    <div class="iconbtn"><svg class="icon" viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></svg></div>
+    <h1 style="font-size:18px;font-weight:800;">إنشاء حملة جديدة</h1>
+  </div>
+
+  <div class="scroll">
+    <div class="stepper">
+      <div class="step-wrap"><div class="step-dot on">1</div><span class="step-label on">الإعدادات</span></div>
+      <div class="step-line"></div>
+      <div class="step-wrap"><div class="step-dot off">2</div><span class="step-label">الرسالة</span></div>
+      <div class="step-line"></div>
+      <div class="step-wrap"><div class="step-dot off">3</div><span class="step-label">الجمهور</span></div>
+      <div class="step-line"></div>
+      <div class="step-wrap"><div class="step-dot off">4</div><span class="step-label">المراجعة</span></div>
+    </div>
+
+    <div style="display:flex;flex-direction:column;gap:18px;">
+      <h2 style="font-size:15px;font-weight:700;">الإعدادات الأساسية</h2>
+
+      <div class="field">
+        <label>اسم الحملة</label>
+        <input class="input-field" value="عرض الصيف" readonly>
+      </div>
+
+      <div class="field">
+        <label>نوع الحملة</label>
+        <div class="select-row">
+          <svg class="icon" style="width:15px;height:15px;color:var(--text-faint);" viewBox="0 0 24 24"><path d="M6 9l6 6 6-6"/></svg>
+          <span>حملة رسائل ترويجية</span>
+        </div>
+      </div>
+
+      <div class="field">
+        <label>الجمهور المستهدف</label>
+        <div class="select-row">
+          <svg class="icon" style="width:15px;height:15px;color:var(--text-faint);" viewBox="0 0 24 24"><path d="M6 9l6 6 6-6"/></svg>
+          <span>قائمة العملاء الكاملة</span>
+        </div>
+      </div>
+
+      <div class="field">
+        <label>جدولة الإرسال</label>
+        <div class="radio-row picked">
+          <div class="radio-dot picked"></div>
+          <span style="font-size:13.5px;font-weight:600;">إرسال الآن</span>
+        </div>
+        <div class="radio-row">
+          <div class="radio-dot"></div>
+          <span style="font-size:13.5px;font-weight:600;color:var(--text-dim);">جدولة لاحقاً</span>
+        </div>
+      </div>
+    </div>
+
+    <div style="height:100px;flex-shrink:0;"></div>
+  </div>
+
+  <div class="sticky-bottom">
+    <button class="btn-primary">التالي</button>
+  </div>
+</div>
+</x-dc>
+</body>
+</html>

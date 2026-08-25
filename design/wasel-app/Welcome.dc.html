@@ -1,0 +1,94 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Cairo:wght@700;800;900&family=Tajawal:wght@300;400;500;700;800&display=swap');
+*{box-sizing:border-box;}
+html,body{margin:0;padding:0;height:100%;}
+body{background:#000;padding:16px;font-family:'Tajawal',sans-serif;}
+:root{
+  --app-bg:oklch(0.145 0.014 245);
+  --panel:oklch(0.195 0.017 245);
+  --panel-2:oklch(0.235 0.019 245);
+  --border:oklch(1 0 0 / 9%);
+  --border-2:oklch(1 0 0 / 15%);
+  --text:oklch(0.97 0.006 245);
+  --text-dim:oklch(0.72 0.02 245);
+  --text-faint:oklch(0.5 0.02 245);
+  --green:oklch(0.78 0.17 152);
+  --green-strong:oklch(0.66 0.18 152);
+  --green-soft:oklch(0.78 0.17 152 / 16%);
+  --green-ink:oklch(0.2 0.05 152);
+  --blue:oklch(0.72 0.13 238);
+  --blue-soft:oklch(0.72 0.13 238 / 15%);
+  --amber:oklch(0.8 0.14 78);
+  --amber-soft:oklch(0.8 0.14 78 / 15%);
+}
+.screen{width:100%;height:100%;background:var(--app-bg);border-radius:34px;overflow:hidden;position:relative;display:flex;flex-direction:column;direction:rtl;border:1px solid var(--border-2);box-shadow:0 30px 60px -20px rgba(0,0,0,.7);color:var(--text);}
+h1,h2{margin:0;font-family:'Cairo',sans-serif;}
+p{margin:0;}
+.btn-primary{background:linear-gradient(135deg,var(--green),var(--green-strong));color:var(--green-ink);font-weight:800;border:none;border-radius:15px;padding:16px;font-size:15px;box-shadow:0 10px 24px -10px oklch(0.7 0.18 152/55%);width:100%;text-align:center;display:block;font-family:'Tajawal',sans-serif;}
+.icon{width:20px;height:20px;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round;flex-shrink:0;}
+.card{background:var(--panel);border:1px solid var(--border);border-radius:16px;padding:14px;}
+.confetti{position:absolute;border-radius:2px;}
+.badge-wrap{width:110px;height:110px;border-radius:50%;background:radial-gradient(circle,oklch(0.78 0.17 152/25%),transparent 70%);display:flex;align-items:center;justify-content:center;margin:0 auto;}
+.badge{width:74px;height:74px;border-radius:50%;background:linear-gradient(145deg,var(--green),var(--green-strong));display:flex;align-items:center;justify-content:center;box-shadow:0 14px 28px -10px oklch(0.7 0.18 152/60%);}
+.badge svg{width:34px;height:34px;stroke:var(--green-ink);fill:none;stroke-width:2.4;stroke-linecap:round;stroke-linejoin:round;}
+.feat-row{display:flex;align-items:center;gap:12px;}
+.feat-row .chip{width:42px;height:42px;border-radius:13px;display:flex;align-items:center;justify-content:center;flex-shrink:0;}
+</style>
+</helmet>
+
+<div class="screen">
+  <div class="confetti" style="top:34px;right:38px;width:9px;height:9px;background:var(--green);transform:rotate(20deg);"></div>
+  <div class="confetti" style="top:70px;right:90px;width:7px;height:7px;background:var(--amber);transform:rotate(-10deg);border-radius:50%;"></div>
+  <div class="confetti" style="top:30px;left:50px;width:8px;height:8px;background:var(--blue);transform:rotate(35deg);"></div>
+  <div class="confetti" style="top:96px;left:26px;width:10px;height:5px;background:var(--green);transform:rotate(-25deg);"></div>
+  <div class="confetti" style="top:20px;left:130px;width:6px;height:6px;background:var(--amber);border-radius:50%;"></div>
+  <div class="confetti" style="top:120px;right:150px;width:6px;height:12px;background:var(--blue);transform:rotate(15deg);"></div>
+
+  <div style="position:relative;flex:1;display:flex;flex-direction:column;padding:52px 24px 28px;">
+    <div class="badge-wrap"><div class="badge"><svg viewBox="0 0 24 24"><path d="M5 13l4 4L19 7"/></svg></div></div>
+
+    <h1 style="font-size:25px;font-weight:800;text-align:center;margin-top:24px;">مرحباً بك في واصل!</h1>
+    <p style="text-align:center;color:var(--text-dim);font-size:14px;line-height:1.85;margin-top:10px;max-width:290px;margin-left:auto;margin-right:auto;">
+      تم إنشاء حسابك بنجاح، لنبدأ رحلتك في الوصول إلى عملائك عبر واتساب
+    </p>
+
+    <div style="display:flex;flex-direction:column;gap:12px;margin-top:32px;">
+      <div class="card feat-row">
+        <div class="chip" style="background:var(--green-soft);"><svg class="icon" style="stroke:var(--green);" viewBox="0 0 24 24"><path d="M20.5 3.5 3 10.8l6.2 2.3M20.5 3.5 13.7 21l-2.3-6.2M20.5 3.5 9.2 13.1"/></svg></div>
+        <div>
+          <h3 style="font-size:14.5px;font-weight:700;">حملات ذكية</h3>
+          <p style="font-size:12.5px;color:var(--text-faint);margin-top:3px;line-height:1.6;">رسائل مخصصة تصل بالتوقيت الأنسب</p>
+        </div>
+      </div>
+      <div class="card feat-row">
+        <div class="chip" style="background:var(--blue-soft);"><svg class="icon" style="stroke:var(--blue);" viewBox="0 0 24 24"><path d="M4.5 19.5V11"/><path d="M10.5 19.5V6"/><path d="M16.5 19.5v-8.5"/><path d="M2.5 19.5h19"/></svg></div>
+        <div>
+          <h3 style="font-size:14.5px;font-weight:700;">تحليلات فورية</h3>
+          <p style="font-size:12.5px;color:var(--text-faint);margin-top:3px;line-height:1.6;">تابع أداء حملاتك لحظة بلحظة</p>
+        </div>
+      </div>
+      <div class="card feat-row">
+        <div class="chip" style="background:var(--amber-soft);"><svg class="icon" style="stroke:var(--amber);" viewBox="0 0 24 24"><path d="M13 3 5 14h6l-1 7 9-12h-6l1-6Z"/></svg></div>
+        <div>
+          <h3 style="font-size:14.5px;font-weight:700;">أتمتة كاملة</h3>
+          <p style="font-size:12.5px;color:var(--text-faint);margin-top:3px;line-height:1.6;">وفّر وقتك بسير عمل تلقائي ذكي</p>
+        </div>
+      </div>
+    </div>
+
+    <div style="flex:1;min-height:20px;"></div>
+    <a class="btn-primary" href="#">ابدأ أول حملة</a>
+  </div>
+</div>
+</x-dc>
+</body>
+</html>

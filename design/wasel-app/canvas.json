@@ -1,0 +1,18 @@
+{
+  "artboards": [
+    { "file": "Splash.dc.html", "x": 0, "y": 0, "w": 420, "h": 874, "title": "الشاشة الافتتاحية" },
+    { "file": "Login.dc.html", "x": 510, "y": 0, "w": 420, "h": 874, "title": "تسجيل الدخول" },
+    { "file": "Welcome.dc.html", "x": 1020, "y": 0, "w": 420, "h": 874, "title": "شاشة الترحيب" },
+    { "file": "Main.dc.html", "x": 1530, "y": 0, "w": 420, "h": 874, "title": "لوحة التحكم" },
+    { "file": "Campaigns.dc.html", "x": 2040, "y": 0, "w": 420, "h": 874, "title": "الحملات" },
+    { "file": "CreateCampaign.dc.html", "x": 0, "y": 1014, "w": 420, "h": 874, "title": "إنشاء حملة" },
+    { "file": "Customers.dc.html", "x": 510, "y": 1014, "w": 420, "h": 874, "title": "العملاء" },
+    { "file": "Reports.dc.html", "x": 1020, "y": 1014, "w": 420, "h": 874, "title": "التقارير" },
+    { "file": "Plans.dc.html", "x": 1530, "y": 1014, "w": 420, "h": 874, "title": "الباقات والأسعار" },
+    { "file": "Profile.dc.html", "x": 2040, "y": 1014, "w": 420, "h": 874, "title": "الملف الشخصي" }
+  ],
+  "annotations": [
+    { "id": "intro-note", "x": 0, "y": -150, "w": 620, "text": "واصل · Wasel Business\nنظام واجهات لمنصة إدارة حملات واتساب للأعمال — 10 شاشات" }
+  ],
+  "launch": { "view": "canvas" }
+}

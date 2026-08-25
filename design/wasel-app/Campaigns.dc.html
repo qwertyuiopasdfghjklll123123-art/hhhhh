@@ -1,0 +1,150 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Cairo:wght@700;800;900&family=Tajawal:wght@300;400;500;700;800&display=swap');
+*{box-sizing:border-box;}
+html,body{margin:0;padding:0;height:100%;}
+body{background:#000;padding:16px;font-family:'Tajawal',sans-serif;}
+:root{
+  --app-bg:oklch(0.145 0.014 245);
+  --panel:oklch(0.195 0.017 245);
+  --panel-2:oklch(0.235 0.019 245);
+  --border:oklch(1 0 0 / 9%);
+  --border-2:oklch(1 0 0 / 15%);
+  --text:oklch(0.97 0.006 245);
+  --text-dim:oklch(0.72 0.02 245);
+  --text-faint:oklch(0.5 0.02 245);
+  --green:oklch(0.78 0.17 152);
+  --green-strong:oklch(0.66 0.18 152);
+  --green-soft:oklch(0.78 0.17 152 / 16%);
+  --green-ink:oklch(0.2 0.05 152);
+  --amber:oklch(0.8 0.14 78);
+  --amber-soft:oklch(0.8 0.14 78 / 15%);
+  --text-faint2:oklch(0.5 0.02 245);
+  --grey-pill:oklch(1 0 0/8%);
+}
+.screen{width:100%;height:100%;background:var(--app-bg);border-radius:34px;overflow:hidden;position:relative;display:flex;flex-direction:column;direction:rtl;border:1px solid var(--border-2);box-shadow:0 30px 60px -20px rgba(0,0,0,.7);color:var(--text);}
+h1,h2,h3{margin:0;font-family:'Cairo',sans-serif;}
+p{margin:0;}
+.icon{width:20px;height:20px;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round;flex-shrink:0;}
+.avatar{border-radius:50%;display:flex;align-items:center;justify-content:center;font-family:'Cairo',sans-serif;font-weight:800;color:#fff;flex-shrink:0;}
+.bottom-nav{position:absolute;bottom:0;left:0;right:0;height:82px;background:oklch(0.16 0.016 245/94%);backdrop-filter:blur(20px);border-top:1px solid var(--border);display:flex;align-items:center;justify-content:space-around;padding:0 6px 12px;}
+.nav-item{display:flex;flex-direction:column;align-items:center;gap:5px;color:var(--text-faint);font-size:10.5px;font-weight:500;width:56px;}
+.nav-item.active{color:var(--green);}
+.nav-fab{width:54px;height:54px;border-radius:17px;background:linear-gradient(135deg,var(--green),var(--green-strong));display:flex;align-items:center;justify-content:center;margin-top:-34px;box-shadow:0 12px 26px -8px oklch(0.7 0.18 152/65%);border:5px solid var(--app-bg);}
+.nav-fab .icon{stroke:var(--green-ink);width:23px;height:23px;stroke-width:2.4;}
+.header{padding:24px 20px 2px;display:flex;align-items:center;justify-content:space-between;flex-shrink:0;gap:12px;}
+.iconbtn{width:38px;height:38px;border-radius:12px;background:var(--panel-2);border:1px solid var(--border-2);display:flex;align-items:center;justify-content:center;color:var(--text-dim);flex-shrink:0;}
+.searchbar{background:var(--panel);border:1px solid var(--border);border-radius:14px;padding:12px 14px;display:flex;align-items:center;gap:9px;color:var(--text-faint);font-size:13px;flex:1;}
+.scroll{flex:1;overflow:hidden;padding:16px 20px 0;display:flex;flex-direction:column;gap:12px;}
+.tabs{display:flex;gap:8px;}
+.tab{padding:8px 15px;border-radius:11px;font-size:12.5px;font-weight:700;background:var(--panel-2);color:var(--text-dim);border:1px solid var(--border-2);}
+.tab.active{background:var(--green);color:var(--green-ink);border-color:transparent;}
+.status-pill{font-size:10.5px;font-weight:700;padding:4px 10px;border-radius:20px;display:inline-flex;align-items:center;gap:4px;}
+.status-active{background:var(--green-soft);color:var(--green);}
+.status-scheduled{background:var(--amber-soft);color:var(--amber);}
+.status-ended{background:var(--grey-pill);color:var(--text-faint);}
+.camp-card{background:var(--panel);border:1px solid var(--border);border-radius:18px;padding:16px;}
+.stat-row{display:flex;margin-top:14px;padding-top:12px;border-top:1px solid var(--border);}
+.stat-col{flex:1;text-align:center;}
+.stat-col b{display:block;font-size:14px;font-weight:800;font-family:'Cairo',sans-serif;}
+.stat-col span{font-size:10.5px;color:var(--text-faint);margin-top:3px;display:block;}
+</style>
+</helmet>
+
+<div class="screen">
+  <div class="header">
+    <h1 style="font-size:21px;font-weight:800;">الحملات</h1>
+    <div class="avatar" style="width:38px;height:38px;font-size:13px;background:linear-gradient(145deg,oklch(0.7 0.15 152),oklch(0.55 0.15 152));">أ</div>
+  </div>
+
+  <div class="scroll">
+    <div style="display:flex;gap:10px;">
+      <div class="searchbar">
+        <svg class="icon" style="width:16px;height:16px;" viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.5"/><path d="m20 20-4.3-4.3"/></svg>
+        <span>ابحث عن حملة</span>
+      </div>
+      <div class="iconbtn"><svg class="icon" style="width:17px;height:17px;" viewBox="0 0 24 24"><path d="M4 6h16"/><path d="M7 12h10"/><path d="M10 18h4"/></svg></div>
+    </div>
+
+    <div class="tabs">
+      <div class="tab active">الكل</div>
+      <div class="tab">نشطة</div>
+      <div class="tab">مجدولة</div>
+      <div class="tab">منتهية</div>
+    </div>
+
+    <div class="camp-card">
+      <div style="display:flex;align-items:center;justify-content:space-between;">
+        <span class="status-pill status-active">نشطة</span>
+        <div class="iconbtn" style="width:30px;height:30px;border-radius:9px;"><svg class="icon" style="width:13px;height:13px;" viewBox="0 0 24 24"><rect x="6" y="5" width="4" height="14" rx="1"/><rect x="14" y="5" width="4" height="14" rx="1"/></svg></div>
+      </div>
+      <h3 style="font-size:15.5px;font-weight:700;margin-top:12px;">عرض الصيف</h3>
+      <p style="font-size:12px;color:var(--text-faint);margin-top:3px;">حملة رسائل ترويجية</p>
+      <div class="stat-row">
+        <div class="stat-col"><b>2,847</b><span>المرسلة</span></div>
+        <div class="stat-col"><b>68%</b><span>معدل القراءة</span></div>
+        <div class="stat-col"><b>412</b><span>الردود</span></div>
+      </div>
+    </div>
+
+    <div class="camp-card">
+      <div style="display:flex;align-items:center;justify-content:space-between;">
+        <span class="status-pill status-scheduled">مجدولة</span>
+        <div class="iconbtn" style="width:30px;height:30px;border-radius:9px;"><svg class="icon" style="width:13px;height:13px;" viewBox="0 0 24 24"><path d="M9 6l6 6-6 6" transform="rotate(180 12 12)"/></svg></div>
+      </div>
+      <h3 style="font-size:15.5px;font-weight:700;margin-top:12px;">تخفيضات الجمعة</h3>
+      <p style="font-size:12px;color:var(--text-faint);margin-top:3px;">عرض خاص لمدة محدودة</p>
+      <div style="display:flex;align-items:center;gap:6px;margin-top:14px;padding-top:12px;border-top:1px solid var(--border);color:var(--text-dim);">
+        <svg class="icon" style="width:14px;height:14px;stroke:var(--amber);" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/></svg>
+        <span style="font-size:12px;">الإرسال في 20 مايو، الساعة 10:00 صباحاً</span>
+      </div>
+    </div>
+
+    <div class="camp-card">
+      <div style="display:flex;align-items:center;justify-content:space-between;">
+        <span class="status-pill status-active">نشطة</span>
+        <div class="iconbtn" style="width:30px;height:30px;border-radius:9px;"><svg class="icon" style="width:13px;height:13px;" viewBox="0 0 24 24"><rect x="6" y="5" width="4" height="14" rx="1"/><rect x="14" y="5" width="4" height="14" rx="1"/></svg></div>
+      </div>
+      <h3 style="font-size:15.5px;font-weight:700;margin-top:12px;">منتجات جديدة</h3>
+      <p style="font-size:12px;color:var(--text-faint);margin-top:3px;">إطلاق تشكيلة جديدة</p>
+      <div class="stat-row">
+        <div class="stat-col"><b>12,543</b><span>المرسلة</span></div>
+        <div class="stat-col"><b>72%</b><span>معدل القراءة</span></div>
+        <div class="stat-col"><b>1,025</b><span>الردود</span></div>
+      </div>
+    </div>
+
+    <div style="height:104px;flex-shrink:0;"></div>
+  </div>
+
+  <div class="bottom-nav">
+    <div class="nav-item">
+      <svg class="icon" viewBox="0 0 24 24"><path d="M4 11.5 12 4l8 7.5"/><path d="M6 10v9a1 1 0 0 0 1 1h4v-6h2v6h4a1 1 0 0 0 1-1v-9"/></svg>
+      <span>الرئيسية</span>
+    </div>
+    <div class="nav-item active">
+      <svg class="icon" viewBox="0 0 24 24"><path d="M20.5 3.5 3 10.8l6.2 2.3M20.5 3.5 13.7 21l-2.3-6.2M20.5 3.5 9.2 13.1"/></svg>
+      <span>الحملات</span>
+    </div>
+    <div class="nav-fab"><svg class="icon" viewBox="0 0 24 24" stroke-width="2.4"><path d="M12 5v14"/><path d="M5 12h14"/></svg></div>
+    <div class="nav-item">
+      <svg class="icon" viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.2"/><path d="M3.3 20a5.7 5.7 0 0 1 11.4 0"/><circle cx="17.5" cy="9.5" r="2.3"/><path d="M15 13.8a4.6 4.6 0 0 1 6 4.3"/></svg>
+      <span>العملاء</span>
+    </div>
+    <div class="nav-item">
+      <svg class="icon" viewBox="0 0 24 24"><path d="M4.5 19.5V11"/><path d="M10.5 19.5V6"/><path d="M16.5 19.5v-8.5"/><path d="M2.5 19.5h19"/></svg>
+      <span>التقارير</span>
+    </div>
+  </div>
+</div>
+</x-dc>
+</body>
+</html>
