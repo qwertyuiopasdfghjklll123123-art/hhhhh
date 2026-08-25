@@ -85,16 +85,38 @@ def init_db():
     conn.execute("""
         CREATE TABLE IF NOT EXISTS users (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            username TEXT UNIQUE NOT NULL,
+            email TEXT UNIQUE NOT NULL,
             password_hash TEXT NOT NULL,
-            is_admin INTEGER NOT NULL DEFAULT 0
+            is_admin INTEGER NOT NULL DEFAULT 0,
+            plan_active INTEGER NOT NULL DEFAULT 0,
+            created_at TEXT NOT NULL DEFAULT ''
         )
     """)
+    # ترقية قاعدة بيانات قديمة كانت تستخدم اسم مستخدم بدل بريد إلكتروني
+    cols = [r["name"] for r in conn.execute("PRAGMA table_info(users)").fetchall()]
+    if "username" in cols and "email" not in cols:
+        conn.execute("ALTER TABLE users RENAME COLUMN username TO email")
+        cols = [r["name"] for r in conn.execute("PRAGMA table_info(users)").fetchall()]
+    if "plan_active" not in cols:
+        conn.execute("ALTER TABLE users ADD COLUMN plan_active INTEGER NOT NULL DEFAULT 0")
+    if "created_at" not in cols:
+        conn.execute("ALTER TABLE users ADD COLUMN created_at TEXT NOT NULL DEFAULT ''")
     conn.execute("""
         CREATE TABLE IF NOT EXISTS ai_settings (
             id INTEGER PRIMARY KEY CHECK (id = 1),
             api_key TEXT DEFAULT '',
             knowledge_base TEXT DEFAULT ''
+        )
+    """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS payments (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL,
+            plan_name TEXT NOT NULL,
+            amount_iqd INTEGER NOT NULL,
+            reference TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'pending',
+            created_at TEXT NOT NULL
         )
     """)
     conn.commit()
@@ -103,10 +125,13 @@ def init_db():
 
 init_db()
 
+PLAN_NAME = "الخطة الاحترافية"
+PLAN_PRICE_IQD = 25000  # سعر مبدئي، عدّله لسعرك الفعلي
 
-def db_get_user_by_username(username):
+
+def db_get_user_by_email(email):
     conn = get_db()
-    row = conn.execute("SELECT * FROM users WHERE username = ?", (username,)).fetchone()
+    row = conn.execute("SELECT * FROM users WHERE email = ?", (email,)).fetchone()
     conn.close()
     return row
 
@@ -118,16 +143,66 @@ def db_count_users():
     return n
 
 
-def db_create_user(username, password_hash, is_admin):
+def db_create_user(email, password_hash, is_admin):
     conn = get_db()
     cur = conn.execute(
-        "INSERT INTO users (username, password_hash, is_admin) VALUES (?, ?, ?)",
-        (username, password_hash, int(is_admin)),
+        "INSERT INTO users (email, password_hash, is_admin, plan_active, created_at) VALUES (?, ?, ?, 0, ?)",
+        (email, password_hash, int(is_admin), datetime.now().strftime("%Y-%m-%d %H:%M")),
     )
     conn.commit()
     user_id = cur.lastrowid
     conn.close()
     return user_id
+
+
+def db_list_users():
+    conn = get_db()
+    rows = conn.execute("SELECT id, email, is_admin, plan_active, created_at FROM users ORDER BY id").fetchall()
+    conn.close()
+    return rows
+
+
+def db_create_payment_request(user_id, plan_name, amount_iqd, reference):
+    conn = get_db()
+    conn.execute(
+        "INSERT INTO payments (user_id, plan_name, amount_iqd, reference, status, created_at) "
+        "VALUES (?, ?, ?, ?, 'pending', ?)",
+        (user_id, plan_name, amount_iqd, reference, datetime.now().strftime("%Y-%m-%d %H:%M")),
+    )
+    conn.commit()
+    conn.close()
+
+
+def db_list_payments_for_user(user_id):
+    conn = get_db()
+    rows = conn.execute("SELECT * FROM payments WHERE user_id = ? ORDER BY id DESC", (user_id,)).fetchall()
+    conn.close()
+    return rows
+
+
+def db_list_pending_payments():
+    conn = get_db()
+    rows = conn.execute(
+        "SELECT payments.*, users.email FROM payments "
+        "JOIN users ON users.id = payments.user_id "
+        "WHERE payments.status = 'pending' ORDER BY payments.id"
+    ).fetchall()
+    conn.close()
+    return rows
+
+
+def db_set_payment_status(payment_id, status):
+    conn = get_db()
+    row = conn.execute("SELECT * FROM payments WHERE id = ?", (payment_id,)).fetchone()
+    if not row:
+        conn.close()
+        return False
+    conn.execute("UPDATE payments SET status = ? WHERE id = ?", (status, payment_id))
+    if status == "approved":
+        conn.execute("UPDATE users SET plan_active = 1 WHERE id = ?", (row["user_id"],))
+    conn.commit()
+    conn.close()
+    return True
 
 
 def db_get_ai_settings():
@@ -424,7 +499,7 @@ def render_auth_page(title, action, switch_html, error):
     <h2>{title}</h2>
     {error_html}
     <form method="post" action="{action}">
-      <input name="username" placeholder="اسم المستخدم" required>
+      <input name="email" type="email" placeholder="البريد الإلكتروني" required>
       <input name="password" type="password" placeholder="كلمة المرور" required>
       <button type="submit">{title}</button>
     </form>
@@ -435,17 +510,20 @@ def render_auth_page(title, action, switch_html, error):
 """
 
 
+EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+
+
 @app.route("/login", methods=["GET", "POST"])
 def login_page():
     if request.method == "GET":
         return render_auth_page("تسجيل الدخول", "/login", '<p class="switch">ما عندك حساب؟ <a href="/signup">أنشئ حساب</a></p>', "")
-    username = request.form.get("username", "").strip()
+    email = request.form.get("email", "").strip().lower()
     password = request.form.get("password", "")
-    user = db_get_user_by_username(username)
+    user = db_get_user_by_email(email)
     if not user or not check_password_hash(user["password_hash"], password):
-        return render_auth_page("تسجيل الدخول", "/login", '<p class="switch">ما عندك حساب؟ <a href="/signup">أنشئ حساب</a></p>', "اسم المستخدم أو كلمة المرور غير صحيحة")
+        return render_auth_page("تسجيل الدخول", "/login", '<p class="switch">ما عندك حساب؟ <a href="/signup">أنشئ حساب</a></p>', "البريد الإلكتروني أو كلمة المرور غير صحيحة")
     session["user_id"] = user["id"]
-    session["username"] = user["username"]
+    session["email"] = user["email"]
     session["is_admin"] = bool(user["is_admin"])
     return redirect("/")
 
@@ -454,17 +532,19 @@ def login_page():
 def signup_page():
     if request.method == "GET":
         return render_auth_page("إنشاء حساب", "/signup", '<p class="switch">عندك حساب؟ <a href="/login">سجّل الدخول</a></p>', "")
-    username = request.form.get("username", "").strip()
+    email = request.form.get("email", "").strip().lower()
     password = request.form.get("password", "")
     switch = '<p class="switch">عندك حساب؟ <a href="/login">سجّل الدخول</a></p>'
-    if not username or not password:
+    if not email or not password:
         return render_auth_page("إنشاء حساب", "/signup", switch, "عبّي كل الحقول")
-    if db_get_user_by_username(username):
-        return render_auth_page("إنشاء حساب", "/signup", switch, "اسم المستخدم مستخدم من قبل")
+    if not EMAIL_RE.match(email):
+        return render_auth_page("إنشاء حساب", "/signup", switch, "أدخل بريد إلكتروني صحيح")
+    if db_get_user_by_email(email):
+        return render_auth_page("إنشاء حساب", "/signup", switch, "هذا البريد مسجّل من قبل")
     is_admin = db_count_users() == 0
-    user_id = db_create_user(username, generate_password_hash(password), is_admin)
+    user_id = db_create_user(email, generate_password_hash(password), is_admin)
     session["user_id"] = user_id
-    session["username"] = username
+    session["email"] = email
     session["is_admin"] = is_admin
     return redirect("/")
 
@@ -482,7 +562,7 @@ def home():
     if not session.get("user_id"):
         return redirect("/login")
     page = PAGE.replace("__IS_ADMIN__", "true" if session.get("is_admin") else "false")
-    page = page.replace("__USERNAME__", session.get("username", ""))
+    page = page.replace("__USERNAME__", session.get("email", ""))
     return page
 
 
@@ -557,6 +637,60 @@ def set_ai_settings():
     knowledge_base = data.get("knowledge_base") or ""
     db_set_ai_settings(api_key, knowledge_base)
     return jsonify(ok=True)
+
+
+# ---------------------------------------------------------------- الاشتراك والدفع (تحقق يدوي)
+
+@app.route("/subscription")
+@login_required
+def get_subscription():
+    user = db_get_user_by_email(session["email"])
+    payments = db_list_payments_for_user(session["user_id"])
+    return jsonify(
+        plan_active=bool(user and user["plan_active"]),
+        plan_name=PLAN_NAME,
+        price_iqd=PLAN_PRICE_IQD,
+        payments=[dict(p) for p in payments],
+    )
+
+
+@app.route("/subscription/pay", methods=["POST"])
+@login_required
+def submit_payment():
+    data = request.json or {}
+    reference = (data.get("reference") or "").strip()
+    if not reference:
+        return jsonify(ok=False, error="أدخل رقم إثبات الدفع/التحويل"), 400
+    db_create_payment_request(session["user_id"], PLAN_NAME, PLAN_PRICE_IQD, reference)
+    return jsonify(ok=True)
+
+
+@app.route("/admin/customers")
+@login_required
+@admin_required
+def admin_customers():
+    return jsonify([dict(u) for u in db_list_users()])
+
+
+@app.route("/admin/payments")
+@login_required
+@admin_required
+def admin_payments():
+    return jsonify([dict(p) for p in db_list_pending_payments()])
+
+
+@app.route("/admin/payments/<int:payment_id>/approve", methods=["POST"])
+@login_required
+@admin_required
+def admin_approve_payment(payment_id):
+    return jsonify(ok=db_set_payment_status(payment_id, "approved"))
+
+
+@app.route("/admin/payments/<int:payment_id>/reject", methods=["POST"])
+@login_required
+@admin_required
+def admin_reject_payment(payment_id):
+    return jsonify(ok=db_set_payment_status(payment_id, "rejected"))
 
 
 # ---------------------------------------------------------------- حسابات واتساب (لكل مستخدم)
@@ -1248,6 +1382,10 @@ function renderSettings() {
     '</div>' +
     '<button class="btn-danger" onclick="logoutPlatform()">تسجيل الخروج من المنصة</button>';
 
+  html +=
+    '<h3 class="text-[12px] font-extrabold text-gold mt-5 mb-1">الاشتراك</h3>' +
+    '<div class="dark-card rounded-2xl p-4" id="subBox"><div class="text-muted text-[11px]">جارِ التحميل...</div></div>';
+
   if (IS_ADMIN) {
     html +=
       '<h3 class="text-[12px] font-extrabold text-gold mt-5 mb-1">إعدادات الأدمن — الرد الذكي (DeepSeek)</h3>' +
@@ -1258,17 +1396,95 @@ function renderSettings() {
       '<textarea id="aiKb" rows="6" placeholder="مثال:&#10;منتج أ - 10 دولار&#10;منتج ب - 15 دولار"></textarea>' +
       '<button class="btn-gold" onclick="saveAiSettings()">حفظ إعدادات الأدمن</button>' +
       '<div id="aiMsg" class="text-center text-[12px] font-bold mt-2"></div>' +
-      '</div>';
+      '</div>' +
+      '<h3 class="text-[12px] font-extrabold text-gold mt-5 mb-1">العملاء</h3>' +
+      '<div class="dark-card rounded-2xl p-3" id="customersBox"><div class="text-muted text-[11px]">جارِ التحميل...</div></div>' +
+      '<h3 class="text-[12px] font-extrabold text-gold mt-5 mb-1">طلبات الدفع بانتظار المراجعة</h3>' +
+      '<div class="dark-card rounded-2xl p-3" id="paymentsBox"><div class="text-muted text-[11px]">جارِ التحميل...</div></div>';
   }
 
   c.innerHTML = html;
+  loadSubscription();
 
   if (IS_ADMIN) {
     fetch('/admin/ai_settings').then(r => r.json()).then(d => {
       document.getElementById('aiKey').placeholder = d.api_key_set ? 'محفوظ مسبقاً (اتركه فاضي للإبقاء عليه)' : 'sk-...';
       document.getElementById('aiKb').value = d.knowledge_base || '';
     });
+    loadCustomers();
+    loadPendingPayments();
   }
+}
+
+async function loadSubscription() {
+  const d = await fetch('/subscription').then(r => r.json());
+  const box = document.getElementById('subBox');
+  if (!box) return;
+  let html = '<p class="text-[13px] font-bold">' + d.plan_name + ' — ' + d.price_iqd.toLocaleString() + ' د.ع</p>';
+  if (d.plan_active) {
+    html += '<p class="text-emerald-600 text-[12px] font-bold mt-1">خطتك مفعّلة</p>';
+  } else {
+    html +=
+      '<p class="text-[11px] text-muted mt-1">حوّل المبلغ عبر سوبر كي، وبعدين أدخل رقم إثبات التحويل هنا ليتم التفعيل من الإدارة.</p>' +
+      '<input id="payRef" placeholder="رقم إثبات التحويل">' +
+      '<button class="btn-gold" onclick="submitPayment()">إرسال</button>' +
+      '<div id="payMsg" class="text-center text-[12px] font-bold mt-2"></div>';
+  }
+  if (d.payments && d.payments.length) {
+    html += '<div class="mt-3">' + d.payments.map(p =>
+      '<div class="history-row"><span>' + p.created_at + '</span><span>' + p.reference + '</span><span class="' +
+      (p.status === 'approved' ? 'text-emerald-600' : p.status === 'rejected' ? 'text-red-500' : 'text-muted') + '">' +
+      (p.status === 'approved' ? 'مقبول' : p.status === 'rejected' ? 'مرفوض' : 'قيد المراجعة') + '</span></div>'
+    ).join('') + '</div>';
+  }
+  box.innerHTML = html;
+}
+
+async function submitPayment() {
+  const reference = document.getElementById('payRef').value.trim();
+  if (!reference) return;
+  const r = await fetch('/subscription/pay', {
+    method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({reference: reference})
+  }).then(res => res.json());
+  if (r.ok) { loadSubscription(); return; }
+  document.getElementById('payMsg').innerText = 'فشل: ' + r.error;
+}
+
+async function loadCustomers() {
+  const rows = await fetch('/admin/customers').then(r => r.json());
+  const box = document.getElementById('customersBox');
+  if (!box) return;
+  box.innerHTML = rows.length
+    ? rows.map(u =>
+        '<div class="history-row"><span>' + u.email + '</span><span class="' + (u.plan_active ? 'text-emerald-600' : 'text-muted') + '">' +
+        (u.plan_active ? 'مفعّل' : 'غير مفعّل') + '</span><span class="text-muted">' + u.created_at + '</span></div>'
+      ).join('')
+    : '<div class="text-muted text-[11px]">ما فيه عملاء بعد</div>';
+}
+
+async function loadPendingPayments() {
+  const rows = await fetch('/admin/payments').then(r => r.json());
+  const box = document.getElementById('paymentsBox');
+  if (!box) return;
+  box.innerHTML = rows.length
+    ? rows.map(p =>
+        '<div class="history-row"><span>' + p.email + '</span><span>' + p.reference + '</span><span>' +
+        '<button class="btn-outline btn-small" onclick="approvePayment(' + p.id + ')">قبول</button> ' +
+        '<button class="btn-outline btn-small" style="color:#dc2626;border-color:rgba(220,38,38,.3)" onclick="rejectPayment(' + p.id + ')">رفض</button>' +
+        '</span></div>'
+      ).join('')
+    : '<div class="text-muted text-[11px]">ما فيه طلبات دفع بانتظار المراجعة</div>';
+}
+
+async function approvePayment(id) {
+  await fetch('/admin/payments/' + id + '/approve', { method: 'POST' });
+  loadPendingPayments();
+  loadCustomers();
+}
+
+async function rejectPayment(id) {
+  await fetch('/admin/payments/' + id + '/reject', { method: 'POST' });
+  loadPendingPayments();
 }
 
 async function saveAiSettings() {
