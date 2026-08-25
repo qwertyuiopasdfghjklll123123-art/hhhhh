@@ -107,6 +107,8 @@ def init_db():
         conn.execute("ALTER TABLE users ADD COLUMN created_at TEXT NOT NULL DEFAULT ''")
     if "phone" not in cols:
         conn.execute("ALTER TABLE users ADD COLUMN phone TEXT")
+    if "name" not in cols:
+        conn.execute("ALTER TABLE users ADD COLUMN name TEXT")
     # تسجيل الدخول عبر واتساب يحتاج email تقبل NULL (حساب برقم بدون بريد) - نعيد بناء
     # الجدول لو كان لسا يفرض NOT NULL من نسخة قديمة، حتى لا نفقد أي مستخدمين موجودين
     email_notnull = any(r["name"] == "email" and r["notnull"] for r in conn.execute("PRAGMA table_info(users)").fetchall())
@@ -117,6 +119,7 @@ def init_db():
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 email TEXT UNIQUE,
                 phone TEXT UNIQUE,
+                name TEXT,
                 password_hash TEXT NOT NULL,
                 is_admin INTEGER NOT NULL DEFAULT 0,
                 plan_active INTEGER NOT NULL DEFAULT 0,
@@ -124,8 +127,8 @@ def init_db():
             )
         """)
         conn.execute(
-            "INSERT INTO users (id, email, phone, password_hash, is_admin, plan_active, created_at) "
-            "SELECT id, email, phone, password_hash, is_admin, plan_active, created_at FROM users_old"
+            "INSERT INTO users (id, email, phone, name, password_hash, is_admin, plan_active, created_at) "
+            "SELECT id, email, phone, name, password_hash, is_admin, plan_active, created_at FROM users_old"
         )
         conn.execute("DROP TABLE users_old")
     conn.execute("""
@@ -177,11 +180,11 @@ def db_get_user_by_id(user_id):
     return row
 
 
-def db_create_user_by_phone(phone, password_hash, is_admin):
+def db_create_user_by_phone(phone, password_hash, is_admin, name=None):
     conn = get_db()
     cur = conn.execute(
-        "INSERT INTO users (phone, password_hash, is_admin, plan_active, created_at) VALUES (?, ?, ?, 0, ?)",
-        (phone, password_hash, int(is_admin), datetime.now().strftime("%Y-%m-%d %H:%M")),
+        "INSERT INTO users (phone, name, password_hash, is_admin, plan_active, created_at) VALUES (?, ?, ?, ?, 0, ?)",
+        (phone, name, password_hash, int(is_admin), datetime.now().strftime("%Y-%m-%d %H:%M")),
     )
     conn.commit()
     user_id = cur.lastrowid
@@ -196,11 +199,11 @@ def db_count_users():
     return n
 
 
-def db_create_user(email, password_hash, is_admin):
+def db_create_user(email, password_hash, is_admin, name=None):
     conn = get_db()
     cur = conn.execute(
-        "INSERT INTO users (email, password_hash, is_admin, plan_active, created_at) VALUES (?, ?, ?, 0, ?)",
-        (email, password_hash, int(is_admin), datetime.now().strftime("%Y-%m-%d %H:%M")),
+        "INSERT INTO users (email, name, password_hash, is_admin, plan_active, created_at) VALUES (?, ?, ?, ?, 0, ?)",
+        (email, name, password_hash, int(is_admin), datetime.now().strftime("%Y-%m-%d %H:%M")),
     )
     conn.commit()
     user_id = cur.lastrowid
@@ -210,7 +213,7 @@ def db_create_user(email, password_hash, is_admin):
 
 def db_list_users():
     conn = get_db()
-    rows = conn.execute("SELECT id, email, phone, is_admin, plan_active, created_at FROM users ORDER BY id").fetchall()
+    rows = conn.execute("SELECT id, email, phone, name, is_admin, plan_active, created_at FROM users ORDER BY id").fetchall()
     conn.close()
     return rows
 
@@ -533,256 +536,483 @@ def watch_account(acc_id):
 
 # ---------------------------------------------------------------- صفحات المصادقة
 
-ICON_MAIL = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6h16v12H4z"/><path d="M4 7l8 6 8-6"/></svg>'
+ICON_MAIL = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="m4 7 8 6 8-6"/></svg>'
+ICON_SEND_ARROW = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"><path d="M22 2L11 13"/><path d="M22 2l-7 20-4-9-9-4 20-7z"/></svg>'
+ICON_LOGIN_ARROW = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M15 3h6v6"/><path d="M10 14L21 3"/><path d="M12 11v7H5V5h7"/></svg>'
+ICON_PERSON_ADD = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="8.5" cy="7" r="4"/><line x1="20" y1="8" x2="20" y2="14"/><line x1="23" y1="11" x2="17" y2="11"/></svg>'
 ICON_LOCK = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 018 0v3"/></svg>'
 ICON_LOCK_SM = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 018 0v3"/></svg>'
 ICON_SHIELD_SM = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l7 3v6c0 5-3 8-7 9-4-1-7-4-7-9V6l7-3z"/><path d="M9 12l2 2 4-4"/></svg>'
 ICON_EYE = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7-11-7-11-7z"/><circle cx="12" cy="12" r="3"/></svg>'
 ICON_EYE_OFF = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.94 17.94A10.94 10.94 0 0112 19c-7 0-11-7-11-7a21.6 21.6 0 015.06-6.06M9.9 4.24A10.4 10.4 0 0112 4c7 0 11 7 11 7a21.6 21.6 0 01-2.65 3.79M14.12 14.12a3 3 0 11-4.24-4.24"/><path d="M1 1l22 22"/></svg>'
 ICON_WHATSAPP = '<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M17.6 6.32A7.85 7.85 0 0012.05 4a7.94 7.94 0 00-6.9 11.9L4 20l4.2-1.1a7.9 7.9 0 003.83 1h.02a7.94 7.94 0 007.94-7.94 7.9 7.9 0 00-2.4-5.64zm-5.55 12.2h-.01a6.6 6.6 0 01-3.36-.92l-.24-.14-2.5.65.67-2.44-.16-.25a6.6 6.6 0 01-1-3.5 6.62 6.62 0 016.62-6.62 6.58 6.58 0 016.6 6.63 6.62 6.62 0 01-6.62 6.6zm3.6-4.95c-.2-.1-1.17-.58-1.35-.64-.18-.07-.32-.1-.45.1-.13.2-.51.64-.63.77-.11.13-.23.14-.43.05-.2-.1-.85-.31-1.61-1-.6-.53-1-1.18-1.11-1.38-.12-.2-.01-.3.09-.4.09-.09.2-.23.3-.35.1-.12.13-.2.2-.33.06-.13.03-.25-.02-.35-.05-.1-.45-1.09-.62-1.49-.16-.39-.33-.34-.45-.34-.12 0-.25-.01-.38-.01-.13 0-.35.05-.53.25-.18.2-.7.68-.7 1.67 0 .98.72 1.93.82 2.06.1.13 1.4 2.15 3.4 3.01.48.2.85.33 1.14.42.48.15.91.13 1.26.08.38-.06 1.17-.48 1.34-.94.16-.46.16-.86.11-.94-.05-.08-.18-.13-.38-.23z"/></svg>'
-ICON_BACK = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg>'
-ICON_CHECK = '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg>'
-ICON_SEND = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 2L11 13"/><path d="M22 2l-7 20-4-9-9-4 20-7z"/></svg>'
-ICON_USERS = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87"/><path d="M16 3.13a4 4 0 010 7.75"/></svg>'
-ICON_TREND = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M23 6l-9.5 9.5-5-5L1 18"/><path d="M17 6h6v6"/></svg>'
-ICON_BOLT = '<svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>'
-ICON_CHART = '<svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><rect x="7" y="12" width="3" height="6"/><rect x="12" y="8" width="3" height="10"/><rect x="17" y="5" width="3" height="13"/></svg>'
-ICON_TARGET = '<svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1"/></svg>'
+ICON_BACK = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5L8 12l7 7"/><path d="M8 12h12"/></svg>'
+ICON_CHECK = '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12 4 4L19 6"/></svg>'
+ICON_SEND = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 12l16-8-6 16-3-6-7-2Z"/><path d="M11 14l5-5"/></svg>'
+ICON_USERS = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="8" r="3"/><path d="M3.5 19c.5-3.1 2.4-5 5.5-5s5 1.9 5.5 5"/><circle cx="17" cy="9" r="2.5"/><path d="M15 15c2.6.2 4.3 1.5 5 4"/></svg>'
+ICON_TREND = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 20V11"/><path d="M10 20V6"/><path d="M15 20v-9"/><path d="M20 20V3"/></svg>'
+ICON_BOLT = '<svg width="22" height="22" viewBox="0 0 48 48" fill="none" stroke="currentColor" stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round"><path d="M25 3L9 27h12l-2 18 20-27H27z"/></svg>'
+ICON_CHART = '<svg width="22" height="22" viewBox="0 0 48 48" fill="none" stroke="currentColor" stroke-width="3.2" stroke-linecap="round"><path d="M8 39V26"/><path d="M20 39V16"/><path d="M32 39V21"/><path d="M44 39V9"/><path d="M6 44h38"/><path d="M7 18l10-7 10 4 13-9"/></svg>'
+ICON_TARGET = '<svg width="22" height="22" viewBox="0 0 48 48" fill="none" stroke="currentColor" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="24" cy="24" r="17"/><circle cx="24" cy="24" r="8"/><path d="M24 24l14-14"/><path d="M30 10h8v8"/></svg>'
+ICON_WHATSAPP = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"><path d="M20.5 11.5a8.5 8.5 0 0 1-12.6 7.4L3.5 20l1.2-4.2A8.5 8.5 0 1 1 20.5 11.5Z"/><path d="M8.5 8.2c.3-.4.6-.4.9-.2l1.1 1.7c.2.3.1.6-.1.9l-.6.6c.7 1.4 1.8 2.4 3.2 3.1l.6-.7c.2-.2.6-.3.9-.1l1.7 1c.3.2.3.6.1.9-.4.7-1 1.1-1.8 1-3.7-.5-7.2-3.8-7.9-7.6-.1-.2.1-.5.2-.6l1.7-.9Z"/></svg>'
 
 
-def logo_svg(size=32, grad_id="lg"):
-    return f"""<svg width="{size}" height="{size}" viewBox="0 0 32 32" aria-hidden="true">
-      <defs><linearGradient id="{grad_id}" x1="0" y1="0" x2="32" y2="32">
-        <stop offset="0" stop-color="oklch(0.78 0.17 152)"/><stop offset="1" stop-color="oklch(0.6 0.18 152)"/>
-      </linearGradient></defs>
-      <rect x="1" y="1" width="30" height="30" rx="9" fill="url(#{grad_id})"/>
-      <path d="M9 11a2 2 0 012-2h10a2 2 0 012 2v7a2 2 0 01-2 2h-7l-4 4v-4h-1a2 2 0 01-2-2v-7z" fill="#fff"/>
-      <path d="M10.5 15h3l1.5-3 2.5 6 1.5-3h3" fill="none" stroke="url(#{grad_id})" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+def logo_svg(size=32):
+    return f"""<svg width="{size}" height="{size}" viewBox="0 0 100 100" fill="none" aria-label="Wasel">
+      <path d="M50 9C27 9 9 26 9 47.5c0 8 2.6 15.2 7.2 21.2L10 88l19-5.8c6.2 3.5 13.3 5.5 21 5.5 23 0 41-17 41-40.2S73 9 50 9Z" stroke="#fff" stroke-width="6"/>
+      <path d="M35 25c-3 0-5 2-5 5 0 16 12 28 28 33 4 1 7-2 8-5l1-4-10-5-4 4c-5-2-9-6-11-11l4-4-5-10c-1-2-3-3-6-3Z" fill="#fff"/>
     </svg>"""
 
 
 def render_auth_page(title, action, switch_html, error):
-    error_html = f'<p class="err">{error}</p>' if error else ""
+    error_html = f'<p class="status-msg error">{error}</p>' if error else ""
     is_login = action == "/login"
     if is_login:
-        remember_row = (
-            '<div class="form-row-between">'
-            '<label class="remember-row"><input type="checkbox" name="remember" value="1"><span>تذكرني</span></label>'
-            '<a href="#" class="forgot-link" onclick="showForgot(event)">نسيت كلمة المرور؟</a>'
-            '</div>'
-        )
+        email_step_title = "تسجيل الدخول بالبريد"
+        email_fields = f"""
+        <div class="input-group">
+          <label>البريد الإلكتروني</label>
+          <input type="email" name="email" placeholder="example@domain.com" dir="ltr" required>
+        </div>
+        <div class="input-group">
+          <label>كلمة المرور</label>
+          <input type="password" name="password" placeholder="••••••••" required>
+        </div>
+        <div class="form-row-between">
+          <label class="remember-check"><input type="checkbox" name="remember" value="1"> تذكرني</label>
+          <a href="#" class="forgot-link" onclick="showForgot(event)">نسيت كلمة المرور؟</a>
+        </div>
+        <button class="btn-primary" type="submit">تسجيل الدخول {ICON_LOGIN_ARROW}</button>"""
+        email_secondary = '<a href="/signup" class="btn-secondary">إنشاء حساب جديد</a>'
     else:
-        remember_row = ""
-    email_switch_label = f"{title} بالبريد الإلكتروني"
+        email_step_title = "إنشاء حساب"
+        email_fields = f"""
+        <div class="input-group">
+          <label>الاسم الكامل</label>
+          <input type="text" name="name" placeholder="أحمد محمد" required>
+        </div>
+        <div class="input-group">
+          <label>البريد الإلكتروني</label>
+          <input type="email" name="email" placeholder="example@domain.com" dir="ltr" required>
+        </div>
+        <div class="input-group">
+          <label>كلمة المرور</label>
+          <input type="password" name="password" placeholder="•••••••• (6 أحرف على الأقل)" required>
+        </div>
+        <button class="btn-primary" type="submit">إنشاء حساب {ICON_PERSON_ADD}</button>"""
+        email_secondary = '<a href="/login" class="btn-outline">عودة لتسجيل الدخول</a>'
     return f"""
 <!doctype html>
 <html lang="ar" dir="rtl">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>{title}</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Cairo:wght@700;800;900&family=Tajawal:wght@300;400;500;700;800&display=swap" rel="stylesheet">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="theme-color" content="#020b11">
+<title>واصل - {title}</title>
+{FONT_LINKS}
 <style>
-  html, body {{ margin:0; padding:0; background:oklch(0.145 0.014 245); color:oklch(0.97 0.006 245); font-family:'Tajawal',system-ui,sans-serif; min-height:100vh; }}
-  .wrap {{ position:relative; max-width: 360px; margin: 0 auto; padding: 60px 20px 40px; }}
-  .back-btn {{ position:absolute; top:22px; left:20px; width:36px; height:36px; border-radius:12px; background:oklch(0.195 0.017 245); border:1px solid oklch(1 0 0 / 10%); display:flex; align-items:center; justify-content:center; color:oklch(0.97 0.006 245); text-decoration:none; }}
-  .logo {{ display:flex; align-items:center; justify-content:center; gap:9px; margin-bottom:10px; }}
-  .logo span {{ font-family:'Cairo',sans-serif; font-weight:800; font-size:18px; }}
-  h1 {{ text-align:center; font-family:'Cairo',sans-serif; font-size:20px; font-weight:800; margin:14px 0 4px; }}
-  .subtitle {{ text-align:center; font-size:12.5px; color:oklch(0.72 0.02 245); margin:0 0 20px; line-height:1.7; }}
-  .tabs {{ display:flex; gap:8px; margin-bottom:14px; }}
-  .tab {{ flex:1; padding:11px 6px; border-radius:12px; border:1.5px solid oklch(1 0 0 / 15%); background:oklch(0.195 0.017 245); color:oklch(0.72 0.02 245); font-size:12.5px; font-weight:700; text-align:center; cursor:pointer; display:flex; align-items:center; justify-content:center; gap:6px; font-family:inherit; }}
-  .tab.active {{ border-color:oklch(0.78 0.17 152 / 45%); color:oklch(0.78 0.17 152); background:oklch(0.78 0.17 152 / 10%); }}
-  .box {{ background:oklch(0.195 0.017 245); border:1px solid oklch(1 0 0 / 9%); border-radius:20px; padding:24px 22px; box-shadow:0 20px 50px rgba(0,0,0,.4); }}
-  h2 {{ text-align:center; font-family:'Cairo',sans-serif; color:oklch(0.97 0.006 245); font-size:17px; font-weight:800; margin:0 0 4px; }}
-  .step-sub {{ display:flex; align-items:center; justify-content:center; gap:6px; text-align:center; font-size:12px; color:oklch(0.72 0.02 245); margin:0 0 16px; }}
-  .input-group {{ position:relative; margin-top:10px; }}
-  .input-group > svg {{ position:absolute; top:50%; right:13px; transform:translateY(-50%); color:oklch(0.5 0.02 245); pointer-events:none; }}
-  .input-group input {{ margin-top:0; padding-right:38px; }}
-  .input-group.pw input {{ padding-left:38px; }}
-  input {{ width:100%; box-sizing:border-box; padding:12px 13px; font-size:14px; font-family:inherit; background:oklch(0.235 0.019 245); border:1px solid oklch(1 0 0 / 15%); border-radius:13px; margin-top:10px; color:oklch(0.97 0.006 245); }}
-  input::placeholder {{ color:oklch(0.5 0.02 245); }}
-  button {{ width:100%; box-sizing:border-box; display:flex; align-items:center; justify-content:center; gap:8px; padding:13px; margin-top:18px; border:none; border-radius:14px; background:linear-gradient(135deg, oklch(0.78 0.17 152), oklch(0.66 0.18 152)); color:oklch(0.2 0.05 152); font-weight:800; font-size:14px; font-family:inherit; cursor:pointer; box-shadow:0 8px 20px oklch(0.78 0.17 152 / 28%); }}
-  button:disabled {{ opacity:.7; cursor:default; }}
-  button.btn-ghost {{ background:transparent; border:1.5px solid oklch(1 0 0 / 18%); color:oklch(0.97 0.006 245); box-shadow:none; font-weight:700; }}
-  button.eye-toggle {{ position:absolute; top:50%; left:8px; transform:translateY(-50%); width:auto; margin:0; padding:4px; background:none; border:none; box-shadow:none; color:oklch(0.5 0.02 245); cursor:pointer; }}
-  .form-row-between {{ display:flex; align-items:center; justify-content:space-between; margin-top:12px; }}
-  .remember-row {{ display:flex; align-items:center; gap:6px; color:oklch(0.85 0.01 245); cursor:pointer; font-size:12px; }}
-  .remember-row input {{ width:auto; margin:0; padding:0; accent-color:oklch(0.78 0.17 152); }}
-  .forgot-link {{ color:oklch(0.78 0.17 152); text-decoration:none; font-weight:700; font-size:12px; }}
-  p.switch {{ text-align:center; font-size:12px; margin-top:16px; color:oklch(0.72 0.02 245); }}
-  p.switch a {{ color:oklch(0.78 0.17 152); font-weight:700; text-decoration:none; }}
-  p.err {{ color:oklch(0.68 0.19 21); font-size:12px; text-align:center; margin:0 0 10px; }}
-  p.notice {{ color:oklch(0.78 0.17 152); font-size:11.5px; text-align:center; margin:10px 0 0; line-height:1.6; }}
-  p.terms {{ text-align:center; font-size:10.5px; color:oklch(0.5 0.02 245); line-height:1.7; margin:16px 0 0; }}
-  p.wa-msg {{ color:oklch(0.68 0.19 21); font-size:12px; text-align:center; margin:10px 0 0; min-height:14px; }}
-  .wa-hint {{ display:flex; align-items:center; justify-content:center; gap:5px; text-align:center; font-size:11px; color:oklch(0.72 0.02 245); margin-top:12px; }}
-  .wa-badge {{ display:flex; justify-content:center; margin-bottom:16px; }}
-  .badge-rings {{ position:relative; width:88px; height:88px; display:flex; align-items:center; justify-content:center; }}
-  .ring {{ position:absolute; width:56px; height:56px; border-radius:50%; border:1.5px solid oklch(0.78 0.17 152 / 40%); animation:ringPulse 2.4s ease-out infinite; }}
-  .ring.r2 {{ animation-delay:.8s; }}
-  .ring.r3 {{ animation-delay:1.6s; }}
-  @keyframes ringPulse {{ 0% {{ width:56px; height:56px; opacity:.8; }} 100% {{ width:92px; height:92px; opacity:0; }} }}
-  .badge-core {{ position:relative; z-index:2; display:flex; }}
-  .badge-check {{ position:absolute; z-index:3; bottom:-2px; left:-2px; width:22px; height:22px; border-radius:50%; background:oklch(0.78 0.17 152); border:3px solid oklch(0.195 0.017 245); display:flex; align-items:center; justify-content:center; }}
-  .divider {{ display:flex; align-items:center; gap:10px; margin:16px 0; color:oklch(0.5 0.02 245); font-size:11px; }}
-  .divider::before, .divider::after {{ content:''; flex:1; height:1px; background:oklch(1 0 0 / 12%); }}
+* {{ box-sizing:border-box; margin:0; padding:0; -webkit-tap-highlight-color:transparent; }}
+html, body {{ width:100%; height:100%; background:#02090f; overflow:hidden; position:fixed; inset:0; }}
+body {{ font-family:{FONT_STACK}; color:#fff; }}
+button, a {{ font:inherit; border:0; cursor:pointer; background:none; }}
+a {{ text-decoration:none; color:inherit; }}
+input, select {{ font:inherit; border:0; outline:none; background:none; color:#fff; }}
+select {{ appearance:none; -webkit-appearance:none; -moz-appearance:none; cursor:pointer; }}
+select option {{ background:#0a1a20; color:#fff; }}
+
+.page {{ width:100%; max-width:430px; height:100vh; height:100dvh; margin:auto; position:relative; overflow:hidden; display:flex; flex-direction:column;
+  background: radial-gradient(circle at 50% 25%, rgba(0,255,120,.09), transparent 30%),
+              radial-gradient(circle at 52% 60%, rgba(0,255,120,.035), transparent 25%),
+              linear-gradient(180deg, #020a10, #030d13 68%, #07141c);
+  animation:fadeIn .3s ease; }}
+@keyframes fadeIn {{ from {{ opacity:0; }} to {{ opacity:1; }} }}
+.page::before {{ content:""; position:absolute; inset:0; pointer-events:none; opacity:.7;
+  background: radial-gradient(circle at 70% 7%, #00bd68 0 2px, transparent 3px),
+              radial-gradient(circle at 86% 12%, #00c96c 0 3px, transparent 4px),
+              radial-gradient(circle at 38% 6%, #00a85d 0 3px, transparent 4px),
+              radial-gradient(circle at 13% 17%, #00d878 0 2px, transparent 3px),
+              radial-gradient(circle at 75% 23%, #00b964 0 2px, transparent 3px),
+              radial-gradient(circle at 29% 45%, #00db72 0 3px, transparent 4px),
+              radial-gradient(circle at 78% 50%, #00b960 0 3px, transparent 4px); }}
+.bubble {{ position:absolute; border:1px solid rgba(0,255,133,.05); background:rgba(0,255,133,.015); border-radius:18px; opacity:.5; pointer-events:none; }}
+.bubble::before, .bubble::after {{ content:""; position:absolute; width:20px; height:3px; right:8px; background:rgba(0,255,133,.05); border-radius:6px; }}
+.bubble::before {{ top:10px; }}
+.bubble::after {{ top:17px; width:14px; }}
+.bubble.one {{ width:60px; height:44px; top:130px; right:-10px; }}
+.bubble.two {{ width:52px; height:38px; top:330px; left:-10px; }}
+.bubble.three {{ width:48px; height:34px; top:500px; right:-12px; }}
+
+.back {{ position:absolute; top:14px; right:16px; z-index:5; width:44px; height:44px; border-radius:50%; background:rgba(17,31,39,.6);
+  border:1px solid #1c3039; display:flex; align-items:center; justify-content:center; color:#fff; box-shadow:inset 0 1px rgba(255,255,255,.03); }}
+.back svg {{ width:20px; height:20px; }}
+
+.main-content {{ flex:1; display:flex; flex-direction:column; justify-content:center; padding:50px 22px 6px; position:relative; z-index:2; min-height:0; }}
+.header {{ text-align:center; flex-shrink:0; }}
+.logo {{ width:80px; height:80px; margin:0 auto 10px; border-radius:24px; background:linear-gradient(145deg,#24d276,#0aa95c); box-shadow:0 12px 35px rgba(0,230,115,.14); display:flex; align-items:center; justify-content:center; }}
+.logo svg {{ width:54px; height:54px; }}
+.title {{ font-family:{FONT_STACK}; font-size:26px; line-height:1.2; font-weight:800;
+  background:linear-gradient(135deg,#24d276,#0aa95c); -webkit-background-clip:text; -webkit-text-fill-color:transparent; background-clip:text; }}
+.subtitle {{ margin-top:3px; color:#aeb8bc; font-size:12.5px; line-height:1.6; font-weight:400; }}
+
+.tabs {{ position:relative; z-index:4; margin:12px 25px 10px; height:50px; border:1px solid #1b2b33; border-radius:14px; background:rgba(8,20,27,.55);
+  display:grid; grid-template-columns:1fr 1fr; overflow:hidden; flex-shrink:0; }}
+.tab {{ display:flex; align-items:center; justify-content:center; gap:6px; color:#e5e9ea; font-size:12px; font-weight:500; }}
+.tab svg {{ width:17px; height:17px; }}
+.tab.active {{ margin:0; border:2px solid #0dd56d; border-radius:14px; color:#fff; background:rgba(0,180,91,.05); }}
+.tab.active svg {{ color:#0ddd70; }}
+
+.login-card {{ position:relative; z-index:3; margin:0 25px; border:1px solid #1c2d35; border-radius:16px;
+  background:linear-gradient(145deg, rgba(9,23,30,.88), rgba(4,14,20,.92)); padding:16px 20px 18px; text-align:center; flex-shrink:0;
+  box-shadow:0 14px 40px rgba(0,0,0,.2), inset 0 1px rgba(255,255,255,.02); min-height:320px; }}
+
+.orbit {{ width:110px; height:110px; margin:0 auto 0; position:relative; display:flex; align-items:center; justify-content:center; }}
+.orbit::before, .orbit::after {{ content:""; position:absolute; border:2px solid rgba(0,255,123,.45); border-radius:50%; transform:rotate(-20deg); }}
+.orbit::before {{ width:86px; height:86px; }}
+.orbit::after {{ width:106px; height:106px; border-color:rgba(0,255,123,.20); }}
+.orbit-dot {{ position:absolute; width:5px; height:5px; background:#13e47b; border-radius:50%; top:10px; right:16px; box-shadow:0 0 10px #00db72; }}
+.phone {{ width:54px; height:78px; border:3px solid #415058; border-radius:10px; background:linear-gradient(150deg,#0a6d4c,#08201d 75%); position:relative; box-shadow:0 0 20px rgba(0,255,120,.12); }}
+.phone::before {{ content:""; position:absolute; top:3px; left:50%; transform:translateX(-50%); width:22px; height:4px; background:#17272c; border-radius:0 0 4px 4px; }}
+.phone svg {{ width:30px; height:30px; position:absolute; left:50%; top:48%; transform:translate(-50%,-50%); color:#12d96d; }}
+.check {{ position:absolute; right:18px; bottom:8px; width:32px; height:32px; border-radius:50%; background:#071d25; border:2px solid #173c3d; color:#13df72;
+  display:flex; align-items:center; justify-content:center; box-shadow:0 0 14px rgba(0,255,120,.10); }}
+.check svg {{ width:17px; height:17px; }}
+
+.tab-content {{ display:none; }}
+.tab-content.active {{ display:block; }}
+
+.input-group {{ position:relative; margin-top:12px; text-align:right; }}
+.input-group:first-of-type {{ margin-top:4px; }}
+.input-group label {{ display:block; font-size:11.5px; color:#aeb7ba; font-weight:500; margin-bottom:4px; }}
+.input-group input, .input-group select {{ width:100%; padding:12px 14px; border-radius:12px; border:1.5px solid #1c2d35; background:rgba(255,255,255,.04); color:#fff; font-size:14px; font-weight:400; }}
+.input-group input:focus, .input-group select:focus {{ border-color:#0dd56d; background:rgba(255,255,255,.07); }}
+.input-group input::placeholder {{ color:#6a7a80; }}
+
+.phone-input-row {{ display:flex; gap:8px; margin-top:4px; direction:ltr; }}
+.phone-input-row .country-code {{ flex:0 0 100px; }}
+.phone-input-row .country-code select {{ padding:12px 10px; border-radius:12px; border:1.5px solid #1c2d35; background:rgba(255,255,255,.04); color:#fff; font-size:14px; font-weight:500; width:100%; height:100%; direction:ltr; }}
+.phone-input-row .country-code select:focus {{ border-color:#0dd56d; background:rgba(255,255,255,.07); }}
+.phone-input-row .phone-number {{ flex:1; }}
+.phone-input-row .phone-number input {{ width:100%; padding:12px 14px; border-radius:12px; border:1.5px solid #1c2d35; background:rgba(255,255,255,.04); color:#fff; font-size:14px; height:100%; direction:ltr; text-align:left; }}
+.phone-input-row .phone-number input:focus {{ border-color:#0dd56d; background:rgba(255,255,255,.07); }}
+.phone-input-row .phone-number input::placeholder {{ color:#6a7a80; text-align:left; }}
+
+.btn-primary {{ width:100%; height:48px; margin-top:14px; border-radius:14px; background:linear-gradient(180deg,#1bc96c,#0eb85c); color:#fff; font-size:15px; font-weight:600;
+  display:flex; align-items:center; justify-content:center; gap:8px; }}
+.btn-primary svg {{ width:18px; height:18px; }}
+.btn-primary:disabled {{ opacity:.7; }}
+.btn-secondary, .btn-outline {{ width:100%; height:44px; margin-top:8px; border-radius:14px; border:1.5px solid #1c2d35; background:rgba(255,255,255,.03); color:#aeb7ba; font-size:13.5px; font-weight:500;
+  display:flex; align-items:center; justify-content:center; gap:8px; }}
+
+.form-row-between {{ display:flex; align-items:center; justify-content:space-between; margin-top:12px; font-size:11.5px; }}
+.remember-check {{ display:flex; align-items:center; gap:5px; color:#aeb7ba; }}
+.remember-check input {{ width:auto; accent-color:#0dd56d; }}
+.forgot-link {{ color:#10d86b; font-weight:500; }}
+
+.status-msg {{ font-size:11.5px; color:#aeb7ba; margin-top:10px; font-weight:400; min-height:16px; }}
+.status-msg.error {{ color:#f87171; }}
+.status-msg.success {{ color:#34d399; }}
+
+.secure {{ color:#a6afb2; font-size:11px; margin-top:12px; display:flex; align-items:center; justify-content:center; gap:5px; font-weight:400; }}
+.secure svg {{ width:16px; height:16px; }}
+
+.bottom {{ position:relative; z-index:3; margin-top:10px; border-top:1px solid #182830; padding:12px 20px 8px; text-align:center; background:rgba(5,16,23,.5); flex-shrink:0; }}
+p.switch {{ text-align:center; font-size:12.5px; color:#9fa9ad; font-weight:400; }}
+p.switch a {{ color:#10d86b; text-decoration:none; font-weight:500; }}
+.terms {{ margin-top:6px; color:#9fa9ad; font-size:10px; line-height:1.7; font-weight:300; }}
+.terms-link {{ color:#10d86b; font-weight:400; }}
+.home {{ width:90px; height:4px; background:#fff; border-radius:8px; margin:10px auto 0; opacity:.10; flex-shrink:0; }}
+
+::-webkit-scrollbar {{ display:none; }}
+* {{ scrollbar-width:none; }}
+
+@media (max-height:700px) {{
+  .logo {{ width:64px; height:64px; border-radius:18px; margin-bottom:6px; }}
+  .logo svg {{ width:42px; height:42px; }}
+  .title {{ font-size:22px; }}
+  .subtitle {{ font-size:11px; }}
+  .tabs {{ height:42px; margin:8px 20px 6px; border-radius:12px; }}
+  .tab {{ font-size:10.5px; gap:4px; }}
+  .tab svg {{ width:14px; height:14px; }}
+  .tab.active {{ border-radius:12px; }}
+  .login-card {{ margin:0 20px; padding:12px 16px 14px; border-radius:14px; min-height:260px; }}
+  .orbit {{ width:90px; height:90px; }}
+  .orbit::before {{ width:70px; height:70px; }}
+  .orbit::after {{ width:86px; height:86px; }}
+  .phone {{ width:44px; height:64px; border-radius:8px; border-width:2.5px; }}
+  .phone svg {{ width:24px; height:24px; }}
+  .check {{ width:26px; height:26px; right:14px; bottom:4px; border-width:1.5px; }}
+  .check svg {{ width:14px; height:14px; }}
+  .orbit-dot {{ width:4px; height:4px; top:8px; right:12px; }}
+  .input-group {{ margin-top:8px; }}
+  .input-group input, .input-group select {{ padding:10px 12px; font-size:13px; border-radius:10px; }}
+  .input-group label {{ font-size:10.5px; }}
+  .phone-input-row .country-code {{ flex:0 0 80px; }}
+  .phone-input-row .country-code select, .phone-input-row .phone-number input {{ padding:10px; font-size:13px; border-radius:10px; }}
+  .btn-primary {{ height:42px; font-size:13.5px; margin-top:10px; border-radius:12px; }}
+  .btn-secondary, .btn-outline {{ height:38px; font-size:12px; margin-top:6px; border-radius:12px; }}
+  .bottom {{ margin-top:6px; padding:10px 16px 6px; }}
+  .terms {{ font-size:9px; margin-top:4px; }}
+  .home {{ width:70px; height:3px; margin:8px auto 0; }}
+  .back {{ width:34px; height:34px; top:10px; right:12px; }}
+  .back svg {{ width:16px; height:16px; }}
+  .main-content {{ padding:40px 16px 4px; }}
+  .status-msg {{ font-size:10.5px; margin-top:6px; min-height:14px; }}
+}}
+@media (max-height:580px) {{
+  .logo {{ width:50px; height:50px; border-radius:14px; margin-bottom:4px; }}
+  .logo svg {{ width:34px; height:34px; }}
+  .title {{ font-size:18px; }}
+  .subtitle {{ font-size:10px; }}
+  .tabs {{ height:34px; margin:4px 14px; border-radius:10px; }}
+  .tab {{ font-size:9px; gap:3px; }}
+  .tab svg {{ width:12px; height:12px; }}
+  .tab.active {{ border-radius:10px; border-width:1.5px; }}
+  .login-card {{ margin:0 14px; padding:8px 12px 10px; border-radius:12px; min-height:200px; }}
+  .orbit {{ width:70px; height:70px; }}
+  .orbit::before {{ width:54px; height:54px; }}
+  .orbit::after {{ width:66px; height:66px; }}
+  .phone {{ width:34px; height:48px; border-radius:6px; border-width:2px; }}
+  .phone svg {{ width:18px; height:18px; }}
+  .check {{ width:20px; height:20px; right:10px; bottom:2px; border-width:1.5px; }}
+  .check svg {{ width:10px; height:10px; }}
+  .orbit-dot {{ width:3px; height:3px; top:6px; right:8px; }}
+  .input-group {{ margin-top:4px; }}
+  .input-group input, .input-group select {{ padding:8px 10px; font-size:11px; border-radius:8px; }}
+  .input-group label {{ font-size:9px; margin-bottom:2px; }}
+  .phone-input-row .country-code {{ flex:0 0 65px; }}
+  .phone-input-row .country-code select, .phone-input-row .phone-number input {{ padding:8px; font-size:11px; border-radius:8px; }}
+  .btn-primary {{ height:34px; font-size:11px; margin-top:6px; border-radius:10px; }}
+  .btn-primary svg {{ width:14px; height:14px; }}
+  .btn-secondary, .btn-outline {{ height:30px; font-size:10px; margin-top:4px; border-radius:10px; }}
+  .bottom {{ margin-top:4px; padding:6px 12px 4px; }}
+  .terms {{ font-size:8px; margin-top:2px; line-height:1.5; }}
+  .home {{ width:50px; height:2px; margin:5px auto 0; }}
+  .back {{ width:28px; height:28px; top:6px; right:8px; }}
+  .back svg {{ width:14px; height:14px; }}
+  .main-content {{ padding:30px 12px 2px; }}
+  .status-msg {{ font-size:9px; margin-top:4px; min-height:12px; }}
+}}
+@media (max-width:360px) {{
+  .tabs, .login-card {{ margin-left:14px; margin-right:14px; }}
+  .main-content {{ padding:40px 14px 4px; }}
+  .phone-input-row .country-code {{ flex:0 0 75px; }}
+}}
+@media (min-width:431px) {{ .page {{ border-left:1px solid rgba(255,255,255,.03); border-right:1px solid rgba(255,255,255,.03); }} }}
 </style>
 </head>
 <body>
-  <div class="wrap">
-    <a href="/welcome" class="back-btn" aria-label="رجوع">{ICON_BACK}</a>
-    <div class="logo">
-      {logo_svg(30)}
-      <span>واصل</span>
-    </div>
-    <h1>{title}</h1>
-    <p class="subtitle">سجّل دخولك للوصول إلى حسابك وإدارة حملاتك التسويقية بسهولة</p>
+
+<div class="page">
+  <div class="bubble one"></div>
+  <div class="bubble two"></div>
+  <div class="bubble three"></div>
+
+  <a href="/welcome" class="back" aria-label="رجوع">{ICON_BACK}</a>
+
+  <div class="main-content">
+    <header class="header">
+      <div class="logo">{logo_svg(54)}</div>
+      <h1 class="title">{title}</h1>
+      <p class="subtitle">سجل دخولك للوصول إلى حسابك وإدارة حملاتك</p>
+    </header>
 
     <div class="tabs">
-      <div class="tab" id="tabEmail" onclick="showTab('email')">{ICON_MAIL}<span>البريد الإلكتروني</span></div>
-      <div class="tab active" id="tabWa" onclick="showTab('wa')">{ICON_WHATSAPP}<span>عبر واتساب</span></div>
+      <button class="tab" id="emailTab" onclick="selectTab('email')">
+        بريد إلكتروني {ICON_MAIL}
+      </button>
+      <button class="tab active" id="waTab" onclick="selectTab('wa')">
+        واتساب {ICON_WHATSAPP}
+      </button>
     </div>
 
-    <div class="box" id="panelEmail" style="display:none">
-      <h2>{title}</h2>
-      {error_html}
-      <form method="post" action="{action}">
-        <div class="input-group">
-          {ICON_MAIL}
-          <input name="email" type="email" placeholder="البريد الإلكتروني" required>
+    <section class="login-card">
+      <div class="tab-content active" id="waContent">
+        <div class="orbit">
+          <span class="orbit-dot"></span>
+          <div class="phone">{ICON_WHATSAPP}</div>
+          <div class="check">{ICON_CHECK}</div>
         </div>
-        <div class="input-group pw">
-          {ICON_LOCK}
-          <input name="password" id="passwordInput" type="password" placeholder="كلمة المرور" required>
-          <button type="button" class="eye-toggle" onclick="togglePassword()">
-            <span id="eyeShow">{ICON_EYE}</span>
-            <span id="eyeHide" style="display:none">{ICON_EYE_OFF}</span>
-          </button>
+
+        <h2 class="title" style="font-size:17px;">تسجيل الدخول عبر واتساب</h2>
+
+        <div id="waPhoneStep">
+          <div class="input-group">
+            <label>رقم الهاتف</label>
+            <div class="phone-input-row">
+              <div class="country-code">
+                <select id="countryCode">
+                  <option value="20">🇪🇬 +20</option>
+                  <option value="212">🇲🇦 +212</option>
+                  <option value="213">🇩🇿 +213</option>
+                  <option value="216">🇹🇳 +216</option>
+                  <option value="218">🇱🇾 +218</option>
+                  <option value="90">🇹🇷 +90</option>
+                  <option value="91">🇮🇳 +91</option>
+                  <option value="92">🇵🇰 +92</option>
+                  <option value="93">🇦🇫 +93</option>
+                  <option value="94">🇱🇰 +94</option>
+                  <option value="95">🇲🇲 +95</option>
+                  <option value="960">🇲🇻 +960</option>
+                  <option value="961">🇱🇧 +961</option>
+                  <option value="962">🇯🇴 +962</option>
+                  <option value="963">🇸🇾 +963</option>
+                  <option value="964" selected>🇮🇶 +964</option>
+                  <option value="965">🇰🇼 +965</option>
+                  <option value="966">🇸🇦 +966</option>
+                  <option value="967">🇾🇪 +967</option>
+                  <option value="968">🇴🇲 +968</option>
+                  <option value="970">🇵🇸 +970</option>
+                  <option value="971">🇦🇪 +971</option>
+                  <option value="972">🇮🇱 +972</option>
+                  <option value="973">🇧🇭 +973</option>
+                  <option value="974">🇶🇦 +974</option>
+                  <option value="975">🇧🇹 +975</option>
+                  <option value="976">🇲🇳 +976</option>
+                  <option value="977">🇳🇵 +977</option>
+                  <option value="98">🇮🇷 +98</option>
+                  <option value="262">🇾🇹 +262</option>
+                  <option value="992">🇹🇯 +992</option>
+                  <option value="993">🇹🇲 +993</option>
+                  <option value="994">🇦🇿 +994</option>
+                  <option value="995">🇬🇪 +995</option>
+                  <option value="996">🇰🇬 +996</option>
+                  <option value="998">🇺🇿 +998</option>
+                  <option value="1">🇺🇸 +1</option>
+                  <option value="44">🇬🇧 +44</option>
+                  <option value="49">🇩🇪 +49</option>
+                  <option value="33">🇫🇷 +33</option>
+                  <option value="39">🇮🇹 +39</option>
+                  <option value="34">🇪🇸 +34</option>
+                  <option value="7">🇷🇺 +7</option>
+                  <option value="86">🇨🇳 +86</option>
+                  <option value="81">🇯🇵 +81</option>
+                  <option value="82">🇰🇷 +82</option>
+                  <option value="60">🇲🇾 +60</option>
+                  <option value="62">🇮🇩 +62</option>
+                  <option value="63">🇵🇭 +63</option>
+                  <option value="64">🇳🇿 +64</option>
+                  <option value="61">🇦🇺 +61</option>
+                </select>
+              </div>
+              <div class="phone-number">
+                <input type="tel" id="waPhone" placeholder="7701234567" dir="ltr">
+              </div>
+            </div>
+          </div>
+          <button class="btn-primary" id="waSendBtn" data-label="إرسال رمز التحقق" onclick="waSendCode()"><span class="btn-label">إرسال رمز التحقق</span> {ICON_SEND_ARROW}</button>
         </div>
-        {remember_row}
-        <button type="submit">{title}</button>
-      </form>
-      <p class="notice" id="emailNotice" style="display:none"></p>
-      {switch_html}
-      <p class="terms">بالتسجيل، فإنك توافق على الشروط والأحكام وسياسة الخصوصية</p>
-    </div>
 
-    <div class="box" id="panelWa">
-      <div class="wa-badge">
-        <div class="badge-rings">
-          <span class="ring r1"></span><span class="ring r2"></span><span class="ring r3"></span>
-          <div class="badge-core">{logo_svg(56, "lgb")}</div>
-          <div class="badge-check">{ICON_CHECK}</div>
+        <div id="waCodeStep" style="display:none">
+          <div class="input-group">
+            <label>رمز التحقق</label>
+            <input type="text" id="waCode" placeholder="أدخل الرمز المكون من 6 أرقام" inputmode="numeric" dir="ltr">
+          </div>
+          <button class="btn-primary" id="waVerifyBtn" data-label="تحقق من الرمز" onclick="waVerify()"><span class="btn-label">تحقق من الرمز</span> {ICON_CHECK}</button>
+          <button class="btn-outline" onclick="showWaStep('phone')">تعديل الرقم</button>
         </div>
+
+        <div id="waPassStep" style="display:none">
+          <div class="input-group">
+            <label>كلمة المرور</label>
+            <input type="password" id="waPass" placeholder="كلمة المرور (6 أحرف على الأقل)">
+          </div>
+          <button class="btn-primary" id="waCompleteBtn" data-label="إنشاء الحساب" onclick="waComplete()"><span class="btn-label">إنشاء الحساب</span> {ICON_PERSON_ADD}</button>
+        </div>
+
+        <div class="secure">آمن وسريع بدون كلمة مرور {ICON_LOCK_SM}</div>
+
+        <div class="status-msg" id="waStatus"></div>
       </div>
 
-      <div id="waStepPhone">
-        <h2>تسجيل الدخول عبر واتساب</h2>
-        <p class="step-sub">{ICON_SHIELD_SM}<span>الطريقة الأسرع والأكثر أماناً</span></p>
-        <input id="waPhone" type="tel" placeholder="رقم واتساب مع مفتاح الدولة، مثال 9647701234567">
-        <button type="button" id="waSendBtn" data-label="متابعة عبر واتساب" onclick="waSendCode()">{ICON_WHATSAPP}<span>متابعة عبر واتساب</span></button>
-        <p class="wa-hint">{ICON_LOCK_SM}<span>آمن وسريع بدون كلمة مرور</span></p>
-        <div class="divider"><span>أو</span></div>
-        <button type="button" class="btn-ghost" onclick="showTab('email')">{email_switch_label}</button>
+      <div class="tab-content" id="emailContent">
+        <h2 class="title" style="font-size:17px; margin-bottom:6px;">{email_step_title}</h2>
+        {error_html}
+        <form method="post" action="{action}">{email_fields}
+        </form>
+        {email_secondary}
+        <div class="status-msg" id="emailStatus"></div>
       </div>
-
-      <div id="waStepCode" style="display:none">
-        <h2>أدخل رمز التحقق</h2>
-        <p class="step-sub">أرسلناه لك عبر واتساب على الرقم المدخل</p>
-        <input id="waCode" type="text" inputmode="numeric" placeholder="رمز التحقق (6 أرقام)">
-        <button type="button" id="waVerifyBtn" data-label="تحقق" onclick="waVerify()">تحقق</button>
-        <button type="button" class="btn-ghost" onclick="waStep('phone')">تعديل الرقم</button>
-      </div>
-
-      <div id="waStepPass" style="display:none">
-        <h2>عيّن كلمة مرور</h2>
-        <p class="step-sub">رقمك جديد — عيّن كلمة مرور لإنشاء حسابك</p>
-        <input id="waPass" type="password" placeholder="كلمة المرور (6 أحرف على الأقل)">
-        <button type="button" id="waCompleteBtn" data-label="إنشاء الحساب" onclick="waComplete()">إنشاء الحساب</button>
-      </div>
-
-      <p class="wa-msg" id="waMsg"></p>
-      {switch_html}
-      <p class="terms">بالتسجيل، فإنك توافق على الشروط والأحكام وسياسة الخصوصية</p>
-    </div>
+    </section>
   </div>
 
+  <footer class="bottom">
+    {switch_html}
+    <div class="terms">بالتسجيل، فإنك توافق على <span class="terms-link">الشروط والأحكام</span> و<span class="terms-link">سياسة الخصوصية</span></div>
+    <div class="home"></div>
+  </footer>
+</div>
+
 <script>
-function showTab(tab) {{
-  document.getElementById('tabEmail').classList.toggle('active', tab === 'email');
-  document.getElementById('tabWa').classList.toggle('active', tab === 'wa');
-  document.getElementById('panelEmail').style.display = tab === 'email' ? 'block' : 'none';
-  document.getElementById('panelWa').style.display = tab === 'wa' ? 'block' : 'none';
+function selectTab(type) {{
+  document.getElementById('waTab').classList.toggle('active', type === 'wa');
+  document.getElementById('emailTab').classList.toggle('active', type === 'email');
+  document.getElementById('waContent').classList.toggle('active', type === 'wa');
+  document.getElementById('emailContent').classList.toggle('active', type === 'email');
+  if (type === 'wa') showWaStep('phone');
 }}
 
-function waStep(step) {{
-  document.getElementById('waStepPhone').style.display = step === 'phone' ? 'block' : 'none';
-  document.getElementById('waStepCode').style.display = step === 'code' ? 'block' : 'none';
-  document.getElementById('waStepPass').style.display = step === 'pass' ? 'block' : 'none';
-  waMsg('');
+function showWaStep(step) {{
+  document.getElementById('waPhoneStep').style.display = step === 'phone' ? 'block' : 'none';
+  document.getElementById('waCodeStep').style.display = step === 'code' ? 'block' : 'none';
+  document.getElementById('waPassStep').style.display = step === 'pass' ? 'block' : 'none';
+  setStatus('waStatus', '', false);
 }}
 
-function waMsg(t) {{ document.getElementById('waMsg').innerText = t || ''; }}
+function setStatus(id, msg, isError) {{
+  const el = document.getElementById(id);
+  el.textContent = msg || '';
+  el.className = 'status-msg' + (msg ? (isError ? ' error' : ' success') : '');
+}}
 
-function waBtnLoading(id, loading) {{
+function btnLoading(id, loading) {{
   const btn = document.getElementById(id);
   btn.disabled = loading;
-  btn.innerText = loading ? '...' : btn.dataset.label;
-}}
-
-function togglePassword() {{
-  const input = document.getElementById('passwordInput');
-  const show = input.type === 'password';
-  input.type = show ? 'text' : 'password';
-  document.getElementById('eyeShow').style.display = show ? 'none' : 'inline-flex';
-  document.getElementById('eyeHide').style.display = show ? 'inline-flex' : 'none';
+  btn.querySelector('.btn-label').textContent = loading ? '...' : btn.dataset.label;
 }}
 
 function showForgot(e) {{
   e.preventDefault();
-  const n = document.getElementById('emailNotice');
-  n.style.display = 'block';
-  n.innerText = 'لإعادة تعيين كلمة المرور، تواصل مع إدارة المنصة.';
+  setStatus('emailStatus', 'لإعادة تعيين كلمة المرور، تواصل مع إدارة المنصة.', false);
 }}
 
 let waPhone = '';
 
 async function waSendCode() {{
+  const code = document.getElementById('countryCode').value;
   const phone = document.getElementById('waPhone').value.replace(/[^0-9]/g, '');
-  if (phone.length < 8) {{ waMsg('أدخل رقم واتساب صحيح مع مفتاح الدولة'); return; }}
-  waPhone = phone;
-  waBtnLoading('waSendBtn', true);
+  if (phone.length < 6) {{ setStatus('waStatus', 'أدخل رقم هاتف صحيح (بعد رمز الدولة)', true); return; }}
+  waPhone = code + phone;
+  btnLoading('waSendBtn', true);
   const r = await fetch('/auth/whatsapp/send_code', {{
-    method: 'POST', headers: {{'Content-Type': 'application/json'}}, body: JSON.stringify({{phone: phone}})
+    method: 'POST', headers: {{'Content-Type': 'application/json'}}, body: JSON.stringify({{phone: waPhone}})
   }}).then(res => res.json());
-  waBtnLoading('waSendBtn', false);
-  if (!r.ok) {{ waMsg(r.error); return; }}
-  waStep('code');
+  btnLoading('waSendBtn', false);
+  if (!r.ok) {{ setStatus('waStatus', r.error, true); return; }}
+  setStatus('waStatus', 'تم إرسال الرمز، تحقق من واتساب', false);
+  showWaStep('code');
 }}
 
 async function waVerify() {{
   const code = document.getElementById('waCode').value.trim();
-  waBtnLoading('waVerifyBtn', true);
+  if (code.length < 4) {{ setStatus('waStatus', 'أدخل رمز التحقق المكون من 6 أرقام', true); return; }}
+  btnLoading('waVerifyBtn', true);
   const r = await fetch('/auth/whatsapp/verify', {{
     method: 'POST', headers: {{'Content-Type': 'application/json'}}, body: JSON.stringify({{phone: waPhone, code: code}})
   }}).then(res => res.json());
-  waBtnLoading('waVerifyBtn', false);
-  if (!r.ok) {{ waMsg(r.error); return; }}
+  btnLoading('waVerifyBtn', false);
+  if (!r.ok) {{ setStatus('waStatus', r.error, true); return; }}
   if (r.logged_in) {{ window.location.href = '/'; return; }}
-  waStep('pass');
+  showWaStep('pass');
 }}
 
 async function waComplete() {{
   const password = document.getElementById('waPass').value;
-  waBtnLoading('waCompleteBtn', true);
+  btnLoading('waCompleteBtn', true);
   const r = await fetch('/auth/whatsapp/complete', {{
     method: 'POST', headers: {{'Content-Type': 'application/json'}}, body: JSON.stringify({{phone: waPhone, password: password}})
   }}).then(res => res.json());
-  waBtnLoading('waCompleteBtn', false);
-  if (!r.ok) {{ waMsg(r.error); return; }}
+  btnLoading('waCompleteBtn', false);
+  if (!r.ok) {{ setStatus('waStatus', r.error, true); return; }}
   window.location.href = '/';
 }}
 </script>
@@ -791,94 +1021,239 @@ async function waComplete() {{
 """
 
 
+FONT_LINKS = """<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">"""
+
+FONT_STACK = "'IBM Plex Sans Arabic','Cairo','Tajawal',system-ui,sans-serif"
+
+
 def render_welcome_page():
     return f"""
 <!doctype html>
 <html lang="ar" dir="rtl">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="theme-color" content="#02090e">
 <title>واصل — Wasel Business</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Cairo:wght@700;800;900&family=Tajawal:wght@300;400;500;700;800&display=swap" rel="stylesheet">
+{FONT_LINKS}
 <style>
-  html, body {{ margin:0; padding:0; background:oklch(0.145 0.014 245); color:oklch(0.97 0.006 245); font-family:'Tajawal',system-ui,sans-serif; min-height:100vh; }}
-  .wrap {{ max-width: 360px; margin: 0 auto; padding: 44px 22px 34px; box-sizing:border-box; }}
-  .welcome-logo {{ display:flex; justify-content:center; margin-bottom:14px; }}
-  .brand-name {{ text-align:center; font-family:'Cairo',sans-serif; font-weight:900; font-size:26px; margin:0; }}
-  .brand-sub {{ text-align:center; font-family:'Cairo',sans-serif; font-weight:700; font-size:11px; letter-spacing:3px; color:oklch(0.72 0.02 245); margin:3px 0 14px; }}
-  .tagline {{ text-align:center; font-size:13px; color:oklch(0.72 0.02 245); line-height:1.8; margin:0 0 8px; padding:0 6px; }}
-  .hero {{ position:relative; height:236px; margin:26px 0 22px; }}
-  .hero-glow {{ position:absolute; inset:14px 34px; border-radius:50%; background:radial-gradient(circle, oklch(0.78 0.17 152 / 22%), transparent 70%); filter:blur(6px); }}
-  .stat-card {{ position:absolute; z-index:1; width:152px; box-sizing:border-box; background:oklch(0.195 0.017 245); border:1px solid oklch(1 0 0 / 10%); border-radius:16px; padding:12px 14px; box-shadow:0 14px 30px rgba(0,0,0,.35); animation:floatCard 4s ease-in-out infinite; }}
-  .stat-1 {{ top:0; right:0; animation-delay:0s; }}
-  .stat-2 {{ top:86px; left:0; animation-delay:.5s; }}
-  .stat-3 {{ bottom:0; right:14px; animation-delay:1s; }}
-  @keyframes floatCard {{ 0%, 100% {{ transform:translateY(0); }} 50% {{ transform:translateY(-8px); }} }}
-  .stat-icon {{ width:26px; height:26px; border-radius:8px; background:oklch(0.78 0.17 152 / 15%); color:oklch(0.78 0.17 152); display:flex; align-items:center; justify-content:center; margin-bottom:8px; }}
-  .stat-label {{ font-size:10.5px; color:oklch(0.72 0.02 245); margin:0 0 2px; }}
-  .stat-value {{ font-family:'Cairo',sans-serif; font-weight:800; font-size:16px; margin:0 0 8px; }}
-  .progress {{ height:4px; border-radius:2px; background:oklch(1 0 0 / 10%); overflow:hidden; }}
-  .progress-fill {{ height:100%; border-radius:2px; background:linear-gradient(90deg, oklch(0.78 0.17 152), oklch(0.6 0.18 152)); }}
-  .features-row {{ display:flex; justify-content:space-between; gap:10px; margin-bottom:22px; }}
-  .feature {{ flex:1; display:flex; flex-direction:column; align-items:center; gap:7px; text-align:center; }}
-  .feature-icon {{ width:42px; height:42px; border-radius:13px; background:oklch(0.195 0.017 245); border:1px solid oklch(1 0 0 / 9%); color:oklch(0.78 0.17 152); display:flex; align-items:center; justify-content:center; }}
-  .feature span {{ font-size:11px; color:oklch(0.85 0.01 245); font-weight:600; }}
-  .dots {{ display:flex; justify-content:center; gap:6px; margin-bottom:26px; }}
-  .dot {{ width:6px; height:6px; border-radius:50%; background:oklch(1 0 0 / 18%); transition:all .2s; }}
-  .dot.active {{ width:20px; border-radius:3px; background:oklch(0.78 0.17 152); }}
-  .btn-primary-lg {{ display:flex; flex-direction:column; align-items:center; justify-content:center; gap:2px; width:100%; box-sizing:border-box; padding:14px; border-radius:16px; background:linear-gradient(135deg, oklch(0.78 0.17 152), oklch(0.66 0.18 152)); color:oklch(0.16 0.03 152); text-decoration:none; box-shadow:0 10px 24px oklch(0.78 0.17 152 / 30%); margin-bottom:12px; }}
-  .btn-primary-lg .btn-main {{ font-family:'Cairo',sans-serif; font-weight:800; font-size:15px; }}
-  .btn-primary-lg .btn-sub {{ font-size:11px; opacity:.85; font-weight:600; }}
-  .btn-outline-lg {{ display:flex; align-items:center; justify-content:center; gap:8px; width:100%; box-sizing:border-box; padding:13px; border-radius:16px; border:1.5px solid oklch(1 0 0 / 18%); color:oklch(0.97 0.006 245); text-decoration:none; font-weight:700; font-size:13.5px; margin-bottom:18px; }}
-  p.switch {{ text-align:center; font-size:12.5px; margin:0; color:oklch(0.72 0.02 245); }}
-  p.switch a {{ color:oklch(0.78 0.17 152); font-weight:700; text-decoration:none; }}
+  * {{ box-sizing:border-box; margin:0; padding:0; -webkit-tap-highlight-color:transparent; user-select:none; -webkit-user-select:none; }}
+  html, body {{ width:100%; height:100%; background:#02090e; font-family:{FONT_STACK}; overflow:hidden; position:fixed; inset:0; }}
+  body {{ color:#fff; }}
+  img, svg, .card, .feature {{ -webkit-touch-callout:none; pointer-events:none; }}
+  .app {{ position:relative; width:100%; max-width:430px; height:100vh; height:100dvh; margin:auto; overflow:hidden;
+    background: radial-gradient(circle at 50% 25%, rgba(0,255,125,.08), transparent 30%),
+                radial-gradient(circle at 18% 60%, rgba(0,255,125,.04), transparent 20%),
+                linear-gradient(180deg, #030b10 0%, #02090e 55%, #02090d 100%);
+    display:flex; flex-direction:column; animation:fadeIn .3s ease; }}
+  @keyframes fadeIn {{ from {{ opacity:0; }} to {{ opacity:1; }} }}
+  .app::before {{ content:""; position:absolute; inset:0; pointer-events:none; opacity:.3;
+    background-image: radial-gradient(circle at 12% 25%, rgba(0,225,113,.7) 0 3px, transparent 4px),
+                       radial-gradient(circle at 88% 40%, rgba(0,225,113,.6) 0 3px, transparent 4px),
+                       radial-gradient(circle at 23% 10%, rgba(0,225,113,.7) 0 4px, transparent 5px),
+                       radial-gradient(circle at 84% 20%, rgba(0,225,113,.3) 0 2px, transparent 3px); }}
+  .bubble {{ position:absolute; border:1px solid rgba(0,255,133,.06); background:rgba(0,255,133,.02); border-radius:22px; opacity:.6; pointer-events:none; }}
+  .bubble::before, .bubble::after {{ content:""; position:absolute; width:30px; height:5px; right:12px; background:rgba(0,255,133,.06); border-radius:10px; }}
+  .bubble::before {{ top:14px; }}
+  .bubble::after {{ top:25px; width:20px; }}
+  .bubble.one {{ width:90px; height:68px; top:160px; right:-15px; }}
+  .bubble.two {{ width:80px; height:60px; top:350px; left:-15px; }}
+  .bubble.three {{ width:75px; height:55px; top:540px; right:-20px; }}
+  .main-content {{ flex:1; display:flex; flex-direction:column; justify-content:center; padding:10px 20px; position:relative; z-index:2; min-height:0; }}
+  .hero {{ text-align:center; pointer-events:none; flex-shrink:0; }}
+  .logo {{ width:120px; height:120px; margin:0 auto 10px; border-radius:32px; background:linear-gradient(145deg,#24d276 0%,#0aa95c 100%);
+    box-shadow:0 10px 35px rgba(0,221,110,.2), inset 0 1px 0 rgba(255,255,255,.18); display:flex; align-items:center; justify-content:center; }}
+  .logo svg {{ width:78px; height:78px; filter:drop-shadow(0 2px 1px rgba(0,0,0,.1)); }}
+  .brand {{ font-family:{FONT_STACK}; font-size:34px; font-weight:800; line-height:1.1; letter-spacing:-1px;
+    background:linear-gradient(135deg,#20d276,#0ba65c); -webkit-background-clip:text; -webkit-text-fill-color:transparent; background-clip:text; }}
+  .en {{ margin-top:4px; color:#18d36d; font-size:14px; letter-spacing:2.5px; font-weight:700; direction:ltr; font-family:{FONT_STACK}; }}
+  .description {{ margin:10px auto 0; max-width:300px; color:#aeb7ba; font-size:15px; line-height:1.7; font-weight:500; }}
+  .visual {{ height:195px; position:relative; margin-top:4px; pointer-events:none; flex-shrink:0; }}
+  .phone {{ position:absolute; width:145px; height:190px; left:50%; top:4px; transform:translateX(-50%); border:2.5px solid #10282b; border-radius:26px;
+    background:linear-gradient(145deg, rgba(15,95,72,.3), rgba(2,12,16,.95) 55%), #061117;
+    box-shadow:0 0 0 1px rgba(255,255,255,.025), 0 15px 40px rgba(0,0,0,.5), inset 0 0 30px rgba(0,255,120,.03); }}
+  .phone::before {{ content:""; position:absolute; width:58px; height:13px; top:3px; left:50%; transform:translateX(-50%); background:#071015; border-radius:0 0 10px 10px; }}
+  .phone-screen {{ position:absolute; inset:17px 7px 7px; border-radius:20px; overflow:hidden;
+    background: radial-gradient(circle at 50% 55%, rgba(0,255,120,.10), transparent 35%), linear-gradient(180deg, #061319, #020b10); }}
+  .card {{ position:absolute; z-index:3; width:165px; min-height:65px; border:1px solid rgba(190,255,229,.12);
+    background:linear-gradient(135deg, rgba(26,45,48,.9), rgba(12,27,31,.9)); box-shadow:0 10px 25px rgba(0,0,0,.35), inset 0 1px 0 rgba(255,255,255,.03);
+    backdrop-filter:blur(10px); -webkit-backdrop-filter:blur(10px); border-radius:14px; padding:10px 12px;
+    display:flex; align-items:center; gap:8px; text-align:right; pointer-events:none; }}
+  .card-icon {{ flex:0 0 35px; width:35px; height:35px; border-radius:11px; background:rgba(0,225,111,.08); color:#13d66d; display:flex; align-items:center; justify-content:center; }}
+  .card-content {{ flex:1; }}
+  .card-title {{ color:#d9dfdf; font-size:10px; margin-bottom:2px; }}
+  .card-number {{ direction:ltr; text-align:right; color:#13d76e; font-size:15px; font-weight:800; font-family:{FONT_STACK}; }}
+  .progress {{ height:4px; border-radius:8px; background:#1b2c30; margin-top:5px; overflow:hidden; }}
+  .progress span {{ display:block; height:100%; border-radius:8px; background:#12d36b; box-shadow:0 0 7px rgba(0,255,120,.3); }}
+  .card.target {{ right:2px; top:12px; }}
+  .card.target .progress span {{ width:78%; }}
+  .card.audience {{ left:2px; top:58px; }}
+  .card.audience .progress span {{ width:64%; }}
+  .card.engagement {{ left:50%; transform:translateX(-50%); bottom:8px; width:175px; }}
+  .card.engagement .progress span {{ width:67%; }}
+  .features {{ display:grid; grid-template-columns:repeat(3,1fr); gap:6px; padding:0 2px; margin-top:4px; pointer-events:none; flex-shrink:0; }}
+  .feature {{ text-align:center; pointer-events:none; }}
+  .feature-icon {{ width:54px; height:54px; margin:0 auto 6px; border-radius:50%; border:1px solid rgba(0,220,112,.10);
+    background:radial-gradient(circle, rgba(0,218,111,.10), rgba(0,218,111,.03)); display:flex; align-items:center; justify-content:center; color:#16d56e; }}
+  .feature h3 {{ font-size:13px; line-height:1.3; font-weight:700; font-family:{FONT_STACK}; }}
+  .feature p {{ color:#899497; font-size:10px; line-height:1.5; margin-top:1px; }}
+  .dots {{ display:flex; justify-content:center; gap:8px; direction:ltr; margin:12px 0 10px; pointer-events:none; flex-shrink:0; }}
+  .dot {{ width:10px; height:10px; border-radius:50%; background:#243138; transition:.3s; }}
+  .dot.active {{ background:#12d56b; box-shadow:0 0 10px rgba(0,215,105,.25); width:26px; border-radius:6px; }}
+  .actions {{ position:relative; z-index:4; padding:0 2px 6px; flex-shrink:0; }}
+  .btn {{ width:100%; height:60px; border-radius:18px; display:flex; flex-direction:column; align-items:center; justify-content:center; text-decoration:none; font-family:{FONT_STACK}; }}
+  .primary {{ background:linear-gradient(180deg,#15c66a,#10b95e); box-shadow:0 8px 22px rgba(0,205,102,.12); color:#020b10; }}
+  .primary strong {{ font-size:19px; font-weight:800; font-family:{FONT_STACK}; }}
+  .primary small {{ font-size:12px; color:#d8f5e5; margin-top:2px; }}
+  .whatsapp {{ height:50px; margin-top:10px; border:2px solid #18262c; background:rgba(3,12,17,.45); color:#12d56c; font-size:16px; font-weight:700; flex-direction:row; gap:8px; }}
+  .whatsapp svg {{ width:22px; height:22px; flex-shrink:0; }}
+  .login {{ margin-top:12px; text-align:center; color:#a8b0b3; font-size:14px; }}
+  .login a {{ color:#12d56b; font-weight:700; margin-right:4px; text-decoration:none; }}
+  .home-indicator {{ width:100px; height:4px; background:#f4f4f4; border-radius:20px; margin:8px auto 4px; opacity:.15; flex-shrink:0; }}
+  @media (max-height:700px) {{
+    .logo {{ width:85px; height:85px; border-radius:24px; }}
+    .logo svg {{ width:56px; height:56px; }}
+    .brand {{ font-size:26px; }}
+    .en {{ font-size:11px; }}
+    .description {{ font-size:12px; max-width:260px; margin-top:6px; }}
+    .visual {{ height:155px; }}
+    .phone {{ width:115px; height:152px; }}
+    .card {{ width:135px; min-height:52px; padding:7px 9px; }}
+    .card-icon {{ width:28px; height:28px; }}
+    .card-title {{ font-size:9px; }}
+    .card-number {{ font-size:12px; }}
+    .card.target {{ top:8px; }}
+    .card.audience {{ top:46px; }}
+    .card.engagement {{ width:145px; bottom:4px; }}
+    .feature-icon {{ width:42px; height:42px; }}
+    .feature h3 {{ font-size:11px; }}
+    .feature p {{ font-size:9px; }}
+    .btn {{ height:50px; }}
+    .primary strong {{ font-size:16px; }}
+    .primary small {{ font-size:10px; }}
+    .whatsapp {{ height:42px; font-size:13px; margin-top:6px; }}
+    .whatsapp svg {{ width:18px; height:18px; }}
+    .dots {{ margin:8px 0 6px; }}
+    .dot {{ width:8px; height:8px; }}
+    .dot.active {{ width:18px; }}
+    .login {{ font-size:12px; margin-top:8px; }}
+    .home-indicator {{ width:80px; height:3px; margin:4px auto 2px; }}
+    .main-content {{ padding:6px 14px; }}
+  }}
+  @media (max-height:600px) {{
+    .logo {{ width:68px; height:68px; border-radius:20px; }}
+    .logo svg {{ width:44px; height:44px; }}
+    .brand {{ font-size:22px; }}
+    .description {{ font-size:11px; margin-top:4px; }}
+    .visual {{ height:125px; }}
+    .phone {{ width:95px; height:125px; border-radius:20px; }}
+    .card {{ width:115px; min-height:42px; padding:5px 7px; border-radius:10px; }}
+    .card-icon {{ width:24px; height:24px; border-radius:8px; }}
+    .card-title {{ font-size:8px; }}
+    .card-number {{ font-size:11px; }}
+    .card.target {{ top:4px; }}
+    .card.audience {{ top:36px; }}
+    .card.engagement {{ width:125px; bottom:2px; }}
+    .feature-icon {{ width:34px; height:34px; }}
+    .feature h3 {{ font-size:10px; }}
+    .feature p {{ font-size:8px; }}
+    .btn {{ height:40px; border-radius:14px; }}
+    .primary strong {{ font-size:14px; }}
+    .primary small {{ font-size:9px; }}
+    .whatsapp {{ height:36px; font-size:11px; margin-top:4px; border-radius:14px; }}
+    .whatsapp svg {{ width:16px; height:16px; }}
+    .dots {{ margin:4px 0; gap:5px; }}
+    .dot {{ width:6px; height:6px; }}
+    .dot.active {{ width:14px; }}
+    .login {{ font-size:10px; margin-top:4px; }}
+    .home-indicator {{ width:60px; height:3px; margin:2px auto; }}
+    .main-content {{ padding:4px 10px; }}
+  }}
+  @media (min-width:431px) {{ .app {{ border-left:1px solid rgba(255,255,255,.03); border-right:1px solid rgba(255,255,255,.03); }} }}
 </style>
 </head>
 <body>
-  <div class="wrap">
-    <div class="welcome-logo">{logo_svg(46, "lgw")}</div>
-    <p class="brand-name">واصل</p>
-    <p class="brand-sub">WASEL BUSINESS</p>
-    <p class="tagline">منصّتك لإدارة حملات واتساب التسويقية بذكاء وسهولة</p>
+  <div class="app">
+    <div class="bubble one"></div>
+    <div class="bubble two"></div>
+    <div class="bubble three"></div>
 
-    <div class="hero">
-      <div class="hero-glow"></div>
-      <div class="stat-card stat-1">
-        <div class="stat-icon">{ICON_SEND}</div>
-        <p class="stat-label">رسائل مرسلة</p>
-        <p class="stat-value">12,680</p>
-        <div class="progress"><div class="progress-fill" style="width:82%"></div></div>
+    <div class="main-content">
+      <section class="hero">
+        <div class="logo">{logo_svg(78)}</div>
+        <h1 class="brand">واصل</h1>
+        <div class="en">WASEL BUSINESS</div>
+        <p class="description">منصة احترافية لإدارة حملاتك<br>التسويقية عبر واتساب بسهولة</p>
+      </section>
+
+      <section class="visual">
+        <div class="phone"><div class="phone-screen"></div></div>
+
+        <div class="card target">
+          <div class="card-icon">{ICON_SEND}</div>
+          <div class="card-content">
+            <div class="card-title">رسائل مرسلة</div>
+            <div class="card-number">12,680</div>
+            <div class="progress"><span></span></div>
+          </div>
+        </div>
+
+        <div class="card audience">
+          <div class="card-icon">{ICON_USERS}</div>
+          <div class="card-content">
+            <div class="card-title">جمهورك المستهدف</div>
+            <div class="card-number">2,450</div>
+            <div class="progress"><span></span></div>
+          </div>
+        </div>
+
+        <div class="card engagement">
+          <div class="card-icon">{ICON_TREND}</div>
+          <div class="card-content">
+            <div class="card-title">معدل التفاعل</div>
+            <div class="card-number">68%</div>
+            <div class="progress"><span></span></div>
+          </div>
+        </div>
+      </section>
+
+      <section class="features">
+        <div class="feature">
+          <div class="feature-icon">{ICON_BOLT}</div>
+          <h3>أتمتة كاملة</h3>
+          <p>وفر الوقت والجهد</p>
+        </div>
+        <div class="feature">
+          <div class="feature-icon">{ICON_CHART}</div>
+          <h3>تحليلات دقيقة</h3>
+          <p>تقارير مفصلة</p>
+        </div>
+        <div class="feature">
+          <div class="feature-icon">{ICON_TARGET}</div>
+          <h3>أفضل نتائج</h3>
+          <p>زيادة المبيعات</p>
+        </div>
+      </section>
+
+      <div class="dots">
+        <span class="dot active"></span><span class="dot"></span><span class="dot"></span>
       </div>
-      <div class="stat-card stat-2">
-        <div class="stat-icon">{ICON_USERS}</div>
-        <p class="stat-label">جمهورك المستهدف</p>
-        <p class="stat-value">2,450</p>
-        <div class="progress"><div class="progress-fill" style="width:65%"></div></div>
-      </div>
-      <div class="stat-card stat-3">
-        <div class="stat-icon">{ICON_TREND}</div>
-        <p class="stat-label">معدل التفاعل</p>
-        <p class="stat-value">68%</p>
-        <div class="progress"><div class="progress-fill" style="width:68%"></div></div>
-      </div>
+
+      <section class="actions">
+        <a href="/signup" class="btn primary">
+          <strong>ابدأ الآن</strong>
+          <small>إنشاء حساب جديد</small>
+        </a>
+        <a href="/login" class="btn whatsapp">
+          {ICON_WHATSAPP}
+          <span>تسجيل الدخول عبر واتساب</span>
+        </a>
+        <div class="login">لديك حساب بالفعل؟ <a href="/login">تسجيل الدخول</a></div>
+        <div class="home-indicator"></div>
+      </section>
     </div>
-
-    <div class="features-row">
-      <div class="feature"><div class="feature-icon">{ICON_BOLT}</div><span>أتمتة كاملة</span></div>
-      <div class="feature"><div class="feature-icon">{ICON_CHART}</div><span>تحليلات دقيقة</span></div>
-      <div class="feature"><div class="feature-icon">{ICON_TARGET}</div><span>نتائج أفضل</span></div>
-    </div>
-
-    <div class="dots"><span class="dot active"></span><span class="dot"></span><span class="dot"></span></div>
-
-    <a href="/signup" class="btn-primary-lg">
-      <span class="btn-main">ابدأ الآن</span>
-      <span class="btn-sub">إنشاء حساب جديد</span>
-    </a>
-    <a href="/login" class="btn-outline-lg">{ICON_WHATSAPP}<span>تسجيل الدخول عبر واتساب</span></a>
-    <p class="switch">لديك حساب بالفعل؟ <a href="/login">تسجيل الدخول</a></p>
   </div>
 </body>
 </html>
@@ -906,6 +1281,7 @@ def login_page():
         return render_auth_page("تسجيل الدخول", "/login", '<p class="switch">ما عندك حساب؟ <a href="/signup">أنشئ حساب</a></p>', "البريد الإلكتروني أو كلمة المرور غير صحيحة")
     session["user_id"] = user["id"]
     session["email"] = user["email"]
+    session["name"] = user["name"]
     session["is_admin"] = bool(user["is_admin"])
     session.permanent = bool(request.form.get("remember"))
     return redirect("/")
@@ -915,19 +1291,21 @@ def login_page():
 def signup_page():
     if request.method == "GET":
         return render_auth_page("إنشاء حساب", "/signup", '<p class="switch">عندك حساب؟ <a href="/login">سجّل الدخول</a></p>', "")
+    name = request.form.get("name", "").strip()
     email = request.form.get("email", "").strip().lower()
     password = request.form.get("password", "")
     switch = '<p class="switch">عندك حساب؟ <a href="/login">سجّل الدخول</a></p>'
-    if not email or not password:
+    if not name or not email or not password:
         return render_auth_page("إنشاء حساب", "/signup", switch, "عبّي كل الحقول")
     if not EMAIL_RE.match(email):
         return render_auth_page("إنشاء حساب", "/signup", switch, "أدخل بريد إلكتروني صحيح")
     if db_get_user_by_email(email):
         return render_auth_page("إنشاء حساب", "/signup", switch, "هذا البريد مسجّل من قبل")
     is_admin = db_count_users() == 0
-    user_id = db_create_user(email, generate_password_hash(password), is_admin)
+    user_id = db_create_user(email, generate_password_hash(password), is_admin, name)
     session["user_id"] = user_id
     session["email"] = email
+    session["name"] = name
     session["is_admin"] = is_admin
     return redirect("/")
 
@@ -979,6 +1357,7 @@ def verify_whatsapp_code():
             otp_codes.pop(phone, None)
         session["user_id"] = existing["id"]
         session["email"] = existing["email"] or existing["phone"]
+        session["name"] = existing["name"]
         session["is_admin"] = bool(existing["is_admin"])
         return jsonify(ok=True, logged_in=True)
     return jsonify(ok=True, logged_in=False)
@@ -1005,6 +1384,7 @@ def complete_whatsapp_signup():
         otp_codes.pop(phone, None)
     session["user_id"] = user["id"]
     session["email"] = user["email"] or user["phone"]
+    session["name"] = user["name"]
     session["is_admin"] = bool(user["is_admin"])
     return jsonify(ok=True)
 
@@ -1016,7 +1396,7 @@ def home():
     if not session.get("user_id"):
         return redirect("/welcome")
     page = PAGE.replace("__IS_ADMIN__", "true" if session.get("is_admin") else "false")
-    page = page.replace("__USERNAME__", session.get("email", ""))
+    page = page.replace("__USERNAME__", session.get("name") or session.get("email", ""))
     return page
 
 
@@ -1363,7 +1743,7 @@ PAGE = """
 <meta name="theme-color" content="#123320">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Cairo:wght@700;800;900&family=Tajawal:wght@300;400;500;700;800&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
 <script src="https://cdn.tailwindcss.com"></script>
 <style>
   :root {
@@ -1384,9 +1764,9 @@ PAGE = """
     --green-ink: oklch(0.99 0.01 152); --red: oklch(0.55 0.19 21); --blue: oklch(0.55 0.13 238); --amber: oklch(0.62 0.14 78);
     --shadow: rgba(0,0,0,.08);
   }
-  html, body { margin: 0; padding: 0; background: var(--bg); color: var(--ink); font-family: 'Tajawal', system-ui, sans-serif; }
+  html, body { margin: 0; padding: 0; background: var(--bg); color: var(--ink); font-family: 'IBM Plex Sans Arabic', 'Cairo', 'Tajawal', system-ui, sans-serif; }
   .app { display: flex; flex-direction: column; min-height: 100vh; }
-  h1, h2, h3, .topbar-title, .stat-num, .logo-word { font-family: 'Cairo', 'Tajawal', sans-serif; }
+  h1, h2, h3, .topbar-title, .stat-num, .logo-word { font-family: 'IBM Plex Sans Arabic', 'Cairo', 'Tajawal', sans-serif; }
   svg.icon { display: inline-block; vertical-align: middle; flex-shrink: 0; }
 
   .topbar { display: flex; align-items: center; justify-content: space-between; padding: 10px 16px; background: var(--card); border-bottom: 1px solid var(--border); position: sticky; top: 0; z-index: 30; }
@@ -2084,7 +2464,8 @@ async function loadCustomers() {
   if (!box) return;
   box.innerHTML = rows.length
     ? rows.map(u => {
-        const label = u.email || u.phone || '—';
+        const contact = u.email || u.phone || '—';
+        const label = u.name ? (u.name + ' · ' + contact) : contact;
         return '<div class="history-row"><span class="flex items-center gap-2">' + avatarHtml(label, String(u.id)) +
         '<span>' + label + '</span></span><span class="pill ' + (u.plan_active ? 'pill-green' : 'pill-gray') + '">' +
         (u.plan_active ? 'مفعّل' : 'غير مفعّل') + '</span><span class="text-muted">' + u.created_at + '</span></div>';
