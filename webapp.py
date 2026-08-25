@@ -44,12 +44,28 @@ from werkzeug.security import check_password_hash, generate_password_hash
 SESSIONS_ROOT = "./wa_sessions"
 UPLOADS_DIR = "./uploads"
 DB_PATH = "./app.db"
+SECRET_KEY_PATH = "./secret.key"
 DEFAULT_MESSAGE = "هلوو"
 DEFAULT_DELAY = 15
 EVENTS_MAX = 50
 
+
+def get_or_create_secret_key():
+    """مفتاح ثابت يُقرأ من ملف بدل ما يتولد عشوائياً كل تشغيل، حتى ما يطلع كل المستخدمين
+    من جلساتهم لمجرد إعادة تشغيل السيرفر."""
+    env_key = os.environ.get("SECRET_KEY")
+    if env_key:
+        return env_key
+    if os.path.exists(SECRET_KEY_PATH):
+        return open(SECRET_KEY_PATH, encoding="utf-8").read().strip()
+    key = uuid.uuid4().hex + uuid.uuid4().hex
+    with open(SECRET_KEY_PATH, "w", encoding="utf-8") as f:
+        f.write(key)
+    return key
+
+
 app = Flask(__name__)
-app.secret_key = os.environ.get("SECRET_KEY", uuid.uuid4().hex)
+app.secret_key = get_or_create_secret_key()
 
 accounts = {}  # id -> {id, owner, name, driver, lock, campaign, history, auto_reply, watching}
 events = []
@@ -182,7 +198,7 @@ def new_account_entry(acc_id, owner, name):
         "lock": threading.Lock(),
         "campaign": {"total": 0, "sent": 0, "failed": 0, "running": False, "failed_numbers": [], "scheduled_for": None},
         "history": [],
-        "auto_reply": {"enabled": False, "mode": "keywords", "rules": []},
+        "auto_reply": {"enabled": False, "ai_enabled": False, "rules": []},
         "watching": False,
     }
 
@@ -298,6 +314,7 @@ def run_campaign(acc, numbers, text, delay, media_path):
 def ai_reply(customer_message):
     settings = db_get_ai_settings()
     if not settings or not settings["api_key"]:
+        print("[رد آلي] لا يوجد مفتاح DeepSeek محفوظ بقسم إعدادات الأدمن")
         return None
     try:
         resp = requests.post(
@@ -321,44 +338,59 @@ def ai_reply(customer_message):
         )
         resp.raise_for_status()
         return resp.json()["choices"][0]["message"]["content"].strip()
-    except Exception:
+    except Exception as e:
+        print(f"[رد آلي] فشل استدعاء DeepSeek: {e}")
         return None
 
 
 def watch_account(acc_id):
-    """مراقبة أفضل-جهد لأول محادثة بالقائمة، ورد آلي بكلمات مفتاحية أو بالذكاء الاصطناعي."""
+    """مراقبة أفضل-جهد لعدة محادثات بالقائمة (مو الأولى بس)، ورد بكلمة مفتاحية إن وجدت
+    وإلا بالذكاء الاصطناعي إن كان مفعّل. تطبع خطوات التشخيص بالتيرمنل للمساعدة بالتصحيح."""
     last_seen = {}
+    print(f"[رد آلي] بدأت المراقبة لحساب {accounts.get(acc_id, {}).get('name', acc_id)}")
     while True:
         acc = accounts.get(acc_id)
         if not acc or not acc.get("watching") or acc["driver"] is None:
+            print(f"[رد آلي] توقفت المراقبة لحساب {acc_id}")
             return
         try:
             with acc["lock"]:
                 driver = acc["driver"]
-                first_chat = driver.find_element(By.CSS_SELECTOR, '#pane-side div[role="listitem"]')
-                name_el = first_chat.find_element(By.CSS_SELECTOR, "span[title]")
-                chat_name = name_el.get_attribute("title") or "غير معروف"
-                first_chat.click()
-                time.sleep(1.5)
-                incoming = driver.find_elements(By.CSS_SELECTOR, "div.message-in .selectable-text span")
-                last_text = incoming[-1].text.strip() if incoming else ""
-                if last_text and last_seen.get(chat_name) != last_text:
+                chat_items = driver.find_elements(By.CSS_SELECTOR, '#pane-side div[role="listitem"]')[:8]
+                print(f"[رد آلي] {acc['name']}: فحص {len(chat_items)} محادثة")
+                for item in chat_items:
+                    try:
+                        chat_name = item.find_element(By.CSS_SELECTOR, "span[title]").get_attribute("title") or "غير معروف"
+                    except Exception:
+                        continue
+                    item.click()
+                    time.sleep(1.2)
+                    incoming = driver.find_elements(By.CSS_SELECTOR, "div.message-in .selectable-text span")
+                    last_text = incoming[-1].text.strip() if incoming else ""
+                    if not last_text or last_seen.get(chat_name) == last_text:
+                        continue
                     last_seen[chat_name] = last_text
+                    print(f"[رد آلي] رسالة جديدة من {chat_name}: {last_text[:50]}")
+
                     reply_text = None
-                    if acc["auto_reply"]["mode"] == "ai":
+                    for rule in acc["auto_reply"]["rules"]:
+                        if rule["keyword"] and rule["keyword"] in last_text:
+                            reply_text = rule["reply"]
+                            print(f"[رد آلي] طابقت كلمة مفتاحية: {rule['keyword']}")
+                            break
+                    if not reply_text and acc["auto_reply"].get("ai_enabled"):
                         reply_text = ai_reply(last_text)
-                    else:
-                        for rule in acc["auto_reply"]["rules"]:
-                            if rule["keyword"] and rule["keyword"] in last_text:
-                                reply_text = rule["reply"]
-                                break
+
                     if reply_text:
                         box = driver.find_element(By.XPATH, '//footer//div[@contenteditable="true"]')
                         box.send_keys(reply_text)
                         box.send_keys(Keys.ENTER)
                         add_event(acc["name"], "رد تلقائي", f"{chat_name}: {reply_text[:60]}")
-        except Exception:
-            pass
+                        print(f"[رد آلي] رديت على {chat_name}: {reply_text[:50]}")
+                    else:
+                        print(f"[رد آلي] ما فيه رد مطابق لرسالة {chat_name} (لا كلمة مفتاحية ولا AI مفعّل/شغّال)")
+        except Exception as e:
+            print(f"[رد آلي] خطأ بدورة المراقبة: {e}")
         time.sleep(6)
 
 
@@ -670,7 +702,7 @@ def campaign_history(acc_id):
 def get_auto_reply(acc_id):
     acc = get_owned_account(acc_id)
     if not acc:
-        return jsonify(enabled=False, mode="keywords", rules=[])
+        return jsonify(enabled=False, ai_enabled=False, rules=[])
     return jsonify(**acc["auto_reply"])
 
 
@@ -686,7 +718,7 @@ def set_auto_reply(acc_id):
         for r in data.get("rules", [])
         if (r.get("keyword") or "").strip()
     ]
-    acc["auto_reply"]["mode"] = "ai" if data.get("mode") == "ai" else "keywords"
+    acc["auto_reply"]["ai_enabled"] = bool(data.get("ai_enabled"))
     was_enabled = acc["auto_reply"]["enabled"]
     enabled = bool(data.get("enabled"))
     acc["auto_reply"]["enabled"] = enabled
@@ -839,7 +871,10 @@ PAGE = """
 <div class="app">
   <header class="topbar">
     <span class="text-[11px] text-muted">__USERNAME__</span>
-    <div class="topbar-title">منصة حملات واتساب</div>
+    <div class="topbar-title" style="display:flex;align-items:center;gap:7px">
+      <svg width="22" height="22" viewBox="0 0 32 32" aria-hidden="true"><circle cx="16" cy="16" r="16" fill="var(--gold)"/><path d="M16 8a8 8 0 00-6.9 12l-1.1 4 4.1-1.1A8 8 0 1016 8z" fill="#fff"/><circle cx="12.5" cy="15.5" r="1.3" fill="var(--gold)"/><circle cx="16" cy="15.5" r="1.3" fill="var(--gold)"/><circle cx="19.5" cy="15.5" r="1.3" fill="var(--gold)"/></svg>
+      منصة حملات واتساب
+    </div>
     <div class="topbar-actions">
       <button class="icon-btn" id="themeBtn" onclick="toggleTheme()">داكن</button>
       <button class="icon-btn" id="bellBtn" onclick="toggleNotifPanel()">الإشعارات<span class="badge" id="bellBadge" style="display:none"></span></button>
@@ -1150,32 +1185,23 @@ function renderAutoReply() {
   html +=
     '<div class="dark-card rounded-2xl p-4 mt-3">' +
     '<label class="flex items-center gap-2 text-[13px] font-bold"><input type="checkbox" id="arEnabled"> تفعيل الرد الآلي لهذا الحساب</label>' +
-    '<label class="field-label">طريقة الرد</label>' +
-    '<select id="arMode"><option value="keywords">كلمات مفتاحية</option><option value="ai">ذكاء اصطناعي (DeepSeek)</option></select>' +
-    '<div id="rulesBox" class="mt-3"></div>' +
-    '<button class="btn-outline" id="addRuleBtn" onclick="addRule()">+ إضافة كلمة مفتاحية</button>' +
-    '<p id="aiNote" class="text-[11px] text-muted mt-2" style="display:none">الرد يعتمد على مفتاح DeepSeek وقائمة المنتجات/الأسعار اللي يضيفها الأدمن من قسم الإعدادات.</p>' +
+    '<p class="text-[11px] text-muted mt-1">يفحص كل رسالة جديدة تجيك من أي شخص (مو رقم واحد بس)، ويرد أول شي إذا طابقت إحدى الكلمات أدناه.</p>' +
+    '<label class="field-label">كلمات مفتاحية وردودها (لها الأولوية)</label>' +
+    '<div id="rulesBox" class="mt-1"></div>' +
+    '<button class="btn-outline" onclick="addRule()">+ إضافة كلمة مفتاحية</button>' +
+    '<label class="flex items-center gap-2 text-[13px] font-bold mt-4"><input type="checkbox" id="arAiEnabled"> رد بالذكاء الاصطناعي (DeepSeek) لو ما طابقت أي كلمة مفتاحية</label>' +
+    '<p class="text-[11px] text-muted mt-1">يحتاج مفتاح DeepSeek محفوظ من قسم الإعدادات (يضيفه أدمن المنصة).</p>' +
     '<button class="btn-gold" onclick="saveAutoReply()">حفظ</button>' +
     '<div id="arMsg" class="text-center text-[12px] font-bold mt-2"></div>' +
     '</div>';
   c.innerHTML = html;
 
-  document.getElementById('arMode').onchange = updateAutoReplyModeUI;
-
   fetch('/accounts/' + acc.id + '/auto_reply').then(r => r.json()).then(d => {
     document.getElementById('arEnabled').checked = !!d.enabled;
-    document.getElementById('arMode').value = d.mode || 'keywords';
+    document.getElementById('arAiEnabled').checked = !!d.ai_enabled;
     autoReplyRules = d.rules && d.rules.length ? d.rules : [{keyword: 'سلام', reply: 'سلام عليكم'}];
     renderRules();
-    updateAutoReplyModeUI();
   });
-}
-
-function updateAutoReplyModeUI() {
-  const ai = document.getElementById('arMode').value === 'ai';
-  document.getElementById('rulesBox').style.display = ai ? 'none' : 'block';
-  document.getElementById('addRuleBtn').style.display = ai ? 'none' : 'block';
-  document.getElementById('aiNote').style.display = ai ? 'block' : 'none';
 }
 
 function switchAutoReplyAccount(id) { activeId = id; render(); }
@@ -1199,10 +1225,10 @@ async function saveAutoReply() {
   if (!acc) return;
   ensureNotifPermission();
   const enabled = document.getElementById('arEnabled').checked;
-  const mode = document.getElementById('arMode').value;
+  const aiEnabled = document.getElementById('arAiEnabled').checked;
   const r = await fetch('/accounts/' + acc.id + '/auto_reply', {
     method: 'POST', headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({enabled: enabled, mode: mode, rules: autoReplyRules})
+    body: JSON.stringify({enabled: enabled, ai_enabled: aiEnabled, rules: autoReplyRules})
   }).then(res => res.json());
   document.getElementById('arMsg').innerText = r.ok ? 'تم الحفظ' : ('فشل: ' + r.error);
 }

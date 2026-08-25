@@ -2,6 +2,7 @@ wa_session/
 wa_sessions/
 uploads/
 app.db
+secret.key
 numbers.txt
 __pycache__/
 *.pyc
