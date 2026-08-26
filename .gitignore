@@ -1,0 +1,11 @@
+__pycache__/
+*.pyc
+venv/
+.venv/
+
+app.db
+app.db-wal
+app.db-shm
+secret.key
+wa_sessions/
+uploads/
