@@ -96,6 +96,7 @@ def init_db():
             is_admin INTEGER NOT NULL DEFAULT 0,
             plan_active INTEGER NOT NULL DEFAULT 0,
             trial_ends_at TEXT,
+            trial_ended_notified INTEGER NOT NULL DEFAULT 0,
             created_at TEXT NOT NULL DEFAULT ''
         )
     """)
@@ -117,6 +118,8 @@ def init_db():
         # كل حساب كان موجود قبل إضافة نظام التجربة/الاشتراك يبقى مفعّل تلقائياً، حتى لا
         # نقفل الوصول عن حسابات حقيقية (وبينها حساب الأدمن نفسه) لمجرد إضافة هذا العمود
         conn.execute("UPDATE users SET plan_active = 1 WHERE trial_ends_at IS NULL")
+    if "trial_ended_notified" not in cols:
+        conn.execute("ALTER TABLE users ADD COLUMN trial_ended_notified INTEGER NOT NULL DEFAULT 0")
     # الدخول عبر واتساب فقط (بدون كلمة مرور) يحتاج email و password_hash تقبل NULL - نعيد
     # بناء الجدول لو كان لسا يفرض NOT NULL من نسخة قديمة، حتى لا نفقد أي مستخدمين موجودين
     cols_info = conn.execute("PRAGMA table_info(users)").fetchall()
@@ -133,12 +136,13 @@ def init_db():
                 is_admin INTEGER NOT NULL DEFAULT 0,
                 plan_active INTEGER NOT NULL DEFAULT 0,
                 trial_ends_at TEXT,
+                trial_ended_notified INTEGER NOT NULL DEFAULT 0,
                 created_at TEXT NOT NULL DEFAULT ''
             )
         """)
         conn.execute(
-            "INSERT INTO users (id, email, phone, name, password_hash, is_admin, plan_active, trial_ends_at, created_at) "
-            "SELECT id, email, phone, name, password_hash, is_admin, plan_active, trial_ends_at, created_at FROM users_old"
+            "INSERT INTO users (id, email, phone, name, password_hash, is_admin, plan_active, trial_ends_at, trial_ended_notified, created_at) "
+            "SELECT id, email, phone, name, password_hash, is_admin, plan_active, trial_ends_at, trial_ended_notified, created_at FROM users_old"
         )
         conn.execute("DROP TABLE users_old")
     conn.execute("""
@@ -287,6 +291,8 @@ def db_set_payment_status(payment_id, status):
         conn.execute("UPDATE users SET plan_active = 1 WHERE id = ?", (row["user_id"],))
     conn.commit()
     conn.close()
+    if status == "approved":
+        add_event(row["user_id"], None, "تم تفعيل الاشتراك", "تم قبول دفعتك وتفعيل خطتك بنجاح", kind="success")
     return True
 
 
@@ -295,6 +301,36 @@ def db_set_plan_active(user_id, active):
     conn.execute("UPDATE users SET plan_active = ? WHERE id = ?", (int(active), user_id))
     conn.commit()
     conn.close()
+    if active:
+        add_event(user_id, None, "تم تفعيل الاشتراك", "فعّل أدمن المنصة اشتراكك بنجاح", kind="success")
+
+
+def db_mark_trial_ended_notified(user_id):
+    conn = get_db()
+    conn.execute("UPDATE users SET trial_ended_notified = 1 WHERE id = ?", (user_id,))
+    conn.commit()
+    conn.close()
+
+
+def db_set_user_name(user_id, name):
+    conn = get_db()
+    conn.execute("UPDATE users SET name = ? WHERE id = ?", (name, user_id))
+    conn.commit()
+    conn.close()
+
+
+def check_trial_ended_event(user):
+    """يولّد إشعار 'انتهت الفترة التجريبية' مرة وحدة بس أول ما تنتهي، لأنه ما فيه حدث فعلي
+    (مثل ضغطة زر) يوصلنا فيه الانتهاء - نتحقق منه تفاعلياً عند كل استطلاع للإشعارات."""
+    if user["plan_active"] or user["trial_ended_notified"] or not user["trial_ends_at"]:
+        return
+    try:
+        ended = datetime.now() >= datetime.strptime(user["trial_ends_at"], "%Y-%m-%d %H:%M")
+    except ValueError:
+        return
+    if ended:
+        add_event(user["id"], None, "انتهت الفترة التجريبية", "فعّل اشتراكك حتى تقدر تكمل إرسال الحملات والرد الآلي", kind="warning")
+        db_mark_trial_ended_notified(user["id"])
 
 
 def db_get_ai_settings():
@@ -344,13 +380,16 @@ def get_owned_account(acc_id):
 
 # ---------------------------------------------------------------- حسابات واتساب
 
-def add_event(account_name, title, body):
+def add_event(owner, account_name, title, body, kind="info"):
     with events_lock:
         events.append({
             "id": (events[-1]["id"] + 1) if events else 1,
+            "owner": owner,
             "account": account_name,
             "title": title,
             "body": body,
+            "kind": kind,
+            "read": False,
             "time": datetime.now().strftime("%H:%M"),
         })
         del events[:-EVENTS_MAX]
@@ -470,6 +509,7 @@ def find_otp_sender_account():
 def run_campaign(acc, numbers, text, delay, media_path):
     state = acc["campaign"]
     started = datetime.now().strftime("%Y-%m-%d %H:%M")
+    add_event(acc["owner"], acc["name"], "بدأت حملة جديدة", f'جارِ إرسال {state["total"]} رسالة', kind="info")
     for i, number in enumerate(numbers):
         with acc["lock"]:
             try:
@@ -484,7 +524,8 @@ def run_campaign(acc, numbers, text, delay, media_path):
     state["scheduled_for"] = None
     acc["history"].insert(0, {"time": started, "total": state["total"], "sent": state["sent"], "failed": state["failed"], "text": text})
     del acc["history"][20:]
-    add_event(acc["name"], "انتهت الحملة", f'نجح {state["sent"]} من {state["total"]}، فشل {state["failed"]}')
+    finish_kind = "success" if state["failed"] == 0 else "warning"
+    add_event(acc["owner"], acc["name"], "اكتملت الحملة", f'نجح {state["sent"]} من {state["total"]}، فشل {state["failed"]}', kind=finish_kind)
 
 
 def ai_reply(customer_message):
@@ -561,7 +602,7 @@ def watch_account(acc_id):
                         box = driver.find_element(By.XPATH, '//footer//div[@contenteditable="true"]')
                         box.send_keys(reply_text)
                         box.send_keys(Keys.ENTER)
-                        add_event(acc["name"], "رد تلقائي", f"{chat_name}: {reply_text[:60]}")
+                        add_event(acc["owner"], acc["name"], "رد تلقائي", f"{chat_name}: {reply_text[:60]}", kind="info")
                         print(f"[رد آلي] رديت على {chat_name}: {reply_text[:50]}")
                     else:
                         print(f"[رد آلي] ما فيه رد مطابق لرسالة {chat_name} (لا كلمة مفتاحية ولا AI مفعّل/شغّال)")
@@ -831,6 +872,7 @@ PAGE_TRANSITION_JS = """(function() {
     document.body.classList.add('leaving');
     setTimeout(action, 200);
   }
+  window.leaveAndGo = leaveAndGo;
   document.addEventListener('click', function(e) {
     var a = e.target.closest('a[href^="/"]');
     if (!a || a.target === '_blank' || e.metaKey || e.ctrlKey || e.button !== 0) return;
@@ -1428,6 +1470,15 @@ select option {{ background:var(--card-soft); color:var(--ink); }}
         <button class="btn-outline" onclick="showStep('phone')">تعديل الرقم</button>
       </div>
 
+      <div id="nameStep" style="display:none">
+        <p class="step-note">مرحباً بك أول مرة! شنو اسمك؟</p>
+        <div class="input-group">
+          <label>الاسم</label>
+          <input type="text" id="nameInput" placeholder="اسمك الكامل">
+        </div>
+        <button class="btn-primary" id="nameBtn" data-label="متابعة" onclick="submitName()"><span class="btn-label">متابعة</span> {ICON_SEND_ARROW}</button>
+      </div>
+
       <div class="status-msg" id="authStatus"></div>
     </section>
   </div>
@@ -1449,6 +1500,7 @@ function showStep(step) {{
   document.getElementById('phoneStep').style.display = step === 'phone' ? 'block' : 'none';
   document.getElementById('qrStep').style.display = step === 'qr' ? 'block' : 'none';
   document.getElementById('codeStep').style.display = step === 'code' ? 'block' : 'none';
+  document.getElementById('nameStep').style.display = step === 'name' ? 'block' : 'none';
   setStatus('authStatus', '', false);
   if (step !== 'qr') clearInterval(bootstrapPoll);
 }}
@@ -1513,7 +1565,20 @@ async function verifyCode() {{
   }}).then(res => res.json());
   btnLoading('verifyBtn', false);
   if (!r.ok) {{ setStatus('authStatus', r.error, true); return; }}
-  window.location.href = '/';
+  if (r.is_new) {{ showStep('name'); return; }}
+  window.leaveAndGo(function() {{ window.location.href = '/'; }});
+}}
+
+async function submitName() {{
+  const name = document.getElementById('nameInput').value.trim();
+  if (!name) {{ setStatus('authStatus', 'أدخل اسمك', true); return; }}
+  btnLoading('nameBtn', true);
+  const r = await fetch('/auth/set_name', {{
+    method: 'POST', headers: {{'Content-Type': 'application/json'}}, body: JSON.stringify({{name: name}})
+  }}).then(res => res.json());
+  btnLoading('nameBtn', false);
+  if (!r.ok) {{ setStatus('authStatus', r.error, true); return; }}
+  window.leaveAndGo(function() {{ window.location.href = '/'; }});
 }}
 </script>
 </body>
@@ -1579,6 +1644,7 @@ def legacy_email_signup_page():
         return render_auth_page("إنشاء حساب", "/signup/email", switch, "هذا البريد مسجّل من قبل")
     is_admin = db_count_users() == 0
     user_id = db_create_user(email, generate_password_hash(password), is_admin, name)
+    add_event(user_id, None, "بدأت الفترة التجريبية", f"لديك {TRIAL_DAYS} أيام مجانية لتجربة المنصة", kind="info")
     session["user_id"] = user_id
     session["email"] = email
     session["name"] = name
@@ -1695,10 +1761,12 @@ def verify_whatsapp_code():
     # الدخول برقم واتساب فقط بدون كلمة مرور: رقم مسجّل من قبل يسجّل دخوله مباشرة، ورقم جديد
     # ينشئ حسابه تلقائياً بمجرد التحقق من الرمز - لا خطوة كلمة مرور بعدها بأي الحالتين
     user = db_get_user_by_phone(phone)
+    is_new = not user
     if not user:
         is_admin = db_count_users() == 0
         user_id = db_create_user_by_phone(phone, None, is_admin)
         user = db_get_user_by_id(user_id)
+        add_event(user_id, None, "بدأت الفترة التجريبية", f"لديك {TRIAL_DAYS} أيام مجانية لتجربة المنصة", kind="info")
         if is_admin:
             boot_acc = find_pending_bootstrap_account()
             if boot_acc and boot_acc.get("bootstrap_phone") == phone:
@@ -1710,6 +1778,17 @@ def verify_whatsapp_code():
     session["email"] = user["email"] or user["phone"]
     session["name"] = user["name"]
     session["is_admin"] = bool(user["is_admin"])
+    return jsonify(ok=True, is_new=is_new)
+
+
+@app.route("/auth/set_name", methods=["POST"])
+@login_required
+def set_user_name():
+    name = (request.json or {}).get("name", "").strip()
+    if not name:
+        return jsonify(ok=False, error="أدخل اسمك"), 400
+    db_set_user_name(session["user_id"], name)
+    session["name"] = name
     return jsonify(ok=True)
 
 
@@ -1768,9 +1847,46 @@ def service_worker():
 def get_events():
     since = int(request.args.get("since", 0) or 0)
     uid = session["user_id"]
-    my_account_names = {a["name"] for a in accounts.values() if a["owner"] == uid}
+    user = db_get_user_by_id(uid)
+    if user:
+        check_trial_ended_event(user)
     with events_lock:
-        return jsonify([e for e in events if e["id"] > since and e["account"] in my_account_names])
+        return jsonify([e for e in events if e["id"] > since and e["owner"] == uid])
+
+
+@app.route("/events/<int:event_id>/read", methods=["POST"])
+@login_required
+def mark_event_read(event_id):
+    uid = session["user_id"]
+    with events_lock:
+        for e in events:
+            if e["id"] == event_id and e["owner"] == uid:
+                e["read"] = True
+                return jsonify(ok=True)
+    return jsonify(ok=False, error="غير موجود"), 404
+
+
+@app.route("/events/read_all", methods=["POST"])
+@login_required
+def mark_all_events_read():
+    uid = session["user_id"]
+    with events_lock:
+        for e in events:
+            if e["owner"] == uid:
+                e["read"] = True
+    return jsonify(ok=True)
+
+
+@app.route("/events/<int:event_id>", methods=["DELETE"])
+@login_required
+def delete_event(event_id):
+    uid = session["user_id"]
+    with events_lock:
+        for i, e in enumerate(events):
+            if e["id"] == event_id and e["owner"] == uid:
+                del events[i]
+                return jsonify(ok=True)
+    return jsonify(ok=False, error="غير موجود"), 404
 
 
 # ---------------------------------------------------------------- إعدادات الأدمن (AI)
@@ -2147,7 +2263,8 @@ PAGE = """
   }
   html, body { margin: 0; padding: 0; }
   body { background: var(--bg); color: var(--text-primary); font-family: 'IBM Plex Sans Arabic', 'Cairo', 'Tajawal', system-ui, sans-serif;
-    min-height: 100vh; transition: background var(--transition-base), color var(--transition-base); }
+    min-height: 100vh; transition: background var(--transition-base), color var(--transition-base); animation: pageFadeIn .25s ease; }
+  @keyframes pageFadeIn { from { opacity: 0; } to { opacity: 1; } }
   h1, h2, h3, .stat-num { font-family: 'IBM Plex Sans Arabic', 'Cairo', 'Tajawal', sans-serif; }
   .icon { display: inline-block; vertical-align: middle; flex-shrink: 0; }
 
@@ -2182,15 +2299,31 @@ PAGE = """
   }
   @keyframes pulse-dot { 0%, 100% { transform: scale(1); opacity: 1; } 50% { transform: scale(1.4); opacity: 0.6; } }
 
-  .notif-panel { position: absolute; top: calc(var(--header-height) + 6px); left: 12px; width: 280px; max-height: 320px; overflow-y: auto; background: var(--bg-card); border: 1px solid var(--border-2); border-radius: 16px; box-shadow: var(--shadow-lg); z-index: 150; padding: 8px; }
-  .notif-item { padding: 8px 10px; border-radius: 10px; font-size: 12px; }
-  .notif-item + .notif-item { margin-top: 4px; }
-  .notif-item b { display: block; font-size: 12px; color: var(--primary); }
-  .notif-item span { color: var(--text-secondary); font-size: 11px; }
+  .notif-item-full {
+    display: flex; align-items: center; gap: 12px; padding: 12px 14px; border-radius: 12px; margin-bottom: 8px;
+    background: var(--bg-card); border: 1px solid rgba(5,134,147,0.04); transition: var(--transition-base);
+  }
+  .notif-item-full:hover { border-color: rgba(5,134,147,0.12); box-shadow: var(--shadow-sm); }
+  .notif-item-full .notif-icon {
+    width: 40px; height: 40px; border-radius: 50%; display: flex; align-items: center; justify-content: center;
+    font-size: 16px; flex-shrink: 0; background: rgba(5,134,147,0.08); color: var(--primary);
+  }
+  .notif-item-full .notif-icon.success { background: rgba(16,185,129,0.12); color: #059669; }
+  .notif-item-full .notif-icon.warning { background: rgba(251,191,36,0.12); color: #D97706; }
+  .notif-item-full .notif-content { flex: 1; }
+  .notif-item-full .notif-content .notif-title { font-size: 13px; font-weight: 700; color: var(--text-primary); }
+  .notif-item-full .notif-content .notif-message { font-size: 11px; color: var(--text-muted); line-height: 1.5; }
+  .notif-item-full .notif-time { font-size: 10px; color: var(--text-muted); flex-shrink: 0; background: rgba(5,134,147,0.04); padding: 2px 10px; border-radius: var(--radius-full); }
+  .notif-item-full .notif-actions { display: flex; gap: 6px; flex-shrink: 0; }
+  .notif-item-full .notif-actions button { width: 32px; height: 32px; border: none; border-radius: 50%; background: transparent; color: var(--text-muted); cursor: pointer; transition: var(--transition-base); display: flex; align-items: center; justify-content: center; font-size: 13px; }
+  .notif-item-full .notif-actions .btn-read:hover { background: rgba(5,134,147,0.06); color: var(--primary); }
+  .notif-item-full .notif-actions .btn-delete:hover { background: rgba(239,68,68,0.06); color: #EF4444; }
 
   .body { display: flex; flex: 1; justify-content: center; }
   .content { flex: 1; padding: 16px 20px calc(var(--nav-height) + 20px); display: flex; justify-content: center; max-width: 640px; margin: 0 auto; }
   .content-inner { width: 100%; }
+  .content-inner.fade-in { animation: contentFadeIn .22s ease; }
+  @keyframes contentFadeIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
 
   .bottom-nav-minimal {
     position: fixed; bottom: 0; left: 0; right: 0; height: var(--nav-height); min-height: var(--nav-height);
@@ -2329,6 +2462,8 @@ PAGE = """
   .confirm-sheet .btn-cancel { background: rgba(5,134,147,0.06); color: var(--text-secondary); }
   .confirm-sheet .btn-cancel:hover { background: rgba(5,134,147,0.1); transform: translateY(-2px); }
   .confirm-sheet .btn-confirm { background: linear-gradient(135deg, #EF4444, #DC2626); color: #fff; box-shadow: 0 4px 16px rgba(239,68,68,0.25); }
+  .confirm-sheet .btn-confirm-gold { background: var(--primary-gradient); color: #fff; box-shadow: 0 4px 16px rgba(5,134,147,0.25); }
+  .confirm-sheet .btn-confirm-gold:hover { transform: translateY(-2px); box-shadow: 0 8px 24px rgba(5,134,147,0.35); }
   .confirm-sheet .btn-confirm:hover { transform: translateY(-2px); box-shadow: 0 8px 24px rgba(239,68,68,0.35); }
 
   #qrImg { width: 220px; height: 220px; border-radius: 16px; border: 1px solid var(--border-2); background: #fff; display: block; margin: 0 auto; }
@@ -2459,7 +2594,7 @@ PAGE = """
   </div>
   <div class="actions">
     <button class="icon-btn" id="themeBtn" onclick="toggleTheme()" title="المظهر"></button>
-    <button class="icon-btn" id="bellBtn" onclick="toggleNotifPanel()" title="الإشعارات">
+    <button class="icon-btn" id="bellBtn" onclick="openNotifications()" title="الإشعارات">
       <i class="fas fa-bell"></i>
       <span class="badge" id="bellBadge" style="display:none"></span>
     </button>
@@ -2477,7 +2612,17 @@ PAGE = """
   </div>
 </div>
 
-<div class="notif-panel" id="notifPanel" style="display:none"></div>
+<div class="confirm-overlay" id="addAccountOverlay" onclick="closeAddAccountSheet()"></div>
+<div class="confirm-sheet" id="addAccountSheet">
+  <div class="sheet-handle"></div>
+  <div class="sheet-title">➕ إضافة حساب واتساب</div>
+  <div class="sheet-message">أدخل اسماً لتمييز هذا الحساب (اختياري)</div>
+  <input type="text" id="newAccountName" placeholder="مثال: حساب المبيعات" style="margin-bottom:16px" onkeydown="if(event.key==='Enter')submitAddAccount()">
+  <div class="sheet-actions">
+    <button class="btn-cancel" onclick="closeAddAccountSheet()"><i class="fas fa-times"></i> إلغاء</button>
+    <button class="btn-confirm-gold" onclick="submitAddAccount()"><i class="fas fa-plus"></i> إضافة</button>
+  </div>
+</div>
 
 <div class="body">
   <main class="content"><div class="content-inner" id="content"></div></main>
@@ -2488,7 +2633,6 @@ PAGE = """
   <button class="nav-item" data-s="accounts" onclick="showSection('accounts')"></button>
   <button class="nav-item" data-s="campaigns" onclick="showSection('campaigns')"></button>
   <button class="nav-item" data-s="analytics" onclick="showSection('analytics')"></button>
-  <button class="nav-item" data-s="autoreply" onclick="showSection('autoreply')"></button>
   <button class="nav-item" data-s="settings" onclick="showSection('settings')"></button>
 </nav>
 
@@ -2502,6 +2646,7 @@ const ICONS = {
   bell: 'fas fa-bell', sun: 'fas fa-sun', moon: 'fas fa-moon', plus: 'fas fa-plus', whatsapp: 'fab fa-whatsapp',
   logout: 'fas fa-right-from-bracket', ai: 'fas fa-robot', users: 'fas fa-users', payments: 'fas fa-receipt',
   rocket: 'fas fa-rocket', trophy: 'fas fa-trophy', list: 'fas fa-list', info: 'fas fa-circle-info', clock: 'fas fa-clock',
+  check: 'fas fa-check', checkCircle: 'fas fa-circle-check', warn: 'fas fa-triangle-exclamation', trash: 'fas fa-trash',
 };
 function icon(name, size) {
   size = size || 20;
@@ -2562,24 +2707,81 @@ async function pollEvents() {
       lastSeenEventId = evs.length ? Math.max(...evs.map(e => e.id)) : 0;
     } else {
       const fresh = evs.filter(e => e.id > lastSeenEventId);
-      fresh.forEach(e => showLocalNotification(e.title, e.account + ': ' + e.body));
+      fresh.forEach(e => showLocalNotification(e.title, (e.account ? e.account + ': ' : '') + e.body));
       if (fresh.length) lastSeenEventId = Math.max(...evs.map(e => e.id));
     }
-    document.getElementById('bellBadge').style.display = evs.length ? 'block' : 'none';
+    document.getElementById('bellBadge').style.display = evs.some(e => !e.read) ? 'block' : 'none';
     window._events = evs;
+    if (window._notifOpen) renderNotifList(evs);
   } catch (e) {}
   setTimeout(pollEvents, 5000);
 }
 pollEvents();
 
-function toggleNotifPanel() {
-  const panel = document.getElementById('notifPanel');
-  if (panel.style.display === 'block') { panel.style.display = 'none'; return; }
-  const evs = (window._events || []).slice().reverse();
-  panel.innerHTML = evs.length
-    ? evs.map(e => '<div class="notif-item"><b>' + e.title + '</b>' + e.account + ' — ' + e.body + '<br><span>' + e.time + '</span></div>').join('')
-    : '<div class="notif-item text-muted">ما فيه إشعارات بعد</div>';
-  panel.style.display = 'block';
+async function openNotifications() {
+  window._notifOpen = true;
+  const c = document.getElementById('content');
+  c.innerHTML =
+    '<div class="page-title"><h2>' + icon('bell', 18) + ' الإشعارات</h2>' +
+      '<div style="display:flex;gap:6px">' +
+        '<button class="btn-outline" style="width:auto;padding:6px 12px;font-size:11px;margin:0" onclick="markAllEventsRead()">' + icon('check', 10) + ' قراءة الكل</button>' +
+        '<button class="btn-outline" style="width:auto;padding:6px 12px;font-size:11px;margin:0" onclick="closeNotifications()">رجوع</button>' +
+      '</div>' +
+    '</div>' +
+    '<div id="notifList"><div class="text-muted text-[11px]">جارِ التحميل...</div></div>';
+  fadeContent();
+  const evs = await fetch('/events?since=0').then(r => r.json());
+  window._events = evs;
+  document.getElementById('bellBadge').style.display = evs.some(e => !e.read) ? 'block' : 'none';
+  renderNotifList(evs);
+}
+
+function closeNotifications() {
+  window._notifOpen = false;
+  render();
+}
+
+function renderNotifList(evs) {
+  const box = document.getElementById('notifList');
+  if (!box) return;
+  const sorted = evs.slice().reverse();
+  box.innerHTML = sorted.length
+    ? sorted.map(e => {
+        const stateClass = e.kind === 'success' ? 'success' : e.kind === 'warning' ? 'warning' : '';
+        const iconName = e.kind === 'success' ? 'checkCircle' : e.kind === 'warning' ? 'warn' : 'bell';
+        return '<div class="notif-item-full">' +
+          '<div class="notif-icon ' + stateClass + '">' + icon(iconName, 16) + '</div>' +
+          '<div class="notif-content"><div class="notif-title">' + e.title + '</div>' +
+          '<div class="notif-message">' + (e.account ? e.account + ' — ' : '') + e.body + '</div></div>' +
+          '<span class="notif-time">' + e.time + '</span>' +
+          '<div class="notif-actions">' +
+            (e.read ? '' : '<button class="btn-read" onclick="markEventRead(' + e.id + ')" title="قراءة">' + icon('check', 12) + '</button>') +
+            '<button class="btn-delete" onclick="deleteEvent(' + e.id + ')" title="حذف">' + icon('trash', 12) + '</button>' +
+          '</div>' +
+        '</div>';
+      }).join('')
+    : '<div class="text-muted text-[11px] text-center" style="padding:40px 0">ما فيه إشعارات بعد</div>';
+}
+
+async function markEventRead(id) {
+  await fetch('/events/' + id + '/read', { method: 'POST' });
+  window._events = (window._events || []).map(e => e.id === id ? Object.assign({}, e, {read: true}) : e);
+  renderNotifList(window._events);
+  document.getElementById('bellBadge').style.display = window._events.some(e => !e.read) ? 'block' : 'none';
+}
+
+async function markAllEventsRead() {
+  await fetch('/events/read_all', { method: 'POST' });
+  window._events = (window._events || []).map(e => Object.assign({}, e, {read: true}));
+  renderNotifList(window._events);
+  document.getElementById('bellBadge').style.display = 'none';
+}
+
+async function deleteEvent(id) {
+  await fetch('/events/' + id, { method: 'DELETE' });
+  window._events = (window._events || []).filter(e => e.id !== id);
+  renderNotifList(window._events);
+  document.getElementById('bellBadge').style.display = window._events.some(e => !e.read) ? 'block' : 'none';
 }
 
 function handleSubscriptionError(r, msgElId) {
@@ -2590,6 +2792,7 @@ function handleSubscriptionError(r, msgElId) {
 
 /* ---------- التنقل بين الأقسام ---------- */
 function showSection(s) {
+  window._notifOpen = false;
   section = s;
   document.querySelectorAll('.bottom-nav-minimal .nav-item').forEach(n => n.classList.toggle('active', n.dataset.s === s));
   render();
@@ -2600,6 +2803,13 @@ async function loadAccounts(preferId) {
   accounts = await fetch('/accounts').then(r => r.json());
   if (preferId) activeId = preferId;
   if (!accounts.find(a => a.id === activeId)) activeId = accounts.length ? accounts[0].id : null;
+}
+
+function fadeContent() {
+  const c = document.getElementById('content');
+  c.classList.remove('fade-in');
+  void c.offsetWidth;
+  c.classList.add('fade-in');
 }
 
 async function render() {
@@ -2614,6 +2824,7 @@ async function render() {
   else if (section === 'autoreply') renderAutoReply();
   else if (section === 'admin') renderAdmin();
   else renderSettings();
+  fadeContent();
 }
 
 /* ---------- قسم الرئيسية ---------- */
@@ -2642,7 +2853,7 @@ function renderHome() {
       '<button class="quick-action-btn" onclick="showSection(\\'settings\\')">' + icon('settings', 20) + 'اشتراك</button>' +
     '</div>' +
     '<div class="card">' +
-      '<div class="card-header"><h4>' + icon('accounts', 14) + ' حساباتي</h4><button class="btn-outline" style="width:auto;padding:4px 12px;font-size:10px;margin:0" onclick="addAccount()">' + icon('plus', 10) + ' إضافة</button></div>' +
+      '<div class="card-header"><h4>' + icon('accounts', 14) + ' حساباتي</h4><button class="btn-outline" style="width:auto;padding:4px 12px;font-size:10px;margin:0" onclick="openAddAccountSheet()">' + icon('plus', 10) + ' إضافة</button></div>' +
       '<div id="homeAccounts"></div>' +
     '</div>' +
     '<div class="card">' +
@@ -2705,7 +2916,7 @@ function renderAccounts() {
     }
     html += '</div>';
   });
-  html += '<button class="btn-outline" onclick="addAccount()">' + icon('plus', 12) + ' إضافة حساب</button>';
+  html += '<button class="btn-outline" onclick="openAddAccountSheet()">' + icon('plus', 12) + ' إضافة حساب</button>';
   c.innerHTML = html;
 
   accounts.filter(a => !a.logged_in).forEach(acc => pollLogin(acc.id, gen));
@@ -2721,10 +2932,19 @@ async function pollLogin(accId, myGen) {
   setTimeout(() => pollLogin(accId, myGen), 3000);
 }
 
-async function addAccount() {
-  const name = prompt('اسم الحساب (اختياري):', '');
-  if (name === null) return;
-  const r = await fetch('/accounts', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({name: name.trim()}) }).then(res => res.json());
+function openAddAccountSheet() {
+  document.getElementById('newAccountName').value = '';
+  document.getElementById('addAccountOverlay').classList.add('show');
+  document.getElementById('addAccountSheet').classList.add('show');
+}
+function closeAddAccountSheet() {
+  document.getElementById('addAccountOverlay').classList.remove('show');
+  document.getElementById('addAccountSheet').classList.remove('show');
+}
+async function submitAddAccount() {
+  const name = document.getElementById('newAccountName').value.trim();
+  closeAddAccountSheet();
+  const r = await fetch('/accounts', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({name: name}) }).then(res => res.json());
   await loadAccounts(r.id);
   render();
 }
@@ -2854,6 +3074,7 @@ function showCampaignDetail(i) {
       '<div class="detail-row"><span class="label">📌 الحالة</span><span class="value"><span class="pill pill-green">مكتملة</span></span></div>' +
     '</div>' +
     '<button class="btn-outline" onclick="render()">رجوع إلى قائمة الحملات</button>';
+  fadeContent();
 }
 
 async function pickContacts() {
@@ -3038,6 +3259,10 @@ function renderSettings() {
       '</div>' +
       '<div class="settings-item" onclick="ensureNotifPermission()">' +
         '<div class="left"><div class="icon-wrap blue">' + icon('bell', 15) + '</div><div><span class="text">الإشعارات</span><span class="sub-text">الحالة الحالية: ' + notifState + '</span></div></div>' +
+        '<i class="fas fa-chevron-left chevron"></i>' +
+      '</div>' +
+      '<div class="settings-item" onclick="showSection(\\'autoreply\\')">' +
+        '<div class="left"><div class="icon-wrap primary">' + icon('autoreply', 15) + '</div><div><span class="text">الرد الآلي</span><span class="sub-text">ردود تلقائية على رسائل عملائك</span></div></div>' +
         '<i class="fas fa-chevron-left chevron"></i>' +
       '</div>' +
       (IS_ADMIN ? (
