@@ -10,8 +10,10 @@
 ثم افتح: http://localhost:5000 (أو http://IP_السيرفر:5000 على VPS)
 أول مستخدم يسوي "إنشاء حساب" يصير أدمن المنصة تلقائياً (يقدر يضيف مفتاح DeepSeek
 من قسم الإعدادات). بيانات المستخدمين تُحفظ بملف app.db (SQLite) وتبقى بعد إعادة
-تشغيل السيرفر، لكن حسابات واتساب المتصلة نفسها (المتصفح/الجلسة) تحتاج إعادة ربط
-لو انطفى السيرفر بالكامل، بنفس ما كان الوضع قبل هذي الإضافة.
+تشغيل السيرفر، وكذلك حسابات واتساب المضافة (اسمها وإعدادات ردها الآلي) تُحفظ
+وتُستعاد تلقائياً عند إقلاع السيرفر من جديد - يعيد ربط كل حساب بجلسة متصفحه
+المحفوظة بمجلد wa_sessions بدون حاجة لمسح رمز QR من جديد، طالما واتساب نفسه ما
+ألغى ربط الجلسة من جهته.
 
 ملاحظة صدق: "الرد الآلي" (كلمات مفتاحية أو AI) يعتمد على مراقبة أول محادثة بقائمة
 واتساب بشكل دوري لعدم وجود حدث رسمي "رسالة جديدة"، وهذا أضعف جزء بكل الكود لأنه
@@ -19,6 +21,7 @@
 أول مرة، بنفس طريقة تصحيح إرفاق الصور سابقاً.
 """
 
+import json
 import os
 import re
 import secrets
@@ -166,6 +169,18 @@ def init_db():
             reference TEXT NOT NULL,
             status TEXT NOT NULL DEFAULT 'pending',
             created_at TEXT NOT NULL
+        )
+    """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS wa_accounts (
+            id TEXT PRIMARY KEY,
+            owner INTEGER NOT NULL,
+            name TEXT,
+            auto_reply_enabled INTEGER NOT NULL DEFAULT 0,
+            auto_reply_ai_enabled INTEGER NOT NULL DEFAULT 0,
+            auto_reply_rules TEXT NOT NULL DEFAULT '[]',
+            otp_sender INTEGER NOT NULL DEFAULT 0,
+            created_at TEXT NOT NULL DEFAULT ''
         )
     """)
     conn.commit()
@@ -356,6 +371,51 @@ def db_set_ai_settings(api_key, knowledge_base):
     conn.close()
 
 
+def db_save_wa_account(acc_id, owner, name):
+    conn = get_db()
+    conn.execute(
+        "INSERT OR IGNORE INTO wa_accounts (id, owner, name, created_at) VALUES (?, ?, ?, ?)",
+        (acc_id, owner, name, datetime.now().strftime("%Y-%m-%d %H:%M")),
+    )
+    conn.commit()
+    conn.close()
+
+
+def db_update_wa_account_auto_reply(acc_id, enabled, ai_enabled, rules):
+    conn = get_db()
+    conn.execute(
+        "UPDATE wa_accounts SET auto_reply_enabled = ?, auto_reply_ai_enabled = ?, auto_reply_rules = ? WHERE id = ?",
+        (int(enabled), int(ai_enabled), json.dumps(rules, ensure_ascii=False), acc_id),
+    )
+    conn.commit()
+    conn.close()
+
+
+def db_set_wa_account_otp_sender(acc_id, enabled):
+    conn = get_db()
+    if enabled:
+        conn.execute("UPDATE wa_accounts SET otp_sender = 0")
+        conn.execute("UPDATE wa_accounts SET otp_sender = 1 WHERE id = ?", (acc_id,))
+    else:
+        conn.execute("UPDATE wa_accounts SET otp_sender = 0 WHERE id = ?", (acc_id,))
+    conn.commit()
+    conn.close()
+
+
+def db_delete_wa_account(acc_id):
+    conn = get_db()
+    conn.execute("DELETE FROM wa_accounts WHERE id = ?", (acc_id,))
+    conn.commit()
+    conn.close()
+
+
+def db_list_wa_accounts():
+    conn = get_db()
+    rows = conn.execute("SELECT * FROM wa_accounts").fetchall()
+    conn.close()
+    return rows
+
+
 # ---------------------------------------------------------------- المصادقة
 
 def login_required(f):
@@ -444,6 +504,7 @@ def start_account_driver(acc_id):
 def add_account(owner, name):
     acc_id = uuid.uuid4().hex[:8]
     accounts[acc_id] = new_account_entry(acc_id, owner, name)
+    db_save_wa_account(acc_id, owner, accounts[acc_id]["name"])
     threading.Thread(target=start_account_driver, args=(acc_id,), daemon=True).start()
     return acc_id
 
@@ -571,6 +632,7 @@ def watch_account(acc_id):
     وإلا بالذكاء الاصطناعي إن كان مفعّل. تطبع خطوات التشخيص بالتيرمنل للمساعدة بالتصحيح."""
     last_seen = {}
     diag_dumped = False
+    diag2_dumped = False
     print(f"[رد آلي] بدأت المراقبة لحساب {accounts.get(acc_id, {}).get('name', acc_id)}")
     while True:
         acc = accounts.get(acc_id)
@@ -602,15 +664,20 @@ def watch_account(acc_id):
                             print(f"[رد آلي] {acc['name']}: تشخيص - إجمالي عناصر داخل pane-side: {total_inside}, محددات مرشحة: {probe}")
                         except Exception as diag_e:
                             print(f"[رد آلي] {acc['name']}: تعذر أخذ لقطة تشخيصية: {diag_e}")
+                    names_ok = names_fail = text_found = 0
                     for item in chat_items:
                         try:
                             chat_name = item.find_element(By.CSS_SELECTOR, "span[title]").get_attribute("title") or "غير معروف"
+                            names_ok += 1
                         except Exception:
+                            names_fail += 1
                             continue
                         driver.execute_script("arguments[0].click();", item)
                         time.sleep(1.2)
                         incoming = driver.find_elements(By.CSS_SELECTOR, "div.message-in .selectable-text span")
                         last_text = incoming[-1].text.strip() if incoming else ""
+                        if last_text:
+                            text_found += 1
                         if not last_text or last_seen.get(chat_name) == last_text:
                             continue
                         last_seen[chat_name] = last_text
@@ -633,9 +700,56 @@ def watch_account(acc_id):
                             print(f"[رد آلي] رديت على {chat_name}: {reply_text[:50]}")
                         else:
                             print(f"[رد آلي] ما فيه رد مطابق لرسالة {chat_name} (لا كلمة مفتاحية ولا AI مفعّل/شغّال)")
+                    if chat_items and not diag2_dumped:
+                        diag2_dumped = True
+                        print(f"[رد آلي] {acc['name']}: تشخيص٢ - استخراج اسم نجح لـ {names_ok}/{len(chat_items)}, رسائل واردة موجودة لـ {text_found}/{len(chat_items)}")
+                        if names_fail > 0:
+                            try:
+                                print(f"[رد آلي] {acc['name']}: عينة HTML لأول محادثة:\n{chat_items[0].get_attribute('outerHTML')[:1200]}")
+                            except Exception as diag2_e:
+                                print(f"[رد آلي] {acc['name']}: تعذر أخذ عينة HTML: {diag2_e}")
         except Exception as e:
             print(f"[رد آلي] خطأ بدورة المراقبة: {e}")
         time.sleep(6)
+
+
+def restore_one_account(acc_id):
+    """يشغّل متصفح الحساب ويعيد ربطه بنفس جلسة واتساب المحفوظة بمجلد wa_sessions (بدون
+    QR جديد طالما واتساب ما ألغى الجلسة)، ثم يبدأ مراقبة الرد الآلي بعد اكتمال تشغيل
+    المتصفح فعلياً - ليس بالتوازي معه - حتى لا تنتهي watch_account فوراً لأن driver لسا None."""
+    acc = accounts.get(acc_id)
+    if not acc:
+        return
+    try:
+        start_account_driver(acc_id)
+    except Exception as e:
+        print(f"[استعادة حسابات] فشل تشغيل متصفح الحساب {acc.get('name', acc_id)}: {e}")
+        return
+    if acc["auto_reply"]["enabled"]:
+        acc["watching"] = True
+        watch_account(acc_id)
+
+
+def restore_wa_accounts():
+    """يستعيد كل حسابات واتساب المحفوظة بقاعدة البيانات عند إقلاع السيرفر، حتى لا يحتاج
+    المستخدم يضيف حسابه ويمسح QR من جديد بعد كل إعادة تشغيل أو تحديث كود."""
+    rows = db_list_wa_accounts()
+    for row in rows:
+        acc_id = row["id"]
+        accounts[acc_id] = new_account_entry(acc_id, row["owner"], row["name"])
+        accounts[acc_id]["otp_sender"] = bool(row["otp_sender"])
+        try:
+            rules = json.loads(row["auto_reply_rules"] or "[]")
+        except (ValueError, TypeError):
+            rules = []
+        accounts[acc_id]["auto_reply"] = {
+            "enabled": bool(row["auto_reply_enabled"]),
+            "ai_enabled": bool(row["auto_reply_ai_enabled"]),
+            "rules": rules,
+        }
+        threading.Thread(target=restore_one_account, args=(acc_id,), daemon=True).start()
+    if rows:
+        print(f"[استعادة حسابات] استعادة {len(rows)} حساب واتساب من قاعدة البيانات...")
 
 
 # ---------------------------------------------------------------- صفحات المصادقة
@@ -1801,6 +1915,8 @@ def verify_whatsapp_code():
                 boot_acc["bootstrap"] = False
                 boot_acc["otp_sender"] = True
                 boot_acc["name"] = "حسابي الأول"
+                db_save_wa_account(boot_acc["id"], user_id, boot_acc["name"])
+                db_set_wa_account_otp_sender(boot_acc["id"], True)
     session["user_id"] = user["id"]
     session["email"] = user["email"] or user["phone"]
     session["name"] = user["name"]
@@ -2086,6 +2202,7 @@ def account_logout(acc_id):
             pass
     shutil.rmtree(f"{SESSIONS_ROOT}/{acc_id}", ignore_errors=True)
     del accounts[acc_id]
+    db_delete_wa_account(acc_id)
     return jsonify(ok=True)
 
 
@@ -2097,12 +2214,14 @@ def set_otp_sender(acc_id):
     if not acc:
         return jsonify(ok=False, error="حساب غير موجود"), 404
     data = request.json or {}
-    if bool(data.get("enabled")):
+    enabled = bool(data.get("enabled"))
+    if enabled:
         for a in accounts.values():
             a["otp_sender"] = False
         acc["otp_sender"] = True
     else:
         acc["otp_sender"] = False
+    db_set_wa_account_otp_sender(acc_id, enabled)
     return jsonify(ok=True)
 
 
@@ -2245,6 +2364,7 @@ def set_auto_reply(acc_id):
             threading.Thread(target=watch_account, args=(acc_id,), daemon=True).start()
         elif not enabled:
             acc["watching"] = False
+    db_update_wa_account_auto_reply(acc_id, acc["auto_reply"]["enabled"], acc["auto_reply"]["ai_enabled"], acc["auto_reply"]["rules"])
     return jsonify(ok=True)
 
 
@@ -3478,4 +3598,5 @@ function confirmLogout() {
 
 
 if __name__ == "__main__":
+    restore_wa_accounts()
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)), threaded=True)
