@@ -190,6 +190,9 @@ def init_db():
             domain TEXT DEFAULT ''
         )
     """)
+    # قيم افتراضية أول مرة بس (لو ما فيه صف بعد) - بعدها الإعدادات من لوحة الأدمن هي المصدر
+    if conn.execute("SELECT COUNT(*) FROM site_settings").fetchone()[0] == 0:
+        conn.execute("INSERT INTO site_settings (id, port, domain) VALUES (1, 7000, 'botiye.site')")
     conn.commit()
     conn.close()
 
