@@ -34,6 +34,7 @@ wa_sessions بدون حاجة لمسح رمز QR من جديد، طالما وا
 رسائلك (تسويق لعملائك الحاليين مثلاً) لا لإرسال رسائل غير مرغوبة.
 """
 
+import html
 import json
 import os
 import re
@@ -148,12 +149,20 @@ def init_db():
         CREATE TABLE IF NOT EXISTS site_settings (
             id INTEGER PRIMARY KEY CHECK (id = 1),
             port INTEGER,
-            domain TEXT DEFAULT ''
+            domain TEXT DEFAULT '',
+            site_name TEXT DEFAULT 'واصل',
+            logo_path TEXT
         )
     """)
+    # ترقية لقاعدة بيانات أُنشئت قبل إضافة هوية الموقع (الاسم والشعار القابلين للتعديل)
+    site_cols = [r["name"] for r in conn.execute("PRAGMA table_info(site_settings)").fetchall()]
+    if "site_name" not in site_cols:
+        conn.execute("ALTER TABLE site_settings ADD COLUMN site_name TEXT DEFAULT 'واصل'")
+    if "logo_path" not in site_cols:
+        conn.execute("ALTER TABLE site_settings ADD COLUMN logo_path TEXT")
     # قيم افتراضية أول مرة بس (لو ما فيه صف بعد) - بعدها الإعدادات من لوحة الأدمن هي المصدر
     if conn.execute("SELECT COUNT(*) FROM site_settings").fetchone()[0] == 0:
-        conn.execute("INSERT INTO site_settings (id, port, domain) VALUES (1, NULL, '')")
+        conn.execute("INSERT INTO site_settings (id, port, domain, site_name, logo_path) VALUES (1, NULL, '', 'واصل', NULL)")
     conn.execute("""
         CREATE TABLE IF NOT EXISTS campaign_batches (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -307,6 +316,26 @@ def db_set_site_settings(port, domain):
         "ON CONFLICT(id) DO UPDATE SET port = excluded.port, domain = excluded.domain",
         (port, domain),
     )
+    conn.commit()
+    conn.close()
+
+
+def db_set_site_identity(site_name, logo_path=None, clear_logo=False):
+    """يحدّث اسم الموقع دائماً، ويحدّث الشعار فقط لو أُرسل مسار جديد أو طُلب حذفه صراحة -
+    حتى لا يمسح الشعار المحفوظ لمجرد حفظ الاسم لوحده من نفس النموذج."""
+    conn = get_db()
+    if logo_path is not None or clear_logo:
+        conn.execute(
+            "INSERT INTO site_settings (id, site_name, logo_path) VALUES (1, ?, ?) "
+            "ON CONFLICT(id) DO UPDATE SET site_name = excluded.site_name, logo_path = excluded.logo_path",
+            (site_name, logo_path),
+        )
+    else:
+        conn.execute(
+            "INSERT INTO site_settings (id, site_name) VALUES (1, ?) "
+            "ON CONFLICT(id) DO UPDATE SET site_name = excluded.site_name",
+            (site_name,),
+        )
     conn.commit()
     conn.close()
 
@@ -847,6 +876,9 @@ def logo_svg(size=32):
 
 def render_auth_page(title, action, switch_html, error):
     error_html = f'<p class="status-msg error">{error}</p>' if error else ""
+    site = db_get_site_settings()
+    site_name = html.escape(site["site_name"]) if site and site["site_name"] else "واصل"
+    logo_html = '<img src="/site_logo" alt="" style="width:100%;height:100%;object-fit:cover;border-radius:inherit">' if (site and site["logo_path"]) else logo_svg(38)
     is_login = action == "/login"
     if is_login:
         email_fields = f"""
@@ -887,7 +919,7 @@ def render_auth_page(title, action, switch_html, error):
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <meta name="theme-color" content="#006b73">
-<title>واصل - {title}</title>
+<title>{site_name} - {title}</title>
 {FONT_LINKS}
 <style>
 * {{ box-sizing:border-box; margin:0; padding:0; }}
@@ -956,8 +988,8 @@ p.switch a {{ color:#006b73; font-weight:700; }}
 <div class="login-page">
   <div class="login-card">
     <div class="login-logo">
-      <div class="logo-icon">{logo_svg(38)}</div>
-      <h2>واصل <span>Business</span></h2>
+      <div class="logo-icon">{logo_html}</div>
+      <h2>{site_name}</h2>
       <p>{title} — سجل دخولك للوصول إلى حسابك وإدارة حملاتك</p>
     </div>
 
@@ -1112,24 +1144,34 @@ def home():
 def app_home():
     if not session.get("user_id"):
         return redirect("/")
+    site = db_get_site_settings()
+    site_name = (site["site_name"] if site and site["site_name"] else "واصل")
+    has_logo = bool(site and site["logo_path"])
+    username = session.get("name") or session.get("email", "")
     page = PAGE.replace("__IS_ADMIN__", "true" if session.get("is_admin") else "false")
     page = page.replace("__IS_GENERAL__", "false" if session.get("parent_id") else "true")
-    page = page.replace("__USERNAME__", session.get("name") or session.get("email", ""))
+    page = page.replace("__USERNAME__", html.escape(username)).replace("__USERNAME_JSON__", json.dumps(username))
+    page = page.replace("__SITE_NAME__", html.escape(site_name)).replace("__SITE_NAME_JSON__", json.dumps(site_name))
+    page = page.replace("__HAS_LOGO__", "true" if has_logo else "false")
     return page
 
 
 @app.route("/manifest.json")
 def manifest():
+    site = db_get_site_settings()
+    site_name = (site["site_name"] if site and site["site_name"] else "واصل")
+    icon_src = "/site_logo" if (site and site["logo_path"]) else "/icon.svg"
+    icon_type = "image/png" if (site and site["logo_path"]) else "image/svg+xml"
     return jsonify({
-        "name": "منصة حملات واتساب",
-        "short_name": "حملات واتساب",
+        "name": site_name,
+        "short_name": site_name,
         "start_url": "/",
         "display": "standalone",
-        "background_color": "#f5f0e8",
-        "theme_color": "#b8860b",
+        "background_color": "#F0F4F8",
+        "theme_color": "#006b73",
         "dir": "rtl",
         "lang": "ar",
-        "icons": [{"src": "/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable"}],
+        "icons": [{"src": icon_src, "sizes": "any", "type": icon_type, "purpose": "any maskable"}],
     })
 
 
@@ -1137,8 +1179,9 @@ def manifest():
 def icon():
     svg = (
         '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128">'
-        '<rect width="128" height="128" rx="28" fill="#b8860b"/>'
+        '<rect width="128" height="128" rx="28" fill="#006b73"/>'
         '<circle cx="64" cy="64" r="30" fill="#fff"/>'
+        '<circle cx="64" cy="64" r="30" fill="none" stroke="#c99a3d" stroke-width="4"/>'
         "</svg>"
     )
     return Response(svg, mimetype="image/svg+xml")
@@ -1252,6 +1295,71 @@ def set_site_settings():
     return jsonify(ok=True)
 
 
+LOGO_ALLOWED_EXT = {".png", ".jpg", ".jpeg", ".svg", ".webp", ".gif"}
+
+
+@app.route("/admin/site_identity", methods=["GET"])
+@login_required
+@admin_required
+def get_site_identity():
+    row = db_get_site_settings()
+    return jsonify(
+        site_name=(row["site_name"] if row and row["site_name"] else "واصل"),
+        has_logo=bool(row and row["logo_path"]),
+    )
+
+
+@app.route("/admin/site_identity", methods=["POST"])
+@login_required
+@admin_required
+def set_site_identity():
+    site_name = (request.form.get("site_name") or "").strip() or "واصل"
+    row = db_get_site_settings()
+    logo_path = None
+    clear_logo = request.form.get("remove_logo") == "1"
+
+    logo = request.files.get("logo")
+    if logo and logo.filename:
+        ext = os.path.splitext(logo.filename)[1].lower()
+        if ext not in LOGO_ALLOWED_EXT:
+            return jsonify(ok=False, error="امتداد الصورة غير مدعوم (استخدم PNG أو JPG أو SVG أو WEBP)"), 400
+        os.makedirs(UPLOADS_DIR, exist_ok=True)
+        logo_path = os.path.abspath(os.path.join(UPLOADS_DIR, f"site_logo{ext}"))
+        logo.save(logo_path)
+        old_path = row["logo_path"] if row else None
+        if old_path and old_path != logo_path and os.path.exists(old_path):
+            try:
+                os.remove(old_path)
+            except OSError:
+                pass
+    elif clear_logo:
+        old_path = row["logo_path"] if row else None
+        if old_path and os.path.exists(old_path):
+            try:
+                os.remove(old_path)
+            except OSError:
+                pass
+
+    db_set_site_identity(site_name, logo_path=logo_path, clear_logo=clear_logo)
+    return jsonify(ok=True)
+
+
+@app.route("/site_logo")
+def site_logo():
+    row = db_get_site_settings()
+    logo_path = row["logo_path"] if row else None
+    if not logo_path or not os.path.exists(logo_path):
+        return redirect("/icon.svg")
+    ext = os.path.splitext(logo_path)[1].lower()
+    mimetype = {
+        ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
+        ".svg": "image/svg+xml", ".webp": "image/webp", ".gif": "image/gif",
+    }.get(ext, "application/octet-stream")
+    with open(logo_path, "rb") as f:
+        data = f.read()
+    return Response(data, mimetype=mimetype)
+
+
 # ---------------------------------------------------------------- الفروع (حساب عام -> فروعه)
 
 def generate_branch_password():
@@ -1320,6 +1428,41 @@ def delete_branch(branch_id):
 @admin_required
 def admin_accounts():
     return jsonify([dict(u) for u in db_list_users()])
+
+
+@app.route("/admin/leaderboard")
+@login_required
+@admin_required
+def admin_leaderboard():
+    """ترتيب الحسابات (عامة وفروع) حسب نسبة نجاح إرسال حملاتها - من سجل كل حسابات واتساب
+    بالذاكرة مجموعة حسب صاحب الحساب، وليس محفوظة بجدول مستقل بقاعدة البيانات."""
+    totals = {}
+    for acc in accounts.values():
+        stats = totals.setdefault(acc["owner"], {"sent": 0, "failed": 0, "total": 0})
+        for h in acc["history"]:
+            stats["sent"] += h["sent"]
+            stats["failed"] += h["failed"]
+            stats["total"] += h["total"]
+    users_by_id = {u["id"]: u for u in db_list_users()}
+    rows = []
+    for owner_id, stats in totals.items():
+        if stats["total"] == 0:
+            continue
+        user = users_by_id.get(owner_id)
+        if not user:
+            continue
+        rows.append({
+            "user_id": owner_id,
+            "name": user["name"] or user["email"],
+            "email": user["email"],
+            "is_branch": bool(user["parent_id"]),
+            "sent": stats["sent"],
+            "failed": stats["failed"],
+            "total": stats["total"],
+            "success_rate": round((stats["sent"] / stats["total"]) * 100),
+        })
+    rows.sort(key=lambda r: (-r["success_rate"], -r["total"]))
+    return jsonify(rows[:20])
 
 
 # ---------------------------------------------------------------- حسابات واتساب (لكل مستخدم)
@@ -1594,7 +1737,7 @@ PAGE = """
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>منصة حملات واتساب</title>
+<title>__SITE_NAME__</title>
 <link rel="manifest" href="/manifest.json">
 <meta name="theme-color" content="#F5F7FA">
 <link rel="preconnect" href="https://cdnjs.cloudflare.com">
@@ -1687,6 +1830,22 @@ PAGE = """
   .sidebar-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.3); z-index: 99; }
   .sidebar-overlay.show { display: block; }
   .mobile-menu-toggle { display: none; background: none; border: none; font-size: 22px; color: var(--text-primary); cursor: pointer; padding: 4px 8px; }
+
+  .pwa-banner {
+    display: none; position: fixed; top: 0; left: 0; right: 0; z-index: 998;
+    background: var(--primary-dark); color: #fff; padding: 10px 16px; align-items: center; gap: 10px; font-size: 12.5px;
+  }
+  .pwa-banner.show { display: flex; }
+  .pwa-banner img { width: 28px; height: 28px; border-radius: 8px; flex-shrink: 0; object-fit: cover; }
+  .pwa-banner span { flex: 1; }
+  .pwa-banner-install {
+    background: var(--accent); color: #fff; border: none; padding: 6px 14px; border-radius: var(--radius-full);
+    font-weight: 700; font-size: 11.5px; cursor: pointer; white-space: nowrap; font-family: inherit;
+  }
+  .pwa-banner-dismiss { background: none; border: none; color: rgba(255,255,255,0.7); font-size: 18px; cursor: pointer; padding: 0 4px; line-height: 1; }
+  body.pwa-banner-visible .sidebar { top: 40px; height: calc(100vh - 40px); }
+  body.pwa-banner-visible .top-header { top: 40px; }
+  body.pwa-banner-visible .main-content { margin-top: 40px; }
 
   /* ---------- المحتوى الرئيسي ---------- */
   .main-content { flex: 1; margin-right: var(--sidebar-width); min-height: 100vh; display: flex; flex-direction: column; }
@@ -1958,10 +2117,17 @@ PAGE = """
 </head>
 <body>
 
+<div id="pwaInstallBanner" class="pwa-banner">
+  <img id="pwaBannerIcon" src="/icon.svg" alt="">
+  <span id="pwaBannerText">ثبّت التطبيق على جهازك للوصول السريع</span>
+  <button class="pwa-banner-install" onclick="installPwa()">تثبيت</button>
+  <button class="pwa-banner-dismiss" onclick="dismissPwaBanner()">&times;</button>
+</div>
+
 <aside class="sidebar" id="sidebar">
   <div class="brand">
-    <div class="logo">و</div>
-    <div class="name">منصة <span>واصل</span></div>
+    <div class="logo" id="brandLogo">و</div>
+    <div class="name" id="brandName">واصل</div>
   </div>
   <nav class="nav-menu" id="navMenu"></nav>
   <div class="user-info">
@@ -2015,6 +2181,8 @@ PAGE = """
 <script>
 const IS_ADMIN = __IS_ADMIN__;
 const IS_GENERAL = __IS_GENERAL__;
+const SITE_NAME = __SITE_NAME_JSON__;
+const HAS_LOGO = __HAS_LOGO__;
 
 /* ---------- أيقونات خطية (بدون إيموجي) ---------- */
 const ICONS = {
@@ -2024,14 +2192,14 @@ const ICONS = {
   logout: 'fas fa-right-from-bracket', ai: 'fas fa-robot', users: 'fas fa-users', branches: 'fas fa-code-branch',
   rocket: 'fas fa-rocket', trophy: 'fas fa-trophy', list: 'fas fa-list', info: 'fas fa-circle-info', clock: 'fas fa-clock',
   check: 'fas fa-check', checkCircle: 'fas fa-circle-check', warn: 'fas fa-triangle-exclamation', trash: 'fas fa-trash',
-  link: 'fas fa-link', calendar: 'fas fa-calendar-days', ban: 'fas fa-ban', copy: 'fas fa-copy',
+  link: 'fas fa-link', calendar: 'fas fa-calendar-days', ban: 'fas fa-ban', copy: 'fas fa-copy', image: 'fas fa-image',
 };
 function icon(name, size) {
   size = size || 20;
   return '<i class="icon ' + (ICONS[name] || 'fas fa-circle') + '" style="font-size:' + size + 'px; width:' + size + 'px; display:inline-flex; align-items:center; justify-content:center;"></i>';
 }
 
-const CURRENT_USER = "__USERNAME__";
+const CURRENT_USER = __USERNAME_JSON__;
 const SECTION_LABELS = { home: 'الرئيسية', accounts: 'حسابي', campaigns: 'الحملات', autoreply: 'الرد الآلي', analytics: 'إحصائيات', admin: 'لوحة التحكم', branches: 'الفروع', settings: 'الإعدادات' };
 
 function initChrome() {
@@ -2049,6 +2217,15 @@ function initChrome() {
   document.getElementById('sidebarAvatar').textContent = (CURRENT_USER || '؟').trim().charAt(0).toUpperCase();
   document.getElementById('sidebarUserName').textContent = displayName;
   document.getElementById('sidebarUserRole').textContent = IS_ADMIN ? 'أدمن المنصة' : (IS_GENERAL ? 'حساب عام' : 'حساب فرع');
+
+  document.getElementById('brandName').textContent = SITE_NAME;
+  document.getElementById('pwaBannerText').textContent = 'ثبّت تطبيق ' + SITE_NAME + ' على جهازك للوصول السريع';
+  if (HAS_LOGO) {
+    document.getElementById('brandLogo').innerHTML = '<img src="/site_logo" alt="" style="width:100%;height:100%;object-fit:cover;border-radius:inherit">';
+    document.getElementById('pwaBannerIcon').src = '/site_logo';
+  } else {
+    document.getElementById('brandLogo').textContent = (SITE_NAME || 'و').trim().charAt(0);
+  }
 }
 initChrome();
 
@@ -2059,6 +2236,31 @@ function toggleSidebar() {
 function closeSidebar() {
   document.getElementById('sidebar').classList.remove('open');
   document.getElementById('sidebarOverlay').classList.remove('show');
+}
+
+/* ---------- تثبيت PWA ---------- */
+let deferredInstallPrompt = null;
+window.addEventListener('beforeinstallprompt', function (e) {
+  e.preventDefault();
+  deferredInstallPrompt = e;
+  if (localStorage.getItem('pwaBannerDismissed') === '1') return;
+  document.body.classList.add('pwa-banner-visible');
+  document.getElementById('pwaInstallBanner').classList.add('show');
+});
+window.addEventListener('appinstalled', function () {
+  dismissPwaBanner();
+});
+async function installPwa() {
+  if (!deferredInstallPrompt) { dismissPwaBanner(); return; }
+  deferredInstallPrompt.prompt();
+  await deferredInstallPrompt.userChoice;
+  deferredInstallPrompt = null;
+  dismissPwaBanner();
+}
+function dismissPwaBanner() {
+  localStorage.setItem('pwaBannerDismissed', '1');
+  document.body.classList.remove('pwa-banner-visible');
+  document.getElementById('pwaInstallBanner').classList.remove('show');
 }
 
 let accounts = [];
@@ -2800,8 +3002,25 @@ function renderAdmin() {
   const c = document.getElementById('content');
   if (!IS_ADMIN) { c.innerHTML = '<div class="empty-state">هذا القسم لأدمن المنصة فقط</div>'; return; }
   const ca = dataCache.adminAccounts;
+  const lb = dataCache.leaderboard;
+  const si = dataCache.siteIdentity;
   c.innerHTML =
     '<div class="page-title"><h2>' + icon('admin', 18) + ' لوحة التحكم</h2></div>' +
+    '<div class="card">' +
+    '<div class="card-header"><h4>' + icon('image', 14) + ' هوية الموقع</h4></div>' +
+    '<div style="display:flex;align-items:center;gap:16px;margin-bottom:6px">' +
+    '<div id="logoPreview" style="width:64px;height:64px;border-radius:14px;overflow:hidden;flex-shrink:0;background:var(--card-soft);display:flex;align-items:center;justify-content:center;font-weight:900;font-size:24px;color:var(--primary)">' +
+    (si ? (si.has_logo ? '<img src="/site_logo?' + Date.now() + '" style="width:100%;height:100%;object-fit:cover">' : (si.site_name || 'و').trim().charAt(0)) : '') +
+    '</div>' +
+    '<div style="flex:1">' +
+    '<input type="file" id="siteLogo" accept="image/*">' +
+    '<button class="btn-outline" style="margin-top:6px" onclick="removeSiteLogo()">' + icon('trash', 10) + ' إزالة الشعار (استخدام الافتراضي)</button>' +
+    '</div></div>' +
+    '<label class="field-label">اسم الموقع (يظهر بالشريط الجانبي وشاشة الدخول والعنوان)</label>' +
+    '<input id="siteName" placeholder="واصل" value="' + (si ? (si.site_name || '') : '') + '">' +
+    '<button class="btn-submit" onclick="saveSiteIdentity()">' + icon('checkCircle', 14) + ' حفظ الهوية</button>' +
+    '<div id="siteIdentityMsg" class="text-center text-[12px] font-bold mt-2"></div>' +
+    '</div>' +
     '<div class="card">' +
     '<div class="card-header"><h4>' + icon('ai', 14) + ' الرد الذكي (DeepSeek)</h4></div>' +
     '<label class="field-label">مفتاح API (يُترك فاضي لعدم التغيير)</label>' +
@@ -2812,6 +3031,10 @@ function renderAdmin() {
     '<div id="aiMsg" class="text-center text-[12px] font-bold mt-2"></div>' +
     '</div>' +
     '<div class="card">' +
+    '<div class="card-header"><h4>' + icon('trophy', 14) + ' الأفضل نجاحاً بإرسال الحملات</h4></div>' +
+    '<div id="leaderboardBox">' + (lb ? leaderboardHtml(lb) : '<div class="text-muted text-[11px]">جارِ التحميل...</div>') + '</div>' +
+    '</div>' +
+    '<div class="card">' +
     '<div class="card-header"><h4>' + icon('users', 14) + ' كل حسابات المنصة</h4></div>' +
     '<div id="adminAccountsBox">' + (ca ? adminAccountsHtml(ca) : '<div class="text-muted text-[11px]">جارِ التحميل...</div>') + '</div>' +
     '</div>';
@@ -2820,7 +3043,65 @@ function renderAdmin() {
     document.getElementById('aiKey').placeholder = d.api_key_set ? 'محفوظ مسبقاً (اتركه فاضي للإبقاء عليه)' : 'sk-...';
     document.getElementById('aiKb').value = d.knowledge_base || '';
   });
+  loadSiteIdentity();
+  loadLeaderboard();
   loadAdminAccounts();
+}
+
+function leaderboardHtml(rows) {
+  return rows.length
+    ? rows.map((r, i) => {
+        const label = (r.name ? r.name + ' · ' : '') + r.email;
+        const kind = r.is_branch ? '<span class="pill pill-blue">فرع</span>' : '<span class="pill pill-green">حساب عام</span>';
+        return '<div class="history-row"><span class="flex items-center gap-2">' +
+          '<b style="width:18px;text-align:center;color:var(--text-muted)">' + (i + 1) + '</b>' +
+          avatarHtml(label, String(r.user_id)) + '<span>' + label + '</span>' + kind + '</span>' +
+          '<span style="text-align:left;display:flex;align-items:center;gap:6px">' +
+          '<span class="pill pill-green">' + r.success_rate + '%</span>' +
+          '<span style="font-size:10px;color:var(--text-muted)">(' + r.sent + '/' + r.total + ')</span>' +
+          '</span></div>';
+      }).join('')
+    : '<div class="text-muted text-[11px]">ما فيه حملات مُرسلة بعد لعرض ترتيب</div>';
+}
+
+async function loadLeaderboard() {
+  const rows = await fetch('/admin/leaderboard').then(r => r.json());
+  dataCache.leaderboard = rows;
+  const box = document.getElementById('leaderboardBox');
+  if (box) box.innerHTML = leaderboardHtml(rows);
+}
+
+async function loadSiteIdentity() {
+  const d = await fetch('/admin/site_identity').then(r => r.json());
+  dataCache.siteIdentity = d;
+  const nameInput = document.getElementById('siteName');
+  if (nameInput) nameInput.value = d.site_name || '';
+  const preview = document.getElementById('logoPreview');
+  if (preview) {
+    preview.innerHTML = d.has_logo
+      ? '<img src="/site_logo?' + Date.now() + '" style="width:100%;height:100%;object-fit:cover">'
+      : (d.site_name || 'و').trim().charAt(0);
+  }
+}
+
+async function saveSiteIdentity() {
+  const form = new FormData();
+  form.append('site_name', document.getElementById('siteName').value.trim());
+  const file = document.getElementById('siteLogo').files[0];
+  if (file) form.append('logo', file);
+  const msg = document.getElementById('siteIdentityMsg');
+  msg.innerText = 'جارِ الحفظ...';
+  const r = await fetch('/admin/site_identity', { method: 'POST', body: form }).then(res => res.json());
+  msg.innerText = r.ok ? 'تم الحفظ - أعد تحميل الصفحة لرؤية التغييرات بكل مكان' : 'فشل: ' + r.error;
+  if (r.ok) loadSiteIdentity();
+}
+
+async function removeSiteLogo() {
+  const form = new FormData();
+  form.append('site_name', document.getElementById('siteName').value.trim());
+  form.append('remove_logo', '1');
+  await fetch('/admin/site_identity', { method: 'POST', body: form });
+  loadSiteIdentity();
 }
 
 function adminAccountsHtml(rows) {
