@@ -2114,72 +2114,132 @@ PAGE = """
 <script src="https://cdn.tailwindcss.com"></script>
 <style>
   :root {
-    --bg: #F5F7FA; --card: #FFFFFF; --card-soft: #EEF2F5; --card-3: #E4E9EE;
+    --primary: #058693; --primary-light: #0AA6B5; --primary-dark: #046C76;
+    --primary-gradient: linear-gradient(135deg, #058693 0%, #0AA6B5 100%);
+    --accent: #D8B07A;
+    --bg: #F5F7FA; --bg-card: #FFFFFF; --card-soft: #EEF2F5; --card-3: #E4E9EE;
     --border: rgba(5,134,147,.08); --border-2: rgba(5,134,147,.16);
-    --ink: #1A2E35; --muted: #4A6A78; --faint: #8AA0B0;
-    --gold: #058693; --gold-strong: #046C76;
+    --text-primary: #1A2E35; --text-secondary: #4A6A78; --text-muted: #8AA0B0;
     --gold-light: rgba(5,134,147,.08); --gold-border: rgba(5,134,147,.20); --gold-shadow: rgba(5,134,147,.25);
     --green-ink: #ffffff; --red: #EF4444; --blue: #3B82F6; --amber: #D97706;
     --shadow: rgba(5,134,147,.08);
+    --shadow-sm: 0 2px 8px rgba(5,134,147,0.04);
+    --shadow-md: 0 4px 20px rgba(5,134,147,0.06);
+    --shadow-lg: 0 8px 40px rgba(5,134,147,0.08);
+    --shadow-xl: 0 12px 56px rgba(5,134,147,0.10);
+    --radius-sm: 8px; --radius-md: 14px; --radius-lg: 20px; --radius-full: 9999px;
+    --transition-base: 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    --header-height: 64px; --nav-height: 72px;
   }
   :root[data-theme="dark"] {
-    --bg: #0D1117; --card: #161B22; --card-soft: #1C232C; --card-3: #262E38;
+    --primary: #0AA6B5; --primary-light: #0AA6B5; --primary-dark: #058693;
+    --primary-gradient: linear-gradient(135deg, #058693 0%, #0AA6B5 100%);
+    --bg: #0D1117; --bg-card: #161B22; --card-soft: #1C232C; --card-3: #262E38;
     --border: rgba(255,255,255,.06); --border-2: rgba(255,255,255,.12);
-    --ink: #F0F6FC; --muted: #8B949E; --faint: #6A8098;
-    --gold: #0AA6B5; --gold-strong: #058693;
+    --text-primary: #F0F6FC; --text-secondary: #8B949E; --text-muted: #6A8098;
     --gold-light: rgba(10,166,181,.12); --gold-border: rgba(10,166,181,.28); --gold-shadow: rgba(10,166,181,.3);
     --green-ink: #ffffff; --red: #EF4444; --blue: #3B82F6; --amber: #D97706;
     --shadow: rgba(0,0,0,.4);
+    --shadow-sm: 0 2px 8px rgba(0,0,0,0.3);
+    --shadow-md: 0 4px 20px rgba(0,0,0,0.4);
+    --shadow-lg: 0 8px 40px rgba(0,0,0,0.5);
+    --shadow-xl: 0 12px 56px rgba(0,0,0,0.6);
   }
-  html, body { margin: 0; padding: 0; background: var(--bg); color: var(--ink); font-family: 'IBM Plex Sans Arabic', 'Cairo', 'Tajawal', system-ui, sans-serif; }
-  .app { display: flex; flex-direction: column; min-height: 100vh; }
-  h1, h2, h3, .topbar-title, .stat-num, .logo-word { font-family: 'IBM Plex Sans Arabic', 'Cairo', 'Tajawal', sans-serif; }
+  html, body { margin: 0; padding: 0; }
+  body { background: var(--bg); color: var(--text-primary); font-family: 'IBM Plex Sans Arabic', 'Cairo', 'Tajawal', system-ui, sans-serif;
+    min-height: 100vh; transition: background var(--transition-base), color var(--transition-base); }
+  h1, h2, h3, .stat-num { font-family: 'IBM Plex Sans Arabic', 'Cairo', 'Tajawal', sans-serif; }
   .icon { display: inline-block; vertical-align: middle; flex-shrink: 0; }
 
-  .topbar { display: flex; align-items: center; justify-content: space-between; padding: 10px 16px; background: var(--card); border-bottom: 1px solid var(--border); position: sticky; top: 0; z-index: 30; }
-  .topbar-title { font-size: 15px; font-weight: 800; }
-  .topbar-actions { display: flex; gap: 6px; }
-  .icon-btn { position: relative; width: 36px; height: 36px; border-radius: 11px; border: 1px solid var(--border-2); background: var(--card-soft); color: var(--ink); display: flex; align-items: center; justify-content: center; cursor: pointer; }
-  .badge { position: absolute; top: -3px; left: -3px; width: 9px; height: 9px; border-radius: 50%; background: var(--red); }
+  .header-glass {
+    background: rgba(255,255,255,0.92); backdrop-filter: blur(24px) saturate(180%); -webkit-backdrop-filter: blur(24px) saturate(180%);
+    padding: 12px 24px; height: var(--header-height);
+    display: flex; align-items: center; justify-content: space-between;
+    position: sticky; top: 0; z-index: 100;
+    border-bottom: 1px solid rgba(0,0,0,0.04); box-shadow: 0 2px 20px rgba(0,0,0,0.04);
+    transition: var(--transition-base);
+  }
+  :root[data-theme="dark"] .header-glass { background: #0D1117; border-bottom: 1px solid rgba(255,255,255,0.06); box-shadow: 0 2px 20px rgba(0,0,0,0.5); }
+  .header-glass .brand { display: flex; align-items: center; gap: 12px; }
+  .header-glass .brand .logo {
+    width: 40px; height: 40px; border-radius: var(--radius-md); display: flex; align-items: center; justify-content: center;
+    color: #fff; font-size: 18px; font-weight: 900; box-shadow: 0 4px 16px rgba(5,134,147,0.25); background: var(--primary-gradient);
+  }
+  .header-glass .brand .name { font-size: 18px; font-weight: 900; color: var(--text-primary); letter-spacing: -0.5px; }
+  .header-glass .brand .name span { background: var(--primary-gradient); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; }
+  .header-glass .actions { display: flex; align-items: center; gap: 6px; }
+  .header-glass .actions .icon-btn {
+    width: 42px; height: 42px; border-radius: var(--radius-full); border: 1px solid rgba(0,0,0,0.04);
+    background: rgba(0,0,0,0.03); display: flex; align-items: center; justify-content: center;
+    color: var(--text-secondary); cursor: pointer; font-size: 18px; position: relative; transition: var(--transition-base);
+  }
+  :root[data-theme="dark"] .header-glass .actions .icon-btn { background: rgba(255,255,255,0.05); color: #8B949E; border-color: rgba(255,255,255,0.06); }
+  .header-glass .actions .icon-btn:hover { background: rgba(0,0,0,0.06); color: var(--primary); }
+  .header-glass .actions .icon-btn .badge {
+    position: absolute; top: 6px; right: 6px; width: 9px; height: 9px;
+    background: var(--red); border-radius: var(--radius-full); border: 2px solid rgba(255,255,255,0.8);
+    box-shadow: 0 0 12px rgba(239,68,68,0.4); animation: pulse-dot 2s ease-in-out infinite;
+  }
+  @keyframes pulse-dot { 0%, 100% { transform: scale(1); opacity: 1; } 50% { transform: scale(1.4); opacity: 0.6; } }
 
-  .notif-panel { position: absolute; top: 52px; left: 12px; width: 280px; max-height: 320px; overflow-y: auto; background: var(--card); border: 1px solid var(--border-2); border-radius: 16px; box-shadow: 0 12px 30px var(--shadow); z-index: 40; padding: 8px; }
+  .notif-panel { position: absolute; top: calc(var(--header-height) + 6px); left: 12px; width: 280px; max-height: 320px; overflow-y: auto; background: var(--bg-card); border: 1px solid var(--border-2); border-radius: 16px; box-shadow: var(--shadow-lg); z-index: 150; padding: 8px; }
   .notif-item { padding: 8px 10px; border-radius: 10px; font-size: 12px; }
   .notif-item + .notif-item { margin-top: 4px; }
-  .notif-item b { display: block; font-size: 12px; color: var(--gold); }
-  .notif-item span { color: var(--muted); font-size: 11px; }
+  .notif-item b { display: block; font-size: 12px; color: var(--primary); }
+  .notif-item span { color: var(--text-secondary); font-size: 11px; }
 
-  .body { display: flex; flex: 1; }
-  .nav { width: 220px; flex-shrink: 0; background: var(--card); border-left: 1px solid var(--border); padding: 16px 10px; display: flex; flex-direction: column; }
-  .nav-items { flex: 1; }
-  .nav-item { display: flex; align-items: center; gap: 10px; padding: 11px 12px; border-radius: 12px; font-size: 13px; font-weight: 700; color: var(--muted); cursor: pointer; margin-bottom: 4px; transition: .15s ease; }
-  .nav-item:hover { background: var(--card-soft); color: var(--ink); }
-  .nav-item.active { background: var(--gold-light); border: 1px solid var(--gold-border); color: var(--gold); }
-  .profile-card { display: flex; align-items: center; gap: 10px; padding: 12px 10px; border-top: 1px solid var(--border); margin-top: 8px; }
-  .profile-name { font-size: 12px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .content { flex: 1; padding: 28px; display: flex; justify-content: center; }
-  .content-inner { width: 100%; max-width: 620px; }
-  .bottom-tabs { display: none; }
+  .body { display: flex; flex: 1; justify-content: center; }
+  .content { flex: 1; padding: 16px 20px calc(var(--nav-height) + 20px); display: flex; justify-content: center; max-width: 640px; margin: 0 auto; }
+  .content-inner { width: 100%; }
 
-  @media (max-width: 780px) {
-    .nav { display: none; }
-    .content { padding: 16px 16px 90px; }
-    .bottom-tabs {
-      display: flex; align-items: center; position: fixed; bottom: 0; left: 0; right: 0; height: 66px;
-      background: color-mix(in oklch, var(--card) 82%, transparent); backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px);
-      border-top: 1px solid var(--border); z-index: 30;
-    }
-    .bottom-tab { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; font-size: 10px; font-weight: 700; color: var(--faint); cursor: pointer; }
-    .bottom-tab.active { color: var(--gold); }
-    .fab {
-      width: 46px; height: 46px; border-radius: 50%; flex-shrink: 0; margin: 0 6px; cursor: pointer;
-      background: linear-gradient(135deg, var(--gold), var(--gold-strong)); color: var(--green-ink);
-      display: flex; align-items: center; justify-content: center; box-shadow: 0 6px 18px var(--gold-shadow);
-    }
+  .bottom-nav-minimal {
+    position: fixed; bottom: 0; left: 0; right: 0; height: var(--nav-height); min-height: var(--nav-height);
+    padding: 6px 8px 12px; background: var(--bg-card); border-top: 2px solid rgba(5,134,147,0.04);
+    box-shadow: 0 -4px 30px rgba(0,0,0,0.02);
+    display: flex; justify-content: space-around; align-items: center; transition: var(--transition-base); z-index: 200; gap: 2px;
+  }
+  :root[data-theme="dark"] .bottom-nav-minimal { background: #0D1117; border-top: 1px solid rgba(255,255,255,0.06); }
+  .bottom-nav-minimal .nav-item {
+    flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px;
+    padding: 4px 2px; min-height: 48px; border-radius: var(--radius-sm); transition: var(--transition-base);
+    background: transparent; border: none; cursor: pointer; font-size: 10px; font-weight: 700; color: var(--text-muted);
+    position: relative; font-family: inherit;
+  }
+  :root[data-theme="dark"] .bottom-nav-minimal .nav-item { color: #8B949E; }
+  .bottom-nav-minimal .nav-item i { font-size: 20px; transition: var(--transition-base); }
+  .bottom-nav-minimal .nav-item.active { color: var(--primary); background: rgba(5,134,147,0.04); }
+  :root[data-theme="dark"] .bottom-nav-minimal .nav-item.active { color: #0AA6B5; background: rgba(10,166,181,0.08); }
+  .bottom-nav-minimal .nav-item.active i { transform: translateY(-2px); }
+  .bottom-nav-minimal .nav-item:active { transform: scale(0.92); }
+
+  @media (max-width: 480px) {
+    :root { --header-height: 58px; --nav-height: 66px; }
+    .header-glass { padding: 10px 16px; }
+    .header-glass .brand .name { font-size: 16px; }
+    .header-glass .brand .logo { width: 34px; height: 34px; font-size: 16px; }
+    .header-glass .actions .icon-btn { width: 36px; height: 36px; font-size: 16px; }
+    .bottom-nav-minimal .nav-item { font-size: 9px; min-height: 42px; }
+    .bottom-nav-minimal .nav-item i { font-size: 18px; }
+  }
+  @media (max-width: 380px) {
+    .bottom-nav-minimal .nav-item span { display: none; }
+    .bottom-nav-minimal .nav-item i { font-size: 20px; }
   }
 
-  .dark-card { background: var(--card); border: 1px solid var(--border); border-radius: 18px; box-shadow: 0 4px 20px var(--shadow); }
+  .page-title { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; }
+  .page-title h2 { font-size: 20px; font-weight: 800; color: var(--text-primary); display: flex; align-items: center; gap: 10px; }
+  @media (max-width: 480px) { .page-title h2 { font-size: 18px; } }
+
+  .card {
+    background: var(--bg-card); border-radius: var(--radius-lg); border: 1px solid rgba(5,134,147,0.04);
+    box-shadow: var(--shadow-sm); padding: 20px; margin-bottom: 14px; transition: var(--transition-base);
+  }
+  .card:hover { box-shadow: var(--shadow-md); border-color: rgba(5,134,147,0.06); }
+  .card .card-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; }
+  .card .card-header h4 { font-size: 16px; font-weight: 800; color: var(--text-primary); display: flex; align-items: center; gap: 10px; }
+  .card .card-header h4 i { color: var(--primary); }
   .glossy-card {
-    background: linear-gradient(145deg, var(--card), var(--card-soft));
+    background: linear-gradient(145deg, var(--bg-card), var(--card-soft));
     border: 1.5px solid var(--gold-border); border-radius: 18px;
     box-shadow: 0 0 30px var(--shadow), inset 0 1px 0 var(--gold-light);
     position: relative; overflow: hidden;
@@ -2192,221 +2252,245 @@ PAGE = """
   @keyframes shimmerRotate { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
   .glossy-card .relative-z { position: relative; z-index: 1; }
 
-  .text-gold { color: var(--gold); }
+  .text-gold { color: var(--primary); }
   .text-red { color: var(--red); }
   .border-gold { border-color: var(--gold-border); }
   .bg-gold-light { background: var(--gold-light); }
-  .text-muted { color: var(--muted); }
+  .text-muted { color: var(--text-secondary); }
 
   .step-item { display: flex; align-items: flex-start; gap: 12px; padding: 8px 0; border-bottom: 1px solid var(--border); }
   .step-item:last-child { border-bottom: 0; }
-  .step-num { width: 26px; height: 26px; border-radius: 50%; background: var(--gold-light); border: 1px solid var(--gold-border); display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 800; flex-shrink: 0; color: var(--gold); }
-  .step-text { font-size: 13px; color: var(--ink); font-weight: 500; }
-  .step-text small { display: block; font-weight: 400; font-size: 11px; color: var(--muted); margin-top: 2px; }
+  .step-num { width: 26px; height: 26px; border-radius: 50%; background: var(--gold-light); border: 1px solid var(--gold-border); display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 800; flex-shrink: 0; color: var(--primary); }
+  .step-text { font-size: 13px; color: var(--text-primary); font-weight: 500; }
+  .step-text small { display: block; font-weight: 400; font-size: 11px; color: var(--text-secondary); margin-top: 2px; }
 
-  .field-label { display: block; margin-top: 16px; margin-bottom: 6px; font-size: 12px; color: var(--muted); font-weight: 500; }
+  .field-label { display: block; margin-top: 16px; margin-bottom: 6px; font-size: 13px; color: var(--text-secondary); font-weight: 700; }
   input, textarea, select {
-    width: 100%; box-sizing: border-box; padding: 11px 12px; font-size: 14px; font-family: inherit;
-    background: var(--card-soft); border: 1px solid var(--border-2); border-radius: 12px; color: var(--ink);
+    width: 100%; box-sizing: border-box; padding: 12px 16px; font-size: 14px; font-family: inherit;
+    background: var(--bg); border: 2px solid rgba(5,134,147,0.08); border-radius: var(--radius-sm); color: var(--text-primary);
+    transition: var(--transition-base); outline: none;
   }
-  input:focus, textarea:focus, select:focus { outline: none; border-color: var(--gold); }
-  textarea { resize: vertical; }
+  input:focus, textarea:focus, select:focus { border-color: var(--primary); box-shadow: 0 0 0 4px rgba(5,134,147,0.06); }
+  textarea { resize: vertical; min-height: 80px; }
   input[type="file"] { padding: 9px 12px; }
   input[type="checkbox"] { width: auto; }
 
   .btn-gold {
     display: block; width: 100%; padding: 13px; margin-top: 18px; border: none; border-radius: 15px;
-    background: linear-gradient(135deg, var(--gold), var(--gold-strong)); color: var(--green-ink);
+    background: linear-gradient(135deg, var(--primary), var(--primary-dark)); color: var(--green-ink);
     font-weight: 800; font-size: 15px; font-family: inherit; cursor: pointer; transition: .2s ease;
     box-shadow: 0 8px 20px var(--gold-shadow);
   }
   .btn-gold:hover { filter: brightness(1.05); }
-  .btn-outline {
-    display: block; width: 100%; padding: 11px; margin-top: 10px; border-radius: 14px;
-    background: var(--card-soft); border: 1.5px solid var(--border-2); color: var(--ink);
-    font-weight: 700; font-size: 13px; font-family: inherit; cursor: pointer; transition: .2s ease;
+  .btn-submit {
+    width: 100%; height: 48px; border: none; border-radius: var(--radius-md);
+    background: var(--primary-gradient); color: #fff; font-size: 15px; font-weight: 700;
+    cursor: pointer; transition: var(--transition-base); font-family: inherit;
+    box-shadow: 0 4px 16px rgba(5,134,147,0.25); margin-top: 8px;
+    display: inline-flex; align-items: center; justify-content: center; gap: 10px;
   }
-  .btn-outline:hover { border-color: var(--gold-border); color: var(--gold); }
-  .btn-danger {
-    display: block; width: 100%; padding: 10px; margin-top: 12px; border-radius: 14px;
-    background: transparent; border: 1.5px solid color-mix(in oklch, var(--red) 35%, transparent); color: var(--red);
+  .btn-submit:hover { transform: translateY(-2px); box-shadow: 0 8px 28px rgba(5,134,147,0.35); }
+  .btn-submit:active { transform: scale(0.97); }
+  .btn-outline {
+    display: block; width: 100%; padding: 10px; margin-top: 6px; border-radius: 11px;
+    background: var(--bg-card); border: 1.5px solid rgba(5,134,147,0.15); color: var(--text-secondary);
     font-weight: 700; font-size: 12px; font-family: inherit; cursor: pointer; transition: .2s ease;
   }
-  .btn-danger:hover { background: color-mix(in oklch, var(--red) 8%, transparent); }
+  .btn-outline:hover { border-color: var(--primary); color: var(--primary); }
+  .btn-danger {
+    display: block; width: 100%; padding: 10px; margin-top: 10px; border-radius: 12px;
+    background: rgba(239,68,68,0.12); border: 1.5px solid rgba(239,68,68,0.4); color: var(--red);
+    font-weight: 800; font-size: 12px; font-family: inherit; cursor: pointer; transition: .2s ease;
+  }
+  .btn-danger:hover { background: rgba(239,68,68,0.22); }
+  .btn-logout {
+    width: 100%; height: 46px; border: none; border-radius: var(--radius-md);
+    background: linear-gradient(135deg,#EF4444,#DC2626); color: #fff; font-size: 14px; font-weight: 700;
+    cursor: pointer; transition: var(--transition-base); font-family: inherit;
+    display: inline-flex; align-items: center; justify-content: center; gap: 10px;
+    box-shadow: 0 4px 16px rgba(239,68,68,0.25); margin-top: 8px;
+  }
+  .btn-logout:hover { transform: translateY(-2px); box-shadow: 0 8px 24px rgba(239,68,68,0.35); }
   .btn-small { width: auto; padding: 8px 14px; margin-top: 0; display: inline-block; }
 
-  .confirm-overlay { position: fixed; inset: 0; background: rgba(0,0,0,.5); backdrop-filter: blur(4px); z-index: 90; display: none; }
+  .confirm-overlay { position: fixed; inset: 0; background: rgba(0,0,0,.4); backdrop-filter: blur(4px); z-index: 599; display: none; }
   .confirm-overlay.show { display: block; }
   .confirm-sheet { position: fixed; bottom: 0; left: 50%; transform: translateX(-50%); width: 100%; max-width: 480px;
-    background: var(--card); border-radius: 20px 20px 0 0; box-shadow: 0 -8px 40px var(--shadow); z-index: 91; display: none;
-    padding: 22px 20px calc(20px + env(safe-area-inset-bottom)); }
-  .confirm-sheet.show { display: block; animation: sheetUp .3s cubic-bezier(.34,1.56,.64,1); }
+    background: var(--bg-card); border-radius: var(--radius-lg) var(--radius-lg) 0 0; box-shadow: var(--shadow-xl); z-index: 600; display: none;
+    padding: 24px 20px calc(24px + env(safe-area-inset-bottom)); }
+  .confirm-sheet.show { display: block; animation: sheetUp .35s cubic-bezier(.34,1.56,.64,1); }
   @keyframes sheetUp { from { transform: translate(-50%, 100%); } to { transform: translate(-50%, 0); } }
-  .confirm-sheet .sheet-handle { width: 40px; height: 4px; background: var(--border-2); border-radius: 4px; margin: 0 auto 16px; }
-  .confirm-sheet .sheet-title { font-size: 16px; font-weight: 800; color: var(--ink); text-align: center; margin-bottom: 6px; font-family: 'Cairo','Tajawal',sans-serif; }
-  .confirm-sheet .sheet-message { font-size: 13px; color: var(--muted); text-align: center; margin-bottom: 20px; }
+  .confirm-sheet .sheet-handle { width: 40px; height: 4px; background: rgba(0,0,0,0.12); border-radius: 4px; margin: 0 auto 16px; }
+  .confirm-sheet .sheet-title { font-size: 16px; font-weight: 800; color: var(--text-primary); text-align: center; margin-bottom: 6px; }
+  .confirm-sheet .sheet-message { font-size: 13px; color: var(--text-muted); text-align: center; margin-bottom: 20px; }
   .confirm-sheet .sheet-actions { display: flex; gap: 10px; }
-  .confirm-sheet .sheet-actions button { flex: 1; height: 46px; border: none; border-radius: 14px; font-size: 14px; font-weight: 700;
-    cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 8px; font-family: inherit; }
-  .confirm-sheet .btn-cancel { background: var(--card-soft); color: var(--muted); }
-  .confirm-sheet .btn-confirm { background: var(--red); color: #fff; }
+  .confirm-sheet .sheet-actions button { flex: 1; height: 46px; border: none; border-radius: var(--radius-md); font-size: 14px; font-weight: 700;
+    cursor: pointer; transition: var(--transition-base); display: inline-flex; align-items: center; justify-content: center; gap: 8px; font-family: inherit; }
+  .confirm-sheet .btn-cancel { background: rgba(5,134,147,0.06); color: var(--text-secondary); }
+  .confirm-sheet .btn-cancel:hover { background: rgba(5,134,147,0.1); transform: translateY(-2px); }
+  .confirm-sheet .btn-confirm { background: linear-gradient(135deg, #EF4444, #DC2626); color: #fff; box-shadow: 0 4px 16px rgba(239,68,68,0.25); }
+  .confirm-sheet .btn-confirm:hover { transform: translateY(-2px); box-shadow: 0 8px 24px rgba(239,68,68,0.35); }
 
   #qrImg { width: 220px; height: 220px; border-radius: 16px; border: 1px solid var(--border-2); background: #fff; display: block; margin: 0 auto; }
 
-  .stat-row { display: flex; border-radius: 16px; overflow: hidden; margin-top: 14px; }
-  .stat-cell { flex: 1; text-align: center; padding: 12px 4px; background: var(--card); border: 1px solid var(--border); }
+  .stat-row { display: flex; border-radius: 12px; overflow: hidden; margin-top: 10px; }
+  .stat-cell { flex: 1; text-align: center; padding: 8px 4px; background: var(--bg-card); border: 1px solid rgba(5,134,147,0.04); }
   .stat-cell + .stat-cell { border-right: none; }
-  .stat-num { font-size: 18px; font-weight: 800; }
-  .stat-label { font-size: 10px; color: var(--muted); margin-top: 2px; }
+  .stat-num { font-size: 16px; font-weight: 800; }
+  .stat-label { font-size: 9px; color: var(--text-muted); margin-top: 1px; }
 
   .account-name { font-size: 13px; font-weight: 700; flex: 1; }
   .dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
-  .dot-on { background: var(--gold); box-shadow: 0 0 6px var(--gold-shadow); }
+  .dot-on { background: var(--primary); box-shadow: 0 0 6px var(--gold-shadow); }
   .dot-off { background: var(--amber); }
-  .empty-state { text-align: center; color: var(--muted); font-size: 13px; margin-top: 60px; }
+  .empty-state { text-align: center; color: var(--text-secondary); font-size: 13px; margin-top: 60px; }
 
   .avatar { width: 36px; height: 36px; border-radius: 50%; flex-shrink: 0; display: flex; align-items: center; justify-content: center; color: #fff; font-weight: 800; font-size: 14px; }
-  .avatar-0 { background: linear-gradient(135deg, var(--gold), var(--gold-strong)); }
+  .avatar-0 { background: linear-gradient(135deg, var(--primary), var(--primary-dark)); }
   .avatar-1 { background: linear-gradient(135deg, oklch(0.72 0.13 238), oklch(0.55 0.15 238)); }
   .avatar-2 { background: linear-gradient(135deg, oklch(0.72 0.15 300), oklch(0.55 0.16 300)); }
   .avatar-3 { background: linear-gradient(135deg, oklch(0.8 0.14 78), oklch(0.65 0.16 60)); }
   .avatar-4 { background: linear-gradient(135deg, oklch(0.72 0.17 30), oklch(0.6 0.19 21)); }
 
-  .pill { display: inline-flex; align-items: center; padding: 3px 10px; border-radius: 999px; font-size: 10px; font-weight: 800; }
-  .pill-green { background: var(--gold-light); color: var(--gold); }
-  .pill-blue { background: color-mix(in oklch, var(--blue) 16%, transparent); color: var(--blue); }
-  .pill-red { background: color-mix(in oklch, var(--red) 14%, transparent); color: var(--red); }
-  .pill-amber { background: color-mix(in oklch, var(--amber) 18%, transparent); color: var(--amber); }
-  .pill-gray { background: var(--card-3); color: var(--muted); }
+  .pill { display: inline-flex; align-items: center; padding: 1px 8px; border-radius: 999px; font-size: 9px; font-weight: 800; }
+  .pill-green { background: rgba(16,185,129,0.12); color: #059669; }
+  .pill-blue { background: rgba(59,130,246,0.12); color: #3B82F6; }
+  .pill-red { background: rgba(239,68,68,0.12); color: #DC2626; }
+  .pill-amber { background: rgba(251,191,36,0.12); color: #D97706; }
+  .pill-gray { background: rgba(107,114,128,0.12); color: #6B7280; }
+  .pill-gold { background: rgba(216,176,122,0.12); color: #D8B07A; border: 1px solid rgba(216,176,122,0.2); }
 
-  .history-row { display: flex; justify-content: space-between; align-items: center; padding: 9px 4px; border-bottom: 1px solid var(--border); font-size: 12px; }
+  .history-row { display: flex; justify-content: space-between; align-items: center; padding: 6px 4px; border-bottom: 1px solid rgba(5,134,147,0.04); font-size: 11px; }
   .history-row:last-child { border-bottom: none; }
   .history-row.clickable { cursor: pointer; }
-  .history-row .campaign-name { font-weight: 700; color: var(--ink); display: block; }
-  .history-row .campaign-detail { font-size: 10px; color: var(--muted); }
-  .history-row .see-detail { color: var(--gold); font-weight: 700; margin-right: 8px; }
+  .history-row .campaign-name { font-weight: 700; color: var(--text-primary); display: block; }
+  .history-row .campaign-detail { font-size: 10px; color: var(--text-muted); }
+  .history-row .see-detail { color: var(--primary); font-weight: 700; margin-right: 8px; }
 
-  .campaign-detail-card { background: var(--card); border: 1px solid var(--border); border-radius: 18px; box-shadow: 0 4px 20px var(--shadow); padding: 18px; margin-bottom: 14px; }
-  .campaign-detail-card .detail-row { display: flex; justify-content: space-between; align-items: center; padding: 9px 0; border-bottom: 1px solid var(--border); font-size: 13px; gap: 10px; }
+  .campaign-detail-card { background: var(--bg-card); border: 1px solid rgba(5,134,147,0.04); border-radius: var(--radius-lg); box-shadow: var(--shadow-sm); padding: 20px; margin-bottom: 14px; transition: var(--transition-base); }
+  .campaign-detail-card:hover { box-shadow: var(--shadow-md); border-color: rgba(5,134,147,0.06); }
+  .campaign-detail-card .detail-row { display: flex; justify-content: space-between; align-items: center; padding: 8px 0; border-bottom: 1px solid rgba(5,134,147,0.04); font-size: 13px; gap: 10px; }
   .campaign-detail-card .detail-row:last-child { border-bottom: none; }
-  .campaign-detail-card .detail-row .label { color: var(--muted); font-weight: 600; flex-shrink: 0; }
-  .campaign-detail-card .detail-row .value { font-weight: 700; color: var(--ink); text-align: left; }
+  .campaign-detail-card .detail-row .label { color: var(--text-muted); font-weight: 500; flex-shrink: 0; }
+  .campaign-detail-card .detail-row .value { font-weight: 700; color: var(--text-primary); text-align: left; }
 
   .rule-row { display: flex; gap: 8px; align-items: center; margin-top: 8px; }
   .rule-row input { margin-top: 0; }
   .rule-remove { flex-shrink: 0; width: 32px; height: 32px; border-radius: 10px; border: 1px solid color-mix(in oklch, var(--red) 35%, transparent); background: transparent; color: var(--red); cursor: pointer; }
 
-  .hero-main { background: var(--card); border: 1.5px solid var(--gold-border); border-radius: 20px; padding: 22px 18px; text-align: center; margin-bottom: 16px; box-shadow: 0 4px 24px var(--shadow); }
-  .hero-main .hero-icon { width: 54px; height: 54px; margin: 0 auto 10px; border-radius: 50%; background: var(--gold-light); border: 1.5px solid var(--gold-border); display: flex; align-items: center; justify-content: center; font-size: 22px; color: var(--gold); }
-  .hero-main h1 { font-size: 18px; font-weight: 900; color: var(--gold); margin-bottom: 4px; }
-  .hero-main p { font-size: 12px; color: var(--muted); line-height: 1.7; margin: 0 auto; max-width: 340px; }
-  .hero-badges { display: flex; justify-content: center; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
-  .hero-badges span { font-size: 10.5px; font-weight: 700; color: var(--gold); background: var(--gold-light); padding: 4px 12px; border-radius: 20px; border: 1px solid var(--gold-border); }
+  .hero-main {
+    background: linear-gradient(145deg, var(--bg-card), var(--bg-card)); border: 1.5px solid rgba(5,134,147,0.15);
+    border-radius: 20px; padding: 24px 20px; position: relative; overflow: hidden; text-align: center; margin-bottom: 20px;
+    box-shadow: 0 0 40px rgba(5,134,147,0.04), inset 0 1px 0 rgba(5,134,147,0.05);
+  }
+  .hero-main::before {
+    content: ''; position: absolute; top: -50%; left: -50%; width: 200%; height: 200%;
+    background: conic-gradient(from 0deg at 50% 50%, transparent 0%, rgba(5,134,147,0.04) 20%, transparent 40%, rgba(5,134,147,0.04) 60%, transparent 80%, rgba(5,134,147,0.04) 100%);
+    animation: shimmerRotate 12s linear infinite; pointer-events: none;
+  }
+  .hero-main::after { content: ''; position: absolute; inset: 0; background: radial-gradient(circle at 30% 20%, rgba(5,134,147,0.03), transparent 60%); pointer-events: none; opacity: 0.5; }
+  .hero-main .relative-z { position: relative; z-index: 1; }
+  .hero-main .hero-icon-main { width: 64px; height: 64px; margin: 0 auto 10px; border-radius: 50%; background: rgba(5,134,147,0.06); border: 1.5px solid rgba(5,134,147,0.15); display: flex; align-items: center; justify-content: center; font-size: 28px; color: var(--primary); }
+  .hero-main h1 { font-size: 22px; font-weight: 900; color: var(--primary); margin-bottom: 4px; }
+  .hero-main p { font-size: 12px; color: var(--text-muted); line-height: 1.7; margin: 0 auto; max-width: 400px; }
+  .hero-main .hero-badges { display: flex; justify-content: center; gap: 10px; margin-top: 12px; flex-wrap: wrap; }
+  .hero-main .hero-badges span { font-size: 11px; font-weight: 700; color: var(--primary); background: rgba(5,134,147,0.06); padding: 4px 14px; border-radius: 20px; border: 1px solid rgba(5,134,147,0.08); }
 
   .stats-mini-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-bottom: 14px; }
-  .stat-mini-box { background: var(--card); border: 1px solid var(--border); border-radius: 14px; padding: 10px 4px; text-align: center; box-shadow: 0 4px 16px var(--shadow); }
-  .stat-mini-box .num { font-size: 17px; font-weight: 900; color: var(--ink); line-height: 1.2; }
-  .stat-mini-box .num.gold { color: var(--gold); }
-  .stat-mini-box .label { font-size: 9px; color: var(--faint); margin-top: 2px; font-weight: 500; }
+  .stat-mini-box { background: var(--bg-card); border-radius: var(--radius-md); border: 1px solid rgba(5,134,147,0.04); box-shadow: var(--shadow-sm); padding: 10px 4px; text-align: center; transition: var(--transition-base); }
+  .stat-mini-box:hover { transform: translateY(-2px); box-shadow: var(--shadow-md); }
+  .stat-mini-box .num { font-size: 18px; font-weight: 900; color: var(--text-primary); line-height: 1.2; }
+  .stat-mini-box .num.green { color: #059669; }
+  .stat-mini-box .num.orange { color: #D97706; }
+  .stat-mini-box .num.primary { color: var(--primary); }
+  .stat-mini-box .label { font-size: 9px; color: var(--text-muted); margin-top: 2px; font-weight: 500; }
 
-  .quick-actions { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-bottom: 14px; }
-  .quick-action-btn { padding: 12px 6px; border-radius: 14px; border: 1.5px solid var(--border); background: var(--card); text-align: center; cursor: pointer; font-weight: 700; font-size: 11px; color: var(--ink); font-family: inherit; }
-  .quick-action-btn:hover { border-color: var(--gold-border); }
-  .quick-action-btn i { font-size: 19px; display: block; margin-bottom: 4px; color: var(--gold); }
+  .quick-actions { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-bottom: 14px; }
+  .quick-action-btn { padding: 14px 8px; border-radius: var(--radius-md); border: 2px solid rgba(5,134,147,0.08); background: var(--bg-card); text-align: center; cursor: pointer; transition: var(--transition-base); font-weight: 700; font-size: 12px; color: var(--text-primary); font-family: inherit; }
+  .quick-action-btn:hover { border-color: var(--primary); background: rgba(5,134,147,0.02); transform: translateY(-2px); box-shadow: var(--shadow-md); }
+  .quick-action-btn:active { transform: scale(0.95); }
+  .quick-action-btn i { font-size: 24px; display: block; margin-bottom: 4px; color: var(--primary); }
 
-  .account-item { display: flex; align-items: center; gap: 10px; padding: 10px 12px; background: var(--card); border: 1px solid var(--border); border-radius: 12px; margin-bottom: 8px; }
+  .account-item { display: flex; align-items: center; gap: 10px; padding: 10px 12px; background: var(--bg-card); border: 1px solid rgba(5,134,147,0.04); border-radius: 12px; margin-bottom: 8px; transition: var(--transition-base); }
+  .account-item:hover { box-shadow: var(--shadow-sm); border-color: rgba(5,134,147,0.08); }
   .account-item .info { flex: 1; min-width: 0; }
-  .account-item .info .name { font-size: 13px; font-weight: 700; color: var(--ink); }
-  .account-item .info .status { font-size: 10px; color: var(--muted); margin-top: 2px; }
+  .account-item .info .name { font-size: 13px; font-weight: 700; color: var(--text-primary); }
+  .account-item .info .status { font-size: 10px; color: var(--text-muted); margin-top: 2px; }
 
-  .profile-hero { display: flex; align-items: center; gap: 14px; background: var(--card); border: 1px solid var(--border); border-radius: 18px; padding: 18px; margin-bottom: 14px; box-shadow: 0 4px 16px var(--shadow); }
-  .profile-hero .avatar { width: 56px; height: 56px; font-size: 22px; }
-  .profile-hero .name { font-size: 16px; font-weight: 800; color: var(--ink); }
+  .profile-card { background: var(--bg-card); border-radius: var(--radius-lg); border: 1px solid rgba(5,134,147,0.04); box-shadow: var(--shadow-sm); padding: 20px; margin-bottom: 14px; display: flex; align-items: center; gap: 16px; transition: var(--transition-base); }
+  .profile-card .avatar { width: 64px; height: 64px; font-size: 28px; box-shadow: 0 4px 16px rgba(5,134,147,0.2); }
+  .profile-card .info { flex: 1; }
+  .profile-card .info .name { font-size: 18px; font-weight: 800; color: var(--text-primary); }
+  .profile-card .info .role { font-size: 12px; font-weight: 600; color: var(--primary); background: rgba(5,134,147,0.06); padding: 2px 12px; border-radius: var(--radius-full); display: inline-block; margin-top: 2px; }
 
-  .settings-list { background: var(--card); border-radius: 18px; border: 1px solid var(--border); overflow: hidden; margin-bottom: 14px; box-shadow: 0 4px 16px var(--shadow); }
-  .settings-head { padding: 12px 16px; background: var(--gold-light); border-bottom: 1px solid var(--border); font-size: 12px; font-weight: 700; color: var(--muted); display: flex; align-items: center; gap: 8px; }
-  .settings-item { display: flex; align-items: center; justify-content: space-between; padding: 13px 16px; border-bottom: 1px solid var(--border); cursor: pointer; }
+  .settings-list { background: var(--bg-card); border-radius: var(--radius-lg); border: 1px solid rgba(5,134,147,0.04); box-shadow: var(--shadow-sm); overflow: hidden; margin-bottom: 14px; }
+  .settings-head { padding: 14px 16px; background: rgba(5,134,147,0.04); border-bottom: 1px solid rgba(5,134,147,0.04); font-size: 13px; font-weight: 700; color: var(--text-secondary); display: flex; align-items: center; gap: 10px; }
+  .settings-item { display: flex; align-items: center; justify-content: space-between; padding: 14px 16px; border-bottom: 1px solid rgba(5,134,147,0.04); cursor: pointer; transition: var(--transition-base); }
   .settings-item:last-child { border-bottom: none; }
-  .settings-item:hover { background: var(--card-soft); }
-  .settings-item .left { display: flex; align-items: center; gap: 12px; }
-  .settings-item .icon-wrap { width: 34px; height: 34px; border-radius: 10px; display: flex; align-items: center; justify-content: center; font-size: 15px; flex-shrink: 0; }
-  .settings-item .icon-wrap.primary { background: var(--gold-light); color: var(--gold); }
-  .settings-item .icon-wrap.blue { background: color-mix(in oklch, var(--blue) 14%, transparent); color: var(--blue); }
-  .settings-item .icon-wrap.red { background: color-mix(in oklch, var(--red) 12%, transparent); color: var(--red); }
-  .settings-item .text { font-size: 13px; font-weight: 600; color: var(--ink); display: block; }
-  .settings-item .sub-text { font-size: 10.5px; color: var(--faint); display: block; }
-  .settings-item .chevron { color: var(--faint); font-size: 12px; }
+  .settings-item:hover { background: rgba(5,134,147,0.02); }
+  .settings-item .left { display: flex; align-items: center; gap: 14px; }
+  .settings-item .icon-wrap { width: 36px; height: 36px; border-radius: var(--radius-sm); display: flex; align-items: center; justify-content: center; font-size: 16px; flex-shrink: 0; }
+  .settings-item .icon-wrap.primary { background: rgba(5,134,147,0.08); color: var(--primary); }
+  .settings-item .icon-wrap.blue { background: rgba(59,130,246,0.08); color: #3B82F6; }
+  .settings-item .icon-wrap.red { background: rgba(239,68,68,0.08); color: #EF4444; }
+  .settings-item .text { font-size: 14px; font-weight: 600; color: var(--text-primary); }
+  .settings-item .sub-text { font-size: 11px; color: var(--text-muted); display: block; }
+  .settings-item .chevron { color: var(--text-muted); font-size: 14px; transition: var(--transition-base); }
+  .settings-item:hover .chevron { transform: translateX(-4px); }
 
-  .toggle-switch { position: relative; display: inline-block; width: 42px; height: 23px; flex-shrink: 0; }
+  .toggle-switch { position: relative; display: inline-block; width: 44px; height: 24px; flex-shrink: 0; }
   .toggle-switch input { opacity: 0; width: 0; height: 0; }
-  .toggle-switch .slider { position: absolute; cursor: pointer; inset: 0; background: var(--border-2); border-radius: 999px; transition: .2s; }
-  .toggle-switch .slider:before { position: absolute; content: ''; height: 17px; width: 17px; left: 3px; bottom: 3px; background: #fff; border-radius: 50%; transition: .2s; box-shadow: 0 1px 3px rgba(0,0,0,.2); }
-  .toggle-switch input:checked + .slider { background: var(--gold); }
-  .toggle-switch input:checked + .slider:before { transform: translateX(-19px); }
+  .toggle-switch .slider { position: absolute; cursor: pointer; inset: 0; background: #D1D5DB; border-radius: var(--radius-full); transition: var(--transition-base); box-shadow: inset 0 2px 4px rgba(0,0,0,0.06); }
+  .toggle-switch .slider:before { position: absolute; content: ''; height: 18px; width: 18px; left: 3px; bottom: 3px; background: #fff; border-radius: var(--radius-full); transition: var(--transition-base); box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+  .toggle-switch input:checked + .slider { background: var(--primary); }
+  .toggle-switch input:checked + .slider:before { transform: translateX(20px); }
 
-  .subscription-card { background: var(--card); border: 2px solid var(--gold-border); border-radius: 16px; padding: 18px 16px; text-align: center; margin-bottom: 14px; box-shadow: 0 4px 16px var(--shadow); }
-  .subscription-card .plan-name { font-size: 15px; font-weight: 800; color: var(--ink); }
-  .subscription-card .plan-price { font-size: 26px; font-weight: 900; color: var(--gold); margin: 6px 0; }
+  .subscription-card { background: var(--bg-card); border: 2px solid rgba(5,134,147,0.15); border-radius: 14px; padding: 18px 16px; text-align: center; transition: var(--transition-base); margin-bottom: 14px; }
+  .subscription-card:hover { border-color: var(--primary); box-shadow: var(--shadow-md); }
+  .subscription-card .plan-name { font-size: 16px; font-weight: 800; color: var(--text-primary); }
+  .subscription-card .plan-price { font-size: 28px; font-weight: 900; color: var(--primary); margin: 6px 0; }
 </style>
 </head>
 <body>
+<header class="header-glass">
+  <div class="brand">
+    <div class="logo">و</div>
+    <div class="name">منصة <span>واصل</span></div>
+  </div>
+  <div class="actions">
+    <button class="icon-btn" id="themeBtn" onclick="toggleTheme()" title="المظهر"></button>
+    <button class="icon-btn" id="bellBtn" onclick="toggleNotifPanel()" title="الإشعارات">
+      <i class="fas fa-bell"></i>
+      <span class="badge" id="bellBadge" style="display:none"></span>
+    </button>
+  </div>
+</header>
+
 <div class="confirm-overlay" id="confirmOverlay" onclick="closeConfirmSheet()"></div>
 <div class="confirm-sheet" id="confirmSheet">
   <div class="sheet-handle"></div>
-  <div class="sheet-title">تسجيل الخروج</div>
+  <div class="sheet-title">🚪 تسجيل الخروج</div>
   <div class="sheet-message">هل أنت متأكد من رغبتك في تسجيل الخروج؟</div>
   <div class="sheet-actions">
-    <button class="btn-cancel" onclick="closeConfirmSheet()">إلغاء</button>
-    <button class="btn-confirm" onclick="confirmLogout()">تأكيد</button>
+    <button class="btn-cancel" onclick="closeConfirmSheet()"><i class="fas fa-times"></i> إلغاء</button>
+    <button class="btn-confirm" onclick="confirmLogout()"><i class="fas fa-right-from-bracket"></i> تأكيد</button>
   </div>
 </div>
-<div class="app">
-  <header class="topbar">
-    <span class="text-[11px] text-muted">__USERNAME__</span>
-    <div class="topbar-title" style="display:flex;align-items:center;gap:7px">
-      <svg width="26" height="26" viewBox="0 0 32 32" aria-hidden="true">
-        <defs><linearGradient id="logoGrad" x1="0" y1="0" x2="32" y2="32">
-          <stop offset="0" style="stop-color:var(--gold)"/><stop offset="1" style="stop-color:var(--gold-strong)"/>
-        </linearGradient></defs>
-        <rect x="1" y="1" width="30" height="30" rx="9" fill="url(#logoGrad)"/>
-        <path d="M9 11a2 2 0 012-2h10a2 2 0 012 2v7a2 2 0 01-2 2h-7l-4 4v-4h-1a2 2 0 01-2-2v-7z" fill="#fff"/>
-        <path d="M10.5 15h3l1.5-3 2.5 6 1.5-3h3" fill="none" stroke="url(#logoGrad)" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
-      </svg>
-      <span class="logo-word">واصل لحملات واتساب</span>
-    </div>
-    <div class="topbar-actions">
-      <button class="icon-btn" id="themeBtn" onclick="toggleTheme()"></button>
-      <button class="icon-btn" id="bellBtn" onclick="toggleNotifPanel()"><span class="badge" id="bellBadge" style="display:none"></span></button>
-    </div>
-  </header>
 
-  <div class="notif-panel" id="notifPanel" style="display:none"></div>
+<div class="notif-panel" id="notifPanel" style="display:none"></div>
 
-  <div class="body">
-    <nav class="nav" id="nav">
-      <div class="nav-items">
-        <div class="nav-item" data-s="home" onclick="showSection('home')"></div>
-        <div class="nav-item" data-s="accounts" onclick="showSection('accounts')"></div>
-        <div class="nav-item" data-s="campaigns" onclick="showSection('campaigns')"></div>
-        <div class="nav-item" data-s="analytics" onclick="showSection('analytics')"></div>
-        <div class="nav-item" data-s="autoreply" onclick="showSection('autoreply')"></div>
-        <div class="nav-item" data-s="admin" id="navAdmin" onclick="showSection('admin')"></div>
-        <div class="nav-item" data-s="settings" onclick="showSection('settings')"></div>
-      </div>
-      <div class="profile-card" id="profileCard"></div>
-    </nav>
-    <main class="content"><div class="content-inner" id="content"></div></main>
-  </div>
-
-  <nav class="bottom-tabs" id="bottomTabs">
-    <div class="bottom-tab" data-s="home" onclick="showSection('home')"></div>
-    <div class="bottom-tab" data-s="accounts" onclick="showSection('accounts')"></div>
-    <div class="fab" onclick="showSection('campaigns')" title="بدء حملة جديدة"></div>
-    <div class="bottom-tab" data-s="campaigns" onclick="showSection('campaigns')"></div>
-    <div class="bottom-tab" data-s="autoreply" onclick="showSection('autoreply')"></div>
-    <div class="bottom-tab" data-s="settings" onclick="showSection('settings')"></div>
-  </nav>
+<div class="body">
+  <main class="content"><div class="content-inner" id="content"></div></main>
 </div>
+
+<nav class="bottom-nav-minimal" id="bottomNav">
+  <button class="nav-item" data-s="home" onclick="showSection('home')"></button>
+  <button class="nav-item" data-s="accounts" onclick="showSection('accounts')"></button>
+  <button class="nav-item" data-s="campaigns" onclick="showSection('campaigns')"></button>
+  <button class="nav-item" data-s="analytics" onclick="showSection('analytics')"></button>
+  <button class="nav-item" data-s="autoreply" onclick="showSection('autoreply')"></button>
+  <button class="nav-item" data-s="settings" onclick="showSection('settings')"></button>
+</nav>
 
 <script>
 const IS_ADMIN = __IS_ADMIN__;
@@ -2417,6 +2501,7 @@ const ICONS = {
   analytics: 'fas fa-chart-column', admin: 'fas fa-shield-halved', settings: 'fas fa-gear',
   bell: 'fas fa-bell', sun: 'fas fa-sun', moon: 'fas fa-moon', plus: 'fas fa-plus', whatsapp: 'fab fa-whatsapp',
   logout: 'fas fa-right-from-bracket', ai: 'fas fa-robot', users: 'fas fa-users', payments: 'fas fa-receipt',
+  rocket: 'fas fa-rocket', trophy: 'fas fa-trophy', list: 'fas fa-list', info: 'fas fa-circle-info', clock: 'fas fa-clock',
 };
 function icon(name, size) {
   size = size || 20;
@@ -2427,21 +2512,9 @@ const CURRENT_USER = "__USERNAME__";
 const SECTION_LABELS = { home: 'الرئيسية', accounts: 'حسابي', campaigns: 'الحملات', autoreply: 'الرد الآلي', analytics: 'إحصائيات', admin: 'التحكم', settings: 'الإعدادات' };
 
 function initChrome() {
-  document.getElementById('bellBtn').insertAdjacentHTML('afterbegin', icon('bell'));
-  document.querySelectorAll('.nav-item').forEach(function (el) {
+  document.querySelectorAll('.bottom-nav-minimal .nav-item').forEach(function (el) {
     el.innerHTML = icon(el.dataset.s) + '<span>' + SECTION_LABELS[el.dataset.s] + '</span>';
   });
-  document.querySelectorAll('.bottom-tab').forEach(function (el) {
-    el.innerHTML = icon(el.dataset.s, 20) + SECTION_LABELS[el.dataset.s];
-  });
-  const fab = document.querySelector('.fab');
-  if (fab) fab.innerHTML = icon('plus', 22);
-  if (!IS_ADMIN) document.getElementById('navAdmin').style.display = 'none';
-  const initial = (CURRENT_USER || '؟').trim().charAt(0).toUpperCase();
-  document.getElementById('profileCard').innerHTML =
-    '<div class="avatar avatar-0">' + initial + '</div>' +
-    '<div style="overflow:hidden"><div class="profile-name">' + CURRENT_USER + '</div>' +
-    '<div class="pill pill-green" style="margin-top:3px">' + (IS_ADMIN ? 'أدمن المنصة' : 'مستخدم') + '</div></div>';
 }
 initChrome();
 
@@ -2518,7 +2591,7 @@ function handleSubscriptionError(r, msgElId) {
 /* ---------- التنقل بين الأقسام ---------- */
 function showSection(s) {
   section = s;
-  document.querySelectorAll('.nav-item, .bottom-tab').forEach(n => n.classList.toggle('active', n.dataset.s === s));
+  document.querySelectorAll('.bottom-nav-minimal .nav-item').forEach(n => n.classList.toggle('active', n.dataset.s === s));
   render();
 }
 showSection('home');
@@ -2544,20 +2617,21 @@ async function render() {
 }
 
 /* ---------- قسم الرئيسية ---------- */
-function statMiniHtml(value, label, gold) {
-  return '<div class="stat-mini-box"><div class="num' + (gold ? ' gold' : '') + '">' + value + '</div><div class="label">' + label + '</div></div>';
+function statMiniHtml(value, label, colorClass) {
+  return '<div class="stat-mini-box"><div class="num' + (colorClass ? ' ' + colorClass : '') + '">' + value + '</div><div class="label">' + label + '</div></div>';
 }
 
 function renderHome() {
   const c = document.getElementById('content');
   const displayName = CURRENT_USER.split('@')[0] || CURRENT_USER;
   c.innerHTML =
-    '<div class="hero-main">' +
-      '<div class="hero-icon">' + icon('whatsapp', 24) + '</div>' +
+    '<div class="page-title"><h2>' + icon('home', 18) + ' الرئيسية</h2></div>' +
+    '<div class="hero-main"><div class="relative-z">' +
+      '<div class="hero-icon-main">' + icon('rocket', 28) + '</div>' +
       '<h1>منصة واصل</h1>' +
       '<p>أتمتة حملاتك التسويقية عبر واتساب — أرسل رسائل، صور، وفيديوهات لعملائك بضغطة واحدة.</p>' +
       '<div class="hero-badges"><span>' + icon('campaigns', 11) + ' إرسال جماعي</span><span>' + icon('analytics', 11) + ' تحليلات</span><span>' + icon('autoreply', 11) + ' رد آلي</span></div>' +
-    '</div>' +
+    '</div></div>' +
     '<h2 class="text-sm font-extrabold text-gold mb-1">مرحباً، ' + displayName + '</h2>' +
     '<p class="text-[12px] text-muted mb-3">نظرة عامة على نشاطك</p>' +
     '<div class="stats-mini-row" id="homeStats"><div class="text-muted text-[11px]">جارِ التحميل...</div></div>' +
@@ -2567,14 +2641,27 @@ function renderHome() {
       '<button class="quick-action-btn" onclick="showSection(\\'accounts\\')">' + icon('accounts', 20) + 'حساباتي</button>' +
       '<button class="quick-action-btn" onclick="showSection(\\'settings\\')">' + icon('settings', 20) + 'اشتراك</button>' +
     '</div>' +
-    '<h3 class="text-[12px] font-extrabold text-gold mb-1">حساباتي</h3>' +
-    '<div id="homeAccounts"></div>';
+    '<div class="card">' +
+      '<div class="card-header"><h4>' + icon('accounts', 14) + ' حساباتي</h4><button class="btn-outline" style="width:auto;padding:4px 12px;font-size:10px;margin:0" onclick="addAccount()">' + icon('plus', 10) + ' إضافة</button></div>' +
+      '<div id="homeAccounts"></div>' +
+    '</div>' +
+    '<div class="card">' +
+      '<div class="card-header"><h4>' + icon('clock', 14) + ' آخر الحملات</h4><span style="font-size:11px;color:var(--text-muted);cursor:pointer" onclick="showSection(\\'campaigns\\')">عرض الكل</span></div>' +
+      '<div id="homeHistory"><div class="text-muted text-[11px]">جارِ التحميل...</div></div>' +
+    '</div>';
   fetch('/dashboard/stats').then(r => r.json()).then(d => {
     document.getElementById('homeStats').innerHTML =
-      statMiniHtml(d.messages_sent.toLocaleString(), 'رسائل مرسلة', true) +
-      statMiniHtml(d.success_rate + '%', 'معدل النجاح', false) +
-      statMiniHtml(d.accounts_connected + '/' + d.accounts_total, 'حسابات متصلة', false) +
-      statMiniHtml(d.campaigns_total, 'إجمالي الحملات', false);
+      statMiniHtml(d.messages_sent.toLocaleString(), 'رسائل مرسلة', 'primary') +
+      statMiniHtml(d.accounts_connected + '/' + d.accounts_total, 'حسابات متصلة', 'green') +
+      statMiniHtml(d.campaigns_total, 'إجمالي الحملات', 'orange') +
+      statMiniHtml(d.success_rate + '%', 'معدل النجاح', 'primary');
+  });
+  fetch('/dashboard/campaigns').then(r => r.json()).then(rows => {
+    campaignHistory = rows;
+    campaignHistoryAccName = '';
+    document.getElementById('homeHistory').innerHTML = rows.length
+      ? historyRowsHtml(rows.slice(0, 3))
+      : '<div class="text-muted text-[11px]">ما فيه حملات سابقة</div>';
   });
   const accBox = document.getElementById('homeAccounts');
   accBox.innerHTML = accounts.length
@@ -2582,7 +2669,7 @@ function renderHome() {
         '<div class="account-item">' + avatarHtml(a.name, a.id) +
         '<div class="info"><div class="name">' + a.name + '</div><div class="status"><span class="pill ' + (a.logged_in ? 'pill-green' : 'pill-amber') + '">' + (a.logged_in ? 'متصل' : 'غير متصل') + '</span></div></div></div>'
       ).join('') + (accounts.length > 3 ? '<button class="btn-outline" onclick="showSection(\\'accounts\\')">عرض كل الحسابات</button>' : '')
-    : '<div class="text-muted text-[11px] text-center" style="padding:20px 0">ما عندك حسابات واتساب بعد. <span style="color:var(--gold);cursor:pointer" onclick="showSection(\\'accounts\\')">أضف حساب</span></div>';
+    : '<div class="text-muted text-[11px] text-center" style="padding:20px 0">ما عندك حسابات واتساب بعد. <span style="color:var(--primary);cursor:pointer" onclick="showSection(\\'accounts\\')">أضف حساب</span></div>';
 }
 
 /* ---------- قسم حسابي ---------- */
@@ -2595,12 +2682,12 @@ function avatarHtml(name, seed) {
 
 function renderAccounts() {
   const c = document.getElementById('content');
-  let html = '<h2 class="text-sm font-extrabold text-gold mb-3">' + icon('accounts', 14) + ' حسابي</h2>';
+  let html = '<div class="page-title"><h2>' + icon('accounts', 18) + ' حسابي</h2></div>';
   if (!accounts.length) {
     html += '<div class="empty-state">ما عندك حسابات بعد، ضيف واحد للبدء</div>';
   }
   accounts.forEach(acc => {
-    html += '<div class="dark-card rounded-2xl p-3 mb-3">' +
+    html += '<div class="card">' +
       '<div class="flex items-center gap-2.5 mb-2">' +
       avatarHtml(acc.name, acc.id) +
       '<span class="account-name">' + acc.name + '</span>' +
@@ -2673,17 +2760,17 @@ function renderCampaigns(myGen) {
   if (!accounts.length) { c.innerHTML = '<div class="empty-state">ضيف حساباً من قسم "حسابي" أول</div>'; return; }
   const acc = accounts.find(a => a.id === activeId);
 
-  let html = '<h2 class="text-sm font-extrabold text-gold mb-3">' + icon('campaigns', 14) + ' الحملات</h2>';
+  let html = '<div class="page-title"><h2>' + icon('campaigns', 18) + ' الحملات</h2></div>';
   html += '<label class="field-label">الحساب</label>' + accountSelectHtml('switchCampaignAccount');
 
   if (!acc || !acc.logged_in) {
-    html += '<div class="dark-card rounded-2xl p-4 mt-3 text-center text-muted text-[12px]">هذا الحساب غير متصل بعد — أكمل تسجيل الدخول من قسم "حسابي"</div>';
+    html += '<div class="card text-center text-muted text-[12px]">هذا الحساب غير متصل بعد — أكمل تسجيل الدخول من قسم "حسابي"</div>';
     c.innerHTML = html;
     return;
   }
 
   html +=
-    '<div class="dark-card rounded-2xl p-4 mt-3">' +
+    '<div class="card">' +
     '<label class="field-label">الأرقام (رقم كل سطر، أو مفصولة بفواصل)</label>' +
     '<textarea id="numbersText" rows="4" placeholder="9647701234567&#10;9647709876543"></textarea>' +
     '<button class="btn-outline" id="contactPickerBtn" style="display:none" onclick="pickContacts()">استيراد من جهات الاتصال</button>' +
@@ -2697,7 +2784,7 @@ function renderCampaigns(myGen) {
     '<input id="delay" type="number" min="1" value="15">' +
     '<label class="field-label">جدولة الإرسال (اختياري — اتركه فاضي للإرسال الفوري)</label>' +
     '<input id="sendAt" type="datetime-local">' +
-    '<button class="btn-gold" onclick="startCampaign()">بدء الإرسال</button>' +
+    '<button class="btn-submit" onclick="startCampaign()">' + icon('rocket', 14) + ' بدء الإرسال</button>' +
     '</div>' +
     '<div class="stat-row" id="statRow" style="display:none">' +
     '<div class="stat-cell"><div class="stat-num text-gold" id="statSent">0</div><div class="stat-label">تم الإرسال</div></div>' +
@@ -2705,8 +2792,8 @@ function renderCampaigns(myGen) {
     '<div class="stat-cell"><div class="stat-num text-gold" id="statTotal">0</div><div class="stat-label">الإجمالي</div></div>' +
     '</div>' +
     '<div id="msg" class="text-center text-[12px] font-bold mt-2"></div>' +
-    '<h3 class="text-[12px] font-extrabold text-gold mt-5 mb-1">نتائج الحملات السابقة</h3>' +
-    '<div class="dark-card rounded-2xl p-3" id="historyBox"><div class="text-muted text-[11px]">جارِ التحميل...</div></div>';
+    '<h3 style="font-size:12px;font-weight:800;color:var(--primary);margin:18px 0 8px">جميع الحملات</h3>' +
+    '<div id="historyBox"><div class="text-muted text-[11px]">جارِ التحميل...</div></div>';
 
   c.innerHTML = html;
 
@@ -2720,19 +2807,22 @@ function renderCampaigns(myGen) {
 
 function switchCampaignAccount(id) { activeId = id; render(); }
 
-function historyRowsHtml(rows) {
+function historyRowsHtml(rows, asCards) {
   return rows.length
-    ? rows.map((h, i) =>
-        '<div class="history-row clickable" onclick="showCampaignDetail(' + i + ')">' +
+    ? rows.map((h, i) => {
+        const inner =
           '<div><span class="campaign-name">' + (h.text ? h.text.slice(0, 24) : '(بدون نص)') + '</span>' +
           '<div class="campaign-detail">' + (h.account_name ? h.account_name + ' · ' : '') + h.time + '</div></div>' +
           '<div style="text-align:left">' +
+            (asCards ? '<span style="font-weight:700">' + h.total + ' رسالة</span> ' : '') +
             '<span class="pill pill-green">نجح ' + h.sent + '</span> ' +
             '<span class="pill pill-red">فشل ' + h.failed + '</span>' +
-            '<span class="see-detail">تفاصيل</span>' +
-          '</div>' +
-        '</div>'
-      ).join('')
+            (asCards ? '<span class="see-detail">تفاصيل</span>' : '') +
+          '</div>';
+        return asCards
+          ? '<div class="card" style="padding:14px;cursor:pointer;margin-bottom:10px" onclick="showCampaignDetail(' + i + ')"><div class="history-row">' + inner + '</div></div>'
+          : '<div class="history-row clickable" onclick="showCampaignDetail(' + i + ')">' + inner + '</div>';
+      }).join('')
     : '<div class="text-muted text-[11px]">ما فيه حملات سابقة</div>';
 }
 
@@ -2743,7 +2833,7 @@ async function loadHistory(accId) {
   campaignHistoryAccName = acc ? acc.name : '';
   const box = document.getElementById('historyBox');
   if (!box) return;
-  box.innerHTML = historyRowsHtml(rows);
+  box.innerHTML = historyRowsHtml(rows, true);
 }
 
 function showCampaignDetail(i) {
@@ -2751,15 +2841,17 @@ function showCampaignDetail(i) {
   if (!h) return;
   const c = document.getElementById('content');
   c.innerHTML =
-    '<h2 class="text-sm font-extrabold text-gold mb-3">' + icon('campaigns', 14) + ' تفاصيل الحملة</h2>' +
+    '<div class="page-title"><h2>' + icon('info', 18) + ' تفاصيل الحملة</h2>' +
+      '<button onclick="render()" style="height:36px;padding:0 14px;border:2px solid rgba(5,134,147,0.08);border-radius:var(--radius-sm);background:transparent;color:var(--text-secondary);font-size:12px;font-weight:700;cursor:pointer;font-family:inherit">رجوع</button>' +
+    '</div>' +
     '<div class="campaign-detail-card">' +
-      '<div class="detail-row"><span class="label">النص</span><span class="value">' + (h.text || '(بدون نص)') + '</span></div>' +
-      '<div class="detail-row"><span class="label">الحساب</span><span class="value">' + (h.account_name || campaignHistoryAccName) + '</span></div>' +
-      '<div class="detail-row"><span class="label">تاريخ الإرسال</span><span class="value">' + h.time + '</span></div>' +
-      '<div class="detail-row"><span class="label">الناجح</span><span class="value" style="color:var(--gold)">' + h.sent + '</span></div>' +
-      '<div class="detail-row"><span class="label">الفاشل</span><span class="value" style="color:var(--red)">' + h.failed + '</span></div>' +
-      '<div class="detail-row"><span class="label">الإجمالي</span><span class="value">' + h.total + '</span></div>' +
-      '<div class="detail-row"><span class="label">الحالة</span><span class="value"><span class="pill pill-green">مكتملة</span></span></div>' +
+      '<div class="detail-row"><span class="label">📱 الحساب</span><span class="value">' + (h.account_name || campaignHistoryAccName) + '</span></div>' +
+      '<div class="detail-row"><span class="label">📅 تاريخ الإرسال</span><span class="value">' + h.time + '</span></div>' +
+      '<div class="detail-row"><span class="label">✅ الناجح</span><span class="value" style="color:#059669">' + h.sent + '</span></div>' +
+      '<div class="detail-row"><span class="label">❌ الفاشل</span><span class="value" style="color:#DC2626">' + h.failed + '</span></div>' +
+      '<div class="detail-row"><span class="label">📊 الإجمالي</span><span class="value">' + h.total + '</span></div>' +
+      '<div class="detail-row"><span class="label">📝 نص الرسالة</span><span class="value" style="color:var(--text-muted);font-weight:400">' + (h.text || '(بدون نص)') + '</span></div>' +
+      '<div class="detail-row"><span class="label">📌 الحالة</span><span class="value"><span class="pill pill-green">مكتملة</span></span></div>' +
     '</div>' +
     '<button class="btn-outline" onclick="render()">رجوع إلى قائمة الحملات</button>';
 }
@@ -2820,14 +2912,16 @@ async function refreshCampaignState(accId, myGen) {
 async function renderAnalytics() {
   const c = document.getElementById('content');
   c.innerHTML =
-    '<h2 class="text-sm font-extrabold text-gold mb-3">' + icon('analytics', 14) + ' الإحصائيات</h2>' +
+    '<div class="page-title"><h2>' + icon('analytics', 18) + ' الإحصائيات</h2></div>' +
     '<div class="stats-mini-row" id="analyticsStats" style="grid-template-columns:repeat(3,1fr)"><div class="text-muted text-[11px]">جارِ التحميل...</div></div>' +
-    '<div class="dark-card rounded-2xl p-4 mt-3">' +
-      '<h4 class="text-[12px] font-extrabold text-gold mb-2">' + icon('campaigns', 12) + ' أداء الحملات</h4>' +
+    '<div class="card">' +
+      '<div class="card-header"><h4>' + icon('trophy', 14) + ' أداء الحملات</h4></div>' +
       '<div id="analyticsPerf"><div class="text-muted text-[11px]">جارِ التحميل...</div></div>' +
     '</div>' +
-    '<h3 class="text-[12px] font-extrabold text-gold mt-5 mb-1">توزيع الرسائل حسب الحملة</h3>' +
-    '<div class="dark-card rounded-2xl p-3" id="analyticsHistory"><div class="text-muted text-[11px]">جارِ التحميل...</div></div>';
+    '<div class="card">' +
+      '<div class="card-header"><h4>' + icon('list', 14) + ' توزيع الرسائل حسب الحملة</h4></div>' +
+      '<div id="analyticsHistory"><div class="text-muted text-[11px]">جارِ التحميل...</div></div>' +
+    '</div>';
 
   const [stats, rows] = await Promise.all([
     fetch('/dashboard/stats').then(r => r.json()),
@@ -2835,9 +2929,9 @@ async function renderAnalytics() {
   ]);
 
   document.getElementById('analyticsStats').innerHTML =
-    statMiniHtml(stats.messages_sent.toLocaleString(), 'إجمالي الرسائل', true) +
-    statMiniHtml(stats.success_rate + '%', 'معدل النجاح', false) +
-    statMiniHtml(stats.accounts_total, 'الحسابات', false);
+    statMiniHtml(stats.messages_sent.toLocaleString(), 'إجمالي الرسائل', 'primary') +
+    statMiniHtml(stats.success_rate + '%', 'معدل النجاح', 'green') +
+    statMiniHtml(stats.accounts_total, 'الحسابات', 'orange');
 
   const avgRate = stats.campaigns_total ? Math.round((stats.campaigns_success / stats.campaigns_total) * 100) : 0;
   document.getElementById('analyticsPerf').innerHTML =
@@ -2859,17 +2953,17 @@ function renderAutoReply() {
   if (!accounts.length) { c.innerHTML = '<div class="empty-state">ضيف حساباً من قسم "حسابي" أول</div>'; return; }
   const acc = accounts.find(a => a.id === activeId);
 
-  let html = '<h2 class="text-sm font-extrabold text-gold mb-3">' + icon('autoreply', 14) + ' الرد الآلي</h2>';
+  let html = '<div class="page-title"><h2>' + icon('autoreply', 18) + ' الرد الآلي</h2></div>';
   html += '<label class="field-label">الحساب</label>' + accountSelectHtml('switchAutoReplyAccount');
 
   if (!acc || !acc.logged_in) {
-    html += '<div class="dark-card rounded-2xl p-4 mt-3 text-center text-muted text-[12px]">هذا الحساب غير متصل بعد</div>';
+    html += '<div class="card text-center text-muted text-[12px]">هذا الحساب غير متصل بعد</div>';
     c.innerHTML = html;
     return;
   }
 
   html +=
-    '<div class="dark-card rounded-2xl p-4 mt-3">' +
+    '<div class="card">' +
     '<div class="flex items-center justify-between"><span class="text-[13px] font-bold">تفعيل الرد الآلي لهذا الحساب</span>' +
     '<label class="toggle-switch"><input type="checkbox" id="arEnabled"><span class="slider"></span></label></div>' +
     '<p class="text-[11px] text-muted mt-1">يفحص كل رسالة جديدة تجيك من أي شخص (مو رقم واحد بس)، ويرد أول شي إذا طابقت إحدى الكلمات أدناه.</p>' +
@@ -2930,10 +3024,10 @@ function renderSettings() {
   const initial = (CURRENT_USER || '؟').trim().charAt(0).toUpperCase();
 
   let html =
-    '<h2 class="text-sm font-extrabold text-gold mb-3">' + icon('settings', 14) + ' الإعدادات</h2>' +
-    '<div class="profile-hero">' +
+    '<div class="page-title"><h2>' + icon('settings', 18) + ' الإعدادات</h2></div>' +
+    '<div class="profile-card">' +
       '<div class="avatar avatar-0">' + initial + '</div>' +
-      '<div><div class="name">' + CURRENT_USER + '</div><span class="pill pill-green" style="margin-top:4px">' + (IS_ADMIN ? 'أدمن المنصة' : 'مستخدم') + '</span></div>' +
+      '<div class="info"><div class="name">' + CURRENT_USER + '</div><span class="role">' + (IS_ADMIN ? 'أدمن المنصة' : 'مستخدم') + '</span></div>' +
     '</div>' +
 
     '<div class="settings-list">' +
@@ -2964,7 +3058,7 @@ function renderSettings() {
       '</a>' +
     '</div>' +
 
-    '<button class="btn-danger" onclick="logoutPlatform()">' + icon('logout', 14) + ' تسجيل الخروج من المنصة</button>';
+    '<button class="btn-logout" onclick="logoutPlatform()">' + icon('logout', 14) + ' تسجيل الخروج من المنصة</button>';
 
   c.innerHTML = html;
   loadSubscription();
@@ -2975,20 +3069,24 @@ function renderAdmin() {
   const c = document.getElementById('content');
   if (!IS_ADMIN) { c.innerHTML = '<div class="empty-state">هذا القسم لأدمن المنصة فقط</div>'; return; }
   c.innerHTML =
-    '<h2 class="text-sm font-extrabold text-gold mb-3">' + icon('admin', 14) + ' لوحة التحكم</h2>' +
-    '<h3 class="text-[12px] font-extrabold text-gold mb-1">' + icon('ai', 12) + ' الرد الذكي (DeepSeek)</h3>' +
-    '<div class="dark-card rounded-2xl p-4">' +
+    '<div class="page-title"><h2>' + icon('admin', 18) + ' لوحة التحكم</h2></div>' +
+    '<div class="card">' +
+    '<div class="card-header"><h4>' + icon('ai', 14) + ' الرد الذكي (DeepSeek)</h4></div>' +
     '<label class="field-label">مفتاح API (يُترك فاضي لعدم التغيير)</label>' +
     '<input id="aiKey" type="password" placeholder="sk-...">' +
     '<label class="field-label">قائمة المنتجات والأسعار (يعتمد عليها الرد الذكي)</label>' +
     '<textarea id="aiKb" rows="6" placeholder="مثال:&#10;منتج أ - 10 دولار&#10;منتج ب - 15 دولار"></textarea>' +
-    '<button class="btn-gold" onclick="saveAiSettings()">حفظ إعدادات الأدمن</button>' +
+    '<button class="btn-submit" onclick="saveAiSettings()">حفظ إعدادات الأدمن</button>' +
     '<div id="aiMsg" class="text-center text-[12px] font-bold mt-2"></div>' +
     '</div>' +
-    '<h3 class="text-[12px] font-extrabold text-gold mt-5 mb-1">' + icon('users', 12) + ' العملاء</h3>' +
-    '<div class="dark-card rounded-2xl p-3" id="customersBox"><div class="text-muted text-[11px]">جارِ التحميل...</div></div>' +
-    '<h3 class="text-[12px] font-extrabold text-gold mt-5 mb-1">' + icon('payments', 12) + ' طلبات الدفع بانتظار المراجعة</h3>' +
-    '<div class="dark-card rounded-2xl p-3" id="paymentsBox"><div class="text-muted text-[11px]">جارِ التحميل...</div></div>';
+    '<div class="card">' +
+    '<div class="card-header"><h4>' + icon('users', 14) + ' العملاء</h4></div>' +
+    '<div id="customersBox"><div class="text-muted text-[11px]">جارِ التحميل...</div></div>' +
+    '</div>' +
+    '<div class="card">' +
+    '<div class="card-header"><h4>' + icon('payments', 14) + ' طلبات الدفع بانتظار المراجعة</h4></div>' +
+    '<div id="paymentsBox"><div class="text-muted text-[11px]">جارِ التحميل...</div></div>' +
+    '</div>';
 
   fetch('/admin/ai_settings').then(r => r.json()).then(d => {
     document.getElementById('aiKey').placeholder = d.api_key_set ? 'محفوظ مسبقاً (اتركه فاضي للإبقاء عليه)' : 'sk-...';
@@ -3007,7 +3105,7 @@ async function loadSubscription() {
   if (!box) return;
   let html =
     '<div class="plan-name">' + d.plan_name + '</div>' +
-    '<div class="plan-price">' + d.price_iqd.toLocaleString() + ' <span style="font-size:12px;font-weight:600;color:var(--muted)">د.ع / شهرياً</span></div>';
+    '<div class="plan-price">' + d.price_iqd.toLocaleString() + ' <span style="font-size:12px;font-weight:600;color:var(--text-secondary)">د.ع / شهرياً</span></div>';
   if (d.plan_active) {
     html += '<span class="pill pill-green">خطتك مفعّلة</span>';
   } else if (d.trial_days_left > 0) {
