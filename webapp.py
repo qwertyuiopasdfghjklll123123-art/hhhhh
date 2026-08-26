@@ -183,6 +183,13 @@ def init_db():
             created_at TEXT NOT NULL DEFAULT ''
         )
     """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS site_settings (
+            id INTEGER PRIMARY KEY CHECK (id = 1),
+            port INTEGER,
+            domain TEXT DEFAULT ''
+        )
+    """)
     conn.commit()
     conn.close()
 
@@ -366,6 +373,24 @@ def db_set_ai_settings(api_key, knowledge_base):
         "INSERT INTO ai_settings (id, api_key, knowledge_base) VALUES (1, ?, ?) "
         "ON CONFLICT(id) DO UPDATE SET api_key = excluded.api_key, knowledge_base = excluded.knowledge_base",
         (api_key, knowledge_base),
+    )
+    conn.commit()
+    conn.close()
+
+
+def db_get_site_settings():
+    conn = get_db()
+    row = conn.execute("SELECT * FROM site_settings WHERE id = 1").fetchone()
+    conn.close()
+    return row
+
+
+def db_set_site_settings(port, domain):
+    conn = get_db()
+    conn.execute(
+        "INSERT INTO site_settings (id, port, domain) VALUES (1, ?, ?) "
+        "ON CONFLICT(id) DO UPDATE SET port = excluded.port, domain = excluded.domain",
+        (port, domain),
     )
     conn.commit()
     conn.close()
@@ -924,7 +949,7 @@ p.switch a {{ color:#10d86b; text-decoration:none; font-weight:500; }}
   .subtitle {{ font-size:11px; }}
   .login-card {{ margin:16px 20px 0; padding:14px 16px 14px; border-radius:14px; }}
   .input-group {{ margin-top:8px; }}
-  .input-group input {{ padding:10px 12px; font-size:13px; border-radius:10px; }}
+  .input-group input {{ padding:11px 13px; font-size:14px; border-radius:10px; }}
   .input-group label {{ font-size:10.5px; }}
   .btn-primary {{ height:42px; font-size:13.5px; margin-top:10px; border-radius:12px; }}
   .btn-secondary, .btn-outline {{ height:38px; font-size:12px; margin-top:6px; border-radius:12px; }}
@@ -1433,16 +1458,16 @@ select option {{ background:var(--card-soft); color:var(--ink); }}
 .input-group {{ position:relative; margin-top:12px; text-align:right; }}
 .input-group:first-of-type {{ margin-top:4px; }}
 .input-group label {{ display:block; font-size:11.5px; color:var(--muted); font-weight:500; margin-bottom:4px; }}
-.input-group input, .input-group select {{ width:100%; padding:12px 14px; border-radius:12px; border:1.5px solid var(--border-2); background:var(--card-soft); color:var(--ink); font-size:14px; font-weight:400; }}
+.input-group input, .input-group select {{ width:100%; padding:14px 16px; border-radius:12px; border:1.5px solid var(--border-2); background:var(--card-soft); color:var(--ink); font-size:15.5px; font-weight:400; }}
 .input-group input:focus, .input-group select:focus {{ border-color:var(--gold); background:var(--card); }}
 .input-group input::placeholder {{ color:var(--faint); }}
 
 .phone-input-row {{ display:flex; gap:8px; margin-top:4px; direction:ltr; }}
 .phone-input-row .country-code {{ flex:0 0 100px; }}
-.phone-input-row .country-code select {{ padding:12px 10px; border-radius:12px; border:1.5px solid var(--border-2); background:var(--card-soft); color:var(--ink); font-size:14px; font-weight:500; width:100%; height:100%; direction:ltr; }}
+.phone-input-row .country-code select {{ padding:14px 10px; border-radius:12px; border:1.5px solid var(--border-2); background:var(--card-soft); color:var(--ink); font-size:15.5px; font-weight:500; width:100%; height:100%; direction:ltr; }}
 .phone-input-row .country-code select:focus {{ border-color:var(--gold); background:var(--card); }}
 .phone-input-row .phone-number {{ flex:1; }}
-.phone-input-row .phone-number input {{ width:100%; padding:12px 14px; border-radius:12px; border:1.5px solid var(--border-2); background:var(--card-soft); color:var(--ink); font-size:14px; height:100%; direction:ltr; text-align:left; }}
+.phone-input-row .phone-number input {{ width:100%; padding:14px 16px; border-radius:12px; border:1.5px solid var(--border-2); background:var(--card-soft); color:var(--ink); font-size:15.5px; height:100%; direction:ltr; text-align:left; }}
 .phone-input-row .phone-number input:focus {{ border-color:var(--gold); background:var(--card); }}
 .phone-input-row .phone-number input::placeholder {{ color:var(--faint); text-align:left; }}
 
@@ -1485,9 +1510,9 @@ select option {{ background:var(--card-soft); color:var(--ink); }}
   .qr-box {{ width:140px; height:140px; }}
   .check {{ width:26px; height:26px; right:14px; bottom:4px; border-width:1.5px; }}
   .input-group {{ margin-top:8px; }}
-  .input-group input, .input-group select {{ padding:10px 12px; font-size:13px; border-radius:10px; }}
+  .input-group input, .input-group select {{ padding:11px 13px; font-size:14px; border-radius:10px; }}
   .phone-input-row .country-code {{ flex:0 0 80px; }}
-  .phone-input-row .country-code select, .phone-input-row .phone-number input {{ padding:10px; font-size:13px; border-radius:10px; }}
+  .phone-input-row .country-code select, .phone-input-row .phone-number input {{ padding:11px 13px; font-size:14px; border-radius:10px; }}
   .btn-primary {{ height:42px; font-size:13.5px; margin-top:10px; border-radius:12px; }}
   .btn-outline {{ height:38px; font-size:12px; margin-top:6px; border-radius:12px; }}
   .back {{ width:34px; height:34px; top:10px; right:12px; }}
@@ -2076,6 +2101,33 @@ def set_ai_settings():
     return jsonify(ok=True)
 
 
+@app.route("/admin/site_settings", methods=["GET"])
+@login_required
+@admin_required
+def get_site_settings():
+    row = db_get_site_settings()
+    return jsonify(port=(row["port"] if row else None), domain=(row["domain"] if row else ""))
+
+
+@app.route("/admin/site_settings", methods=["POST"])
+@login_required
+@admin_required
+def set_site_settings():
+    data = request.json or {}
+    port_raw = data.get("port")
+    port = None
+    if port_raw not in (None, ""):
+        try:
+            port = int(port_raw)
+        except (TypeError, ValueError):
+            return jsonify(ok=False, error="رقم المنفذ (Port) لازم يكون رقم صحيح"), 400
+        if not (1 <= port <= 65535):
+            return jsonify(ok=False, error="رقم المنفذ لازم يكون بين 1 و65535"), 400
+    domain = (data.get("domain") or "").strip()
+    db_set_site_settings(port, domain)
+    return jsonify(ok=True)
+
+
 # ---------------------------------------------------------------- الاشتراك والدفع (تحقق يدوي)
 
 @app.route("/subscription")
@@ -2567,7 +2619,7 @@ PAGE = """
 
   .field-label { display: block; margin-top: 16px; margin-bottom: 6px; font-size: 13px; color: var(--text-secondary); font-weight: 700; }
   input, textarea, select {
-    width: 100%; box-sizing: border-box; padding: 12px 16px; font-size: 14px; font-family: inherit;
+    width: 100%; box-sizing: border-box; padding: 14px 16px; font-size: 15.5px; font-family: inherit;
     background: var(--bg); border: 2px solid rgba(5,134,147,0.08); border-radius: var(--radius-sm); color: var(--text-primary);
     transition: var(--transition-base); outline: none;
   }
@@ -2676,10 +2728,6 @@ PAGE = """
   .campaign-detail-card .detail-row:last-child { border-bottom: none; }
   .campaign-detail-card .detail-row .label { color: var(--text-muted); font-weight: 500; flex-shrink: 0; }
   .campaign-detail-card .detail-row .value { font-weight: 700; color: var(--text-primary); text-align: left; }
-
-  .rule-row { display: flex; gap: 8px; align-items: center; margin-top: 8px; }
-  .rule-row input { margin-top: 0; }
-  .rule-remove { flex-shrink: 0; width: 32px; height: 32px; border-radius: 10px; border: 1px solid color-mix(in oklch, var(--red) 35%, transparent); background: transparent; color: var(--red); cursor: pointer; }
 
   .hero-main {
     background: linear-gradient(145deg, var(--bg-card), var(--bg-card)); border: 1.5px solid rgba(5,134,147,0.15);
@@ -2815,6 +2863,7 @@ const ICONS = {
   logout: 'fas fa-right-from-bracket', ai: 'fas fa-robot', users: 'fas fa-users', payments: 'fas fa-receipt',
   rocket: 'fas fa-rocket', trophy: 'fas fa-trophy', list: 'fas fa-list', info: 'fas fa-circle-info', clock: 'fas fa-clock',
   check: 'fas fa-check', checkCircle: 'fas fa-circle-check', warn: 'fas fa-triangle-exclamation', trash: 'fas fa-trash',
+  server: 'fas fa-server',
 };
 function icon(name, size) {
   size = size || 20;
@@ -3335,74 +3384,16 @@ async function renderAnalytics() {
 }
 
 /* ---------- قسم الرد الآلي ---------- */
-let autoReplyRules = [];
-
 function renderAutoReply() {
   const c = document.getElementById('content');
-  if (!accounts.length) { c.innerHTML = '<div class="empty-state">ضيف حساباً من قسم "حسابي" أول</div>'; return; }
-  const acc = accounts.find(a => a.id === activeId);
-
-  let html = '<div class="page-title"><h2>' + icon('autoreply', 18) + ' الرد الآلي</h2></div>';
-  html += '<label class="field-label">الحساب</label>' + accountSelectHtml('switchAutoReplyAccount');
-
-  if (!acc || !acc.logged_in) {
-    html += '<div class="card text-center text-muted text-[12px]">هذا الحساب غير متصل بعد</div>';
-    c.innerHTML = html;
-    return;
-  }
-
-  html +=
+  c.innerHTML =
+    '<div class="page-title"><h2>' + icon('autoreply', 18) + ' الرد الآلي</h2></div>' +
     '<div class="card">' +
-    '<div class="flex items-center justify-between"><span class="text-[13px] font-bold">تفعيل الرد الآلي لهذا الحساب</span>' +
-    '<label class="toggle-switch"><input type="checkbox" id="arEnabled"><span class="slider"></span></label></div>' +
-    '<p class="text-[11px] text-muted mt-1">يفحص كل رسالة جديدة تجيك من أي شخص (مو رقم واحد بس)، ويرد أول شي إذا طابقت إحدى الكلمات أدناه.</p>' +
-    '<label class="field-label">كلمات مفتاحية وردودها (لها الأولوية)</label>' +
-    '<div id="rulesBox" class="mt-1"></div>' +
-    '<button class="btn-outline" onclick="addRule()">' + icon('plus', 12) + ' إضافة كلمة مفتاحية</button>' +
-    '<div class="flex items-center justify-between mt-4"><span class="text-[13px] font-bold">رد بالذكاء الاصطناعي (DeepSeek) لو ما طابقت أي كلمة مفتاحية</span>' +
-    '<label class="toggle-switch"><input type="checkbox" id="arAiEnabled"><span class="slider"></span></label></div>' +
-    '<p class="text-[11px] text-muted mt-1">يحتاج مفتاح DeepSeek محفوظ من قسم الإعدادات (يضيفه أدمن المنصة).</p>' +
-    '<button class="btn-gold" onclick="saveAutoReply()">حفظ</button>' +
-    '<div id="arMsg" class="text-center text-[12px] font-bold mt-2"></div>' +
+    '<div class="empty-state" style="margin-top:14px">' + icon('autoreply', 28) +
+    '<div class="mt-2 font-bold text-[14px]" style="color:var(--text-primary)">هذا القسم قيد التطوير</div>' +
+    '<p class="text-[12px] mt-1">نشتغل حالياً على تحسين دقة الرد الآلي، وبيتوفر قريباً.</p>' +
+    '</div>' +
     '</div>';
-  c.innerHTML = html;
-
-  fetch('/accounts/' + acc.id + '/auto_reply').then(r => r.json()).then(d => {
-    document.getElementById('arEnabled').checked = !!d.enabled;
-    document.getElementById('arAiEnabled').checked = !!d.ai_enabled;
-    autoReplyRules = d.rules && d.rules.length ? d.rules : [{keyword: 'سلام', reply: 'سلام عليكم'}];
-    renderRules();
-  });
-}
-
-function switchAutoReplyAccount(id) { activeId = id; render(); }
-
-function renderRules() {
-  const box = document.getElementById('rulesBox');
-  if (!box) return;
-  box.innerHTML = autoReplyRules.map((r, i) =>
-    '<div class="rule-row">' +
-    '<input placeholder="كلمة مفتاحية" value="' + (r.keyword || '').replace(/"/g, '&quot;') + '" onchange="autoReplyRules[' + i + '].keyword=this.value">' +
-    '<input placeholder="الرد" value="' + (r.reply || '').replace(/"/g, '&quot;') + '" onchange="autoReplyRules[' + i + '].reply=this.value">' +
-    '<button class="rule-remove" onclick="removeRule(' + i + ')">✕</button>' +
-    '</div>'
-  ).join('');
-}
-function addRule() { autoReplyRules.push({keyword: '', reply: ''}); renderRules(); }
-function removeRule(i) { autoReplyRules.splice(i, 1); renderRules(); }
-
-async function saveAutoReply() {
-  const acc = accounts.find(a => a.id === activeId);
-  if (!acc) return;
-  ensureNotifPermission();
-  const enabled = document.getElementById('arEnabled').checked;
-  const aiEnabled = document.getElementById('arAiEnabled').checked;
-  const r = await fetch('/accounts/' + acc.id + '/auto_reply', {
-    method: 'POST', headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({enabled: enabled, ai_enabled: aiEnabled, rules: autoReplyRules})
-  }).then(res => res.json());
-  if (r.ok) document.getElementById('arMsg').innerText = 'تم الحفظ';
-  else if (!handleSubscriptionError(r, 'arMsg')) document.getElementById('arMsg').innerText = 'فشل: ' + r.error;
 }
 
 /* ---------- قسم الإعدادات ---------- */
@@ -3430,7 +3421,7 @@ function renderSettings() {
         '<i class="fas fa-chevron-left chevron"></i>' +
       '</div>' +
       '<div class="settings-item" onclick="showSection(\\'autoreply\\')">' +
-        '<div class="left"><div class="icon-wrap primary">' + icon('autoreply', 15) + '</div><div><span class="text">الرد الآلي</span><span class="sub-text">ردود تلقائية على رسائل عملائك</span></div></div>' +
+        '<div class="left"><div class="icon-wrap primary">' + icon('autoreply', 15) + '</div><div><span class="text">الرد الآلي</span><span class="sub-text">قيد التطوير - يتوفر قريباً</span></div></div>' +
         '<i class="fas fa-chevron-left chevron"></i>' +
       '</div>' +
       (IS_ADMIN ? (
@@ -3473,6 +3464,16 @@ function renderAdmin() {
     '<div id="aiMsg" class="text-center text-[12px] font-bold mt-2"></div>' +
     '</div>' +
     '<div class="card">' +
+    '<div class="card-header"><h4>' + icon('server', 14) + ' إعدادات السيرفر (VPS)</h4></div>' +
+    '<label class="field-label">المنفذ (Port)</label>' +
+    '<input id="sitePort" type="number" min="1" max="65535" placeholder="مثال: 5000">' +
+    '<label class="field-label">الدومين</label>' +
+    '<input id="siteDomain" type="text" placeholder="مثال: example.com" style="direction:ltr; text-align:left">' +
+    '<p class="text-[11px] text-muted mt-1">تغيير المنفذ يحتاج إعادة تشغيل السيرفر يدوياً حتى يشتغل عليه.</p>' +
+    '<button class="btn-submit" onclick="saveSiteSettings()">حفظ</button>' +
+    '<div id="siteMsg" class="text-center text-[12px] font-bold mt-2"></div>' +
+    '</div>' +
+    '<div class="card">' +
     '<div class="card-header"><h4>' + icon('users', 14) + ' العملاء</h4></div>' +
     '<div id="customersBox"><div class="text-muted text-[11px]">جارِ التحميل...</div></div>' +
     '</div>' +
@@ -3484,6 +3485,10 @@ function renderAdmin() {
   fetch('/admin/ai_settings').then(r => r.json()).then(d => {
     document.getElementById('aiKey').placeholder = d.api_key_set ? 'محفوظ مسبقاً (اتركه فاضي للإبقاء عليه)' : 'sk-...';
     document.getElementById('aiKb').value = d.knowledge_base || '';
+  });
+  fetch('/admin/site_settings').then(r => r.json()).then(d => {
+    document.getElementById('sitePort').value = d.port || '';
+    document.getElementById('siteDomain').value = d.domain || '';
   });
   loadCustomers();
   loadPendingPayments();
@@ -3588,6 +3593,14 @@ async function saveAiSettings() {
   document.getElementById('aiKey').value = '';
 }
 
+async function saveSiteSettings() {
+  const r = await fetch('/admin/site_settings', {
+    method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({port: document.getElementById('sitePort').value, domain: document.getElementById('siteDomain').value.trim()})
+  }).then(res => res.json());
+  document.getElementById('siteMsg').innerText = r.ok ? 'تم الحفظ (يحتاج إعادة تشغيل السيرفر ليطبق المنفذ الجديد)' : ('فشل: ' + r.error);
+}
+
 function logoutPlatform() {
   document.getElementById('confirmOverlay').classList.add('show');
   document.getElementById('confirmSheet').classList.add('show');
@@ -3613,4 +3626,6 @@ function confirmLogout() {
 
 if __name__ == "__main__":
     restore_wa_accounts()
-    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)), threaded=True)
+    _site_settings = db_get_site_settings()
+    _configured_port = _site_settings["port"] if _site_settings and _site_settings["port"] else None
+    app.run(host="0.0.0.0", port=_configured_port or int(os.environ.get("PORT", 5000)), threaded=True)
