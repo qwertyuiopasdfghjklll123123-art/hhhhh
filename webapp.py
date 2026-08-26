@@ -1,37 +1,39 @@
 """
-منصة حملات واتساب متعددة الفروع: حساب عام واحد يسجَّل بالبريد الإلكتروني وكلمة
-المرور، ومنه يُنشئ حسابات فروع (بريد/كلمة مرور مستقلة لكل فرع) تسجّل دخولها
-بشكل منفصل وتدير حملاتها الخاصة (بيانات معزولة لكل فرع). تطبيق PWA بشريط تبويب
-أسفل الشاشة على الجوال وقائمة جانبية على اللابتوب، حسابات واتساب متعددة لكل
-حساب (عام أو فرع)، حملات فورية أو مجدولة بموعد واحد أو مقسّمة على عدة أيام
+منصة حملات واتساب متعددة الفروع: أدمن ثابت واحد فقط (بريد/كلمة مرور من
+ADMIN_EMAIL/ADMIN_PASSWORD بالأسفل، أو من متغيرات البيئة بنفس الاسم) هو الوحيد
+اللي يسجّل دخول ويقدر ينشئ حسابات فروع (بريد/كلمة مرور مستقلة لكل فرع، يولّدها
+أو يحددها الأدمن). ما فيه تسجيل حساب ذاتي من الواجهة إطلاقاً - فقط تسجيل دخول.
+كل فرع يسجّل دخوله بشكل منفصل ويدير حملاته الخاصة (بيانات معزولة تماماً عن باقي
+الفروع)، وصلاحياته محصورة بإضافة حسابات واتساب وإدارة حملاتها والإشعارات فقط.
+
+تطبيق PWA بشريط جانبي على سطح المكتب يتحول لقائمة منسدلة على الجوال، حسابات
+واتساب متعددة لكل فرع، حملات فورية أو مجدولة بموعد واحد أو مقسّمة على عدة أيام
 (مثلاً: قسّم 80 رقم على 4 أيام بمعدل 20 يومياً)، رسالة الحملة فيها حقل نص وحقل
-رابط منفصلين يُدمجان بالرسالة المرسلة، رد آلي بكلمات مفتاحية أو بالذكاء
-الاصطناعي (DeepSeek، يفعّله الأدمن)، وضع داكن/نهاري. ما فيه اشتراكات أو فترة
-تجريبية - كل حساب مسجّل يقدر يستخدم المنصة كاملة مباشرة.
+رابط منفصلين يُدمجان بالرسالة المرسلة (نص فقط - بدون إرفاق صور/فيديو/ملفات).
+الأرقام تُكتب بدون رمز الدولة؛ رمز دولة افتراضي (العراق 964 افتراضياً) يُختار
+من قائمة أعلى حقل الأرقام ويُضاف تلقائياً لأي رقم ما يبدأ فيه. ما فيه اشتراكات
+أو فترة تجريبية أو رد آلي - فقط حسابات واتساب وحملات.
 
 تشغيل:
     pip install -r requirements.txt
     python webapp.py
-ثم افتح: http://localhost:5000 (أو http://IP_السيرفر:5000 على VPS)
+ثم افتح: http://localhost:5000 (أو http://IP_السيرفر:5000 على VPS)، وسجّل دخول
+الأدمن مباشرة (لا صفحة إنشاء حساب).
 
-أدمن المنصة حساب ثابت (بريد وكلمة مرور من ADMIN_EMAIL/ADMIN_PASSWORD بالأسفل، أو
-من متغيرات البيئة بنفس الاسم) يُنشأ أو يُحدَّث تلقائياً عند كل إقلاع للسيرفر -
-غيّر القيمتين قبل أي تشغيل فعلي على الإنترنت. أي شخص آخر يسوي "إنشاء حساب" يصير
-حساباً عاماً عادياً (مو أدمن) يقدر يضيف حسابات واتساب وينشئ فروعاً تحته مباشرة.
+الأدمن حساب ثابت يُنشأ أو يُحدَّث تلقائياً عند كل إقلاع للسيرفر بنفس بيانات
+ADMIN_EMAIL/ADMIN_PASSWORD - غيّرها قبل أي تشغيل فعلي على الإنترنت. من لوحة
+تحكمه يقدر يغيّر اسم/شعار الموقع، يشوف ترتيب أفضل الفروع نجاحاً بإرسال حملاتها،
+وينشئ/يحذف حسابات الفروع.
 
 بيانات المستخدمين تُحفظ بملف app.db (SQLite) وتبقى بعد إعادة تشغيل السيرفر،
-وكذلك حسابات واتساب المضافة (اسمها وإعدادات ردها الآلي) تُحفظ وتُستعاد تلقائياً
-عند إقلاع السيرفر من جديد - يعيد ربط كل حساب بجلسة متصفحه المحفوظة بمجلد
-wa_sessions بدون حاجة لمسح رمز QR من جديد، طالما واتساب نفسه ما ألغى ربط الجلسة
-من جهته.
+وكذلك حسابات واتساب المضافة تُحفظ وتُستعاد تلقائياً عند إقلاع السيرفر من جديد -
+يعيد ربط كل حساب بجلسة متصفحه المحفوظة بمجلد wa_sessions بدون حاجة لمسح رمز QR
+من جديد، طالما واتساب نفسه ما ألغى ربط الجلسة من جهته.
 
-ملاحظة صدق: "الرد الآلي" (كلمات مفتاحية أو AI) يعتمد على مراقبة أول محادثة بقائمة
-واتساب بشكل دوري لعدم وجود حدث رسمي "رسالة جديدة"، وهذا أضعف جزء بكل الكود لأنه
-مبني على تخمين لمحددات DOM قابلة للتغيّر — توقّع حاجتها لجولة تصحيح لو ما اشتغلت
-أول مرة، بنفس طريقة تصحيح إرفاق الصور سابقاً. نفس الملاحظة تنطبق على استخدام
-واجهة واتساب ويب بالأتمتة (Selenium) بشكل عام: يخالف شروط استخدام واتساب الرسمية
-للإرسال الآلي/الجماعي، فاستخدمه على مسؤوليتك ولأرقام وافقت فعلاً على استقبال
-رسائلك (تسويق لعملائك الحاليين مثلاً) لا لإرسال رسائل غير مرغوبة.
+ملاحظة صدق: التحكم بواتساب هنا عبر أتمتة متصفح (Selenium) لواجهة واتساب ويب،
+وهذا يخالف شروط استخدام واتساب الرسمية للإرسال الآلي/الجماعي. استخدمه على
+مسؤوليتك ولأرقام وافقت فعلاً على استقبال رسائلك (تسويق لعملائك الحاليين مثلاً)
+لا لإرسال رسائل غير مرغوبة.
 """
 
 import html
@@ -49,7 +51,6 @@ from datetime import datetime, timedelta
 from functools import wraps
 
 import openpyxl
-import requests
 from flask import Flask, Response, jsonify, redirect, request, session
 from selenium import webdriver
 from selenium.webdriver.chrome.service import Service
@@ -65,13 +66,14 @@ DB_PATH = "./app.db"
 SECRET_KEY_PATH = "./secret.key"
 DEFAULT_MESSAGE = "هلوو"
 DEFAULT_DELAY = 15
+DEFAULT_COUNTRY_CODE = "964"  # رمز الدولة الافتراضي (العراق) يُضاف تلقائياً للأرقام اللي ما تبدأ فيه
 EVENTS_MAX = 50
 
 # بيانات دخول أدمن المنصة - ثابتة عمداً (لا تتغيّر بالتسجيل). غيّرها لبياناتك قبل أي
 # تشغيل فعلي، إما هنا مباشرة أو عبر متغيرات البيئة ADMIN_EMAIL / ADMIN_PASSWORD حتى
 # لا تُحفظ كلمة المرور الحقيقية بالكود لو رفعت المشروع لمكان عام
-ADMIN_EMAIL = os.environ.get("ADMIN_EMAIL", "admin@wasel.local")
-ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "ChangeMe@12345")
+ADMIN_EMAIL = os.environ.get("ADMIN_EMAIL", "fastcrand@gmail.com")
+ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "fastcrand1")
 
 DEFAULT_SPLIT_TIME = "10:00"  # وقت الإرسال اليومي الافتراضي للحملات المقسّمة على عدة أيام
 SCHEDULER_POLL_SECONDS = 30  # كل كم ثانية يتحقق خيط الجدولة من دفعات الحملات المستحقة
@@ -95,7 +97,7 @@ app = Flask(__name__)
 app.secret_key = get_or_create_secret_key()
 app.config["PERMANENT_SESSION_LIFETIME"] = timedelta(days=30)
 
-accounts = {}  # id -> {id, owner, name, driver, lock, campaign, history, auto_reply, watching}
+accounts = {}  # id -> {id, owner, name, driver, lock, campaign, history}
 events = []
 events_lock = threading.Lock()
 
@@ -128,20 +130,10 @@ def init_db():
     if "parent_id" not in cols:
         conn.execute("ALTER TABLE users ADD COLUMN parent_id INTEGER")
     conn.execute("""
-        CREATE TABLE IF NOT EXISTS ai_settings (
-            id INTEGER PRIMARY KEY CHECK (id = 1),
-            api_key TEXT DEFAULT '',
-            knowledge_base TEXT DEFAULT ''
-        )
-    """)
-    conn.execute("""
         CREATE TABLE IF NOT EXISTS wa_accounts (
             id TEXT PRIMARY KEY,
             owner INTEGER NOT NULL,
             name TEXT,
-            auto_reply_enabled INTEGER NOT NULL DEFAULT 0,
-            auto_reply_ai_enabled INTEGER NOT NULL DEFAULT 0,
-            auto_reply_rules TEXT NOT NULL DEFAULT '[]',
             created_at TEXT NOT NULL DEFAULT ''
         )
     """)
@@ -173,7 +165,6 @@ def init_db():
             numbers TEXT NOT NULL,
             total INTEGER NOT NULL,
             text TEXT NOT NULL,
-            media_path TEXT,
             delay INTEGER NOT NULL,
             run_date TEXT NOT NULL,
             run_time TEXT NOT NULL,
@@ -284,24 +275,6 @@ def db_delete_branch(branch_id, parent_id):
     conn.close()
 
 
-def db_get_ai_settings():
-    conn = get_db()
-    row = conn.execute("SELECT * FROM ai_settings WHERE id = 1").fetchone()
-    conn.close()
-    return row
-
-
-def db_set_ai_settings(api_key, knowledge_base):
-    conn = get_db()
-    conn.execute(
-        "INSERT INTO ai_settings (id, api_key, knowledge_base) VALUES (1, ?, ?) "
-        "ON CONFLICT(id) DO UPDATE SET api_key = excluded.api_key, knowledge_base = excluded.knowledge_base",
-        (api_key, knowledge_base),
-    )
-    conn.commit()
-    conn.close()
-
-
 def db_get_site_settings():
     conn = get_db()
     row = conn.execute("SELECT * FROM site_settings WHERE id = 1").fetchone()
@@ -350,16 +323,6 @@ def db_save_wa_account(acc_id, owner, name):
     conn.close()
 
 
-def db_update_wa_account_auto_reply(acc_id, enabled, ai_enabled, rules):
-    conn = get_db()
-    conn.execute(
-        "UPDATE wa_accounts SET auto_reply_enabled = ?, auto_reply_ai_enabled = ?, auto_reply_rules = ? WHERE id = ?",
-        (int(enabled), int(ai_enabled), json.dumps(rules, ensure_ascii=False), acc_id),
-    )
-    conn.commit()
-    conn.close()
-
-
 def db_delete_wa_account(acc_id):
     conn = get_db()
     conn.execute("DELETE FROM wa_accounts WHERE id = ?", (acc_id,))
@@ -376,14 +339,14 @@ def db_list_wa_accounts():
 
 # ---------------------------------------------------------------- دفعات الحملات المقسّمة على أيام
 
-def db_create_batch(account_id, owner, day_index, total_days, numbers, text, media_path, delay, run_date, run_time):
+def db_create_batch(account_id, owner, day_index, total_days, numbers, text, delay, run_date, run_time):
     conn = get_db()
     conn.execute(
         "INSERT INTO campaign_batches (account_id, owner, day_index, total_days, numbers, total, text, "
-        "media_path, delay, run_date, run_time, status, created_at) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?)",
+        "delay, run_date, run_time, status, created_at) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?)",
         (account_id, owner, day_index, total_days, json.dumps(numbers), len(numbers), text,
-         media_path, delay, run_date, run_time, datetime.now().strftime("%Y-%m-%d %H:%M")),
+         delay, run_date, run_time, datetime.now().strftime("%Y-%m-%d %H:%M")),
     )
     conn.commit()
     conn.close()
@@ -467,16 +430,6 @@ def admin_required(f):
     return wrapper
 
 
-def general_required(f):
-    """يمنع حسابات الفروع من إنشاء فروع تحتها - فرع مستوى واحد بس تحت كل حساب عام."""
-    @wraps(f)
-    def wrapper(*args, **kwargs):
-        if session.get("parent_id"):
-            return jsonify(ok=False, error="هذا الإجراء متاح فقط للحساب العام، مو لحسابات الفروع"), 403
-        return f(*args, **kwargs)
-    return wrapper
-
-
 def get_owned_account(acc_id):
     acc = accounts.get(acc_id)
     if not acc or acc["owner"] != session.get("user_id"):
@@ -508,11 +461,8 @@ def new_account_entry(acc_id, owner, name):
         "name": name or f"حساب {len(accounts) + 1}",
         "driver": None,
         "lock": threading.Lock(),
-        "ar_lock": threading.Lock(),
         "campaign": {"total": 0, "sent": 0, "failed": 0, "running": False, "failed_numbers": [], "scheduled_for": None},
         "history": [],
-        "auto_reply": {"enabled": False, "ai_enabled": False, "rules": []},
-        "watching": False,
     }
 
 
@@ -554,16 +504,27 @@ def account_logged_in(acc):
     return d is not None and len(d.find_elements(By.ID, "pane-side")) > 0
 
 
-def numbers_from_text(text):
+def normalize_number(digits, default_country_code):
+    """يضيف رمز الدولة الافتراضي لرقم محلي (بعد حذف الصفر الأول لو موجود) لو الرقم ما كان
+    أصلاً يبدأ برمز دولة (حتى المستخدم ما يحتاج يكتب رمز الدولة مع كل رقم بالقائمة)."""
+    if default_country_code and not digits.startswith(default_country_code):
+        digits = default_country_code + digits.lstrip("0")
+    return digits
+
+
+def numbers_from_text(text, default_country_code=""):
     numbers = []
     for part in re.split(r"[,\n\r]+", text):
         digits = re.sub(r"\D", "", part)
+        if not digits:
+            continue
+        digits = normalize_number(digits, default_country_code)
         if len(digits) >= 8:
             numbers.append(digits)
     return numbers
 
 
-def numbers_from_excel(file_storage):
+def numbers_from_excel(file_storage, default_country_code=""):
     wb = openpyxl.load_workbook(file_storage.stream, read_only=True)
     numbers = []
     for row in wb.active.iter_rows(values_only=True):
@@ -573,46 +534,31 @@ def numbers_from_excel(file_storage):
         if isinstance(value, float) and value.is_integer():
             value = int(value)
         digits = re.sub(r"\D", "", str(value))
+        if not digits:
+            continue
+        digits = normalize_number(digits, default_country_code)
         if len(digits) >= 8:
             numbers.append(digits)
     return numbers
 
 
-def send_to(driver, number, text, media_path=None):
-    if media_path:
-        driver.get(f"https://web.whatsapp.com/send?phone={number}")
-    else:
-        driver.get(f"https://web.whatsapp.com/send?phone={number}&text={urllib.parse.quote(text)}")
+def send_to(driver, number, text):
+    driver.get(f"https://web.whatsapp.com/send?phone={number}&text={urllib.parse.quote(text)}")
     WebDriverWait(driver, 30).until(
         EC.presence_of_element_located((By.XPATH, '//footer//div[@contenteditable="true"]'))
     )
-    if media_path:
-        # نتفادى الضغط على أيقونة "إرفاق" (تتغير بتحديثات واتساب) ونستخدم حقل رفع الملف مباشرة
-        file_inputs = driver.find_elements(By.CSS_SELECTOR, 'input[type="file"]')
-        if not file_inputs:
-            raise RuntimeError("ما لقيت عنصر رفع الملفات بواجهة واتساب")
-        file_inputs[0].send_keys(media_path)
-        caption_box = WebDriverWait(driver, 25).until(
-            EC.presence_of_element_located((By.XPATH, '//div[@contenteditable="true"][@data-tab]'))
-        )
-        if text:
-            caption_box.send_keys(text)
-        time.sleep(2)
-        caption_box.send_keys(Keys.ENTER)
-        time.sleep(3)  # مهلة أطول حتى يكتمل رفع الملف قبل الانتقال للرقم التالي
-    else:
-        time.sleep(2)  # مهلة حتى يكتمل تعبئة نص الرسالة تلقائياً بالحقل قبل الإرسال
-        driver.switch_to.active_element.send_keys(Keys.ENTER)
+    time.sleep(2)  # مهلة حتى يكتمل تعبئة نص الرسالة تلقائياً بالحقل قبل الإرسال
+    driver.switch_to.active_element.send_keys(Keys.ENTER)
 
 
-def run_campaign(acc, numbers, text, delay, media_path):
+def run_campaign(acc, numbers, text, delay):
     state = acc["campaign"]
     started = datetime.now().strftime("%Y-%m-%d %H:%M")
     add_event(acc["owner"], acc["name"], "بدأت حملة جديدة", f'جارِ إرسال {state["total"]} رسالة', kind="info")
     for i, number in enumerate(numbers):
         with acc["lock"]:
             try:
-                send_to(acc["driver"], number, text, media_path)
+                send_to(acc["driver"], number, text)
                 state["sent"] += 1
             except Exception:
                 state["failed"] += 1
@@ -627,7 +573,7 @@ def run_campaign(acc, numbers, text, delay, media_path):
     add_event(acc["owner"], acc["name"], "اكتملت الحملة", f'نجح {state["sent"]} من {state["total"]}، فشل {state["failed"]}', kind=finish_kind)
 
 
-def run_campaign_batch(acc, batch_id, day_index, total_days, numbers, text, delay, media_path):
+def run_campaign_batch(acc, batch_id, day_index, total_days, numbers, text, delay):
     """يرسل دفعة يوم واحد من حملة مقسّمة على عدة أيام، ويحدّث سجل campaign_batches بدل
     الاعتماد على acc['campaign'] وحده لأن هذا يتكرر عدة مرات (يوم بعد يوم) لنفس الحساب."""
     state = acc["campaign"]
@@ -641,7 +587,7 @@ def run_campaign_batch(acc, batch_id, day_index, total_days, numbers, text, dela
     for i, number in enumerate(numbers):
         with acc["lock"]:
             try:
-                send_to(acc["driver"], number, text, media_path)
+                send_to(acc["driver"], number, text)
                 sent += 1
             except Exception:
                 failed += 1
@@ -683,7 +629,7 @@ def scheduler_loop():
                 db_mark_batch_running(row["id"])
                 threading.Thread(
                     target=run_campaign_batch,
-                    args=(acc, row["id"], row["day_index"], row["total_days"], numbers, row["text"], row["delay"], row["media_path"]),
+                    args=(acc, row["id"], row["day_index"], row["total_days"], numbers, row["text"], row["delay"]),
                     daemon=True,
                 ).start()
         except Exception as e:
@@ -691,142 +637,9 @@ def scheduler_loop():
         time.sleep(SCHEDULER_POLL_SECONDS)
 
 
-def ai_reply(customer_message):
-    settings = db_get_ai_settings()
-    if not settings or not settings["api_key"]:
-        print("[رد آلي] لا يوجد مفتاح DeepSeek محفوظ بقسم إعدادات الأدمن")
-        return None
-    try:
-        resp = requests.post(
-            "https://api.deepseek.com/chat/completions",
-            headers={"Authorization": f"Bearer {settings['api_key']}", "Content-Type": "application/json"},
-            json={
-                "model": "deepseek-chat",
-                "messages": [
-                    {
-                        "role": "system",
-                        "content": (
-                            "أنت مساعد خدمة عملاء لمتجر عبر واتساب. هذه قائمة المنتجات والأسعار "
-                            "التي تعتمد عليها فقط بالرد:\n" + settings["knowledge_base"] +
-                            "\nرد بإيجاز ووضوح باللهجة العربية، ولا تخترع معلومات غير موجودة أعلاه."
-                        ),
-                    },
-                    {"role": "user", "content": customer_message},
-                ],
-            },
-            timeout=25,
-        )
-        resp.raise_for_status()
-        return resp.json()["choices"][0]["message"]["content"].strip()
-    except Exception as e:
-        print(f"[رد آلي] فشل استدعاء DeepSeek: {e}")
-        return None
-
-
-def watch_account(acc_id):
-    """مراقبة أفضل-جهد لعدة محادثات بالقائمة (مو الأولى بس)، ورد بكلمة مفتاحية إن وجدت
-    وإلا بالذكاء الاصطناعي إن كان مفعّل. تطبع خطوات التشخيص بالتيرمنل للمساعدة بالتصحيح."""
-    last_seen = {}
-    diag_dumped = False
-    diag2_dumped = False
-    print(f"[رد آلي] بدأت المراقبة لحساب {accounts.get(acc_id, {}).get('name', acc_id)}")
-    while True:
-        acc = accounts.get(acc_id)
-        if not acc or not acc.get("watching") or acc["driver"] is None:
-            print(f"[رد آلي] توقفت المراقبة لحساب {acc_id}")
-            return
-        try:
-            with acc["lock"]:
-                driver = acc["driver"]
-                if not account_logged_in(acc):
-                    print(f"[رد آلي] {acc['name']}: الحساب غير مسجل دخول بعد (لا يوجد pane-side)، تخطي هذه الدورة")
-                else:
-                    try:
-                        driver.find_element(By.TAG_NAME, "body").send_keys(Keys.ESCAPE)
-                    except Exception:
-                        pass
-                    chat_items = driver.find_elements(By.CSS_SELECTOR, '#pane-side [data-testid="cell-frame-container"]')[:8]
-                    print(f"[رد آلي] {acc['name']}: فحص {len(chat_items)} محادثة")
-                    if len(chat_items) == 0 and not diag_dumped:
-                        diag_dumped = True
-                        try:
-                            total_inside = len(driver.find_elements(By.CSS_SELECTOR, "#pane-side *"))
-                            probe = {}
-                            for sel in ['div[role="listitem"]', 'div[role="row"]', '[data-testid="cell-frame-container"]', "div[tabindex]"]:
-                                try:
-                                    probe[sel] = len(driver.find_elements(By.CSS_SELECTOR, f"#pane-side {sel}"))
-                                except Exception:
-                                    probe[sel] = "خطأ"
-                            print(f"[رد آلي] {acc['name']}: تشخيص - إجمالي عناصر داخل pane-side: {total_inside}, محددات مرشحة: {probe}")
-                        except Exception as diag_e:
-                            print(f"[رد آلي] {acc['name']}: تعذر أخذ لقطة تشخيصية: {diag_e}")
-                    names_ok = names_fail = text_found = 0
-                    for item in chat_items:
-                        try:
-                            chat_name = item.find_element(By.CSS_SELECTOR, "span[title]").get_attribute("title") or "غير معروف"
-                            names_ok += 1
-                        except Exception:
-                            names_fail += 1
-                            continue
-                        driver.execute_script("arguments[0].click();", item)
-                        time.sleep(1.2)
-                        incoming = driver.find_elements(By.CSS_SELECTOR, "div.message-in .selectable-text span")
-                        last_text = incoming[-1].text.strip() if incoming else ""
-                        if last_text:
-                            text_found += 1
-                        if not last_text or last_seen.get(chat_name) == last_text:
-                            continue
-                        last_seen[chat_name] = last_text
-                        print(f"[رد آلي] رسالة جديدة من {chat_name}: {last_text[:50]}")
-
-                        reply_text = None
-                        for rule in acc["auto_reply"]["rules"]:
-                            if rule["keyword"] and rule["keyword"] in last_text:
-                                reply_text = rule["reply"]
-                                print(f"[رد آلي] طابقت كلمة مفتاحية: {rule['keyword']}")
-                                break
-                        if not reply_text and acc["auto_reply"].get("ai_enabled"):
-                            reply_text = ai_reply(last_text)
-
-                        if reply_text:
-                            box = driver.find_element(By.XPATH, '//footer//div[@contenteditable="true"]')
-                            box.send_keys(reply_text)
-                            box.send_keys(Keys.ENTER)
-                            add_event(acc["owner"], acc["name"], "رد تلقائي", f"{chat_name}: {reply_text[:60]}", kind="info")
-                            print(f"[رد آلي] رديت على {chat_name}: {reply_text[:50]}")
-                        else:
-                            print(f"[رد آلي] ما فيه رد مطابق لرسالة {chat_name} (لا كلمة مفتاحية ولا AI مفعّل/شغّال)")
-                    if chat_items and not diag2_dumped:
-                        diag2_dumped = True
-                        print(f"[رد آلي] {acc['name']}: تشخيص٢ - استخراج اسم نجح لـ {names_ok}/{len(chat_items)}, رسائل واردة موجودة لـ {text_found}/{len(chat_items)}")
-                        if names_fail > 0:
-                            try:
-                                print(f"[رد آلي] {acc['name']}: عينة HTML لأول محادثة:\n{chat_items[0].get_attribute('outerHTML')[:1200]}")
-                            except Exception as diag2_e:
-                                print(f"[رد آلي] {acc['name']}: تعذر أخذ عينة HTML: {diag2_e}")
-                        if names_ok > 0 and text_found == 0:
-                            try:
-                                main_total = len(driver.find_elements(By.CSS_SELECTOR, "#main *"))
-                                probe3 = {}
-                                for sel in ["div.message-in", "div.message-out", ".selectable-text",
-                                            '[data-testid="conversation-panel-messages"]',
-                                            '[data-testid="msg-container"]', "div.copyable-text"]:
-                                    try:
-                                        probe3[sel] = len(driver.find_elements(By.CSS_SELECTOR, f"#main {sel}"))
-                                    except Exception:
-                                        probe3[sel] = "خطأ"
-                                print(f"[رد آلي] {acc['name']}: تشخيص٣ - إجمالي عناصر داخل #main: {main_total}, محددات مرشحة: {probe3}")
-                            except Exception as diag3_e:
-                                print(f"[رد آلي] {acc['name']}: تعذر أخذ تشخيص٣: {diag3_e}")
-        except Exception as e:
-            print(f"[رد آلي] خطأ بدورة المراقبة: {e}")
-        time.sleep(6)
-
-
 def restore_one_account(acc_id):
     """يشغّل متصفح الحساب ويعيد ربطه بنفس جلسة واتساب المحفوظة بمجلد wa_sessions (بدون
-    QR جديد طالما واتساب ما ألغى الجلسة)، ثم يبدأ مراقبة الرد الآلي بعد اكتمال تشغيل
-    المتصفح فعلياً - ليس بالتوازي معه - حتى لا تنتهي watch_account فوراً لأن driver لسا None."""
+    QR جديد طالما واتساب ما ألغى الجلسة)."""
     acc = accounts.get(acc_id)
     if not acc:
         return
@@ -834,10 +647,6 @@ def restore_one_account(acc_id):
         start_account_driver(acc_id)
     except Exception as e:
         print(f"[استعادة حسابات] فشل تشغيل متصفح الحساب {acc.get('name', acc_id)}: {e}")
-        return
-    if acc["auto_reply"]["enabled"]:
-        acc["watching"] = True
-        watch_account(acc_id)
 
 
 def restore_wa_accounts():
@@ -847,15 +656,6 @@ def restore_wa_accounts():
     for row in rows:
         acc_id = row["id"]
         accounts[acc_id] = new_account_entry(acc_id, row["owner"], row["name"])
-        try:
-            rules = json.loads(row["auto_reply_rules"] or "[]")
-        except (ValueError, TypeError):
-            rules = []
-        accounts[acc_id]["auto_reply"] = {
-            "enabled": bool(row["auto_reply_enabled"]),
-            "ai_enabled": bool(row["auto_reply_ai_enabled"]),
-            "rules": rules,
-        }
         threading.Thread(target=restore_one_account, args=(acc_id,), daemon=True).start()
     if rows:
         print(f"[استعادة حسابات] استعادة {len(rows)} حساب واتساب من قاعدة البيانات...")
@@ -874,14 +674,12 @@ def logo_svg(size=32):
     </svg>"""
 
 
-def render_auth_page(title, action, switch_html, error):
+def render_auth_page(title, action, error):
     error_html = f'<p class="status-msg error">{error}</p>' if error else ""
     site = db_get_site_settings()
     site_name = html.escape(site["site_name"]) if site and site["site_name"] else "واصل"
     logo_html = '<img src="/site_logo" alt="" style="width:100%;height:100%;object-fit:cover;border-radius:inherit">' if (site and site["logo_path"]) else logo_svg(38)
-    is_login = action == "/login"
-    if is_login:
-        email_fields = f"""
+    email_fields = f"""
         <div class="input-group">
           <label>البريد الإلكتروني</label>
           <input type="email" name="email" placeholder="example@domain.com" dir="ltr" required>
@@ -895,23 +693,6 @@ def render_auth_page(title, action, switch_html, error):
           <a href="#" class="forgot-link" onclick="showForgot(event)">نسيت كلمة المرور؟</a>
         </div>
         <button class="btn-primary" type="submit">تسجيل الدخول {ICON_LOGIN_ARROW}</button>"""
-        email_secondary = '<a href="/signup" class="btn-secondary">إنشاء حساب جديد</a>'
-    else:
-        email_fields = f"""
-        <div class="input-group">
-          <label>الاسم الكامل</label>
-          <input type="text" name="name" placeholder="أحمد محمد" required>
-        </div>
-        <div class="input-group">
-          <label>البريد الإلكتروني</label>
-          <input type="email" name="email" placeholder="example@domain.com" dir="ltr" required>
-        </div>
-        <div class="input-group">
-          <label>كلمة المرور</label>
-          <input type="password" name="password" placeholder="•••••••• (6 أحرف على الأقل)" required>
-        </div>
-        <button class="btn-primary" type="submit">إنشاء حساب {ICON_PERSON_ADD}</button>"""
-        email_secondary = '<a href="/login" class="btn-outline">عودة لتسجيل الدخول</a>'
     return f"""
 <!doctype html>
 <html lang="ar" dir="rtl">
@@ -996,11 +777,7 @@ p.switch a {{ color:#006b73; font-weight:700; }}
     {error_html}
     <form method="post" action="{action}">{email_fields}
     </form>
-    {email_secondary}
     <div class="status-msg" id="emailStatus"></div>
-
-    {switch_html}
-    <div class="terms">بالتسجيل، فإنك توافق على <span class="terms-link">الشروط والأحكام</span> و<span class="terms-link">سياسة الخصوصية</span></div>
   </div>
 </div>
 
@@ -1061,56 +838,21 @@ EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
 @app.route("/login", methods=["GET", "POST"])
 def login_page():
-    switch = '<p class="switch">ما عندك حساب؟ <a href="/signup">أنشئ حساب</a></p>'
     if request.method == "GET":
         if session.get("user_id"):
             return redirect("/app")
-        return render_auth_page("تسجيل الدخول", "/login", switch, "")
+        return render_auth_page("تسجيل الدخول", "/login", "")
     email = request.form.get("email", "").strip().lower()
     password = request.form.get("password", "")
     user = db_get_user_by_email(email)
     if not user or not check_password_hash(user["password_hash"], password):
-        return render_auth_page("تسجيل الدخول", "/login", switch, "البريد الإلكتروني أو كلمة المرور غير صحيحة")
+        return render_auth_page("تسجيل الدخول", "/login", "البريد الإلكتروني أو كلمة المرور غير صحيحة")
     session["user_id"] = user["id"]
     session["email"] = user["email"]
     session["name"] = user["name"]
     session["is_admin"] = bool(user["is_admin"])
     session["parent_id"] = user["parent_id"]
     session.permanent = bool(request.form.get("remember"))
-    return redirect("/")
-
-
-@app.route("/signup", methods=["GET", "POST"])
-def signup_page():
-    switch = '<p class="switch">عندك حساب؟ <a href="/login">سجّل الدخول</a></p>'
-    if request.method == "GET":
-        if session.get("user_id"):
-            return redirect("/app")
-        return render_auth_page("إنشاء حساب", "/signup", switch, "")
-    name = request.form.get("name", "").strip()
-    email = request.form.get("email", "").strip().lower()
-    password = request.form.get("password", "")
-    if not name or not email or not password:
-        return render_auth_page("إنشاء حساب", "/signup", switch, "عبّي كل الحقول")
-    if not EMAIL_RE.match(email):
-        return render_auth_page("إنشاء حساب", "/signup", switch, "أدخل بريد إلكتروني صحيح")
-    if len(password) < 6:
-        return render_auth_page("إنشاء حساب", "/signup", switch, "كلمة المرور لازم تكون 6 أحرف على الأقل")
-    if db_get_user_by_email(email):
-        return render_auth_page("إنشاء حساب", "/signup", switch, "هذا البريد مسجّل من قبل")
-    # كل من يسجّل بنفسه يصير حساباً عاماً (مو فرعاً ومو أدمن) - يقدر يضيف حسابات واتساب
-    # وينشئ فروعاً تحته مباشرة من قسم الإعدادات؛ أدمن المنصة حساب ثابت واحد فقط (ensure_admin_user)
-    user_id = db_create_user(email, generate_password_hash(password), name, parent_id=None, is_admin=False)
-    add_event(
-        user_id, None, "مرحباً بك في واصل",
-        "تم إنشاء حسابك العام بنجاح - أضف حساب واتساب وابدأ حملتك الأولى، أو أنشئ فروعاً من قسم الإعدادات",
-        kind="success",
-    )
-    session["user_id"] = user_id
-    session["email"] = email
-    session["name"] = name
-    session["is_admin"] = False
-    session["parent_id"] = None
     return redirect("/")
 
 
@@ -1149,7 +891,6 @@ def app_home():
     has_logo = bool(site and site["logo_path"])
     username = session.get("name") or session.get("email", "")
     page = PAGE.replace("__IS_ADMIN__", "true" if session.get("is_admin") else "false")
-    page = page.replace("__IS_GENERAL__", "false" if session.get("parent_id") else "true")
     page = page.replace("__USERNAME__", html.escape(username)).replace("__USERNAME_JSON__", json.dumps(username))
     page = page.replace("__SITE_NAME__", html.escape(site_name)).replace("__SITE_NAME_JSON__", json.dumps(site_name))
     page = page.replace("__HAS_LOGO__", "true" if has_logo else "false")
@@ -1244,30 +985,6 @@ def delete_event(event_id):
     return jsonify(ok=False, error="غير موجود"), 404
 
 
-# ---------------------------------------------------------------- إعدادات الأدمن (AI)
-
-@app.route("/admin/ai_settings", methods=["GET"])
-@login_required
-@admin_required
-def get_ai_settings():
-    row = db_get_ai_settings()
-    return jsonify(api_key_set=bool(row and row["api_key"]), knowledge_base=(row["knowledge_base"] if row else ""))
-
-
-@app.route("/admin/ai_settings", methods=["POST"])
-@login_required
-@admin_required
-def set_ai_settings():
-    data = request.json or {}
-    existing = db_get_ai_settings()
-    api_key = (data.get("api_key") or "").strip()
-    if not api_key and existing:
-        api_key = existing["api_key"]
-    knowledge_base = data.get("knowledge_base") or ""
-    db_set_ai_settings(api_key, knowledge_base)
-    return jsonify(ok=True)
-
-
 @app.route("/admin/site_settings", methods=["GET"])
 @login_required
 @admin_required
@@ -1360,7 +1077,7 @@ def site_logo():
     return Response(data, mimetype=mimetype)
 
 
-# ---------------------------------------------------------------- الفروع (حساب عام -> فروعه)
+# ---------------------------------------------------------------- الفروع (الأدمن ينشئها وحده)
 
 def generate_branch_password():
     return secrets.token_urlsafe(9)
@@ -1368,7 +1085,7 @@ def generate_branch_password():
 
 @app.route("/branches", methods=["GET"])
 @login_required
-@general_required
+@admin_required
 def list_branches():
     rows = db_list_branches(session["user_id"])
     return jsonify([{"id": r["id"], "email": r["email"], "name": r["name"], "created_at": r["created_at"]} for r in rows])
@@ -1376,7 +1093,7 @@ def list_branches():
 
 @app.route("/branches", methods=["POST"])
 @login_required
-@general_required
+@admin_required
 def create_branch():
     data = request.json or {}
     name = (data.get("name") or "").strip()
@@ -1399,7 +1116,7 @@ def create_branch():
 
 @app.route("/branches/<int:branch_id>", methods=["DELETE"])
 @login_required
-@general_required
+@admin_required
 def delete_branch(branch_id):
     row = db_get_branch(branch_id, session["user_id"])
     if not row:
@@ -1410,7 +1127,6 @@ def delete_branch(branch_id):
             continue
         acc = accounts.pop(wa["id"], None)
         if acc:
-            acc["watching"] = False
             if acc["driver"] is not None:
                 try:
                     acc["driver"].quit()
@@ -1524,7 +1240,6 @@ def account_logout(acc_id):
     acc = get_owned_account(acc_id)
     if not acc:
         return jsonify(ok=False, error="حساب غير موجود"), 404
-    acc["watching"] = False
     if acc["driver"] is not None:
         try:
             acc["driver"].quit()
@@ -1575,10 +1290,11 @@ def campaign(acc_id):
     if acc["campaign"]["running"]:
         return jsonify(ok=False, error="فيه حملة شغالة أو مجدولة حالياً على هذا الحساب"), 400
 
-    numbers = list(numbers_from_text(request.form.get("numbers_text", "")))
+    country_code = re.sub(r"\D", "", request.form.get("country_code", "")) or DEFAULT_COUNTRY_CODE
+    numbers = list(numbers_from_text(request.form.get("numbers_text", ""), country_code))
     file = request.files.get("numbers_file")
     if file and file.filename:
-        numbers += numbers_from_excel(file)
+        numbers += numbers_from_excel(file, country_code)
     numbers = list(dict.fromkeys(numbers))  # إزالة التكرار مع حفظ الترتيب
 
     if not numbers:
@@ -1593,13 +1309,6 @@ def campaign(acc_id):
         delay = max(1, int(request.form.get("delay", DEFAULT_DELAY)))
     except (TypeError, ValueError):
         delay = DEFAULT_DELAY
-
-    media_path = None
-    media = request.files.get("media_file")
-    if media and media.filename:
-        os.makedirs(UPLOADS_DIR, exist_ok=True)
-        media_path = os.path.abspath(os.path.join(UPLOADS_DIR, f"{uuid.uuid4().hex}_{media.filename}"))
-        media.save(media_path)
 
     split_mode = request.form.get("split_mode", "none")
     if split_mode in ("count", "days"):
@@ -1627,7 +1336,7 @@ def campaign(acc_id):
         total_days = len(chunks)
         for i, chunk in enumerate(chunks):
             run_date = (start_date + timedelta(days=i)).strftime("%Y-%m-%d")
-            db_create_batch(acc_id, acc["owner"], i + 1, total_days, chunk, text, media_path, delay, run_date, send_time)
+            db_create_batch(acc_id, acc["owner"], i + 1, total_days, chunk, text, delay, run_date, send_time)
         add_event(
             acc["owner"], acc["name"], "تمت جدولة حملة مقسّمة على أيام",
             f"{len(numbers)} رقم على {total_days} يوم (~{per_day} يومياً)، ابتداءً من {start_date.strftime('%Y-%m-%d')} الساعة {send_time}",
@@ -1652,11 +1361,11 @@ def campaign(acc_id):
 
         def delayed():
             time.sleep(wait_seconds)
-            run_campaign(acc, numbers, text, delay, media_path)
+            run_campaign(acc, numbers, text, delay)
 
         threading.Thread(target=delayed, daemon=True).start()
     else:
-        threading.Thread(target=run_campaign, args=(acc, numbers, text, delay, media_path), daemon=True).start()
+        threading.Thread(target=run_campaign, args=(acc, numbers, text, delay), daemon=True).start()
 
     return jsonify(ok=True, total=len(numbers), scheduled_for=acc["campaign"]["scheduled_for"], split=False)
 
@@ -1696,39 +1405,6 @@ def cancel_campaign_batch(acc_id, batch_id):
     return jsonify(ok=ok, error=None if ok else "ما قدرنا نلغي هذه الدفعة (يمكن صارت شغالة أو خلصت)")
 
 
-@app.route("/accounts/<acc_id>/auto_reply", methods=["GET"])
-@login_required
-def get_auto_reply(acc_id):
-    acc = get_owned_account(acc_id)
-    if not acc:
-        return jsonify(enabled=False, ai_enabled=False, rules=[])
-    return jsonify(**acc["auto_reply"])
-
-
-@app.route("/accounts/<acc_id>/auto_reply", methods=["POST"])
-@login_required
-def set_auto_reply(acc_id):
-    acc = get_owned_account(acc_id)
-    if not acc:
-        return jsonify(ok=False, error="حساب غير موجود"), 404
-    data = request.json or {}
-    acc["auto_reply"]["rules"] = [
-        {"keyword": (r.get("keyword") or "").strip(), "reply": (r.get("reply") or "").strip()}
-        for r in data.get("rules", [])
-        if (r.get("keyword") or "").strip()
-    ]
-    acc["auto_reply"]["ai_enabled"] = bool(data.get("ai_enabled"))
-    enabled = bool(data.get("enabled"))
-    with acc["ar_lock"]:
-        was_enabled = acc["auto_reply"]["enabled"]
-        acc["auto_reply"]["enabled"] = enabled
-        if enabled and not was_enabled:
-            acc["watching"] = True
-            threading.Thread(target=watch_account, args=(acc_id,), daemon=True).start()
-        elif not enabled:
-            acc["watching"] = False
-    db_update_wa_account_auto_reply(acc_id, acc["auto_reply"]["enabled"], acc["auto_reply"]["ai_enabled"], acc["auto_reply"]["rules"])
-    return jsonify(ok=True)
 
 
 PAGE = """
@@ -1765,20 +1441,6 @@ PAGE = """
     --radius-sm: 8px; --radius-md: 14px; --radius-lg: 20px; --radius-full: 9999px;
     --transition-base: 0.3s cubic-bezier(0.4, 0, 0.2, 1);
     --sidebar-width: 260px;
-  }
-  :root[data-theme="dark"] {
-    --primary: #0A8A94; --primary-light: #0A8A94; --primary-dark: #006b73;
-    --primary-gradient: linear-gradient(135deg, #006b73 0%, #0A8A94 100%);
-    --bg: #0D1117; --bg-card: #161B22; --card-soft: #1C232C; --card-3: #262E38;
-    --border: rgba(255,255,255,.06); --border-2: rgba(255,255,255,.12);
-    --text-primary: #F0F6FC; --text-secondary: #8B949E; --text-muted: #6A8098;
-    --gold-light: rgba(10,138,148,.12); --gold-border: rgba(10,138,148,.28); --gold-shadow: rgba(10,138,148,.3);
-    --green-ink: #ffffff; --red: #EF4444; --blue: #3B82F6; --amber: #D97706;
-    --shadow: rgba(0,0,0,.4);
-    --shadow-sm: 0 2px 8px rgba(0,0,0,0.3);
-    --shadow-md: 0 4px 20px rgba(0,0,0,0.4);
-    --shadow-lg: 0 8px 40px rgba(0,0,0,0.5);
-    --shadow-xl: 0 12px 56px rgba(0,0,0,0.6);
   }
   html, body { margin: 0; padding: 0; }
   body { background: var(--bg); color: var(--text-primary); font-family: 'IBM Plex Sans Arabic', 'Cairo', 'Tajawal', system-ui, sans-serif;
@@ -1854,14 +1516,12 @@ PAGE = """
     position: sticky; top: 0; z-index: 90; background: rgba(240,244,248,0.85); backdrop-filter: blur(20px) saturate(180%); -webkit-backdrop-filter: blur(20px) saturate(180%);
     border-bottom: 1px solid rgba(0,107,115,0.04); box-shadow: 0 2px 20px rgba(0,0,0,0.03); transition: var(--transition-base);
   }
-  :root[data-theme="dark"] .top-header { background: rgba(13,17,23,0.85); border-bottom: 1px solid rgba(255,255,255,0.06); }
   .top-header .header-actions { display: flex; align-items: center; gap: 6px; margin-right: auto; }
   .icon-btn {
     width: 42px; height: 42px; border-radius: var(--radius-full); border: 1px solid rgba(0,0,0,0.04);
     background: rgba(0,0,0,0.03); display: flex; align-items: center; justify-content: center;
     color: var(--text-secondary); cursor: pointer; font-size: 18px; position: relative; transition: var(--transition-base);
   }
-  :root[data-theme="dark"] .icon-btn { background: rgba(255,255,255,0.05); color: #8B949E; border-color: rgba(255,255,255,0.06); }
   .icon-btn:hover { background: rgba(0,0,0,0.06); color: var(--primary); }
   .icon-btn .badge {
     position: absolute; top: 6px; right: 6px; width: 9px; height: 9px;
@@ -2106,13 +1766,6 @@ PAGE = """
   .settings-item .sub-text { font-size: 11px; color: var(--text-muted); display: block; }
   .settings-item .chevron { color: var(--text-muted); font-size: 14px; transition: var(--transition-base); }
   .settings-item:hover .chevron { transform: translateX(-4px); }
-
-  .toggle-switch { position: relative; display: inline-block; width: 44px; height: 24px; flex-shrink: 0; }
-  .toggle-switch input { opacity: 0; width: 0; height: 0; }
-  .toggle-switch .slider { position: absolute; cursor: pointer; inset: 0; background: #D1D5DB; border-radius: var(--radius-full); transition: var(--transition-base); box-shadow: inset 0 2px 4px rgba(0,0,0,0.06); }
-  .toggle-switch .slider:before { position: absolute; content: ''; height: 18px; width: 18px; left: 3px; bottom: 3px; background: #fff; border-radius: var(--radius-full); transition: var(--transition-base); box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
-  .toggle-switch input:checked + .slider { background: var(--primary); }
-  .toggle-switch input:checked + .slider:before { transform: translateX(20px); }
 </style>
 </head>
 <body>
@@ -2168,7 +1821,6 @@ PAGE = """
   <header class="top-header">
     <button class="mobile-menu-toggle" onclick="toggleSidebar()"><i class="fas fa-bars"></i></button>
     <div class="header-actions">
-      <button class="icon-btn" id="themeBtn" onclick="toggleTheme()" title="المظهر"></button>
       <button class="icon-btn" id="bellBtn" onclick="openNotifications()" title="الإشعارات">
         <i class="fas fa-bell"></i>
         <span class="badge" id="bellBadge" style="display:none"></span>
@@ -2180,16 +1832,16 @@ PAGE = """
 
 <script>
 const IS_ADMIN = __IS_ADMIN__;
-const IS_GENERAL = __IS_GENERAL__;
 const SITE_NAME = __SITE_NAME_JSON__;
 const HAS_LOGO = __HAS_LOGO__;
+const DEFAULT_COUNTRY_CODE = '964';
 
 /* ---------- أيقونات خطية (بدون إيموجي) ---------- */
 const ICONS = {
-  home: 'fas fa-house', accounts: 'fas fa-phone', campaigns: 'fas fa-bullhorn', autoreply: 'fas fa-comment-dots',
+  home: 'fas fa-house', accounts: 'fas fa-phone', campaigns: 'fas fa-bullhorn',
   analytics: 'fas fa-chart-column', admin: 'fas fa-shield-halved', settings: 'fas fa-gear',
-  bell: 'fas fa-bell', sun: 'fas fa-sun', moon: 'fas fa-moon', plus: 'fas fa-plus', whatsapp: 'fab fa-whatsapp',
-  logout: 'fas fa-right-from-bracket', ai: 'fas fa-robot', users: 'fas fa-users', branches: 'fas fa-code-branch',
+  bell: 'fas fa-bell', plus: 'fas fa-plus', whatsapp: 'fab fa-whatsapp',
+  logout: 'fas fa-right-from-bracket', users: 'fas fa-users', branches: 'fas fa-code-branch',
   rocket: 'fas fa-rocket', trophy: 'fas fa-trophy', list: 'fas fa-list', info: 'fas fa-circle-info', clock: 'fas fa-clock',
   check: 'fas fa-check', checkCircle: 'fas fa-circle-check', warn: 'fas fa-triangle-exclamation', trash: 'fas fa-trash',
   link: 'fas fa-link', calendar: 'fas fa-calendar-days', ban: 'fas fa-ban', copy: 'fas fa-copy', image: 'fas fa-image',
@@ -2200,23 +1852,23 @@ function icon(name, size) {
 }
 
 const CURRENT_USER = __USERNAME_JSON__;
-const SECTION_LABELS = { home: 'الرئيسية', accounts: 'حسابي', campaigns: 'الحملات', autoreply: 'الرد الآلي', analytics: 'إحصائيات', admin: 'لوحة التحكم', branches: 'الفروع', settings: 'الإعدادات' };
+const SECTION_LABELS = { home: 'الرئيسية', accounts: 'حسابي', campaigns: 'الحملات', analytics: 'إحصائيات', admin: 'لوحة التحكم', branches: 'الفروع', settings: 'الإعدادات' };
 
 function initChrome() {
-  const items = ['home', 'accounts', 'campaigns', 'autoreply', 'analytics'];
-  if (IS_GENERAL) items.push('branches');
-  if (IS_ADMIN) items.push('admin');
+  const items = IS_ADMIN ? ['home', 'accounts', 'campaigns', 'analytics', 'branches', 'admin'] : ['accounts', 'campaigns'];
   let navHtml = items.map(function (s) {
     return '<button class="nav-item" data-s="' + s + '" onclick="showSection(\\'' + s + '\\')">' + icon(s, 16) + '<span>' + SECTION_LABELS[s] + '</span></button>';
   }).join('');
-  navHtml += '<div class="nav-divider"></div>';
-  navHtml += '<button class="nav-item" data-s="settings" onclick="showSection(\\'settings\\')">' + icon('settings', 16) + '<span>' + SECTION_LABELS.settings + '</span></button>';
+  if (IS_ADMIN) {
+    navHtml += '<div class="nav-divider"></div>';
+    navHtml += '<button class="nav-item" data-s="settings" onclick="showSection(\\'settings\\')">' + icon('settings', 16) + '<span>' + SECTION_LABELS.settings + '</span></button>';
+  }
   document.getElementById('navMenu').innerHTML = navHtml;
 
   const displayName = CURRENT_USER.split('@')[0] || CURRENT_USER;
   document.getElementById('sidebarAvatar').textContent = (CURRENT_USER || '؟').trim().charAt(0).toUpperCase();
   document.getElementById('sidebarUserName').textContent = displayName;
-  document.getElementById('sidebarUserRole').textContent = IS_ADMIN ? 'أدمن المنصة' : (IS_GENERAL ? 'حساب عام' : 'حساب فرع');
+  document.getElementById('sidebarUserRole').textContent = IS_ADMIN ? 'أدمن المنصة' : 'حساب فرع';
 
   document.getElementById('brandName').textContent = SITE_NAME;
   document.getElementById('pwaBannerText').textContent = 'ثبّت تطبيق ' + SITE_NAME + ' على جهازك للوصول السريع';
@@ -2271,20 +1923,6 @@ let lastSeenEventId = -1;
 let campaignHistory = [];
 let campaignHistoryAccName = '';
 let dataCache = {};
-
-/* ---------- تصميم داكن/نهاري ---------- */
-function applyTheme(t) {
-  document.documentElement.setAttribute('data-theme', t);
-  localStorage.setItem('theme', t);
-  const btn = document.getElementById('themeBtn');
-  if (btn) btn.innerHTML = icon(t === 'dark' ? 'sun' : 'moon');
-  const cb = document.getElementById('darkModeToggle');
-  if (cb) cb.checked = (t === 'dark');
-}
-function toggleTheme() {
-  applyTheme((document.documentElement.getAttribute('data-theme') || 'light') === 'light' ? 'dark' : 'light');
-}
-applyTheme(localStorage.getItem('theme') || 'light');
 
 /* ---------- PWA + إشعارات ---------- */
 if ('serviceWorker' in navigator) { navigator.serviceWorker.register('/sw.js').catch(() => {}); }
@@ -2395,7 +2033,7 @@ function showSection(s) {
   closeSidebar();
   render();
 }
-showSection('home');
+showSection(IS_ADMIN ? 'home' : 'accounts');
 
 async function loadAccounts(preferId) {
   accounts = await fetch('/accounts').then(r => r.json());
@@ -2415,7 +2053,6 @@ function renderActiveSection(myGen) {
   else if (section === 'accounts') renderAccounts();
   else if (section === 'campaigns') renderCampaigns(myGen);
   else if (section === 'analytics') renderAnalytics();
-  else if (section === 'autoreply') renderAutoReply();
   else if (section === 'admin') renderAdmin();
   else if (section === 'branches') renderBranches();
   else renderSettings();
@@ -2463,9 +2100,9 @@ function renderHome() {
     '<div class="page-title"><h2>' + icon('home', 18) + ' الرئيسية</h2></div>' +
     '<div class="hero-main"><div class="relative-z">' +
       '<div class="hero-icon-main">' + icon('rocket', 28) + '</div>' +
-      '<h1>منصة واصل</h1>' +
-      '<p>أتمتة حملاتك التسويقية عبر واتساب — أرسل رسائل، صور، وفيديوهات لعملائك بضغطة واحدة.</p>' +
-      '<div class="hero-badges"><span>' + icon('campaigns', 11) + ' إرسال جماعي</span><span>' + icon('analytics', 11) + ' تحليلات</span><span>' + icon('autoreply', 11) + ' رد آلي</span></div>' +
+      '<h1>' + SITE_NAME + '</h1>' +
+      '<p>أتمتة حملاتك التسويقية عبر واتساب — أرسل رسائل لعملائك بضغطة واحدة.</p>' +
+      '<div class="hero-badges"><span>' + icon('campaigns', 11) + ' إرسال جماعي</span><span>' + icon('analytics', 11) + ' تحليلات</span><span>' + icon('branches', 11) + ' فروع</span></div>' +
     '</div></div>' +
     '<h2 class="text-sm font-extrabold text-gold mb-1">مرحباً، ' + displayName + '</h2>' +
     '<p class="text-[12px] text-muted mb-3">نظرة عامة على نشاطك</p>' +
@@ -2474,7 +2111,7 @@ function renderHome() {
       '<button class="quick-action-btn" onclick="showSection(\\'campaigns\\')">' + icon('campaigns', 20) + 'حملات</button>' +
       '<button class="quick-action-btn" onclick="showSection(\\'analytics\\')">' + icon('analytics', 20) + 'إحصائيات</button>' +
       '<button class="quick-action-btn" onclick="showSection(\\'accounts\\')">' + icon('accounts', 20) + 'حساباتي</button>' +
-      '<button class="quick-action-btn" onclick="showSection(\\'' + (IS_GENERAL ? 'branches' : 'settings') + '\\')">' + icon(IS_GENERAL ? 'branches' : 'settings', 20) + (IS_GENERAL ? 'الفروع' : 'الإعدادات') + '</button>' +
+      '<button class="quick-action-btn" onclick="showSection(\\'branches\\')">' + icon('branches', 20) + 'الفروع</button>' +
     '</div>' +
     '<div class="card">' +
       '<div class="card-header"><h4>' + icon('accounts', 14) + ' حساباتي</h4><button class="btn-outline" style="width:auto;padding:4px 12px;font-size:10px;margin:0" onclick="openAddAccountSheet()">' + icon('plus', 10) + ' إضافة</button></div>' +
@@ -2584,6 +2221,22 @@ function accountSelectHtml(onchangeFn) {
   return html;
 }
 
+const COUNTRY_CODES = [
+  ['964', '🇮🇶 العراق (964+)'], ['966', '🇸🇦 السعودية (966+)'], ['971', '🇦🇪 الإمارات (971+)'],
+  ['965', '🇰🇼 الكويت (965+)'], ['974', '🇶🇦 قطر (974+)'], ['973', '🇧🇭 البحرين (973+)'],
+  ['968', '🇴🇲 عمان (968+)'], ['962', '🇯🇴 الأردن (962+)'], ['961', '🇱🇧 لبنان (961+)'],
+  ['963', '🇸🇾 سوريا (963+)'], ['970', '🇵🇸 فلسطين (970+)'], ['967', '🇾🇪 اليمن (967+)'],
+  ['20', '🇪🇬 مصر (20+)'], ['212', '🇲🇦 المغرب (212+)'], ['213', '🇩🇿 الجزائر (213+)'],
+  ['216', '🇹🇳 تونس (216+)'], ['218', '🇱🇾 ليبيا (218+)'], ['249', '🇸🇩 السودان (249+)'],
+  ['90', '🇹🇷 تركيا (90+)'], ['98', '🇮🇷 إيران (98+)'], ['1', '🇺🇸 أمريكا (1+)'], ['44', '🇬🇧 بريطانيا (44+)'],
+];
+
+function countryCodeSelectHtml() {
+  return '<select id="countryCode">' +
+    COUNTRY_CODES.map(([code, label]) => '<option value="' + code + '"' + (code === DEFAULT_COUNTRY_CODE ? ' selected' : '') + '>' + label + '</option>').join('') +
+    '</select>';
+}
+
 /* ---------- قسم الحملات ---------- */
 function renderCampaigns(myGen) {
   const c = document.getElementById('content');
@@ -2601,8 +2254,10 @@ function renderCampaigns(myGen) {
 
   html +=
     '<div class="card">' +
-    '<label class="field-label">الأرقام (رقم كل سطر، أو مفصولة بفواصل)</label>' +
-    '<textarea id="numbersText" rows="4" placeholder="9647701234567&#10;9647709876543"></textarea>' +
+    '<label class="field-label">رمز الدولة الافتراضي (يُضاف تلقائياً لأي رقم ما يبدأ فيه)</label>' +
+    countryCodeSelectHtml() +
+    '<label class="field-label">الأرقام (رقم كل سطر، أو مفصولة بفواصل — بدون حاجة لكتابة رمز الدولة)</label>' +
+    '<textarea id="numbersText" rows="4" placeholder="7701234567&#10;7709876543"></textarea>' +
     '<button class="btn-outline" id="contactPickerBtn" style="display:none" onclick="pickContacts()">استيراد من جهات الاتصال</button>' +
     '<label class="field-label">أو ارفع ملف Excel (.xlsx) فيه الأرقام بالعمود الأول</label>' +
     '<input type="file" id="numbersFile" accept=".xlsx">' +
@@ -2610,8 +2265,6 @@ function renderCampaigns(myGen) {
     '<textarea id="text" rows="2" placeholder="اكتب نص رسالتك هنا">هلوو</textarea>' +
     '<label class="field-label">' + icon('link', 11) + ' رابط (اختياري، يُضاف بآخر الرسالة)</label>' +
     '<input id="link" type="url" placeholder="https://example.com" dir="ltr">' +
-    '<label class="field-label">صورة، فيديو، أو ملف (اختياري)</label>' +
-    '<input type="file" id="mediaFile" accept="image/*,video/*,audio/*,.pdf,.doc,.docx,.zip">' +
     '<label class="field-label">الفاصل الزمني بين كل رسالة وأخرى (بالثواني)</label>' +
     '<input id="delay" type="number" min="1" value="15">' +
     '<label class="field-label">' + icon('calendar', 11) + ' طريقة الإرسال</label>' +
@@ -2766,6 +2419,7 @@ async function pickContacts() {
 async function startCampaign() {
   const accId = activeId;
   const form = new FormData();
+  form.append('country_code', document.getElementById('countryCode').value);
   form.append('numbers_text', document.getElementById('numbersText').value);
   form.append('text', document.getElementById('text').value.trim());
   form.append('link', document.getElementById('link').value.trim());
@@ -2781,8 +2435,6 @@ async function startCampaign() {
   }
   const numbersFile = document.getElementById('numbersFile').files[0];
   if (numbersFile) form.append('numbers_file', numbersFile);
-  const mediaFile = document.getElementById('mediaFile').files[0];
-  if (mediaFile) form.append('media_file', mediaFile);
 
   ensureNotifPermission();
   document.getElementById('msg').innerText = 'جارِ البدء...';
@@ -2869,76 +2521,40 @@ async function renderAnalytics() {
   if (historyEl) historyEl.innerHTML = historyRowsHtml(rows);
 }
 
-/* ---------- قسم الرد الآلي ---------- */
-function renderAutoReply() {
-  const c = document.getElementById('content');
-  c.innerHTML =
-    '<div class="page-title"><h2>' + icon('autoreply', 18) + ' الرد الآلي</h2></div>' +
-    '<div class="card">' +
-    '<div class="empty-state" style="margin-top:14px">' + icon('autoreply', 28) +
-    '<div class="mt-2 font-bold text-[14px]" style="color:var(--text-primary)">هذا القسم قيد التطوير</div>' +
-    '<p class="text-[12px] mt-1">نشتغل حالياً على تحسين دقة الرد الآلي، وبيتوفر قريباً.</p>' +
-    '</div>' +
-    '</div>';
-}
 
 /* ---------- قسم الإعدادات ---------- */
 function renderSettings() {
   const c = document.getElementById('content');
-  const notifState = ('Notification' in window) ? Notification.permission : 'غير مدعوم';
-  const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
+  if (!IS_ADMIN) { c.innerHTML = '<div class="empty-state">هذا القسم لأدمن المنصة فقط</div>'; return; }
   const initial = (CURRENT_USER || '؟').trim().charAt(0).toUpperCase();
-  const roleLabel = IS_ADMIN ? 'أدمن المنصة' : (IS_GENERAL ? 'حساب عام' : 'حساب فرع');
 
   let html =
     '<div class="page-title"><h2>' + icon('settings', 18) + ' الإعدادات</h2></div>' +
     '<div class="profile-card">' +
       '<div class="avatar avatar-0">' + initial + '</div>' +
-      '<div class="info"><div class="name">' + CURRENT_USER + '</div><span class="role">' + roleLabel + '</span></div>' +
+      '<div class="info"><div class="name">' + CURRENT_USER + '</div><span class="role">أدمن المنصة</span></div>' +
     '</div>' +
 
     '<div class="settings-list">' +
-      '<div class="settings-head">' + icon('settings', 12) + ' الإعدادات العامة</div>' +
-      '<div class="settings-item">' +
-        '<div class="left"><div class="icon-wrap primary">' + icon('moon', 15) + '</div><div><span class="text">الوضع الداكن</span><span class="sub-text">تفعيل المظهر الداكن للتطبيق</span></div></div>' +
-        '<label class="toggle-switch"><input type="checkbox" id="darkModeToggle"' + (isDark ? ' checked' : '') + ' onchange="toggleTheme()"><span class="slider"></span></label>' +
-      '</div>' +
-      '<div class="settings-item" onclick="ensureNotifPermission()">' +
-        '<div class="left"><div class="icon-wrap blue">' + icon('bell', 15) + '</div><div><span class="text">الإشعارات</span><span class="sub-text">الحالة الحالية: ' + notifState + '</span></div></div>' +
+      '<div class="settings-head">' + icon('branches', 12) + ' الفروع</div>' +
+      '<div class="settings-item" onclick="showSection(\\'branches\\')">' +
+        '<div class="left"><div class="icon-wrap primary">' + icon('branches', 15) + '</div><div><span class="text">إنشاء فرع جديد</span><span class="sub-text">أنشئ وأدر حسابات الفروع التابعة للمنصة</span></div></div>' +
         '<i class="fas fa-chevron-left chevron"></i>' +
       '</div>' +
-      '<div class="settings-item" onclick="showSection(\\'autoreply\\')">' +
-        '<div class="left"><div class="icon-wrap primary">' + icon('autoreply', 15) + '</div><div><span class="text">الرد الآلي</span><span class="sub-text">قيد التطوير - يتوفر قريباً</span></div></div>' +
-        '<i class="fas fa-chevron-left chevron"></i>' +
-      '</div>' +
-      (IS_GENERAL ? (
-        '<div class="settings-item" onclick="showSection(\\'branches\\')">' +
-          '<div class="left"><div class="icon-wrap primary">' + icon('branches', 15) + '</div><div><span class="text">الفروع</span><span class="sub-text">أنشئ وأدر حسابات الفروع التابعة لك</span></div></div>' +
-          '<i class="fas fa-chevron-left chevron"></i>' +
-        '</div>'
-      ) : '') +
-      (IS_ADMIN ? (
-        '<div class="settings-item" onclick="showSection(\\'admin\\')">' +
-          '<div class="left"><div class="icon-wrap primary">' + icon('admin', 15) + '</div><div><span class="text">لوحة تحكم الأدمن</span><span class="sub-text">الرد الذكي وكل حسابات المنصة</span></div></div>' +
-          '<i class="fas fa-chevron-left chevron"></i>' +
-        '</div>'
-      ) : '') +
-    '</div>' +
-
-    '<button class="btn-logout" onclick="logoutPlatform()">' + icon('logout', 14) + ' تسجيل الخروج من المنصة</button>';
+    '</div>';
 
   c.innerHTML = html;
 }
 
-/* ---------- قسم الفروع (للحساب العام فقط) ---------- */
+/* ---------- قسم الفروع (للأدمن فقط) ---------- */
 function renderBranches() {
   const c = document.getElementById('content');
-  if (!IS_GENERAL) { c.innerHTML = '<div class="empty-state">هذا القسم متاح فقط للحساب العام، مو لحسابات الفروع</div>'; return; }
+  if (!IS_ADMIN) { c.innerHTML = '<div class="empty-state">هذا القسم لأدمن المنصة فقط</div>'; return; }
   const cb = dataCache.branches;
   c.innerHTML =
     '<div class="page-title"><h2>' + icon('branches', 18) + ' الفروع</h2></div>' +
     '<div class="card">' +
-    '<p class="text-[12px] text-muted mb-2">أنشئ حساب دخول مستقل لكل فرع (بريد وكلمة مرور خاصين فيه) يدير حسابات واتساب وحملات معزولة تماماً عن باقي الفروع وعن حسابك العام.</p>' +
+    '<p class="text-[12px] text-muted mb-2">أنشئ حساب دخول مستقل لكل فرع (بريد وكلمة مرور خاصين فيه) يدير حسابات واتساب وحملات معزولة تماماً عن باقي الفروع.</p>' +
     '<label class="field-label">اسم الفرع</label>' +
     '<input id="branchName" placeholder="مثال: فرع الكرادة">' +
     '<label class="field-label">البريد الإلكتروني</label>' +
@@ -3022,15 +2638,6 @@ function renderAdmin() {
     '<div id="siteIdentityMsg" class="text-center text-[12px] font-bold mt-2"></div>' +
     '</div>' +
     '<div class="card">' +
-    '<div class="card-header"><h4>' + icon('ai', 14) + ' الرد الذكي (DeepSeek)</h4></div>' +
-    '<label class="field-label">مفتاح API (يُترك فاضي لعدم التغيير)</label>' +
-    '<input id="aiKey" type="password" placeholder="sk-...">' +
-    '<label class="field-label">قائمة المنتجات والأسعار (يعتمد عليها الرد الذكي)</label>' +
-    '<textarea id="aiKb" rows="6" placeholder="مثال:&#10;منتج أ - 10 دولار&#10;منتج ب - 15 دولار"></textarea>' +
-    '<button class="btn-submit" onclick="saveAiSettings()">حفظ إعدادات الأدمن</button>' +
-    '<div id="aiMsg" class="text-center text-[12px] font-bold mt-2"></div>' +
-    '</div>' +
-    '<div class="card">' +
     '<div class="card-header"><h4>' + icon('trophy', 14) + ' الأفضل نجاحاً بإرسال الحملات</h4></div>' +
     '<div id="leaderboardBox">' + (lb ? leaderboardHtml(lb) : '<div class="text-muted text-[11px]">جارِ التحميل...</div>') + '</div>' +
     '</div>' +
@@ -3039,10 +2646,6 @@ function renderAdmin() {
     '<div id="adminAccountsBox">' + (ca ? adminAccountsHtml(ca) : '<div class="text-muted text-[11px]">جارِ التحميل...</div>') + '</div>' +
     '</div>';
 
-  fetch('/admin/ai_settings').then(r => r.json()).then(d => {
-    document.getElementById('aiKey').placeholder = d.api_key_set ? 'محفوظ مسبقاً (اتركه فاضي للإبقاء عليه)' : 'sk-...';
-    document.getElementById('aiKb').value = d.knowledge_base || '';
-  });
   loadSiteIdentity();
   loadLeaderboard();
   loadAdminAccounts();
@@ -3052,7 +2655,7 @@ function leaderboardHtml(rows) {
   return rows.length
     ? rows.map((r, i) => {
         const label = (r.name ? r.name + ' · ' : '') + r.email;
-        const kind = r.is_branch ? '<span class="pill pill-blue">فرع</span>' : '<span class="pill pill-green">حساب عام</span>';
+        const kind = r.is_branch ? '<span class="pill pill-blue">فرع</span>' : '<span class="pill pill-gold">أدمن</span>';
         return '<div class="history-row"><span class="flex items-center gap-2">' +
           '<b style="width:18px;text-align:center;color:var(--text-muted)">' + (i + 1) + '</b>' +
           avatarHtml(label, String(r.user_id)) + '<span>' + label + '</span>' + kind + '</span>' +
@@ -3108,7 +2711,7 @@ function adminAccountsHtml(rows) {
   return rows.length
     ? rows.map(u => {
         const label = (u.name ? u.name + ' · ' : '') + u.email;
-        const kind = u.is_admin ? '<span class="pill pill-gold">أدمن</span>' : (u.parent_id ? '<span class="pill pill-blue">فرع</span>' : '<span class="pill pill-green">حساب عام</span>');
+        const kind = u.is_admin ? '<span class="pill pill-gold">أدمن</span>' : '<span class="pill pill-blue">فرع</span>';
         return '<div class="history-row"><span class="flex items-center gap-2">' + avatarHtml(label, String(u.id)) + '<span>' + label + '</span></span>' + kind + '</div>';
       }).join('')
     : '<div class="text-muted text-[11px]">ما فيه حسابات بعد</div>';
@@ -3119,15 +2722,6 @@ async function loadAdminAccounts() {
   dataCache.adminAccounts = rows;
   const box = document.getElementById('adminAccountsBox');
   if (box) box.innerHTML = adminAccountsHtml(rows);
-}
-
-async function saveAiSettings() {
-  const r = await fetch('/admin/ai_settings', {
-    method: 'POST', headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({api_key: document.getElementById('aiKey').value.trim(), knowledge_base: document.getElementById('aiKb').value})
-  }).then(res => res.json());
-  document.getElementById('aiMsg').innerText = r.ok ? 'تم الحفظ' : ('فشل: ' + r.error);
-  document.getElementById('aiKey').value = '';
 }
 
 function logoutPlatform() {
