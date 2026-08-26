@@ -583,6 +583,10 @@ def watch_account(acc_id):
                 if not account_logged_in(acc):
                     print(f"[رد آلي] {acc['name']}: الحساب غير مسجل دخول بعد (لا يوجد pane-side)، تخطي هذه الدورة")
                 else:
+                    try:
+                        driver.find_element(By.TAG_NAME, "body").send_keys(Keys.ESCAPE)
+                    except Exception:
+                        pass
                     chat_items = driver.find_elements(By.CSS_SELECTOR, '#pane-side [data-testid="cell-frame-container"]')[:8]
                     print(f"[رد آلي] {acc['name']}: فحص {len(chat_items)} محادثة")
                     if len(chat_items) == 0 and not diag_dumped:
@@ -603,7 +607,7 @@ def watch_account(acc_id):
                             chat_name = item.find_element(By.CSS_SELECTOR, "span[title]").get_attribute("title") or "غير معروف"
                         except Exception:
                             continue
-                        item.click()
+                        driver.execute_script("arguments[0].click();", item)
                         time.sleep(1.2)
                         incoming = driver.find_elements(By.CSS_SELECTOR, "div.message-in .selectable-text span")
                         last_text = incoming[-1].text.strip() if incoming else ""
