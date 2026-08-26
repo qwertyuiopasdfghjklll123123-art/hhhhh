@@ -708,6 +708,20 @@ def watch_account(acc_id):
                                 print(f"[رد آلي] {acc['name']}: عينة HTML لأول محادثة:\n{chat_items[0].get_attribute('outerHTML')[:1200]}")
                             except Exception as diag2_e:
                                 print(f"[رد آلي] {acc['name']}: تعذر أخذ عينة HTML: {diag2_e}")
+                        if names_ok > 0 and text_found == 0:
+                            try:
+                                main_total = len(driver.find_elements(By.CSS_SELECTOR, "#main *"))
+                                probe3 = {}
+                                for sel in ["div.message-in", "div.message-out", ".selectable-text",
+                                            '[data-testid="conversation-panel-messages"]',
+                                            '[data-testid="msg-container"]', "div.copyable-text"]:
+                                    try:
+                                        probe3[sel] = len(driver.find_elements(By.CSS_SELECTOR, f"#main {sel}"))
+                                    except Exception:
+                                        probe3[sel] = "خطأ"
+                                print(f"[رد آلي] {acc['name']}: تشخيص٣ - إجمالي عناصر داخل #main: {main_total}, محددات مرشحة: {probe3}")
+                            except Exception as diag3_e:
+                                print(f"[رد آلي] {acc['name']}: تعذر أخذ تشخيص٣: {diag3_e}")
         except Exception as e:
             print(f"[رد آلي] خطأ بدورة المراقبة: {e}")
         time.sleep(6)
