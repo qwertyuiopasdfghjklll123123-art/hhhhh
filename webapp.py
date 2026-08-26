@@ -995,7 +995,7 @@ p.switch a {{ color:#10d86b; text-decoration:none; font-weight:500; }}
   <div class="bubble two"></div>
   <div class="bubble three"></div>
 
-  <a href="/welcome" class="back" aria-label="رجوع">{ICON_BACK}</a>
+  <a href="/" class="back" aria-label="رجوع">{ICON_BACK}</a>
 
   <div class="main-content">
     <header class="header">
@@ -1046,14 +1046,14 @@ FONT_LINKS = """<link rel="preconnect" href="https://fonts.googleapis.com">
 
 FONT_STACK = "'IBM Plex Sans Arabic','Cairo','Tajawal',system-ui,sans-serif"
 
-PAGE_TRANSITION_CSS = """body.leaving { animation: pageFadeOut .2s ease forwards; }
+PAGE_TRANSITION_CSS = """body.leaving { animation: pageFadeOut .13s ease forwards; }
 @keyframes pageFadeOut { to { opacity:0; transform:scale(.98); } }"""
 
 PAGE_TRANSITION_JS = """(function() {
   function leaveAndGo(action) {
     if (document.body.classList.contains('leaving')) return;
     document.body.classList.add('leaving');
-    setTimeout(action, 200);
+    setTimeout(action, 130);
   }
   window.leaveAndGo = leaveAndGo;
   document.addEventListener('click', function(e) {
@@ -1554,7 +1554,7 @@ select option {{ background:var(--card-soft); color:var(--ink); }}
   <div class="bubble two"></div>
   <div class="bubble three"></div>
 
-  <a href="/welcome" class="back" aria-label="رجوع">{ICON_BACK}</a>
+  <a href="/" class="back" aria-label="رجوع">{ICON_BACK}</a>
 
   <div class="main-content">
     <header class="header">
@@ -1749,7 +1749,7 @@ async function verifyCode() {{
   btnLoading('verifyBtn', false);
   if (!r.ok) {{ setStatus('authStatus', r.error, true); return; }}
   if (r.is_new) {{ showStep('name'); return; }}
-  window.leaveAndGo(function() {{ window.location.href = '/'; }});
+  window.leaveAndGo(function() {{ window.location.href = '/app'; }});
 }}
 
 async function submitName() {{
@@ -1761,7 +1761,7 @@ async function submitName() {{
   }}).then(res => res.json());
   btnLoading('nameBtn', false);
   if (!r.ok) {{ setStatus('authStatus', r.error, true); return; }}
-  window.leaveAndGo(function() {{ window.location.href = '/'; }});
+  window.leaveAndGo(function() {{ window.location.href = '/app'; }});
 }}
 </script>
 </body>
@@ -1775,7 +1775,7 @@ EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 @app.route("/welcome")
 def welcome_page():
     if session.get("user_id"):
-        return redirect("/")
+        return redirect("/app")
     return render_welcome_page()
 
 
@@ -1981,8 +1981,15 @@ def set_user_name():
 
 @app.route("/")
 def home():
+    if session.get("user_id"):
+        return redirect("/app")
+    return render_welcome_page()
+
+
+@app.route("/app")
+def app_home():
     if not session.get("user_id"):
-        return redirect("/welcome")
+        return redirect("/")
     page = PAGE.replace("__IS_ADMIN__", "true" if session.get("is_admin") else "false")
     page = page.replace("__USERNAME__", session.get("name") or session.get("email", ""))
     return page
@@ -2021,7 +2028,7 @@ def service_worker():
         "self.addEventListener('activate', e => self.clients.claim());\n"
         "self.addEventListener('notificationclick', e => {\n"
         "  e.notification.close();\n"
-        "  e.waitUntil(clients.openWindow('/'));\n"
+        "  e.waitUntil(clients.openWindow('/app'));\n"
         "});\n"
     )
     return Response(js, mimetype="application/javascript")
@@ -2486,7 +2493,7 @@ PAGE = """
   }
   html, body { margin: 0; padding: 0; }
   body { background: var(--bg); color: var(--text-primary); font-family: 'IBM Plex Sans Arabic', 'Cairo', 'Tajawal', system-ui, sans-serif;
-    min-height: 100vh; transition: background var(--transition-base), color var(--transition-base); animation: pageFadeIn .25s ease; }
+    min-height: 100vh; transition: background var(--transition-base), color var(--transition-base); animation: pageFadeIn .18s ease; }
   @keyframes pageFadeIn { from { opacity: 0; } to { opacity: 1; } }
   h1, h2, h3, .stat-num { font-family: 'IBM Plex Sans Arabic', 'Cairo', 'Tajawal', sans-serif; }
   .icon { display: inline-block; vertical-align: middle; flex-shrink: 0; }
@@ -2545,7 +2552,7 @@ PAGE = """
   .body { display: flex; flex: 1; justify-content: center; }
   .content { flex: 1; padding: 16px 20px calc(var(--nav-height) + 20px); display: flex; justify-content: center; max-width: 640px; margin: 0 auto; }
   .content-inner { width: 100%; }
-  .content-inner.fade-in { animation: contentFadeIn .22s ease; }
+  .content-inner.fade-in { animation: contentFadeIn .15s ease; }
   @keyframes contentFadeIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
 
   .bottom-nav-minimal {
