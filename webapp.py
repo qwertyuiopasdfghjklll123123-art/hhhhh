@@ -570,6 +570,7 @@ def watch_account(acc_id):
     """مراقبة أفضل-جهد لعدة محادثات بالقائمة (مو الأولى بس)، ورد بكلمة مفتاحية إن وجدت
     وإلا بالذكاء الاصطناعي إن كان مفعّل. تطبع خطوات التشخيص بالتيرمنل للمساعدة بالتصحيح."""
     last_seen = {}
+    diag_dumped = False
     print(f"[رد آلي] بدأت المراقبة لحساب {accounts.get(acc_id, {}).get('name', acc_id)}")
     while True:
         acc = accounts.get(acc_id)
@@ -584,6 +585,19 @@ def watch_account(acc_id):
                 else:
                     chat_items = driver.find_elements(By.CSS_SELECTOR, '#pane-side div[role="listitem"]')[:8]
                     print(f"[رد آلي] {acc['name']}: فحص {len(chat_items)} محادثة")
+                    if len(chat_items) == 0 and not diag_dumped:
+                        diag_dumped = True
+                        try:
+                            total_inside = len(driver.find_elements(By.CSS_SELECTOR, "#pane-side *"))
+                            probe = {}
+                            for sel in ['div[role="listitem"]', 'div[role="row"]', '[data-testid="cell-frame-container"]', "div[tabindex]"]:
+                                try:
+                                    probe[sel] = len(driver.find_elements(By.CSS_SELECTOR, f"#pane-side {sel}"))
+                                except Exception:
+                                    probe[sel] = "خطأ"
+                            print(f"[رد آلي] {acc['name']}: تشخيص - إجمالي عناصر داخل pane-side: {total_inside}, محددات مرشحة: {probe}")
+                        except Exception as diag_e:
+                            print(f"[رد آلي] {acc['name']}: تعذر أخذ لقطة تشخيصية: {diag_e}")
                     for item in chat_items:
                         try:
                             chat_name = item.find_element(By.CSS_SELECTOR, "span[title]").get_attribute("title") or "غير معروف"
