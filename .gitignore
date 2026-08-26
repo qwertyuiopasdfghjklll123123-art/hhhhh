@@ -1,7 +1,7 @@
 wa_session/
 wa_sessions/
 uploads/
-app.db
+app.db*
 secret.key
 numbers.txt
 __pycache__/

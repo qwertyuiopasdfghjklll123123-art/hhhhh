@@ -74,13 +74,18 @@ events = []
 events_lock = threading.Lock()
 otp_codes = {}  # phone -> {code, expires, verified}
 otp_lock = threading.Lock()
+trial_check_cache = {}  # user_id -> آخر وقت (monotonic) تحقق فيه من انتهاء التجربة
+trial_check_lock = threading.Lock()
+TRIAL_CHECK_INTERVAL = 60  # ثواني - يمنع ضرب قاعدة البيانات بكل استطلاع إشعارات (كل 5 ثواني)
 
 
 # ---------------------------------------------------------------- قاعدة البيانات
 
 def get_db():
-    conn = sqlite3.connect(DB_PATH)
+    conn = sqlite3.connect(DB_PATH, timeout=10)
     conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA busy_timeout=10000")
     return conn
 
 
@@ -402,6 +407,7 @@ def new_account_entry(acc_id, owner, name):
         "name": name or f"حساب {len(accounts) + 1}",
         "driver": None,
         "lock": threading.Lock(),
+        "ar_lock": threading.Lock(),
         "campaign": {"total": 0, "sent": 0, "failed": 0, "running": False, "failed_numbers": [], "scheduled_for": None},
         "history": [],
         "auto_reply": {"enabled": False, "ai_enabled": False, "rules": []},
@@ -573,39 +579,42 @@ def watch_account(acc_id):
         try:
             with acc["lock"]:
                 driver = acc["driver"]
-                chat_items = driver.find_elements(By.CSS_SELECTOR, '#pane-side div[role="listitem"]')[:8]
-                print(f"[رد آلي] {acc['name']}: فحص {len(chat_items)} محادثة")
-                for item in chat_items:
-                    try:
-                        chat_name = item.find_element(By.CSS_SELECTOR, "span[title]").get_attribute("title") or "غير معروف"
-                    except Exception:
-                        continue
-                    item.click()
-                    time.sleep(1.2)
-                    incoming = driver.find_elements(By.CSS_SELECTOR, "div.message-in .selectable-text span")
-                    last_text = incoming[-1].text.strip() if incoming else ""
-                    if not last_text or last_seen.get(chat_name) == last_text:
-                        continue
-                    last_seen[chat_name] = last_text
-                    print(f"[رد آلي] رسالة جديدة من {chat_name}: {last_text[:50]}")
+                if not account_logged_in(acc):
+                    print(f"[رد آلي] {acc['name']}: الحساب غير مسجل دخول بعد (لا يوجد pane-side)، تخطي هذه الدورة")
+                else:
+                    chat_items = driver.find_elements(By.CSS_SELECTOR, '#pane-side div[role="listitem"]')[:8]
+                    print(f"[رد آلي] {acc['name']}: فحص {len(chat_items)} محادثة")
+                    for item in chat_items:
+                        try:
+                            chat_name = item.find_element(By.CSS_SELECTOR, "span[title]").get_attribute("title") or "غير معروف"
+                        except Exception:
+                            continue
+                        item.click()
+                        time.sleep(1.2)
+                        incoming = driver.find_elements(By.CSS_SELECTOR, "div.message-in .selectable-text span")
+                        last_text = incoming[-1].text.strip() if incoming else ""
+                        if not last_text or last_seen.get(chat_name) == last_text:
+                            continue
+                        last_seen[chat_name] = last_text
+                        print(f"[رد آلي] رسالة جديدة من {chat_name}: {last_text[:50]}")
 
-                    reply_text = None
-                    for rule in acc["auto_reply"]["rules"]:
-                        if rule["keyword"] and rule["keyword"] in last_text:
-                            reply_text = rule["reply"]
-                            print(f"[رد آلي] طابقت كلمة مفتاحية: {rule['keyword']}")
-                            break
-                    if not reply_text and acc["auto_reply"].get("ai_enabled"):
-                        reply_text = ai_reply(last_text)
+                        reply_text = None
+                        for rule in acc["auto_reply"]["rules"]:
+                            if rule["keyword"] and rule["keyword"] in last_text:
+                                reply_text = rule["reply"]
+                                print(f"[رد آلي] طابقت كلمة مفتاحية: {rule['keyword']}")
+                                break
+                        if not reply_text and acc["auto_reply"].get("ai_enabled"):
+                            reply_text = ai_reply(last_text)
 
-                    if reply_text:
-                        box = driver.find_element(By.XPATH, '//footer//div[@contenteditable="true"]')
-                        box.send_keys(reply_text)
-                        box.send_keys(Keys.ENTER)
-                        add_event(acc["owner"], acc["name"], "رد تلقائي", f"{chat_name}: {reply_text[:60]}", kind="info")
-                        print(f"[رد آلي] رديت على {chat_name}: {reply_text[:50]}")
-                    else:
-                        print(f"[رد آلي] ما فيه رد مطابق لرسالة {chat_name} (لا كلمة مفتاحية ولا AI مفعّل/شغّال)")
+                        if reply_text:
+                            box = driver.find_element(By.XPATH, '//footer//div[@contenteditable="true"]')
+                            box.send_keys(reply_text)
+                            box.send_keys(Keys.ENTER)
+                            add_event(acc["owner"], acc["name"], "رد تلقائي", f"{chat_name}: {reply_text[:60]}", kind="info")
+                            print(f"[رد آلي] رديت على {chat_name}: {reply_text[:50]}")
+                        else:
+                            print(f"[رد آلي] ما فيه رد مطابق لرسالة {chat_name} (لا كلمة مفتاحية ولا AI مفعّل/شغّال)")
         except Exception as e:
             print(f"[رد آلي] خطأ بدورة المراقبة: {e}")
         time.sleep(6)
@@ -1847,9 +1856,15 @@ def service_worker():
 def get_events():
     since = int(request.args.get("since", 0) or 0)
     uid = session["user_id"]
-    user = db_get_user_by_id(uid)
-    if user:
-        check_trial_ended_event(user)
+    now = time.monotonic()
+    with trial_check_lock:
+        should_check = now - trial_check_cache.get(uid, 0) >= TRIAL_CHECK_INTERVAL
+        if should_check:
+            trial_check_cache[uid] = now
+    if should_check:
+        user = db_get_user_by_id(uid)
+        if user:
+            check_trial_ended_event(user)
     with events_lock:
         return jsonify([e for e in events if e["id"] > since and e["owner"] == uid])
 
@@ -2199,18 +2214,19 @@ def set_auto_reply(acc_id):
         if (r.get("keyword") or "").strip()
     ]
     acc["auto_reply"]["ai_enabled"] = bool(data.get("ai_enabled"))
-    was_enabled = acc["auto_reply"]["enabled"]
     enabled = bool(data.get("enabled"))
-    if enabled and not was_enabled:
-        user = db_get_user_by_id(session["user_id"])
-        if not user_has_access(user):
-            return jsonify(ok=False, error="انتهت فترتك التجريبية، فعّل الاشتراك من قسم الإعدادات للمتابعة", needs_subscription=True), 402
-    acc["auto_reply"]["enabled"] = enabled
-    if enabled and not was_enabled:
-        acc["watching"] = True
-        threading.Thread(target=watch_account, args=(acc_id,), daemon=True).start()
-    elif not enabled:
-        acc["watching"] = False
+    with acc["ar_lock"]:
+        was_enabled = acc["auto_reply"]["enabled"]
+        if enabled and not was_enabled:
+            user = db_get_user_by_id(session["user_id"])
+            if not user_has_access(user):
+                return jsonify(ok=False, error="انتهت فترتك التجريبية، فعّل الاشتراك من قسم الإعدادات للمتابعة", needs_subscription=True), 402
+        acc["auto_reply"]["enabled"] = enabled
+        if enabled and not was_enabled:
+            acc["watching"] = True
+            threading.Thread(target=watch_account, args=(acc_id,), daemon=True).start()
+        elif not enabled:
+            acc["watching"] = False
     return jsonify(ok=True)
 
 
