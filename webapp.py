@@ -1091,32 +1091,45 @@ def render_welcome_page():
     --border: rgba(5,134,147,.08); --border-2: rgba(5,134,147,.16);
   }}
   * {{ box-sizing:border-box; margin:0; padding:0; -webkit-tap-highlight-color:transparent; user-select:none; -webkit-user-select:none; }}
-  html, body {{ width:100%; height:100%; background:var(--bg); font-family:{FONT_STACK}; overflow:hidden; position:fixed; inset:0; }}
-  body {{ color:var(--ink); }}
+  html, body {{ width:100%; height:100%; background:var(--bg); overflow:hidden; position:fixed; inset:0; }}
+  body {{ font-family:{FONT_STACK}; color:var(--ink); }}
+  button, a {{ font:inherit; border:0; cursor:pointer; background:none; }}
+  a {{ text-decoration:none; color:inherit; }}
+  input, select {{ font:inherit; border:0; outline:none; background:none; color:var(--ink); }}
+  select {{ appearance:none; -webkit-appearance:none; -moz-appearance:none; cursor:pointer; }}
+  select option {{ background:var(--card-soft); color:var(--ink); }}
   img, svg, .card, .feature {{ -webkit-touch-callout:none; pointer-events:none; }}
-  .app {{ position:relative; width:100%; max-width:430px; height:100vh; height:100dvh; margin:auto; overflow:hidden;
-    background: radial-gradient(circle at 50% 25%, oklch(0.78 0.17 152 / 7%), transparent 30%),
-                radial-gradient(circle at 18% 60%, oklch(0.78 0.17 152 / 4%), transparent 20%),
-                var(--bg);
-    display:flex; flex-direction:column; animation:fadeIn .3s ease; }}
+  {PAGE_TRANSITION_CSS}
   @keyframes fadeIn {{ from {{ opacity:0; }} to {{ opacity:1; }} }}
-  .app::before {{ content:""; position:absolute; inset:0; pointer-events:none; opacity:.5;
+
+  .screen {{ position:relative; width:100%; max-width:430px; height:100vh; height:100dvh; margin:auto; overflow:hidden;
+    display:flex; flex-direction:column; animation:fadeIn .3s ease; }}
+  .screen.hidden {{ display:none; }}
+  .screen-fade-in {{ animation: screenFadeIn .15s ease; }}
+  @keyframes screenFadeIn {{ from {{ opacity:0; transform:scale(.99); }} to {{ opacity:1; transform:scale(1); }} }}
+  @media (min-width:431px) {{ .screen {{ border-left:1px solid var(--border); border-right:1px solid var(--border); }} }}
+
+  /* ---------- شاشة الترحيب ---------- */
+  #welcomeScreen {{ background: radial-gradient(circle at 50% 25%, oklch(0.78 0.17 152 / 7%), transparent 30%),
+                radial-gradient(circle at 18% 60%, oklch(0.78 0.17 152 / 4%), transparent 20%),
+                var(--bg); }}
+  #welcomeScreen::before {{ content:""; position:absolute; inset:0; pointer-events:none; opacity:.5;
     background-image: radial-gradient(circle at 12% 25%, oklch(0.78 0.17 152 / 35%) 0 3px, transparent 4px),
                        radial-gradient(circle at 88% 40%, oklch(0.78 0.17 152 / 30%) 0 3px, transparent 4px),
                        radial-gradient(circle at 23% 10%, oklch(0.78 0.17 152 / 35%) 0 4px, transparent 5px),
                        radial-gradient(circle at 84% 20%, oklch(0.78 0.17 152 / 18%) 0 2px, transparent 3px); }}
-  .bubble {{ position:absolute; border:1px solid oklch(0.78 0.17 152 / 6%); background:oklch(0.78 0.17 152 / 2%); border-radius:22px; opacity:.6; pointer-events:none; }}
-  .bubble::before, .bubble::after {{ content:""; position:absolute; width:30px; height:5px; right:12px; background:oklch(0.78 0.17 152 / 6%); border-radius:10px; }}
-  .bubble::before {{ top:14px; }}
-  .bubble::after {{ top:25px; width:20px; }}
-  .bubble.one {{ width:90px; height:68px; top:160px; right:-15px; }}
-  .bubble.two {{ width:80px; height:60px; top:350px; left:-15px; }}
-  .bubble.three {{ width:75px; height:55px; top:540px; right:-20px; }}
-  .main-content {{ flex:1; display:flex; flex-direction:column; justify-content:center; padding:10px 20px; position:relative; z-index:2; min-height:0; }}
+  .w-bubble {{ position:absolute; border:1px solid oklch(0.78 0.17 152 / 6%); background:oklch(0.78 0.17 152 / 2%); border-radius:22px; opacity:.6; pointer-events:none; }}
+  .w-bubble::before, .w-bubble::after {{ content:""; position:absolute; width:30px; height:5px; right:12px; background:oklch(0.78 0.17 152 / 6%); border-radius:10px; }}
+  .w-bubble::before {{ top:14px; }}
+  .w-bubble::after {{ top:25px; width:20px; }}
+  .w-bubble.one {{ width:90px; height:68px; top:160px; right:-15px; }}
+  .w-bubble.two {{ width:80px; height:60px; top:350px; left:-15px; }}
+  .w-bubble.three {{ width:75px; height:55px; top:540px; right:-20px; }}
+  .w-main-content {{ flex:1; display:flex; flex-direction:column; justify-content:center; padding:10px 20px; position:relative; z-index:2; min-height:0; }}
   .hero {{ text-align:center; pointer-events:none; flex-shrink:0; }}
-  .logo {{ width:120px; height:120px; margin:0 auto 10px; border-radius:32px; background:linear-gradient(145deg, var(--gold) 0%, var(--gold-strong) 100%);
+  .w-logo {{ width:120px; height:120px; margin:0 auto 10px; border-radius:32px; background:linear-gradient(145deg, var(--gold) 0%, var(--gold-strong) 100%);
     box-shadow:0 10px 35px oklch(0.78 0.17 152 / 20%), inset 0 1px 0 oklch(1 0 0 / 18%); display:flex; align-items:center; justify-content:center; }}
-  .logo svg {{ width:78px; height:78px; filter:drop-shadow(0 2px 1px rgba(0,0,0,.1)); }}
+  .w-logo svg {{ width:78px; height:78px; filter:drop-shadow(0 2px 1px rgba(0,0,0,.1)); }}
   .brand {{ font-family:{FONT_STACK}; font-size:34px; font-weight:800; line-height:1.1; letter-spacing:-1px;
     background:linear-gradient(135deg, var(--gold), var(--gold-strong)); -webkit-background-clip:text; -webkit-text-fill-color:transparent; background-clip:text; }}
   .en {{ margin-top:4px; color:var(--gold); font-size:14px; letter-spacing:2.5px; font-weight:700; direction:ltr; font-family:{FONT_STACK}; }}
@@ -1125,10 +1138,10 @@ def render_welcome_page():
   .slide {{ position:absolute; inset:0; display:flex; flex-direction:column; justify-content:center; opacity:0; pointer-events:none; transition:opacity .35s ease; }}
   .slide.active {{ opacity:1; }}
   .visual {{ height:195px; position:relative; pointer-events:none; flex-shrink:0; }}
-  .phone {{ position:absolute; width:145px; height:190px; left:50%; top:4px; transform:translateX(-50%); border:2.5px solid var(--card-soft); border-radius:26px;
+  .w-phone {{ position:absolute; width:145px; height:190px; left:50%; top:4px; transform:translateX(-50%); border:2.5px solid var(--card-soft); border-radius:26px;
     background:linear-gradient(145deg, oklch(0.78 0.17 152 / 15%), oklch(0.1 0.012 245 / 95%) 55%), oklch(0.1 0.012 245);
     box-shadow:0 0 0 1px oklch(1 0 0 / 2.5%), 0 15px 40px rgba(0,0,0,.5), inset 0 0 30px oklch(0.78 0.17 152 / 3%); }}
-  .phone::before {{ content:""; position:absolute; width:58px; height:13px; top:3px; left:50%; transform:translateX(-50%); background:oklch(0.11 0.012 245); border-radius:0 0 10px 10px; }}
+  .w-phone::before {{ content:""; position:absolute; width:58px; height:13px; top:3px; left:50%; transform:translateX(-50%); background:oklch(0.11 0.012 245); border-radius:0 0 10px 10px; }}
   .phone-screen {{ position:absolute; inset:17px 7px 7px; border-radius:20px; overflow:hidden;
     background: radial-gradient(circle at 50% 55%, oklch(0.78 0.17 152 / 10%), transparent 35%), linear-gradient(180deg, oklch(0.1 0.013 245), var(--bg)); }}
   .card {{ position:absolute; z-index:3; width:165px; min-height:65px; border:1px solid oklch(0.78 0.17 152 / 14%);
@@ -1162,7 +1175,6 @@ def render_welcome_page():
   .dots {{ display:flex; justify-content:center; gap:8px; direction:ltr; margin:12px 0 10px; flex-shrink:0; }}
   .dot {{ width:10px; height:10px; border-radius:50%; background:var(--card-soft); transition:.3s; cursor:pointer; }}
   .dot.active {{ background:var(--gold); box-shadow:0 0 10px oklch(0.78 0.17 152 / 25%); width:26px; border-radius:6px; }}
-  {PAGE_TRANSITION_CSS}
   .actions {{ position:relative; z-index:4; padding:0 2px 6px; flex-shrink:0; }}
   .btn {{ width:100%; height:60px; border-radius:18px; display:flex; flex-direction:column; align-items:center; justify-content:center; text-decoration:none; font-family:{FONT_STACK}; }}
   .primary {{ background:linear-gradient(180deg, var(--gold), var(--gold-strong)); box-shadow:0 8px 22px oklch(0.78 0.17 152 / 12%); color:var(--green-ink); }}
@@ -1170,18 +1182,18 @@ def render_welcome_page():
   .primary small {{ font-size:12px; color:rgba(255,255,255,.85); margin-top:2px; }}
   .whatsapp {{ height:50px; margin-top:10px; border:2px solid var(--border-2); background:var(--card); color:var(--gold); font-size:16px; font-weight:700; flex-direction:row; gap:8px; }}
   .whatsapp svg {{ width:22px; height:22px; flex-shrink:0; }}
-  .login {{ margin-top:12px; text-align:center; color:var(--muted); font-size:14px; }}
-  .login a {{ color:var(--gold); font-weight:700; margin-right:4px; text-decoration:none; }}
+  .switch-login {{ margin-top:12px; text-align:center; color:var(--muted); font-size:14px; }}
+  .switch-login a {{ color:var(--gold); font-weight:700; margin-right:4px; text-decoration:none; }}
   .home-indicator {{ width:100px; height:4px; background:var(--ink); border-radius:20px; margin:8px auto 4px; opacity:.15; flex-shrink:0; }}
   @media (max-height:700px) {{
-    .logo {{ width:85px; height:85px; border-radius:24px; }}
-    .logo svg {{ width:56px; height:56px; }}
+    .w-logo {{ width:85px; height:85px; border-radius:24px; }}
+    .w-logo svg {{ width:56px; height:56px; }}
     .brand {{ font-size:26px; }}
     .en {{ font-size:11px; }}
     .description {{ font-size:12px; max-width:260px; margin-top:6px; }}
     .carousel {{ height:155px; }}
     .visual {{ height:155px; }}
-    .phone {{ width:115px; height:152px; }}
+    .w-phone {{ width:115px; height:152px; }}
     .card {{ width:135px; min-height:52px; padding:7px 9px; }}
     .card-icon {{ width:28px; height:28px; }}
     .card-title {{ font-size:9px; }}
@@ -1200,18 +1212,18 @@ def render_welcome_page():
     .dots {{ margin:8px 0 6px; }}
     .dot {{ width:8px; height:8px; }}
     .dot.active {{ width:18px; }}
-    .login {{ font-size:12px; margin-top:8px; }}
+    .switch-login {{ font-size:12px; margin-top:8px; }}
     .home-indicator {{ width:80px; height:3px; margin:4px auto 2px; }}
-    .main-content {{ padding:6px 14px; }}
+    .w-main-content {{ padding:6px 14px; }}
   }}
   @media (max-height:600px) {{
-    .logo {{ width:68px; height:68px; border-radius:20px; }}
-    .logo svg {{ width:44px; height:44px; }}
+    .w-logo {{ width:68px; height:68px; border-radius:20px; }}
+    .w-logo svg {{ width:44px; height:44px; }}
     .brand {{ font-size:22px; }}
     .description {{ font-size:11px; margin-top:4px; }}
     .carousel {{ height:125px; }}
     .visual {{ height:125px; }}
-    .phone {{ width:95px; height:125px; border-radius:20px; }}
+    .w-phone {{ width:95px; height:125px; border-radius:20px; }}
     .card {{ width:115px; min-height:42px; padding:5px 7px; border-radius:10px; }}
     .card-icon {{ width:24px; height:24px; border-radius:8px; }}
     .card-title {{ font-size:8px; }}
@@ -1230,22 +1242,156 @@ def render_welcome_page():
     .dots {{ margin:4px 0; gap:5px; }}
     .dot {{ width:6px; height:6px; }}
     .dot.active {{ width:14px; }}
-    .login {{ font-size:10px; margin-top:4px; }}
+    .switch-login {{ font-size:10px; margin-top:4px; }}
     .home-indicator {{ width:60px; height:3px; margin:2px auto; }}
-    .main-content {{ padding:4px 10px; }}
+    .w-main-content {{ padding:4px 10px; }}
   }}
-  @media (min-width:431px) {{ .app {{ border-left:1px solid var(--border); border-right:1px solid var(--border); }} }}
+
+  /* ---------- شاشة تسجيل الدخول ---------- */
+  #loginScreen {{ background: radial-gradient(circle at 50% 25%, oklch(0.78 0.17 152 / 8%), transparent 30%),
+              radial-gradient(circle at 52% 60%, oklch(0.78 0.17 152 / 3%), transparent 25%),
+              var(--bg); }}
+  #loginScreen::before {{ content:""; position:absolute; inset:0; pointer-events:none; opacity:.5;
+    background: radial-gradient(circle at 70% 7%, oklch(0.78 0.17 152 / 45%) 0 2px, transparent 3px),
+                radial-gradient(circle at 86% 12%, oklch(0.78 0.17 152 / 40%) 0 3px, transparent 4px),
+                radial-gradient(circle at 38% 6%, oklch(0.78 0.17 152 / 35%) 0 3px, transparent 4px),
+                radial-gradient(circle at 13% 17%, oklch(0.78 0.17 152 / 45%) 0 2px, transparent 3px),
+                radial-gradient(circle at 75% 23%, oklch(0.78 0.17 152 / 40%) 0 2px, transparent 3px),
+                radial-gradient(circle at 29% 45%, oklch(0.78 0.17 152 / 45%) 0 3px, transparent 4px),
+                radial-gradient(circle at 78% 50%, oklch(0.78 0.17 152 / 40%) 0 3px, transparent 4px); }}
+  .bubble {{ position:absolute; border:1px solid oklch(0.78 0.17 152 / 5%); background:oklch(0.78 0.17 152 / 1.5%); border-radius:18px; opacity:.5; pointer-events:none; }}
+  .bubble::before, .bubble::after {{ content:""; position:absolute; width:20px; height:3px; right:8px; background:oklch(0.78 0.17 152 / 5%); border-radius:6px; }}
+  .bubble::before {{ top:10px; }}
+  .bubble::after {{ top:17px; width:14px; }}
+  .bubble.one {{ width:60px; height:44px; top:130px; right:-10px; }}
+  .bubble.two {{ width:52px; height:38px; top:330px; left:-10px; }}
+  .bubble.three {{ width:48px; height:34px; top:500px; right:-12px; }}
+
+  .back {{ position:absolute; top:14px; right:16px; z-index:5; width:44px; height:44px; border-radius:50%; background:var(--card);
+    border:1px solid var(--border-2); display:flex; align-items:center; justify-content:center; color:var(--ink); box-shadow:0 2px 10px rgba(5,134,147,.1); }}
+  .back svg {{ width:20px; height:20px; }}
+
+  .main-content {{ flex:1; display:flex; flex-direction:column; justify-content:center; padding:50px 22px 6px; position:relative; z-index:2; min-height:0; }}
+  .header {{ text-align:center; flex-shrink:0; }}
+  .logo {{ width:80px; height:80px; margin:0 auto 10px; border-radius:24px; background:linear-gradient(145deg, var(--gold), var(--gold-strong)); box-shadow:0 12px 35px oklch(0.78 0.17 152 / 14%); display:flex; align-items:center; justify-content:center; }}
+  .logo svg {{ width:54px; height:54px; }}
+  .title {{ font-family:{FONT_STACK}; font-size:26px; line-height:1.2; font-weight:800;
+    background:linear-gradient(135deg, var(--gold), var(--gold-strong)); -webkit-background-clip:text; -webkit-text-fill-color:transparent; background-clip:text; }}
+  .subtitle {{ margin-top:3px; color:var(--muted); font-size:12.5px; line-height:1.6; font-weight:400; }}
+
+  .login-card {{ position:relative; z-index:3; margin:22px 25px 0; border:1px solid var(--border); border-radius:16px;
+    background:var(--card); padding:20px 20px 18px; text-align:center; flex-shrink:0;
+    box-shadow:0 14px 40px rgba(5,134,147,.1); min-height:320px; }}
+
+  .orbit {{ width:110px; height:110px; margin:0 auto 4px; position:relative; display:flex; align-items:center; justify-content:center; }}
+  .orbit::before, .orbit::after {{ content:""; position:absolute; border:2px solid oklch(0.78 0.17 152 / 45%); border-radius:50%; transform:rotate(-20deg); }}
+  .orbit::before {{ width:86px; height:86px; }}
+  .orbit::after {{ width:106px; height:106px; border-color:oklch(0.78 0.17 152 / 20%); }}
+  .orbit-dot {{ position:absolute; width:5px; height:5px; background:var(--gold); border-radius:50%; top:10px; right:16px; box-shadow:0 0 10px oklch(0.78 0.17 152 / 60%); }}
+  .phone {{ width:54px; height:78px; border:3px solid var(--card-soft); border-radius:10px; background:linear-gradient(150deg, oklch(0.4 0.1 152), oklch(0.13 0.02 152) 75%); position:relative; box-shadow:0 0 20px oklch(0.78 0.17 152 / 12%); display:flex; align-items:center; justify-content:center; color:var(--gold); }}
+  .phone::before {{ content:""; position:absolute; top:3px; left:50%; transform:translateX(-50%); width:22px; height:4px; background:oklch(0.15 0.015 245); border-radius:0 0 4px 4px; }}
+  .phone svg {{ width:26px; height:26px; }}
+  .check {{ position:absolute; right:18px; bottom:8px; width:32px; height:32px; border-radius:50%; background:var(--card); border:2px solid var(--card-soft); color:var(--gold);
+    display:flex; align-items:center; justify-content:center; box-shadow:0 0 14px oklch(0.78 0.17 152 / 10%); }}
+  .check svg {{ width:17px; height:17px; }}
+
+  .input-group {{ position:relative; margin-top:12px; text-align:right; }}
+  .input-group:first-of-type {{ margin-top:4px; }}
+  .input-group label {{ display:block; font-size:11.5px; color:var(--muted); font-weight:500; margin-bottom:4px; }}
+  .input-group input, .input-group select {{ width:100%; padding:14px 16px; border-radius:12px; border:1.5px solid var(--border-2); background:var(--card-soft); color:var(--ink); font-size:15.5px; font-weight:400; }}
+  .input-group input:focus, .input-group select:focus {{ border-color:var(--gold); background:var(--card); }}
+  .input-group input::placeholder {{ color:var(--faint); }}
+
+  .phone-input-row {{ display:flex; gap:8px; margin-top:4px; direction:ltr; }}
+  .phone-input-row .country-code {{ flex:0 0 100px; }}
+  .phone-input-row .country-code select {{ padding:14px 10px; border-radius:12px; border:1.5px solid var(--border-2); background:var(--card-soft); color:var(--ink); font-size:15.5px; font-weight:500; width:100%; height:100%; direction:ltr; }}
+  .phone-input-row .country-code select:focus {{ border-color:var(--gold); background:var(--card); }}
+  .phone-input-row .phone-number {{ flex:1; }}
+  .phone-input-row .phone-number input {{ width:100%; padding:14px 16px; border-radius:12px; border:1.5px solid var(--border-2); background:var(--card-soft); color:var(--ink); font-size:15.5px; height:100%; direction:ltr; text-align:left; }}
+  .phone-input-row .phone-number input:focus {{ border-color:var(--gold); background:var(--card); }}
+  .phone-input-row .phone-number input::placeholder {{ color:var(--faint); text-align:left; }}
+
+  .btn-primary {{ width:100%; height:48px; margin-top:14px; border-radius:14px; background:linear-gradient(180deg, var(--gold), var(--gold-strong)); color:var(--green-ink); font-size:15px; font-weight:600;
+    display:flex; align-items:center; justify-content:center; gap:8px; }}
+  .btn-primary svg {{ width:18px; height:18px; }}
+  .btn-primary:disabled {{ opacity:.7; }}
+  .btn-outline {{ width:100%; height:44px; margin-top:8px; border-radius:14px; border:1.5px solid var(--border-2); background:var(--card-soft); color:var(--muted); font-size:13.5px; font-weight:500;
+    display:flex; align-items:center; justify-content:center; gap:8px; }}
+
+  .step-note {{ font-size:12px; color:var(--muted); line-height:1.7; margin:0 0 14px; }}
+  .qr-box {{ width:172px; height:172px; margin:0 auto; border-radius:16px; background:#fff; padding:10px; display:flex; align-items:center; justify-content:center; box-shadow:0 10px 30px rgba(5,134,147,.15); border:1px solid var(--border); }}
+  .qr-box img {{ width:100%; height:100%; object-fit:contain; }}
+
+  .status-msg {{ font-size:11.5px; color:var(--muted); margin-top:10px; font-weight:400; min-height:16px; }}
+  .status-msg.error {{ color:#f87171; }}
+  .status-msg.success {{ color:#34d399; }}
+
+  .secure {{ color:var(--muted); font-size:11px; margin-top:12px; display:flex; align-items:center; justify-content:center; gap:5px; font-weight:400; }}
+  .secure svg {{ width:16px; height:16px; }}
+
+  .bottom {{ position:relative; z-index:3; margin-top:auto; padding:14px 20px calc(10px + env(safe-area-inset-bottom)); text-align:center; flex-shrink:0; }}
+  .terms {{ color:var(--faint); font-size:10px; line-height:1.7; font-weight:300; }}
+  .terms-link {{ color:var(--gold); font-weight:400; }}
+  .home {{ width:90px; height:4px; background:var(--ink); border-radius:8px; margin:10px auto 0; opacity:.10; flex-shrink:0; }}
+
+  ::-webkit-scrollbar {{ display:none; }}
+  * {{ scrollbar-width:none; }}
+
+  @media (max-height:700px) {{
+    .logo {{ width:64px; height:64px; border-radius:18px; margin-bottom:6px; }}
+    .logo svg {{ width:42px; height:42px; }}
+    .title {{ font-size:22px; }}
+    .subtitle {{ font-size:11px; }}
+    .login-card {{ margin:16px 20px 0; padding:14px 16px 14px; border-radius:14px; min-height:270px; }}
+    .orbit {{ width:90px; height:90px; }}
+    .orbit::before {{ width:70px; height:70px; }}
+    .orbit::after {{ width:86px; height:86px; }}
+    .phone {{ width:44px; height:64px; border-radius:8px; border-width:2.5px; }}
+    .qr-box {{ width:140px; height:140px; }}
+    .check {{ width:26px; height:26px; right:14px; bottom:4px; border-width:1.5px; }}
+    .input-group {{ margin-top:8px; }}
+    .input-group input, .input-group select {{ padding:11px 13px; font-size:14px; border-radius:10px; }}
+    .phone-input-row .country-code {{ flex:0 0 80px; }}
+    .phone-input-row .country-code select, .phone-input-row .phone-number input {{ padding:11px 13px; font-size:14px; border-radius:10px; }}
+    .btn-primary {{ height:42px; font-size:13.5px; margin-top:10px; border-radius:12px; }}
+    .btn-outline {{ height:38px; font-size:12px; margin-top:6px; border-radius:12px; }}
+    .back {{ width:34px; height:34px; top:10px; right:12px; }}
+    .back svg {{ width:16px; height:16px; }}
+    .main-content {{ padding:40px 16px 4px; }}
+  }}
+  @media (max-height:580px) {{
+    .logo {{ width:50px; height:50px; border-radius:14px; margin-bottom:4px; }}
+    .logo svg {{ width:34px; height:34px; }}
+    .title {{ font-size:18px; }}
+    .login-card {{ margin:10px 14px 0; padding:10px 12px 10px; border-radius:12px; min-height:220px; }}
+    .orbit {{ width:70px; height:70px; }}
+    .orbit::before {{ width:54px; height:54px; }}
+    .orbit::after {{ width:66px; height:66px; }}
+    .phone {{ width:34px; height:48px; border-radius:6px; border-width:2px; }}
+    .qr-box {{ width:110px; height:110px; }}
+    .check {{ width:20px; height:20px; right:10px; bottom:2px; border-width:1.5px; }}
+    .input-group {{ margin-top:4px; }}
+    .btn-primary {{ height:34px; font-size:11px; margin-top:6px; border-radius:10px; }}
+    .btn-outline {{ height:30px; font-size:10px; margin-top:4px; border-radius:10px; }}
+    .back {{ width:28px; height:28px; top:6px; right:8px; }}
+    .main-content {{ padding:30px 12px 2px; }}
+  }}
+  @media (max-width:360px) {{
+    .login-card {{ margin-left:14px; margin-right:14px; }}
+    .main-content {{ padding:40px 14px 4px; }}
+    .phone-input-row .country-code {{ flex:0 0 75px; }}
+  }}
 </style>
 </head>
 <body>
-  <div class="app">
-    <div class="bubble one"></div>
-    <div class="bubble two"></div>
-    <div class="bubble three"></div>
+  <div class="screen" id="welcomeScreen">
+    <div class="w-bubble one"></div>
+    <div class="w-bubble two"></div>
+    <div class="w-bubble three"></div>
 
-    <div class="main-content">
+    <div class="w-main-content">
       <section class="hero">
-        <div class="logo">{logo_svg(78)}</div>
+        <div class="w-logo">{logo_svg(78)}</div>
         <h1 class="brand">واصل</h1>
         <div class="en">WASEL BUSINESS</div>
         <p class="description">منصة احترافية لإدارة حملاتك<br>التسويقية عبر واتساب بسهولة</p>
@@ -1254,7 +1400,7 @@ def render_welcome_page():
       <div class="carousel" id="welcomeCarousel">
         <div class="slide active">
           <section class="visual">
-            <div class="phone"><div class="phone-screen"></div></div>
+            <div class="w-phone"><div class="phone-screen"></div></div>
 
             <div class="card target">
               <div class="card-icon">{ICON_SEND}</div>
@@ -1328,22 +1474,156 @@ def render_welcome_page():
       </div>
 
       <section class="actions">
-        <a href="/signup" class="btn primary">
+        <button type="button" class="btn primary" onclick="goToLogin()">
           <strong>ابدأ الآن</strong>
           <small>إنشاء حساب جديد</small>
-        </a>
-        <a href="/login" class="btn whatsapp">
+        </button>
+        <button type="button" class="btn whatsapp" onclick="goToLogin()">
           {ICON_WHATSAPP}
           <span>تسجيل الدخول عبر واتساب</span>
-        </a>
-        <div class="login">لديك حساب بالفعل؟ <a href="/login">تسجيل الدخول</a></div>
+        </button>
+        <div class="switch-login">لديك حساب بالفعل؟ <a href="#" onclick="event.preventDefault(); goToLogin();">تسجيل الدخول</a></div>
         <div class="home-indicator"></div>
       </section>
     </div>
   </div>
 
+  <div class="screen hidden" id="loginScreen">
+    <div class="bubble one"></div>
+    <div class="bubble two"></div>
+    <div class="bubble three"></div>
+
+    <button type="button" class="back" aria-label="رجوع" onclick="goToWelcome()">{ICON_BACK}</button>
+
+    <div class="main-content">
+      <header class="header">
+        <div class="logo">{logo_svg(54)}</div>
+        <h1 class="title">تسجيل الدخول</h1>
+        <p class="subtitle">أدخل رقم واتساب للمتابعة - بدون بريد إلكتروني أو كلمة مرور</p>
+      </header>
+
+      <section class="login-card">
+        <div class="orbit">
+          <span class="orbit-dot"></span>
+          <div class="phone">{ICON_WHATSAPP}</div>
+          <div class="check">{ICON_CHECK}</div>
+        </div>
+
+        <div id="phoneStep">
+          <div class="input-group">
+            <label>رقم الهاتف</label>
+            <div class="phone-input-row">
+              <div class="country-code">
+                <select id="countryCode">
+                  <option value="20">🇪🇬 +20</option>
+                  <option value="212">🇲🇦 +212</option>
+                  <option value="213">🇩🇿 +213</option>
+                  <option value="216">🇹🇳 +216</option>
+                  <option value="218">🇱🇾 +218</option>
+                  <option value="90">🇹🇷 +90</option>
+                  <option value="91">🇮🇳 +91</option>
+                  <option value="92">🇵🇰 +92</option>
+                  <option value="93">🇦🇫 +93</option>
+                  <option value="94">🇱🇰 +94</option>
+                  <option value="95">🇲🇲 +95</option>
+                  <option value="960">🇲🇻 +960</option>
+                  <option value="961">🇱🇧 +961</option>
+                  <option value="962">🇯🇴 +962</option>
+                  <option value="963">🇸🇾 +963</option>
+                  <option value="964" selected>🇮🇶 +964</option>
+                  <option value="965">🇰🇼 +965</option>
+                  <option value="966">🇸🇦 +966</option>
+                  <option value="967">🇾🇪 +967</option>
+                  <option value="968">🇴🇲 +968</option>
+                  <option value="970">🇵🇸 +970</option>
+                  <option value="971">🇦🇪 +971</option>
+                  <option value="972">🇮🇱 +972</option>
+                  <option value="973">🇧🇭 +973</option>
+                  <option value="974">🇶🇦 +974</option>
+                  <option value="975">🇧🇹 +975</option>
+                  <option value="976">🇲🇳 +976</option>
+                  <option value="977">🇳🇵 +977</option>
+                  <option value="98">🇮🇷 +98</option>
+                  <option value="262">🇾🇹 +262</option>
+                  <option value="992">🇹🇯 +992</option>
+                  <option value="993">🇹🇲 +993</option>
+                  <option value="994">🇦🇿 +994</option>
+                  <option value="995">🇬🇪 +995</option>
+                  <option value="996">🇰🇬 +996</option>
+                  <option value="998">🇺🇿 +998</option>
+                  <option value="1">🇺🇸 +1</option>
+                  <option value="44">🇬🇧 +44</option>
+                  <option value="49">🇩🇪 +49</option>
+                  <option value="33">🇫🇷 +33</option>
+                  <option value="39">🇮🇹 +39</option>
+                  <option value="34">🇪🇸 +34</option>
+                  <option value="7">🇷🇺 +7</option>
+                  <option value="86">🇨🇳 +86</option>
+                  <option value="81">🇯🇵 +81</option>
+                  <option value="82">🇰🇷 +82</option>
+                  <option value="60">🇲🇾 +60</option>
+                  <option value="62">🇮🇩 +62</option>
+                  <option value="63">🇵🇭 +63</option>
+                  <option value="64">🇳🇿 +64</option>
+                  <option value="61">🇦🇺 +61</option>
+                </select>
+              </div>
+              <div class="phone-number">
+                <input type="tel" id="phoneInput" placeholder="7701234567" dir="ltr">
+              </div>
+            </div>
+          </div>
+          <button class="btn-primary" id="sendBtn" data-label="متابعة" onclick="sendCode()"><span class="btn-label">متابعة</span> {ICON_SEND_ARROW}</button>
+          <div class="secure">آمن وسريع بدون كلمة مرور {ICON_LOCK_SM}</div>
+        </div>
+
+        <div id="qrStep" style="display:none">
+          <p class="step-note">هذا أول استخدام للموقع. امسح رمز QR من واتساب هاتفك لتفعيل حسابك كمدير المنصة، وسنرسل لك رمز التحقق تلقائياً بعد الاتصال</p>
+          <div class="qr-box"><img id="qrImg" alt="QR"></div>
+        </div>
+
+        <div id="codeStep" style="display:none">
+          <p class="step-note">أرسلنا رمز التحقق عبر واتساب على الرقم المدخل</p>
+          <div class="input-group">
+            <label>رمز التحقق</label>
+            <input type="text" id="codeInput" placeholder="أدخل الرمز المكون من 6 أرقام" inputmode="numeric" dir="ltr">
+          </div>
+          <button class="btn-primary" id="verifyBtn" data-label="تحقق" onclick="verifyCode()"><span class="btn-label">تحقق</span> {ICON_CHECK}</button>
+          <button class="btn-outline" onclick="showStep('phone')">تعديل الرقم</button>
+        </div>
+
+        <div id="nameStep" style="display:none">
+          <p class="step-note">مرحباً بك أول مرة! شنو اسمك؟</p>
+          <div class="input-group">
+            <label>الاسم</label>
+            <input type="text" id="nameInput" placeholder="اسمك الكامل">
+          </div>
+          <button class="btn-primary" id="nameBtn" data-label="متابعة" onclick="submitName()"><span class="btn-label">متابعة</span> {ICON_SEND_ARROW}</button>
+        </div>
+
+        <div class="status-msg" id="authStatus"></div>
+      </section>
+    </div>
+
+    <footer class="bottom">
+      <div class="terms">بتسجيل الدخول فإنك توافق على <span class="terms-link">الشروط والأحكام</span> و<span class="terms-link">سياسة الخصوصية</span></div>
+      <div class="home"></div>
+    </footer>
+  </div>
+
 <script>
 {PAGE_TRANSITION_JS}
+
+function showScreen(id) {{
+  document.getElementById('welcomeScreen').classList.toggle('hidden', id !== 'welcomeScreen');
+  document.getElementById('loginScreen').classList.toggle('hidden', id !== 'loginScreen');
+  const el = document.getElementById(id);
+  el.classList.remove('screen-fade-in');
+  void el.offsetWidth;
+  el.classList.add('screen-fade-in');
+}}
+function goToLogin() {{ showScreen('loginScreen'); }}
+function goToWelcome() {{ showStep('phone'); showScreen('welcomeScreen'); }}
 
 (function() {{
   var slides = document.querySelectorAll('.slide');
@@ -1375,305 +1655,6 @@ def render_welcome_page():
   }}, {{passive:true}});
   restart();
 }})();
-</script>
-</body>
-</html>
-"""
-
-
-def render_phone_login_page():
-    return f"""
-<!doctype html>
-<html lang="ar" dir="rtl">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<meta name="theme-color" content="#02090f">
-<title>واصل - تسجيل الدخول</title>
-{FONT_LINKS}
-<style>
-:root {{
-  --bg: #F5F7FA; --card: #FFFFFF; --card-soft: #EEF2F5;
-  --ink: #1A2E35; --muted: #4A6A78; --faint: #8AA0B0;
-  --gold: #058693; --gold-strong: #046C76; --green-ink: #ffffff;
-  --border: rgba(5,134,147,.08); --border-2: rgba(5,134,147,.16);
-}}
-* {{ box-sizing:border-box; margin:0; padding:0; -webkit-tap-highlight-color:transparent; }}
-html, body {{ width:100%; height:100%; background:var(--bg); overflow:hidden; position:fixed; inset:0; }}
-body {{ font-family:{FONT_STACK}; color:var(--ink); }}
-button, a {{ font:inherit; border:0; cursor:pointer; background:none; }}
-a {{ text-decoration:none; color:inherit; }}
-input, select {{ font:inherit; border:0; outline:none; background:none; color:var(--ink); }}
-select {{ appearance:none; -webkit-appearance:none; -moz-appearance:none; cursor:pointer; }}
-select option {{ background:var(--card-soft); color:var(--ink); }}
-
-.page {{ width:100%; max-width:430px; height:100vh; height:100dvh; margin:auto; position:relative; overflow:hidden; display:flex; flex-direction:column;
-  background: radial-gradient(circle at 50% 25%, oklch(0.78 0.17 152 / 8%), transparent 30%),
-              radial-gradient(circle at 52% 60%, oklch(0.78 0.17 152 / 3%), transparent 25%),
-              var(--bg);
-  animation:fadeIn .3s ease; }}
-@keyframes fadeIn {{ from {{ opacity:0; }} to {{ opacity:1; }} }}
-{PAGE_TRANSITION_CSS}
-.page::before {{ content:""; position:absolute; inset:0; pointer-events:none; opacity:.5;
-  background: radial-gradient(circle at 70% 7%, oklch(0.78 0.17 152 / 45%) 0 2px, transparent 3px),
-              radial-gradient(circle at 86% 12%, oklch(0.78 0.17 152 / 40%) 0 3px, transparent 4px),
-              radial-gradient(circle at 38% 6%, oklch(0.78 0.17 152 / 35%) 0 3px, transparent 4px),
-              radial-gradient(circle at 13% 17%, oklch(0.78 0.17 152 / 45%) 0 2px, transparent 3px),
-              radial-gradient(circle at 75% 23%, oklch(0.78 0.17 152 / 40%) 0 2px, transparent 3px),
-              radial-gradient(circle at 29% 45%, oklch(0.78 0.17 152 / 45%) 0 3px, transparent 4px),
-              radial-gradient(circle at 78% 50%, oklch(0.78 0.17 152 / 40%) 0 3px, transparent 4px); }}
-.bubble {{ position:absolute; border:1px solid oklch(0.78 0.17 152 / 5%); background:oklch(0.78 0.17 152 / 1.5%); border-radius:18px; opacity:.5; pointer-events:none; }}
-.bubble::before, .bubble::after {{ content:""; position:absolute; width:20px; height:3px; right:8px; background:oklch(0.78 0.17 152 / 5%); border-radius:6px; }}
-.bubble::before {{ top:10px; }}
-.bubble::after {{ top:17px; width:14px; }}
-.bubble.one {{ width:60px; height:44px; top:130px; right:-10px; }}
-.bubble.two {{ width:52px; height:38px; top:330px; left:-10px; }}
-.bubble.three {{ width:48px; height:34px; top:500px; right:-12px; }}
-
-.back {{ position:absolute; top:14px; right:16px; z-index:5; width:44px; height:44px; border-radius:50%; background:var(--card);
-  border:1px solid var(--border-2); display:flex; align-items:center; justify-content:center; color:var(--ink); box-shadow:0 2px 10px rgba(5,134,147,.1); }}
-.back svg {{ width:20px; height:20px; }}
-
-.main-content {{ flex:1; display:flex; flex-direction:column; justify-content:center; padding:50px 22px 6px; position:relative; z-index:2; min-height:0; }}
-.header {{ text-align:center; flex-shrink:0; }}
-.logo {{ width:80px; height:80px; margin:0 auto 10px; border-radius:24px; background:linear-gradient(145deg, var(--gold), var(--gold-strong)); box-shadow:0 12px 35px oklch(0.78 0.17 152 / 14%); display:flex; align-items:center; justify-content:center; }}
-.logo svg {{ width:54px; height:54px; }}
-.title {{ font-family:{FONT_STACK}; font-size:26px; line-height:1.2; font-weight:800;
-  background:linear-gradient(135deg, var(--gold), var(--gold-strong)); -webkit-background-clip:text; -webkit-text-fill-color:transparent; background-clip:text; }}
-.subtitle {{ margin-top:3px; color:var(--muted); font-size:12.5px; line-height:1.6; font-weight:400; }}
-
-.login-card {{ position:relative; z-index:3; margin:22px 25px 0; border:1px solid var(--border); border-radius:16px;
-  background:var(--card); padding:20px 20px 18px; text-align:center; flex-shrink:0;
-  box-shadow:0 14px 40px rgba(5,134,147,.1); min-height:320px; }}
-
-.orbit {{ width:110px; height:110px; margin:0 auto 4px; position:relative; display:flex; align-items:center; justify-content:center; }}
-.orbit::before, .orbit::after {{ content:""; position:absolute; border:2px solid oklch(0.78 0.17 152 / 45%); border-radius:50%; transform:rotate(-20deg); }}
-.orbit::before {{ width:86px; height:86px; }}
-.orbit::after {{ width:106px; height:106px; border-color:oklch(0.78 0.17 152 / 20%); }}
-.orbit-dot {{ position:absolute; width:5px; height:5px; background:var(--gold); border-radius:50%; top:10px; right:16px; box-shadow:0 0 10px oklch(0.78 0.17 152 / 60%); }}
-.phone {{ width:54px; height:78px; border:3px solid var(--card-soft); border-radius:10px; background:linear-gradient(150deg, oklch(0.4 0.1 152), oklch(0.13 0.02 152) 75%); position:relative; box-shadow:0 0 20px oklch(0.78 0.17 152 / 12%); display:flex; align-items:center; justify-content:center; color:var(--gold); }}
-.phone::before {{ content:""; position:absolute; top:3px; left:50%; transform:translateX(-50%); width:22px; height:4px; background:oklch(0.15 0.015 245); border-radius:0 0 4px 4px; }}
-.phone svg {{ width:26px; height:26px; }}
-.check {{ position:absolute; right:18px; bottom:8px; width:32px; height:32px; border-radius:50%; background:var(--card); border:2px solid var(--card-soft); color:var(--gold);
-  display:flex; align-items:center; justify-content:center; box-shadow:0 0 14px oklch(0.78 0.17 152 / 10%); }}
-.check svg {{ width:17px; height:17px; }}
-
-.input-group {{ position:relative; margin-top:12px; text-align:right; }}
-.input-group:first-of-type {{ margin-top:4px; }}
-.input-group label {{ display:block; font-size:11.5px; color:var(--muted); font-weight:500; margin-bottom:4px; }}
-.input-group input, .input-group select {{ width:100%; padding:14px 16px; border-radius:12px; border:1.5px solid var(--border-2); background:var(--card-soft); color:var(--ink); font-size:15.5px; font-weight:400; }}
-.input-group input:focus, .input-group select:focus {{ border-color:var(--gold); background:var(--card); }}
-.input-group input::placeholder {{ color:var(--faint); }}
-
-.phone-input-row {{ display:flex; gap:8px; margin-top:4px; direction:ltr; }}
-.phone-input-row .country-code {{ flex:0 0 100px; }}
-.phone-input-row .country-code select {{ padding:14px 10px; border-radius:12px; border:1.5px solid var(--border-2); background:var(--card-soft); color:var(--ink); font-size:15.5px; font-weight:500; width:100%; height:100%; direction:ltr; }}
-.phone-input-row .country-code select:focus {{ border-color:var(--gold); background:var(--card); }}
-.phone-input-row .phone-number {{ flex:1; }}
-.phone-input-row .phone-number input {{ width:100%; padding:14px 16px; border-radius:12px; border:1.5px solid var(--border-2); background:var(--card-soft); color:var(--ink); font-size:15.5px; height:100%; direction:ltr; text-align:left; }}
-.phone-input-row .phone-number input:focus {{ border-color:var(--gold); background:var(--card); }}
-.phone-input-row .phone-number input::placeholder {{ color:var(--faint); text-align:left; }}
-
-.btn-primary {{ width:100%; height:48px; margin-top:14px; border-radius:14px; background:linear-gradient(180deg, var(--gold), var(--gold-strong)); color:var(--green-ink); font-size:15px; font-weight:600;
-  display:flex; align-items:center; justify-content:center; gap:8px; }}
-.btn-primary svg {{ width:18px; height:18px; }}
-.btn-primary:disabled {{ opacity:.7; }}
-.btn-outline {{ width:100%; height:44px; margin-top:8px; border-radius:14px; border:1.5px solid var(--border-2); background:var(--card-soft); color:var(--muted); font-size:13.5px; font-weight:500;
-  display:flex; align-items:center; justify-content:center; gap:8px; }}
-
-.step-note {{ font-size:12px; color:var(--muted); line-height:1.7; margin:0 0 14px; }}
-.qr-box {{ width:172px; height:172px; margin:0 auto; border-radius:16px; background:#fff; padding:10px; display:flex; align-items:center; justify-content:center; box-shadow:0 10px 30px rgba(5,134,147,.15); border:1px solid var(--border); }}
-.qr-box img {{ width:100%; height:100%; object-fit:contain; }}
-
-.status-msg {{ font-size:11.5px; color:var(--muted); margin-top:10px; font-weight:400; min-height:16px; }}
-.status-msg.error {{ color:#f87171; }}
-.status-msg.success {{ color:#34d399; }}
-
-.secure {{ color:var(--muted); font-size:11px; margin-top:12px; display:flex; align-items:center; justify-content:center; gap:5px; font-weight:400; }}
-.secure svg {{ width:16px; height:16px; }}
-
-.bottom {{ position:relative; z-index:3; margin-top:auto; padding:14px 20px calc(10px + env(safe-area-inset-bottom)); text-align:center; flex-shrink:0; }}
-.terms {{ color:var(--faint); font-size:10px; line-height:1.7; font-weight:300; }}
-.terms-link {{ color:var(--gold); font-weight:400; }}
-.home {{ width:90px; height:4px; background:var(--ink); border-radius:8px; margin:10px auto 0; opacity:.10; flex-shrink:0; }}
-
-::-webkit-scrollbar {{ display:none; }}
-* {{ scrollbar-width:none; }}
-
-@media (max-height:700px) {{
-  .logo {{ width:64px; height:64px; border-radius:18px; margin-bottom:6px; }}
-  .logo svg {{ width:42px; height:42px; }}
-  .title {{ font-size:22px; }}
-  .subtitle {{ font-size:11px; }}
-  .login-card {{ margin:16px 20px 0; padding:14px 16px 14px; border-radius:14px; min-height:270px; }}
-  .orbit {{ width:90px; height:90px; }}
-  .orbit::before {{ width:70px; height:70px; }}
-  .orbit::after {{ width:86px; height:86px; }}
-  .phone {{ width:44px; height:64px; border-radius:8px; border-width:2.5px; }}
-  .qr-box {{ width:140px; height:140px; }}
-  .check {{ width:26px; height:26px; right:14px; bottom:4px; border-width:1.5px; }}
-  .input-group {{ margin-top:8px; }}
-  .input-group input, .input-group select {{ padding:11px 13px; font-size:14px; border-radius:10px; }}
-  .phone-input-row .country-code {{ flex:0 0 80px; }}
-  .phone-input-row .country-code select, .phone-input-row .phone-number input {{ padding:11px 13px; font-size:14px; border-radius:10px; }}
-  .btn-primary {{ height:42px; font-size:13.5px; margin-top:10px; border-radius:12px; }}
-  .btn-outline {{ height:38px; font-size:12px; margin-top:6px; border-radius:12px; }}
-  .back {{ width:34px; height:34px; top:10px; right:12px; }}
-  .back svg {{ width:16px; height:16px; }}
-  .main-content {{ padding:40px 16px 4px; }}
-}}
-@media (max-height:580px) {{
-  .logo {{ width:50px; height:50px; border-radius:14px; margin-bottom:4px; }}
-  .logo svg {{ width:34px; height:34px; }}
-  .title {{ font-size:18px; }}
-  .login-card {{ margin:10px 14px 0; padding:10px 12px 10px; border-radius:12px; min-height:220px; }}
-  .orbit {{ width:70px; height:70px; }}
-  .orbit::before {{ width:54px; height:54px; }}
-  .orbit::after {{ width:66px; height:66px; }}
-  .phone {{ width:34px; height:48px; border-radius:6px; border-width:2px; }}
-  .qr-box {{ width:110px; height:110px; }}
-  .check {{ width:20px; height:20px; right:10px; bottom:2px; border-width:1.5px; }}
-  .input-group {{ margin-top:4px; }}
-  .btn-primary {{ height:34px; font-size:11px; margin-top:6px; border-radius:10px; }}
-  .btn-outline {{ height:30px; font-size:10px; margin-top:4px; border-radius:10px; }}
-  .back {{ width:28px; height:28px; top:6px; right:8px; }}
-  .main-content {{ padding:30px 12px 2px; }}
-}}
-@media (max-width:360px) {{
-  .login-card {{ margin-left:14px; margin-right:14px; }}
-  .main-content {{ padding:40px 14px 4px; }}
-  .phone-input-row .country-code {{ flex:0 0 75px; }}
-}}
-@media (min-width:431px) {{ .page {{ border-left:1px solid var(--border); border-right:1px solid var(--border); }} }}
-</style>
-</head>
-<body>
-
-<div class="page">
-  <div class="bubble one"></div>
-  <div class="bubble two"></div>
-  <div class="bubble three"></div>
-
-  <a href="/" class="back" aria-label="رجوع">{ICON_BACK}</a>
-
-  <div class="main-content">
-    <header class="header">
-      <div class="logo">{logo_svg(54)}</div>
-      <h1 class="title">تسجيل الدخول</h1>
-      <p class="subtitle">أدخل رقم واتساب للمتابعة - بدون بريد إلكتروني أو كلمة مرور</p>
-    </header>
-
-    <section class="login-card">
-      <div class="orbit">
-        <span class="orbit-dot"></span>
-        <div class="phone">{ICON_WHATSAPP}</div>
-        <div class="check">{ICON_CHECK}</div>
-      </div>
-
-      <div id="phoneStep">
-        <div class="input-group">
-          <label>رقم الهاتف</label>
-          <div class="phone-input-row">
-            <div class="country-code">
-              <select id="countryCode">
-                <option value="20">🇪🇬 +20</option>
-                <option value="212">🇲🇦 +212</option>
-                <option value="213">🇩🇿 +213</option>
-                <option value="216">🇹🇳 +216</option>
-                <option value="218">🇱🇾 +218</option>
-                <option value="90">🇹🇷 +90</option>
-                <option value="91">🇮🇳 +91</option>
-                <option value="92">🇵🇰 +92</option>
-                <option value="93">🇦🇫 +93</option>
-                <option value="94">🇱🇰 +94</option>
-                <option value="95">🇲🇲 +95</option>
-                <option value="960">🇲🇻 +960</option>
-                <option value="961">🇱🇧 +961</option>
-                <option value="962">🇯🇴 +962</option>
-                <option value="963">🇸🇾 +963</option>
-                <option value="964" selected>🇮🇶 +964</option>
-                <option value="965">🇰🇼 +965</option>
-                <option value="966">🇸🇦 +966</option>
-                <option value="967">🇾🇪 +967</option>
-                <option value="968">🇴🇲 +968</option>
-                <option value="970">🇵🇸 +970</option>
-                <option value="971">🇦🇪 +971</option>
-                <option value="972">🇮🇱 +972</option>
-                <option value="973">🇧🇭 +973</option>
-                <option value="974">🇶🇦 +974</option>
-                <option value="975">🇧🇹 +975</option>
-                <option value="976">🇲🇳 +976</option>
-                <option value="977">🇳🇵 +977</option>
-                <option value="98">🇮🇷 +98</option>
-                <option value="262">🇾🇹 +262</option>
-                <option value="992">🇹🇯 +992</option>
-                <option value="993">🇹🇲 +993</option>
-                <option value="994">🇦🇿 +994</option>
-                <option value="995">🇬🇪 +995</option>
-                <option value="996">🇰🇬 +996</option>
-                <option value="998">🇺🇿 +998</option>
-                <option value="1">🇺🇸 +1</option>
-                <option value="44">🇬🇧 +44</option>
-                <option value="49">🇩🇪 +49</option>
-                <option value="33">🇫🇷 +33</option>
-                <option value="39">🇮🇹 +39</option>
-                <option value="34">🇪🇸 +34</option>
-                <option value="7">🇷🇺 +7</option>
-                <option value="86">🇨🇳 +86</option>
-                <option value="81">🇯🇵 +81</option>
-                <option value="82">🇰🇷 +82</option>
-                <option value="60">🇲🇾 +60</option>
-                <option value="62">🇮🇩 +62</option>
-                <option value="63">🇵🇭 +63</option>
-                <option value="64">🇳🇿 +64</option>
-                <option value="61">🇦🇺 +61</option>
-              </select>
-            </div>
-            <div class="phone-number">
-              <input type="tel" id="phoneInput" placeholder="7701234567" dir="ltr">
-            </div>
-          </div>
-        </div>
-        <button class="btn-primary" id="sendBtn" data-label="متابعة" onclick="sendCode()"><span class="btn-label">متابعة</span> {ICON_SEND_ARROW}</button>
-        <div class="secure">آمن وسريع بدون كلمة مرور {ICON_LOCK_SM}</div>
-      </div>
-
-      <div id="qrStep" style="display:none">
-        <p class="step-note">هذا أول استخدام للموقع. امسح رمز QR من واتساب هاتفك لتفعيل حسابك كمدير المنصة، وسنرسل لك رمز التحقق تلقائياً بعد الاتصال</p>
-        <div class="qr-box"><img id="qrImg" alt="QR"></div>
-      </div>
-
-      <div id="codeStep" style="display:none">
-        <p class="step-note">أرسلنا رمز التحقق عبر واتساب على الرقم المدخل</p>
-        <div class="input-group">
-          <label>رمز التحقق</label>
-          <input type="text" id="codeInput" placeholder="أدخل الرمز المكون من 6 أرقام" inputmode="numeric" dir="ltr">
-        </div>
-        <button class="btn-primary" id="verifyBtn" data-label="تحقق" onclick="verifyCode()"><span class="btn-label">تحقق</span> {ICON_CHECK}</button>
-        <button class="btn-outline" onclick="showStep('phone')">تعديل الرقم</button>
-      </div>
-
-      <div id="nameStep" style="display:none">
-        <p class="step-note">مرحباً بك أول مرة! شنو اسمك؟</p>
-        <div class="input-group">
-          <label>الاسم</label>
-          <input type="text" id="nameInput" placeholder="اسمك الكامل">
-        </div>
-        <button class="btn-primary" id="nameBtn" data-label="متابعة" onclick="submitName()"><span class="btn-label">متابعة</span> {ICON_SEND_ARROW}</button>
-      </div>
-
-      <div class="status-msg" id="authStatus"></div>
-    </section>
-  </div>
-
-  <footer class="bottom">
-    <div class="terms">بتسجيل الدخول فإنك توافق على <span class="terms-link">الشروط والأحكام</span> و<span class="terms-link">سياسة الخصوصية</span></div>
-    <div class="home"></div>
-  </footer>
-</div>
-
-<script>
-{PAGE_TRANSITION_JS}
 
 let waPhone = '';
 let bootstrapAccId = null;
@@ -1781,7 +1762,7 @@ def welcome_page():
 
 @app.route("/login", methods=["GET"])
 def login_page():
-    return render_phone_login_page()
+    return redirect("/")
 
 
 @app.route("/signup")
@@ -2453,9 +2434,11 @@ PAGE = """
 <title>منصة حملات واتساب</title>
 <link rel="manifest" href="/manifest.json">
 <meta name="theme-color" content="#F5F7FA">
-<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">
+<link rel="preconnect" href="https://cdnjs.cloudflare.com">
+<link rel="preconnect" href="https://cdn.tailwindcss.com">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
 <script src="https://cdn.tailwindcss.com"></script>
 <style>
@@ -3039,11 +3022,7 @@ function fadeContent() {
   c.classList.add('fade-in');
 }
 
-async function render() {
-  gen++;
-  const myGen = gen;
-  await loadAccounts();
-  if (myGen !== gen) return;
+function renderActiveSection(myGen) {
   if (section === 'home') renderHome();
   else if (section === 'accounts') renderAccounts();
   else if (section === 'campaigns') renderCampaigns(myGen);
@@ -3051,7 +3030,25 @@ async function render() {
   else if (section === 'autoreply') renderAutoReply();
   else if (section === 'admin') renderAdmin();
   else renderSettings();
+}
+
+async function render() {
+  gen++;
+  const myGen = gen;
+  const hasCache = accounts.length > 0;
+  const loadPromise = loadAccounts();
+  if (!hasCache) {
+    await loadPromise;
+    if (myGen !== gen) return;
+  }
+  renderActiveSection(myGen);
   fadeContent();
+  if (hasCache) {
+    loadPromise.then(function() {
+      if (myGen !== gen) return;
+      renderActiveSection(myGen);
+    });
+  }
 }
 
 /* ---------- قسم الرئيسية ---------- */
