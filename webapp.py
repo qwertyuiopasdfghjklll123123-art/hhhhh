@@ -21,6 +21,7 @@
 أول مرة، بنفس طريقة تصحيح إرفاق الصور سابقاً.
 """
 
+import html
 import json
 import os
 import re
@@ -195,6 +196,11 @@ def init_db():
     # قيم افتراضية أول مرة بس (لو ما فيه صف بعد) - بعدها الإعدادات من لوحة الأدمن هي المصدر
     if conn.execute("SELECT COUNT(*) FROM site_settings").fetchone()[0] == 0:
         conn.execute("INSERT INTO site_settings (id, port, domain) VALUES (1, 7000, 'botiye.site')")
+    site_cols = [r["name"] for r in conn.execute("PRAGMA table_info(site_settings)").fetchall()]
+    if "logo" not in site_cols:
+        conn.execute("ALTER TABLE site_settings ADD COLUMN logo TEXT")
+    if "site_name" not in site_cols:
+        conn.execute("ALTER TABLE site_settings ADD COLUMN site_name TEXT DEFAULT ''")
     conn.commit()
     conn.close()
 
@@ -401,6 +407,31 @@ def db_set_site_settings(port, domain):
     conn.close()
 
 
+def db_get_branding():
+    conn = get_db()
+    row = conn.execute("SELECT logo, site_name FROM site_settings WHERE id = 1").fetchone()
+    conn.close()
+    return row
+
+
+def db_set_branding(site_name, logo=None, update_logo=False):
+    conn = get_db()
+    if update_logo:
+        conn.execute(
+            "INSERT INTO site_settings (id, site_name, logo) VALUES (1, ?, ?) "
+            "ON CONFLICT(id) DO UPDATE SET site_name = excluded.site_name, logo = excluded.logo",
+            (site_name, logo),
+        )
+    else:
+        conn.execute(
+            "INSERT INTO site_settings (id, site_name) VALUES (1, ?) "
+            "ON CONFLICT(id) DO UPDATE SET site_name = excluded.site_name",
+            (site_name,),
+        )
+    conn.commit()
+    conn.close()
+
+
 def db_save_wa_account(acc_id, owner, name):
     conn = get_db()
     conn.execute(
@@ -503,6 +534,7 @@ def new_account_entry(acc_id, owner, name):
         "auto_reply": {"enabled": False, "ai_enabled": False, "rules": []},
         "watching": False,
         "otp_sender": False,
+        "_login_cache": False,
     }
 
 
@@ -541,7 +573,24 @@ def add_account(owner, name):
 
 def account_logged_in(acc):
     d = acc["driver"]
-    return d is not None and len(d.find_elements(By.ID, "pane-side")) > 0
+    result = d is not None and len(d.find_elements(By.ID, "pane-side")) > 0
+    acc["_login_cache"] = result
+    return result
+
+
+def account_logged_in_fast(acc):
+    """متل account_logged_in لكن ما تعلّق خلف watch_account لو كانت شغالة حالياً على نفس
+    الحساب (تحجز acc["lock"] لفترة معقولة كل دورة مراقبة). تحاول فحص حقيقي بمهلة قصيرة
+    وإلا ترجع آخر حالة معروفة فوراً - مهم لمسارات ساخنة متل إرسال رمز OTP وقائمة الحسابات
+    اللي تنفّذ عند كل تنقل بالتطبيق."""
+    if acc["driver"] is None:
+        return False
+    if acc["lock"].acquire(timeout=0.2):
+        try:
+            return account_logged_in(acc)
+        finally:
+            acc["lock"].release()
+    return acc.get("_login_cache", False)
 
 
 def numbers_from_text(text):
@@ -598,7 +647,7 @@ def send_to(driver, number, text, media_path=None):
 def find_otp_sender_account():
     """يبحث عن حساب واتساب واحد حدده الأدمن لإرسال رموز التحقق لتسجيل الدخول/الحسابات الجديدة."""
     for acc in accounts.values():
-        if acc.get("otp_sender") and acc["driver"] is not None and account_logged_in(acc):
+        if acc.get("otp_sender") and acc["driver"] is not None and account_logged_in_fast(acc):
             return acc
     return None
 
@@ -669,6 +718,7 @@ def watch_account(acc_id):
         if not acc or not acc.get("watching") or acc["driver"] is None:
             print(f"[رد آلي] توقفت المراقبة لحساب {acc_id}")
             return
+        chat_items = []
         try:
             with acc["lock"]:
                 driver = acc["driver"]
@@ -694,66 +744,87 @@ def watch_account(acc_id):
                             print(f"[رد آلي] {acc['name']}: تشخيص - إجمالي عناصر داخل pane-side: {total_inside}, محددات مرشحة: {probe}")
                         except Exception as diag_e:
                             print(f"[رد آلي] {acc['name']}: تعذر أخذ لقطة تشخيصية: {diag_e}")
-                    names_ok = names_fail = text_found = 0
-                    for item in chat_items:
-                        try:
-                            chat_name = item.find_element(By.CSS_SELECTOR, "span[title]").get_attribute("title") or "غير معروف"
-                            names_ok += 1
-                        except Exception:
-                            names_fail += 1
-                            continue
-                        driver.execute_script("arguments[0].click();", item)
-                        time.sleep(1.2)
-                        incoming = driver.find_elements(By.CSS_SELECTOR, "div.message-in .selectable-text span")
-                        last_text = incoming[-1].text.strip() if incoming else ""
-                        if last_text:
-                            text_found += 1
-                        if not last_text or last_seen.get(chat_name) == last_text:
-                            continue
-                        last_seen[chat_name] = last_text
-                        print(f"[رد آلي] رسالة جديدة من {chat_name}: {last_text[:50]}")
-
-                        reply_text = None
-                        for rule in acc["auto_reply"]["rules"]:
-                            if rule["keyword"] and rule["keyword"] in last_text:
-                                reply_text = rule["reply"]
-                                print(f"[رد آلي] طابقت كلمة مفتاحية: {rule['keyword']}")
-                                break
-                        if not reply_text and acc["auto_reply"].get("ai_enabled"):
-                            reply_text = ai_reply(last_text)
-
-                        if reply_text:
-                            box = driver.find_element(By.XPATH, '//footer//div[@contenteditable="true"]')
-                            box.send_keys(reply_text)
-                            box.send_keys(Keys.ENTER)
-                            add_event(acc["owner"], acc["name"], "رد تلقائي", f"{chat_name}: {reply_text[:60]}", kind="info")
-                            print(f"[رد آلي] رديت على {chat_name}: {reply_text[:50]}")
-                        else:
-                            print(f"[رد آلي] ما فيه رد مطابق لرسالة {chat_name} (لا كلمة مفتاحية ولا AI مفعّل/شغّال)")
-                    if chat_items and not diag2_dumped:
-                        diag2_dumped = True
-                        print(f"[رد آلي] {acc['name']}: تشخيص٢ - استخراج اسم نجح لـ {names_ok}/{len(chat_items)}, رسائل واردة موجودة لـ {text_found}/{len(chat_items)}")
-                        if names_fail > 0:
-                            try:
-                                print(f"[رد آلي] {acc['name']}: عينة HTML لأول محادثة:\n{chat_items[0].get_attribute('outerHTML')[:1200]}")
-                            except Exception as diag2_e:
-                                print(f"[رد آلي] {acc['name']}: تعذر أخذ عينة HTML: {diag2_e}")
-                        if names_ok > 0 and text_found == 0:
-                            try:
-                                main_total = len(driver.find_elements(By.CSS_SELECTOR, "#main *"))
-                                probe3 = {}
-                                for sel in ["div.message-in", "div.message-out", ".selectable-text",
-                                            '[data-testid="conversation-panel-messages"]',
-                                            '[data-testid="msg-container"]', "div.copyable-text"]:
-                                    try:
-                                        probe3[sel] = len(driver.find_elements(By.CSS_SELECTOR, f"#main {sel}"))
-                                    except Exception:
-                                        probe3[sel] = "خطأ"
-                                print(f"[رد آلي] {acc['name']}: تشخيص٣ - إجمالي عناصر داخل #main: {main_total}, محددات مرشحة: {probe3}")
-                            except Exception as diag3_e:
-                                print(f"[رد آلي] {acc['name']}: تعذر أخذ تشخيص٣: {diag3_e}")
         except Exception as e:
-            print(f"[رد آلي] خطأ بدورة المراقبة: {e}")
+            print(f"[رد آلي] خطأ بجلب قائمة المحادثات: {e}")
+            time.sleep(6)
+            continue
+
+        # نمسك القفل لكل محادثة لحالها - مو للدورة كاملة - حتى عمليات ثانية بنفس الحساب
+        # (إرسال حملة أو رمز OTP) ما تنتظر خلف دورة مراقبة كاملة قد تاخذ عشر ثواني وأكثر
+        # لو فيها عدة محادثات؛ أسوأ حالة انتظار الآن هي وقت معالجة محادثة وحدة بس
+        names_ok = names_fail = text_found = 0
+        for item in chat_items:
+            acc = accounts.get(acc_id)
+            if not acc or not acc.get("watching") or acc["driver"] is None:
+                print(f"[رد آلي] توقفت المراقبة لحساب {acc_id}")
+                return
+            try:
+                with acc["lock"]:
+                    driver = acc["driver"]
+                    try:
+                        chat_name = item.find_element(By.CSS_SELECTOR, "span[title]").get_attribute("title") or "غير معروف"
+                    except Exception:
+                        names_fail += 1
+                        continue
+                    names_ok += 1
+                    driver.execute_script("arguments[0].click();", item)
+                    time.sleep(1.2)
+                    incoming = driver.find_elements(By.CSS_SELECTOR, "div.message-in .selectable-text span")
+                    last_text = incoming[-1].text.strip() if incoming else ""
+                    if last_text:
+                        text_found += 1
+                    if not last_text or last_seen.get(chat_name) == last_text:
+                        continue
+                    last_seen[chat_name] = last_text
+                    print(f"[رد آلي] رسالة جديدة من {chat_name}: {last_text[:50]}")
+
+                    reply_text = None
+                    for rule in acc["auto_reply"]["rules"]:
+                        if rule["keyword"] and rule["keyword"] in last_text:
+                            reply_text = rule["reply"]
+                            print(f"[رد آلي] طابقت كلمة مفتاحية: {rule['keyword']}")
+                            break
+                    if not reply_text and acc["auto_reply"].get("ai_enabled"):
+                        reply_text = ai_reply(last_text)
+
+                    if reply_text:
+                        box = driver.find_element(By.XPATH, '//footer//div[@contenteditable="true"]')
+                        box.send_keys(reply_text)
+                        box.send_keys(Keys.ENTER)
+                        add_event(acc["owner"], acc["name"], "رد تلقائي", f"{chat_name}: {reply_text[:60]}", kind="info")
+                        print(f"[رد آلي] رديت على {chat_name}: {reply_text[:50]}")
+                    else:
+                        print(f"[رد آلي] ما فيه رد مطابق لرسالة {chat_name} (لا كلمة مفتاحية ولا AI مفعّل/شغّال)")
+            except Exception as e:
+                print(f"[رد آلي] خطأ أثناء معالجة محادثة (تخطّيها والمتابعة للي بعدها): {e}")
+                continue
+
+        if chat_items and not diag2_dumped:
+            diag2_dumped = True
+            print(f"[رد آلي] {acc['name']}: تشخيص٢ - استخراج اسم نجح لـ {names_ok}/{len(chat_items)}, رسائل واردة موجودة لـ {text_found}/{len(chat_items)}")
+            if names_fail > 0:
+                try:
+                    with acc["lock"]:
+                        sample_html = chat_items[0].get_attribute('outerHTML')[:1200]
+                    print(f"[رد آلي] {acc['name']}: عينة HTML لأول محادثة:\n{sample_html}")
+                except Exception as diag2_e:
+                    print(f"[رد آلي] {acc['name']}: تعذر أخذ عينة HTML: {diag2_e}")
+            if names_ok > 0 and text_found == 0:
+                try:
+                    with acc["lock"]:
+                        driver = acc["driver"]
+                        main_total = len(driver.find_elements(By.CSS_SELECTOR, "#main *"))
+                        probe3 = {}
+                        for sel in ["div.message-in", "div.message-out", ".selectable-text",
+                                    '[data-testid="conversation-panel-messages"]',
+                                    '[data-testid="msg-container"]', "div.copyable-text"]:
+                            try:
+                                probe3[sel] = len(driver.find_elements(By.CSS_SELECTOR, f"#main {sel}"))
+                            except Exception:
+                                probe3[sel] = "خطأ"
+                    print(f"[رد آلي] {acc['name']}: تشخيص٣ - إجمالي عناصر داخل #main: {main_total}, محددات مرشحة: {probe3}")
+                except Exception as diag3_e:
+                    print(f"[رد آلي] {acc['name']}: تعذر أخذ تشخيص٣: {diag3_e}")
         time.sleep(6)
 
 
@@ -1076,6 +1147,16 @@ PAGE_TRANSITION_JS = """(function() {
 
 
 def render_welcome_page():
+    _branding = db_get_branding()
+    _site_name_raw = ((_branding["site_name"] if _branding else "") or "").strip()
+    has_custom_name = bool(_site_name_raw)
+    site_name = html.escape(_site_name_raw) if has_custom_name else "واصل"
+    site_logo = (_branding["logo"] if _branding else None) or None
+    if site_logo and not (isinstance(site_logo, str) and site_logo.startswith("data:image/")):
+        site_logo = None  # دفاع إضافي وقت العرض حتى لو صار بقاعدة البيانات شي غير متوقع
+    whatsapp_icon_html = f'<img src="{site_logo}" alt="{site_name}" class="custom-logo-icon">' if site_logo else ICON_WHATSAPP
+    page_title = site_name if has_custom_name else f"{site_name} — Wasel Business"
+    brand_sub_html = "" if has_custom_name else '<div class="en">WASEL BUSINESS</div>'
     return f"""
 <!doctype html>
 <html lang="ar" dir="rtl">
@@ -1083,7 +1164,7 @@ def render_welcome_page():
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <meta name="theme-color" content="#02090e">
-<title>واصل — Wasel Business</title>
+<title>{page_title}</title>
 {FONT_LINKS}
 <style>
   :root {{
@@ -1293,6 +1374,8 @@ def render_welcome_page():
   .phone {{ width:54px; height:78px; border:3px solid var(--card-soft); border-radius:10px; background:linear-gradient(150deg, oklch(0.4 0.1 152), oklch(0.13 0.02 152) 75%); position:relative; box-shadow:0 0 20px oklch(0.78 0.17 152 / 12%); display:flex; align-items:center; justify-content:center; color:var(--gold); }}
   .phone::before {{ content:""; position:absolute; top:3px; left:50%; transform:translateX(-50%); width:22px; height:4px; background:oklch(0.15 0.015 245); border-radius:0 0 4px 4px; }}
   .phone svg {{ width:26px; height:26px; }}
+  .custom-logo-icon {{ width:16px; height:16px; object-fit:contain; border-radius:3px; vertical-align:middle; }}
+  .phone .custom-logo-icon {{ width:26px; height:26px; border-radius:6px; }}
   .check {{ position:absolute; right:18px; bottom:8px; width:32px; height:32px; border-radius:50%; background:var(--card); border:2px solid var(--card-soft); color:var(--gold);
     display:flex; align-items:center; justify-content:center; box-shadow:0 0 14px oklch(0.78 0.17 152 / 10%); }}
   .check svg {{ width:17px; height:17px; }}
@@ -1399,8 +1482,8 @@ def render_welcome_page():
     <div class="w-main-content">
       <section class="hero">
         <div class="w-logo">{logo_svg(78)}</div>
-        <h1 class="brand">واصل</h1>
-        <div class="en">WASEL BUSINESS</div>
+        <h1 class="brand">{site_name}</h1>
+        {brand_sub_html}
         <p class="description">منصة احترافية لإدارة حملاتك<br>التسويقية عبر واتساب بسهولة</p>
       </section>
 
@@ -1486,7 +1569,7 @@ def render_welcome_page():
           <small>إنشاء حساب جديد</small>
         </button>
         <button type="button" class="btn whatsapp" onclick="goToLogin()">
-          {ICON_WHATSAPP}
+          {whatsapp_icon_html}
           <span>تسجيل الدخول عبر واتساب</span>
         </button>
         <div class="switch-login">لديك حساب بالفعل؟ <a href="#" onclick="event.preventDefault(); goToLogin();">تسجيل الدخول</a></div>
@@ -1512,7 +1595,7 @@ def render_welcome_page():
       <section class="login-card">
         <div class="orbit">
           <span class="orbit-dot"></span>
-          <div class="phone">{ICON_WHATSAPP}</div>
+          <div class="phone">{whatsapp_icon_html}</div>
           <div class="check">{ICON_CHECK}</div>
         </div>
 
@@ -2170,6 +2253,38 @@ def set_site_settings():
     return jsonify(ok=True)
 
 
+MAX_LOGO_B64_CHARS = 2 * 1024 * 1024 * 4 // 3 + 100  # ~2 ميغابايت بعد فك ترميز base64
+
+
+@app.route("/admin/branding", methods=["GET"])
+@login_required
+@admin_required
+def get_branding():
+    row = db_get_branding()
+    return jsonify(logo=(row["logo"] if row else None) or None, site_name=(row["site_name"] if row else "") or "")
+
+
+@app.route("/admin/branding", methods=["POST"])
+@login_required
+@admin_required
+def set_branding():
+    data = request.json or {}
+    site_name = (data.get("site_name") or "").strip()[:60]
+    if "logo" not in data:
+        db_set_branding(site_name)
+        return jsonify(ok=True)
+    logo = data.get("logo")
+    if logo:
+        if not isinstance(logo, str) or not logo.startswith("data:image/"):
+            return jsonify(ok=False, error="صيغة الشعار غير صحيحة"), 400
+        if len(logo) > MAX_LOGO_B64_CHARS:
+            return jsonify(ok=False, error="حجم الصورة كبير جداً (الحد الأقصى 2 ميغابايت)"), 400
+    else:
+        logo = None
+    db_set_branding(site_name, logo, update_logo=True)
+    return jsonify(ok=True)
+
+
 # ---------------------------------------------------------------- الاشتراك والدفع (تحقق يدوي)
 
 @app.route("/subscription")
@@ -2256,7 +2371,7 @@ def dashboard_stats():
     total_msgs = sent + failed
     return jsonify(
         accounts_total=len(my_accounts),
-        accounts_connected=sum(1 for a in my_accounts if account_logged_in(a)),
+        accounts_connected=sum(1 for a in my_accounts if account_logged_in_fast(a)),
         messages_sent=sent,
         success_rate=round((sent / total_msgs) * 100) if total_msgs else 0,
         campaigns_total=len(all_history),
@@ -2283,7 +2398,7 @@ def dashboard_campaigns():
 def list_accounts():
     uid = session["user_id"]
     return jsonify([
-        {"id": aid, "name": a["name"], "logged_in": account_logged_in(a), "otp_sender": a.get("otp_sender", False)}
+        {"id": aid, "name": a["name"], "logged_in": account_logged_in_fast(a), "otp_sender": a.get("otp_sender", False)}
         for aid, a in accounts.items() if a["owner"] == uid
     ])
 
@@ -2359,7 +2474,7 @@ def debug(acc_id):
 @login_required
 def status(acc_id):
     acc = get_owned_account(acc_id)
-    return jsonify(logged_in=bool(acc) and account_logged_in(acc))
+    return jsonify(logged_in=bool(acc) and account_logged_in_fast(acc))
 
 
 @app.route("/accounts/<acc_id>/campaign", methods=["POST"])
@@ -2833,6 +2948,11 @@ PAGE = """
   .settings-item .chevron { color: var(--text-muted); font-size: 14px; transition: var(--transition-base); }
   .settings-item:hover .chevron { transform: translateX(-4px); }
 
+  .logo-upload-row { display: flex; align-items: center; gap: 14px; margin-bottom: 4px; }
+  .logo-preview { width: 64px; height: 64px; border-radius: var(--radius-md); border: 1px dashed rgba(5,134,147,0.25); background: var(--bg-card); display: flex; align-items: center; justify-content: center; overflow: hidden; flex-shrink: 0; color: var(--text-muted); font-size: 22px; }
+  .logo-preview img { width: 100%; height: 100%; object-fit: contain; }
+  .logo-upload-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+
   .toggle-switch { position: relative; display: inline-block; width: 44px; height: 24px; flex-shrink: 0; }
   .toggle-switch input { opacity: 0; width: 0; height: 0; }
   .toggle-switch .slider { position: absolute; cursor: pointer; inset: 0; background: #D1D5DB; border-radius: var(--radius-full); transition: var(--transition-base); box-shadow: inset 0 2px 4px rgba(0,0,0,0.06); }
@@ -2907,6 +3027,7 @@ const ICONS = {
   logout: 'fas fa-right-from-bracket', ai: 'fas fa-robot', users: 'fas fa-users', payments: 'fas fa-receipt',
   rocket: 'fas fa-rocket', trophy: 'fas fa-trophy', list: 'fas fa-list', info: 'fas fa-circle-info', clock: 'fas fa-clock',
   check: 'fas fa-check', checkCircle: 'fas fa-circle-check', warn: 'fas fa-triangle-exclamation', trash: 'fas fa-trash',
+  image: 'fas fa-image',
 };
 function icon(name, size) {
   size = size || 20;
@@ -3543,6 +3664,22 @@ function renderAdmin() {
   c.innerHTML =
     '<div class="page-title"><h2>' + icon('admin', 18) + ' لوحة التحكم</h2></div>' +
     '<div class="card">' +
+    '<div class="card-header"><h4>' + icon('image', 14) + ' شعار واسم الموقع</h4></div>' +
+    '<label class="field-label">شعار الموقع</label>' +
+    '<div class="logo-upload-row">' +
+    '<div class="logo-preview" id="logoPreview"><i class="fas fa-image"></i></div>' +
+    '<div class="logo-upload-actions">' +
+    '<label class="btn-outline btn-small" for="logoFile" style="cursor:pointer;display:inline-block">اختيار صورة</label>' +
+    '<input type="file" id="logoFile" accept="image/*" style="display:none" onchange="onLogoFileChange(event)">' +
+    '<button type="button" class="btn-outline btn-small" id="logoRemoveBtn" style="display:none;color:#dc2626;border-color:rgba(220,38,38,.3)" onclick="removeLogo()">إزالة</button>' +
+    '</div>' +
+    '</div>' +
+    '<label class="field-label">اسم الموقع</label>' +
+    '<input id="siteNameInput" type="text" placeholder="واصل" maxlength="60">' +
+    '<button class="btn-submit" onclick="saveBranding()">حفظ الشعار والاسم</button>' +
+    '<div id="brandingMsg" class="text-center text-[12px] font-bold mt-2"></div>' +
+    '</div>' +
+    '<div class="card">' +
     '<div class="card-header"><h4>' + icon('ai', 14) + ' الرد الذكي (DeepSeek)</h4></div>' +
     '<label class="field-label">مفتاح API (يُترك فاضي لعدم التغيير)</label>' +
     '<input id="aiKey" type="password" placeholder="sk-...">' +
@@ -3564,8 +3701,51 @@ function renderAdmin() {
     document.getElementById('aiKey').placeholder = d.api_key_set ? 'محفوظ مسبقاً (اتركه فاضي للإبقاء عليه)' : 'sk-...';
     document.getElementById('aiKb').value = d.knowledge_base || '';
   });
+  fetch('/admin/branding').then(r => r.json()).then(d => {
+    document.getElementById('siteNameInput').value = d.site_name || '';
+    if (d.logo) {
+      document.getElementById('logoPreview').innerHTML = '<img src="' + d.logo + '" alt="شعار الموقع">';
+      document.getElementById('logoRemoveBtn').style.display = '';
+    }
+  });
   loadCustomers();
   loadPendingPayments();
+}
+
+let pendingLogo;
+
+function onLogoFileChange(event) {
+  const file = event.target.files[0];
+  if (!file) return;
+  if (file.size > 2 * 1024 * 1024) {
+    document.getElementById('brandingMsg').innerText = 'حجم الصورة كبير، الحد الأقصى 2 ميغابايت';
+    event.target.value = '';
+    return;
+  }
+  const reader = new FileReader();
+  reader.onload = function() {
+    pendingLogo = reader.result;
+    document.getElementById('logoPreview').innerHTML = '<img src="' + reader.result + '" alt="شعار الموقع">';
+    document.getElementById('logoRemoveBtn').style.display = '';
+  };
+  reader.readAsDataURL(file);
+}
+
+function removeLogo() {
+  pendingLogo = null;
+  document.getElementById('logoPreview').innerHTML = '<i class="fas fa-image"></i>';
+  document.getElementById('logoRemoveBtn').style.display = 'none';
+  document.getElementById('logoFile').value = '';
+}
+
+async function saveBranding() {
+  const body = { site_name: document.getElementById('siteNameInput').value.trim() };
+  if (pendingLogo !== undefined) body.logo = pendingLogo;
+  const r = await fetch('/admin/branding', {
+    method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)
+  }).then(res => res.json());
+  document.getElementById('brandingMsg').innerText = r.ok ? 'تم الحفظ' : ('فشل: ' + (r.error || ''));
+  pendingLogo = undefined;
 }
 
 function subscriptionHtml(d) {
