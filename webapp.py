@@ -77,6 +77,8 @@ events = []
 events_lock = threading.Lock()
 otp_codes = {}  # phone -> {code, expires, verified}
 otp_lock = threading.Lock()
+otp_send_status = {}  # phone -> {status: sending/sent/failed, error}
+otp_send_lock = threading.Lock()
 trial_check_cache = {}  # user_id -> آخر وقت (monotonic) تحقق فيه من انتهاء التجربة
 trial_check_lock = threading.Lock()
 TRIAL_CHECK_INTERVAL = 60  # ثواني - يمنع ضرب قاعدة البيانات بكل استطلاع إشعارات (كل 5 ثواني)
@@ -1315,6 +1317,11 @@ def render_welcome_page():
     display:flex; align-items:center; justify-content:center; gap:8px; }}
   .btn-primary svg {{ width:18px; height:18px; }}
   .btn-primary:disabled {{ opacity:.7; }}
+  .btn-primary.btn-loading {{ position:relative; }}
+  .btn-primary.btn-loading .btn-label, .btn-primary.btn-loading svg {{ visibility:hidden; }}
+  .btn-primary.btn-loading::after {{ content:""; position:absolute; top:50%; left:50%; width:18px; height:18px; margin:-9px 0 0 -9px;
+    border:2.5px solid rgba(255,255,255,.35); border-top-color:#fff; border-radius:50%; animation:btnSpin .7s linear infinite; }}
+  @keyframes btnSpin {{ to {{ transform:rotate(360deg); }} }}
   .btn-outline {{ width:100%; height:44px; margin-top:8px; border-radius:14px; border:1.5px solid var(--border-2); background:var(--card-soft); color:var(--muted); font-size:13.5px; font-weight:500;
     display:flex; align-items:center; justify-content:center; gap:8px; }}
 
@@ -1678,6 +1685,7 @@ function setStatus(id, msg, isError) {{
 function btnLoading(id, loading) {{
   const btn = document.getElementById(id);
   btn.disabled = loading;
+  btn.classList.toggle('btn-loading', loading);
   btn.querySelector('.btn-label').textContent = loading ? '...' : btn.dataset.label;
 }}
 
@@ -1690,16 +1698,38 @@ async function sendCode() {{
   const r = await fetch('/auth/whatsapp/send_code', {{
     method: 'POST', headers: {{'Content-Type': 'application/json'}}, body: JSON.stringify({{phone: waPhone}})
   }}).then(res => res.json());
-  btnLoading('sendBtn', false);
-  if (!r.ok) {{ setStatus('authStatus', r.error, true); return; }}
+  if (!r.ok) {{ btnLoading('sendBtn', false); setStatus('authStatus', r.error, true); return; }}
   if (r.bootstrap) {{
     bootstrapAccId = r.acc_id;
+    btnLoading('sendBtn', false);
     showStep('qr');
     startBootstrapPoll();
     return;
   }}
+  if (r.sending) {{
+    setStatus('authStatus', 'جاري إرسال الرمز عبر واتساب...', false);
+    pollSendStatus();
+    return;
+  }}
+  btnLoading('sendBtn', false);
   setStatus('authStatus', 'تم إرسال الرمز، تحقق من واتساب', false);
   showStep('code');
+}}
+
+async function pollSendStatus() {{
+  const r = await fetch('/auth/whatsapp/send_status?phone=' + encodeURIComponent(waPhone)).then(res => res.json());
+  if (r.status === 'sent') {{
+    btnLoading('sendBtn', false);
+    setStatus('authStatus', 'تم إرسال الرمز، تحقق من واتساب', false);
+    showStep('code');
+    return;
+  }}
+  if (r.status === 'failed') {{
+    btnLoading('sendBtn', false);
+    setStatus('authStatus', r.error || 'تعذر إرسال الرمز', true);
+    return;
+  }}
+  setTimeout(pollSendStatus, 1000);
 }}
 
 function refreshQr() {{
@@ -1834,6 +1864,21 @@ def find_pending_bootstrap_account():
     return None
 
 
+def do_send_otp(sender, phone, code):
+    """يرسل رمز التحقق بخيط منفصل (نفس نمط بوتستراب) حتى لا يعلّق طلب HTTP بانتظار
+    تصفح Selenium الكامل لواتساب ويب - الواجهة تستطلع /auth/whatsapp/send_status بدلها."""
+    try:
+        with sender["lock"]:
+            send_to(sender["driver"], phone, f"رمز التحقق الخاص بك في واصل: {code}\nصالح لمدة 10 دقائق.")
+        with otp_send_lock:
+            otp_send_status[phone] = {"status": "sent", "error": None}
+    except Exception:
+        with otp_lock:
+            otp_codes.pop(phone, None)
+        with otp_send_lock:
+            otp_send_status[phone] = {"status": "failed", "error": "تعذر إرسال الرمز، تأكد إن الرقم يستخدم واتساب وحاول مرة أخرى"}
+
+
 @app.route("/auth/whatsapp/send_code", methods=["POST"])
 def send_whatsapp_code():
     data = request.json or {}
@@ -1867,14 +1912,20 @@ def send_whatsapp_code():
     code = str(secrets.randbelow(900000) + 100000)
     with otp_lock:
         otp_codes[phone] = {"code": code, "expires": time.time() + 600, "verified": False}
-    try:
-        with sender["lock"]:
-            send_to(sender["driver"], phone, f"رمز التحقق الخاص بك في واصل: {code}\nصالح لمدة 10 دقائق.")
-    except Exception:
-        with otp_lock:
-            otp_codes.pop(phone, None)
-        return jsonify(ok=False, error="تعذر إرسال الرمز، تأكد إن الرقم يستخدم واتساب وحاول مرة أخرى"), 500
-    return jsonify(ok=True)
+    with otp_send_lock:
+        otp_send_status[phone] = {"status": "sending", "error": None}
+    threading.Thread(target=do_send_otp, args=(sender, phone, code), daemon=True).start()
+    return jsonify(ok=True, sending=True)
+
+
+@app.route("/auth/whatsapp/send_status")
+def whatsapp_send_status():
+    phone = re.sub(r"\D", "", request.args.get("phone") or "")
+    with otp_send_lock:
+        st = otp_send_status.get(phone)
+    if not st:
+        return jsonify(status="unknown")
+    return jsonify(status=st["status"], error=st["error"])
 
 
 @app.route("/auth/bootstrap/qr/<acc_id>")
@@ -2856,7 +2907,6 @@ const ICONS = {
   logout: 'fas fa-right-from-bracket', ai: 'fas fa-robot', users: 'fas fa-users', payments: 'fas fa-receipt',
   rocket: 'fas fa-rocket', trophy: 'fas fa-trophy', list: 'fas fa-list', info: 'fas fa-circle-info', clock: 'fas fa-clock',
   check: 'fas fa-check', checkCircle: 'fas fa-circle-check', warn: 'fas fa-triangle-exclamation', trash: 'fas fa-trash',
-  server: 'fas fa-server',
 };
 function icon(name, size) {
   size = size || 20;
@@ -2880,6 +2930,7 @@ let gen = 0;
 let lastSeenEventId = -1;
 let campaignHistory = [];
 let campaignHistoryAccName = '';
+let dataCache = {};
 
 /* ---------- تصميم داكن/نهاري ---------- */
 function applyTheme(t) {
@@ -2931,6 +2982,7 @@ pollEvents();
 async function openNotifications() {
   window._notifOpen = true;
   const c = document.getElementById('content');
+  const cached = window._events;
   c.innerHTML =
     '<div class="page-title"><h2>' + icon('bell', 18) + ' الإشعارات</h2>' +
       '<div style="display:flex;gap:6px">' +
@@ -2938,8 +2990,9 @@ async function openNotifications() {
         '<button class="btn-outline" style="width:auto;padding:6px 12px;font-size:11px;margin:0" onclick="closeNotifications()">رجوع</button>' +
       '</div>' +
     '</div>' +
-    '<div id="notifList"><div class="text-muted text-[11px]">جارِ التحميل...</div></div>';
+    '<div id="notifList">' + (cached ? '' : '<div class="text-muted text-[11px]">جارِ التحميل...</div>') + '</div>';
   fadeContent();
+  if (cached) renderNotifList(cached);
   const evs = await fetch('/events?since=0').then(r => r.json());
   window._events = evs;
   document.getElementById('bellBadge').style.display = evs.some(e => !e.read) ? 'block' : 'none';
@@ -3056,6 +3109,17 @@ function statMiniHtml(value, label, colorClass) {
   return '<div class="stat-mini-box"><div class="num' + (colorClass ? ' ' + colorClass : '') + '">' + value + '</div><div class="label">' + label + '</div></div>';
 }
 
+function homeStatsHtml(d) {
+  return statMiniHtml(d.messages_sent.toLocaleString(), 'رسائل مرسلة', 'primary') +
+    statMiniHtml(d.accounts_connected + '/' + d.accounts_total, 'حسابات متصلة', 'green') +
+    statMiniHtml(d.campaigns_total, 'إجمالي الحملات', 'orange') +
+    statMiniHtml(d.success_rate + '%', 'معدل النجاح', 'primary');
+}
+
+function homeHistoryHtml(rows) {
+  return rows.length ? historyRowsHtml(rows.slice(0, 3)) : '<div class="text-muted text-[11px]">ما فيه حملات سابقة</div>';
+}
+
 function renderHome() {
   const c = document.getElementById('content');
   const displayName = CURRENT_USER.split('@')[0] || CURRENT_USER;
@@ -3069,7 +3133,7 @@ function renderHome() {
     '</div></div>' +
     '<h2 class="text-sm font-extrabold text-gold mb-1">مرحباً، ' + displayName + '</h2>' +
     '<p class="text-[12px] text-muted mb-3">نظرة عامة على نشاطك</p>' +
-    '<div class="stats-mini-row" id="homeStats"><div class="text-muted text-[11px]">جارِ التحميل...</div></div>' +
+    '<div class="stats-mini-row" id="homeStats">' + (dataCache.dashboardStats ? homeStatsHtml(dataCache.dashboardStats) : '<div class="text-muted text-[11px]">جارِ التحميل...</div>') + '</div>' +
     '<div class="quick-actions">' +
       '<button class="quick-action-btn" onclick="showSection(\\'campaigns\\')">' + icon('campaigns', 20) + 'حملات</button>' +
       '<button class="quick-action-btn" onclick="showSection(\\'analytics\\')">' + icon('analytics', 20) + 'إحصائيات</button>' +
@@ -3082,21 +3146,19 @@ function renderHome() {
     '</div>' +
     '<div class="card">' +
       '<div class="card-header"><h4>' + icon('clock', 14) + ' آخر الحملات</h4><span style="font-size:11px;color:var(--text-muted);cursor:pointer" onclick="showSection(\\'campaigns\\')">عرض الكل</span></div>' +
-      '<div id="homeHistory"><div class="text-muted text-[11px]">جارِ التحميل...</div></div>' +
+      '<div id="homeHistory">' + (dataCache.dashboardCampaigns ? homeHistoryHtml(dataCache.dashboardCampaigns) : '<div class="text-muted text-[11px]">جارِ التحميل...</div>') + '</div>' +
     '</div>';
   fetch('/dashboard/stats').then(r => r.json()).then(d => {
-    document.getElementById('homeStats').innerHTML =
-      statMiniHtml(d.messages_sent.toLocaleString(), 'رسائل مرسلة', 'primary') +
-      statMiniHtml(d.accounts_connected + '/' + d.accounts_total, 'حسابات متصلة', 'green') +
-      statMiniHtml(d.campaigns_total, 'إجمالي الحملات', 'orange') +
-      statMiniHtml(d.success_rate + '%', 'معدل النجاح', 'primary');
+    dataCache.dashboardStats = d;
+    const el = document.getElementById('homeStats');
+    if (el) el.innerHTML = homeStatsHtml(d);
   });
   fetch('/dashboard/campaigns').then(r => r.json()).then(rows => {
     campaignHistory = rows;
     campaignHistoryAccName = '';
-    document.getElementById('homeHistory').innerHTML = rows.length
-      ? historyRowsHtml(rows.slice(0, 3))
-      : '<div class="text-muted text-[11px]">ما فيه حملات سابقة</div>';
+    dataCache.dashboardCampaigns = rows;
+    const el = document.getElementById('homeHistory');
+    if (el) el.innerHTML = homeHistoryHtml(rows);
   });
   const accBox = document.getElementById('homeAccounts');
   accBox.innerHTML = accounts.length
@@ -3236,10 +3298,12 @@ function renderCampaigns(myGen) {
     '<div class="stat-cell"><div class="stat-num text-gold" id="statTotal">0</div><div class="stat-label">الإجمالي</div></div>' +
     '</div>' +
     '<div id="msg" class="text-center text-[12px] font-bold mt-2"></div>' +
-    '<h3 style="font-size:12px;font-weight:800;color:var(--primary);margin:18px 0 8px">جميع الحملات</h3>' +
-    '<div id="historyBox"><div class="text-muted text-[11px]">جارِ التحميل...</div></div>';
+    '<h3 style="font-size:12px;font-weight:800;color:var(--primary);margin:18px 0 8px">جميع الحملات</h3>';
+  const cachedHistory = dataCache['campaigns_' + acc.id];
+  html += '<div id="historyBox">' + (cachedHistory ? historyRowsHtml(cachedHistory, true) : '<div class="text-muted text-[11px]">جارِ التحميل...</div>') + '</div>';
 
   c.innerHTML = html;
+  if (cachedHistory) { campaignHistory = cachedHistory; campaignHistoryAccName = acc.name; }
 
   if ('contacts' in navigator && 'ContactsManager' in window) {
     document.getElementById('contactPickerBtn').style.display = 'block';
@@ -3272,12 +3336,12 @@ function historyRowsHtml(rows, asCards) {
 
 async function loadHistory(accId) {
   const rows = await fetch('/accounts/' + accId + '/campaigns').then(r => r.json());
+  dataCache['campaigns_' + accId] = rows;
   campaignHistory = rows;
   const acc = accounts.find(a => a.id === accId);
   campaignHistoryAccName = acc ? acc.name : '';
   const box = document.getElementById('historyBox');
-  if (!box) return;
-  box.innerHTML = historyRowsHtml(rows, true);
+  if (box) box.innerHTML = historyRowsHtml(rows, true);
 }
 
 function showCampaignDetail(i) {
@@ -3354,40 +3418,52 @@ async function refreshCampaignState(accId, myGen) {
 }
 
 /* ---------- قسم الإحصائيات ---------- */
+function analyticsStatsHtml(stats) {
+  return statMiniHtml(stats.messages_sent.toLocaleString(), 'إجمالي الرسائل', 'primary') +
+    statMiniHtml(stats.success_rate + '%', 'معدل النجاح', 'green') +
+    statMiniHtml(stats.accounts_total, 'الحسابات', 'orange');
+}
+
+function analyticsPerfHtml(stats) {
+  const avgRate = stats.campaigns_total ? Math.round((stats.campaigns_success / stats.campaigns_total) * 100) : 0;
+  return '<div class="history-row"><span>إجمالي الحملات</span><span style="font-weight:700">' + stats.campaigns_total + '</span></div>' +
+    '<div class="history-row"><span>الحملات الناجحة (بدون أي فشل)</span><span class="pill pill-green">' + stats.campaigns_success + '</span></div>' +
+    '<div class="history-row"><span>حملات فيها إخفاقات</span><span class="pill pill-red">' + stats.campaigns_with_failures + '</span></div>' +
+    '<div class="history-row"><span>معدل نجاح الحملات</span><span class="pill pill-green">' + avgRate + '%</span></div>';
+}
+
 async function renderAnalytics() {
   const c = document.getElementById('content');
+  const cs = dataCache.dashboardStats, cr = dataCache.dashboardCampaigns;
   c.innerHTML =
     '<div class="page-title"><h2>' + icon('analytics', 18) + ' الإحصائيات</h2></div>' +
-    '<div class="stats-mini-row" id="analyticsStats" style="grid-template-columns:repeat(3,1fr)"><div class="text-muted text-[11px]">جارِ التحميل...</div></div>' +
+    '<div class="stats-mini-row" id="analyticsStats" style="grid-template-columns:repeat(3,1fr)">' + (cs ? analyticsStatsHtml(cs) : '<div class="text-muted text-[11px]">جارِ التحميل...</div>') + '</div>' +
     '<div class="card">' +
       '<div class="card-header"><h4>' + icon('trophy', 14) + ' أداء الحملات</h4></div>' +
-      '<div id="analyticsPerf"><div class="text-muted text-[11px]">جارِ التحميل...</div></div>' +
+      '<div id="analyticsPerf">' + (cs ? analyticsPerfHtml(cs) : '<div class="text-muted text-[11px]">جارِ التحميل...</div>') + '</div>' +
     '</div>' +
     '<div class="card">' +
       '<div class="card-header"><h4>' + icon('list', 14) + ' توزيع الرسائل حسب الحملة</h4></div>' +
-      '<div id="analyticsHistory"><div class="text-muted text-[11px]">جارِ التحميل...</div></div>' +
+      '<div id="analyticsHistory">' + (cr ? historyRowsHtml(cr) : '<div class="text-muted text-[11px]">جارِ التحميل...</div>') + '</div>' +
     '</div>';
+  if (cr) { campaignHistory = cr; campaignHistoryAccName = ''; }
 
   const [stats, rows] = await Promise.all([
     fetch('/dashboard/stats').then(r => r.json()),
     fetch('/dashboard/campaigns').then(r => r.json()),
   ]);
+  dataCache.dashboardStats = stats;
+  dataCache.dashboardCampaigns = rows;
 
-  document.getElementById('analyticsStats').innerHTML =
-    statMiniHtml(stats.messages_sent.toLocaleString(), 'إجمالي الرسائل', 'primary') +
-    statMiniHtml(stats.success_rate + '%', 'معدل النجاح', 'green') +
-    statMiniHtml(stats.accounts_total, 'الحسابات', 'orange');
-
-  const avgRate = stats.campaigns_total ? Math.round((stats.campaigns_success / stats.campaigns_total) * 100) : 0;
-  document.getElementById('analyticsPerf').innerHTML =
-    '<div class="history-row"><span>إجمالي الحملات</span><span style="font-weight:700">' + stats.campaigns_total + '</span></div>' +
-    '<div class="history-row"><span>الحملات الناجحة (بدون أي فشل)</span><span class="pill pill-green">' + stats.campaigns_success + '</span></div>' +
-    '<div class="history-row"><span>حملات فيها إخفاقات</span><span class="pill pill-red">' + stats.campaigns_with_failures + '</span></div>' +
-    '<div class="history-row"><span>معدل نجاح الحملات</span><span class="pill pill-green">' + avgRate + '%</span></div>';
+  const statsEl = document.getElementById('analyticsStats');
+  if (statsEl) statsEl.innerHTML = analyticsStatsHtml(stats);
+  const perfEl = document.getElementById('analyticsPerf');
+  if (perfEl) perfEl.innerHTML = analyticsPerfHtml(stats);
 
   campaignHistory = rows;
   campaignHistoryAccName = '';
-  document.getElementById('analyticsHistory').innerHTML = historyRowsHtml(rows);
+  const historyEl = document.getElementById('analyticsHistory');
+  if (historyEl) historyEl.innerHTML = historyRowsHtml(rows);
 }
 
 /* ---------- قسم الرد الآلي ---------- */
@@ -3439,7 +3515,7 @@ function renderSettings() {
       ) : '') +
     '</div>' +
 
-    '<div class="subscription-card" id="subBox"><div class="text-muted text-[11px]">جارِ التحميل...</div></div>' +
+    '<div class="subscription-card" id="subBox">' + (dataCache.subscription ? subscriptionHtml(dataCache.subscription) : '<div class="text-muted text-[11px]">جارِ التحميل...</div>') + '</div>' +
 
     '<div class="settings-list">' +
       '<div class="settings-head">' + icon('whatsapp', 12) + ' حول التطبيق</div>' +
@@ -3452,6 +3528,10 @@ function renderSettings() {
     '<button class="btn-logout" onclick="logoutPlatform()">' + icon('logout', 14) + ' تسجيل الخروج من المنصة</button>';
 
   c.innerHTML = html;
+  if (dataCache.subscription) {
+    const sl = document.getElementById('supportLink');
+    if (sl) sl.href = dataCache.subscription.wa_pay_link;
+  }
   loadSubscription();
 }
 
@@ -3459,6 +3539,7 @@ function renderSettings() {
 function renderAdmin() {
   const c = document.getElementById('content');
   if (!IS_ADMIN) { c.innerHTML = '<div class="empty-state">هذا القسم لأدمن المنصة فقط</div>'; return; }
+  const cc = dataCache.customers, cp = dataCache.payments;
   c.innerHTML =
     '<div class="page-title"><h2>' + icon('admin', 18) + ' لوحة التحكم</h2></div>' +
     '<div class="card">' +
@@ -3471,43 +3552,23 @@ function renderAdmin() {
     '<div id="aiMsg" class="text-center text-[12px] font-bold mt-2"></div>' +
     '</div>' +
     '<div class="card">' +
-    '<div class="card-header"><h4>' + icon('server', 14) + ' إعدادات السيرفر (VPS)</h4></div>' +
-    '<label class="field-label">المنفذ (Port)</label>' +
-    '<input id="sitePort" type="number" min="1" max="65535" placeholder="مثال: 5000">' +
-    '<label class="field-label">الدومين</label>' +
-    '<input id="siteDomain" type="text" placeholder="مثال: example.com" style="direction:ltr; text-align:left">' +
-    '<p class="text-[11px] text-muted mt-1">تغيير المنفذ يحتاج إعادة تشغيل السيرفر يدوياً حتى يشتغل عليه.</p>' +
-    '<button class="btn-submit" onclick="saveSiteSettings()">حفظ</button>' +
-    '<div id="siteMsg" class="text-center text-[12px] font-bold mt-2"></div>' +
-    '</div>' +
-    '<div class="card">' +
     '<div class="card-header"><h4>' + icon('users', 14) + ' العملاء</h4></div>' +
-    '<div id="customersBox"><div class="text-muted text-[11px]">جارِ التحميل...</div></div>' +
+    '<div id="customersBox">' + (cc ? customersHtml(cc) : '<div class="text-muted text-[11px]">جارِ التحميل...</div>') + '</div>' +
     '</div>' +
     '<div class="card">' +
     '<div class="card-header"><h4>' + icon('payments', 14) + ' طلبات الدفع بانتظار المراجعة</h4></div>' +
-    '<div id="paymentsBox"><div class="text-muted text-[11px]">جارِ التحميل...</div></div>' +
+    '<div id="paymentsBox">' + (cp ? paymentsHtml(cp) : '<div class="text-muted text-[11px]">جارِ التحميل...</div>') + '</div>' +
     '</div>';
 
   fetch('/admin/ai_settings').then(r => r.json()).then(d => {
     document.getElementById('aiKey').placeholder = d.api_key_set ? 'محفوظ مسبقاً (اتركه فاضي للإبقاء عليه)' : 'sk-...';
     document.getElementById('aiKb').value = d.knowledge_base || '';
   });
-  fetch('/admin/site_settings').then(r => r.json()).then(d => {
-    document.getElementById('sitePort').value = d.port || '';
-    document.getElementById('siteDomain').value = d.domain || '';
-  });
   loadCustomers();
   loadPendingPayments();
 }
 
-async function loadSubscription() {
-  const d = await fetch('/subscription').then(r => r.json());
-  const supportLink = document.getElementById('supportLink');
-  if (supportLink) supportLink.href = d.wa_pay_link;
-
-  const box = document.getElementById('subBox');
-  if (!box) return;
+function subscriptionHtml(d) {
   let html =
     '<div class="plan-name">' + d.plan_name + '</div>' +
     '<div class="plan-price">' + d.price_iqd.toLocaleString() + ' <span style="font-size:12px;font-weight:600;color:var(--text-secondary)">د.ع / شهرياً</span></div>';
@@ -3531,7 +3592,16 @@ async function loadSubscription() {
       (p.status === 'approved' ? 'مقبول' : p.status === 'rejected' ? 'مرفوض' : 'قيد المراجعة') + '</span></div>'
     ).join('') + '</div>';
   }
-  box.innerHTML = html;
+  return html;
+}
+
+async function loadSubscription() {
+  const d = await fetch('/subscription').then(r => r.json());
+  dataCache.subscription = d;
+  const supportLink = document.getElementById('supportLink');
+  if (supportLink) supportLink.href = d.wa_pay_link;
+  const box = document.getElementById('subBox');
+  if (box) box.innerHTML = subscriptionHtml(d);
 }
 
 function customerStatusPill(u) {
@@ -3543,11 +3613,8 @@ function customerStatusPill(u) {
   return '<span class="pill pill-red">منتهي</span>';
 }
 
-async function loadCustomers() {
-  const rows = await fetch('/admin/customers').then(r => r.json());
-  const box = document.getElementById('customersBox');
-  if (!box) return;
-  box.innerHTML = rows.length
+function customersHtml(rows) {
+  return rows.length
     ? rows.map(u => {
         const contact = u.email || u.phone || '—';
         const label = u.name ? (u.name + ' · ' + contact) : contact;
@@ -3559,6 +3626,13 @@ async function loadCustomers() {
     : '<div class="text-muted text-[11px]">ما فيه عملاء بعد</div>';
 }
 
+async function loadCustomers() {
+  const rows = await fetch('/admin/customers').then(r => r.json());
+  dataCache.customers = rows;
+  const box = document.getElementById('customersBox');
+  if (box) box.innerHTML = customersHtml(rows);
+}
+
 async function toggleCustomerPlan(userId, active) {
   await fetch('/admin/customers/' + userId + '/plan', {
     method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({active: active})
@@ -3566,11 +3640,8 @@ async function toggleCustomerPlan(userId, active) {
   loadCustomers();
 }
 
-async function loadPendingPayments() {
-  const rows = await fetch('/admin/payments').then(r => r.json());
-  const box = document.getElementById('paymentsBox');
-  if (!box) return;
-  box.innerHTML = rows.length
+function paymentsHtml(rows) {
+  return rows.length
     ? rows.map(p =>
         '<div class="history-row"><span>' + p.email + '</span><span>' + p.reference + '</span><span>' +
         '<button class="btn-outline btn-small" onclick="approvePayment(' + p.id + ')">قبول</button> ' +
@@ -3578,6 +3649,13 @@ async function loadPendingPayments() {
         '</span></div>'
       ).join('')
     : '<div class="text-muted text-[11px]">ما فيه طلبات دفع بانتظار المراجعة</div>';
+}
+
+async function loadPendingPayments() {
+  const rows = await fetch('/admin/payments').then(r => r.json());
+  dataCache.payments = rows;
+  const box = document.getElementById('paymentsBox');
+  if (box) box.innerHTML = paymentsHtml(rows);
 }
 
 async function approvePayment(id) {
@@ -3598,14 +3676,6 @@ async function saveAiSettings() {
   }).then(res => res.json());
   document.getElementById('aiMsg').innerText = r.ok ? 'تم الحفظ' : ('فشل: ' + r.error);
   document.getElementById('aiKey').value = '';
-}
-
-async function saveSiteSettings() {
-  const r = await fetch('/admin/site_settings', {
-    method: 'POST', headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({port: document.getElementById('sitePort').value, domain: document.getElementById('siteDomain').value.trim()})
-  }).then(res => res.json());
-  document.getElementById('siteMsg').innerText = r.ok ? 'تم الحفظ (يحتاج إعادة تشغيل السيرفر ليطبق المنفذ الجديد)' : ('فشل: ' + r.error);
 }
 
 function logoutPlatform() {
