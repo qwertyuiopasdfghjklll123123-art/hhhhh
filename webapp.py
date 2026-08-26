@@ -583,7 +583,7 @@ def watch_account(acc_id):
                 if not account_logged_in(acc):
                     print(f"[رد آلي] {acc['name']}: الحساب غير مسجل دخول بعد (لا يوجد pane-side)، تخطي هذه الدورة")
                 else:
-                    chat_items = driver.find_elements(By.CSS_SELECTOR, '#pane-side div[role="listitem"]')[:8]
+                    chat_items = driver.find_elements(By.CSS_SELECTOR, '#pane-side [data-testid="cell-frame-container"]')[:8]
                     print(f"[رد آلي] {acc['name']}: فحص {len(chat_items)} محادثة")
                     if len(chat_items) == 0 and not diag_dumped:
                         diag_dumped = True
