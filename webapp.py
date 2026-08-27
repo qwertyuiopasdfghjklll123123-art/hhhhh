@@ -880,13 +880,6 @@ def send_to(driver, number, text, media_path=None):
         # نضغطه أول قبل ما نبحث عن حقل رفع الملف، حتى يصير الحقل المرتبط فعلياً بإرسال صورة
         # للمحادثة موجود/مفعّل بالصفحة
         try:
-            before_marked = driver.execute_script(
-                "return Array.from(document.querySelectorAll('[data-testid], [data-icon]'));"
-            )
-            before_ids = {el.id for el in before_marked}
-        except Exception:
-            before_ids = set()
-        try:
             plus_btn = WebDriverWait(driver, 10).until(
                 EC.element_to_be_clickable((By.CSS_SELECTOR, 'span[data-icon="plus-rounded"]'))
             )
@@ -894,49 +887,17 @@ def send_to(driver, number, text, media_path=None):
             time.sleep(0.5)
         except Exception as e:
             print(f"[حملة] تعذر الضغط على زر الإرفاق (+): {e}")
-        # جولتين ماضيتين أثبتوا (لقطة شاشة من هاتف المستلم، مرتين): الصورة توصل فعلاً لكن
-        # كـ"ملصق" مو كصورة عادية. تخميني الأول (عنصر قائمة معرّفه فيه كلمة "attach") طلع صفر
-        # نتائج - واتساب الحالي ما يستخدم هالتسمية. بدل تخمين اسم ثاني، نقارن DOM قبل/بعد
-        # الضغط على + فعلياً: أي عنصر [data-testid]/[data-icon] جديد كلياً (ما كان موجود قبل
-        # الضغط) هو بالتأكيد جزء من قائمة الإرفاق المنسدلة - بغض النظر شلون مسمى، وبدون حاجة
-        # نخمن نطاق بحث. نطبع كل التفاصيل (نص ظاهر + aria-label + testid + icon) عن كل عنصر
-        # جديد، ونضغط أي وحدة يبدو نصها/معرّفها صور أو فيديو ومو ملصق؛ لو ما لقينا شي واضح،
-        # نكمل بنفس الأسلوب القديم (أول حقل صورة موجود) حتى ما نرجع لصفر إرسال
-        try:
-            after_marked = driver.execute_script(
-                "return Array.from(document.querySelectorAll('[data-testid], [data-icon]'));"
-            )
-            new_items = [el for el in after_marked if el.id not in before_ids]
-            print(f"[حملة][تشخيص] {len(new_items)} عنصر جديد كلياً ظهر بالصفحة بعد الضغط على + (data-testid/data-icon)")
-            media_menu_item = None
-            media_menu_item_desc = ""
-            for el in new_items:
-                try:
-                    testid = el.get_attribute("data-testid") or ""
-                    icon = el.get_attribute("data-icon") or ""
-                    label = el.get_attribute("aria-label") or ""
-                    text = (el.text or "").strip()
-                    visible = el.is_displayed()
-                    print(f"[حملة][تشخيص]   - testid={testid!r} icon={icon!r} aria-label={label!r} نص={text!r} ظاهر={visible}")
-                except Exception:
-                    continue
-                combo = f"{testid} {icon} {label} {text}".lower()
-                looks_like_sticker = "sticker" in combo or "ملصق" in combo
-                looks_like_media = any(k in combo for k in (
-                    "image", "photo", "video", "media", "gallery",
-                    "صور", "فيديو", "معرض", "وسائط",
-                ))
-                if media_menu_item is None and visible and looks_like_media and not looks_like_sticker:
-                    media_menu_item = el
-                    media_menu_item_desc = f"testid={testid!r} icon={icon!r} نص={text!r}"
-            if media_menu_item is not None:
-                media_menu_item.click()
-                time.sleep(0.5)
-                print(f"[حملة][تشخيص] ضغطت عنصر قائمة يبدو إنه «صور/فيديو» ({media_menu_item_desc})")
-            else:
-                print("[حملة][تشخيص] ما لقيت عنصر قائمة واضح إنه «صور/فيديو» (مو ملصق) - رح أكمل بنفس الأسلوب القديم")
-        except Exception as e:
-            print(f"[حملة][تشخيص] تعذر مقارنة عناصر قائمة الإرفاق قبل/بعد الضغط: {e}")
+        # جولتين ماضيتين جربوا نظريتين مختلفتين لـ"ليش توصل الصورة كملصق" (تخمين اسم "attach"،
+        # وبعدها مقارنة DOM قبل/بعد الضغط على +) - الاثنتين فشلوا: التخمين طلع صفر نتائج، ومقارنة
+        # الـ DOM طلعت 192 عنصر لكن كلها ضجيج (رسائل محادثة قديمة كانت لسا تترندر بنفس اللحظة،
+        # مو عناصر قائمة إرفاق حقيقية) وحتى ضغطت بالغلط صورة قديمة بالمحادثة (image-thumb) بدل
+        # عنصر إرفاق فعلي. ما زلنا ما لقينا أي دليل حقيقي على وجود خيارات منفصلة "صور" مقابل
+        # "ملصق" بقائمة الإرفاق - نفس حقل رفع الملف الوحيد (accept=image/*) يطلع دايماً بغض
+        # النظر شنو نضغط قبله. رجّعنا الكود لأبسط نسخة مستقرة (بدون تخمين/ضغط إضافي) وبدل ما
+        # نستمر نخمن بنية القائمة، الاحتمال الأقوى الجديد: المشكلة مو بالكود إطلاقاً، وإنما
+        # بخاصية الصورة المستخدمة بالاختبار نفسها (شعار التطبيق: صورة مربعة صغيرة وشفافة على
+        # الأغلب) اللي واتساب نفسه يتعامل معها كملصق تلقائياً بغض النظر شلون انرفعت. حتى نتأكد
+        # بدون تخمين كود إضافي، نلتقط بنية HTML شاشة المعاينة (مختصرة) كدليل - بدون أي ضغط جديد
         file_inputs = driver.find_elements(By.CSS_SELECTOR, 'input[type="file"]')
         if not file_inputs:
             raise RuntimeError("ما لقيت عنصر رفع الملفات بواجهة واتساب")
@@ -955,6 +916,18 @@ def send_to(driver, number, text, media_path=None):
         caption_box = WebDriverWait(driver, 25).until(
             EC.presence_of_element_located((By.XPATH, '//div[@contenteditable="true"][@data-tab]'))
         )
+        # لقطة HTML (مختصرة) لشاشة المعاينة نفسها - بدون أي ضغط أو تخمين جديد. الهدف: نشوف
+        # مباشرة إذا فيه أي إشارة "ملصق/sticker" ببنية الصفحة (كلاس، زر، تبويب) قريبة من صندوق
+        # التعليق، بدل ما نستمر نخمن عناصر نضغطها
+        try:
+            preview_html = driver.execute_script("""
+                let el = arguments[0];
+                for (let i = 0; i < 4 && el.parentElement; i++) el = el.parentElement;
+                return el.outerHTML;
+            """, caption_box)
+            print(f"[حملة][تشخيص] HTML شاشة المعاينة (أول 4000 حرف): {preview_html[:4000]}")
+        except Exception as e:
+            print(f"[حملة][تشخيص] تعذر التقاط HTML شاشة المعاينة: {e}")
         if text:
             caption_box.send_keys(text)
         time.sleep(2)
