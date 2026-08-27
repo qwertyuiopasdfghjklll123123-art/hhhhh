@@ -1100,6 +1100,28 @@ async function submitName() {
   </div>
 </div>
 
+<div class="confirm-overlay" id="deleteAccountOverlay" onclick="closeDeleteAccountSheet()"></div>
+<div class="confirm-sheet" id="deleteAccountSheet">
+  <div class="sheet-handle"></div>
+  <div class="sheet-title">🗑️ حذف الحساب</div>
+  <div class="sheet-message">حذف هذا الحساب نهائياً؟ بتحتاج تضيفه من جديد وتمسح رمز QR لاستخدامه مرة ثانية.</div>
+  <div class="sheet-actions">
+    <button class="btn-cancel" onclick="closeDeleteAccountSheet()"><i class="fas fa-times"></i> إلغاء</button>
+    <button class="btn-confirm" onclick="confirmDeleteAccount()"><i class="fas fa-trash"></i> حذف</button>
+  </div>
+</div>
+
+<div class="confirm-overlay" id="deleteMyDataOverlay" onclick="closeDeleteMyDataSheet()"></div>
+<div class="confirm-sheet" id="deleteMyDataSheet">
+  <div class="sheet-handle"></div>
+  <div class="sheet-title">🗑️ حذف بياناتي</div>
+  <div class="sheet-message">حذف كل بياناتك نهائياً؟ هذا يحذف كل حساباتك على واتساب وكل سجل حملاتك، ولا يمكن التراجع عنه.</div>
+  <div class="sheet-actions">
+    <button class="btn-cancel" onclick="closeDeleteMyDataSheet()"><i class="fas fa-times"></i> إلغاء</button>
+    <button class="btn-confirm" onclick="confirmDeleteMyData()"><i class="fas fa-trash"></i> حذف</button>
+  </div>
+</div>
+
 <div class="body">
   <main class="content"><div class="content-inner" id="content"></div></main>
 </div>
@@ -1109,7 +1131,6 @@ async function submitName() {
   <button class="nav-item" data-s="accounts" onclick="showSection('accounts')"></button>
   <button class="nav-item" data-s="campaigns" onclick="showSection('campaigns')"></button>
   <button class="nav-item" data-s="analytics" onclick="showSection('analytics')"></button>
-  <button class="nav-item" data-s="subscribers" onclick="showSection('subscribers')"></button>
   <button class="nav-item" data-s="settings" onclick="showSection('settings')"></button>
 </nav>
 
@@ -1421,10 +1442,17 @@ function renderAccounts() {
           'استخدامه لإرسال رموز تسجيل الدخول عبر واتساب</label>';
       }
     }
-    html += '<button class="btn-danger" onclick="deleteAccount(\'' + acc.id + '\')">حذف الحساب</button>';
+    html += '<button class="btn-danger" onclick="openDeleteAccountSheet(\'' + acc.id + '\')">حذف الحساب</button>';
     html += '</div>';
   });
   html += '<button class="btn-outline" onclick="openAddAccountSheet()">' + icon('plus', 12) + ' إضافة حساب</button>';
+  html +=
+    '<div class="settings-list">' +
+      '<div class="settings-item" onclick="showSection(\'subscribers\')">' +
+        '<div class="left"><div class="icon-wrap primary">' + icon('subscribers', 15) + '</div><div><span class="text">الاشتراكات</span><span class="sub-text">إدارة مشتركينك وتذكيرات التجديد</span></div></div>' +
+        '<i class="fas fa-chevron-left chevron"></i>' +
+      '</div>' +
+    '</div>';
   c.innerHTML = html;
 
   accounts.filter(a => !a.logged_in).forEach(acc => pollLogin(acc.id, gen));
@@ -1511,16 +1539,34 @@ async function deleteSubscriber(id) {
   loadSubscribers();
 }
 
-async function deleteAccount(id) {
-  if (!confirm('حذف هذا الحساب نهائياً؟ بتحتاج تضيفه من جديد وتمسح رمز QR لاستخدامه مرة ثانية.')) return;
+let deleteAccountId = null;
+function openDeleteAccountSheet(id) {
+  deleteAccountId = id;
+  document.getElementById('deleteAccountOverlay').classList.add('show');
+  document.getElementById('deleteAccountSheet').classList.add('show');
+}
+function closeDeleteAccountSheet() {
+  document.getElementById('deleteAccountOverlay').classList.remove('show');
+  document.getElementById('deleteAccountSheet').classList.remove('show');
+}
+async function confirmDeleteAccount() {
+  const id = deleteAccountId;
+  closeDeleteAccountSheet();
   await fetch('/accounts/' + id + '/logout', { method: 'POST' });
   activeId = null;
   render();
 }
 
-async function deleteMyData() {
-  if (!confirm('حذف كل بياناتك نهائياً؟ هذا يحذف كل حساباتك على واتساب وكل سجل حملاتك، ولا يمكن التراجع عنه.')) return;
-  if (!confirm('تأكيد أخير: بعد الحذف بتحتاج تضيف حساباتك من جديد وتمسح رموز QR. متأكد تريد المتابعة؟')) return;
+function openDeleteMyDataSheet() {
+  document.getElementById('deleteMyDataOverlay').classList.add('show');
+  document.getElementById('deleteMyDataSheet').classList.add('show');
+}
+function closeDeleteMyDataSheet() {
+  document.getElementById('deleteMyDataOverlay').classList.remove('show');
+  document.getElementById('deleteMyDataSheet').classList.remove('show');
+}
+async function confirmDeleteMyData() {
+  closeDeleteMyDataSheet();
   const r = await fetch('/settings/delete_my_data', { method: 'POST' }).then(res => res.json());
   accounts = [];
   activeId = null;
@@ -1568,10 +1614,10 @@ function renderCampaigns(myGen) {
       COUNTRY_CODES.map(c => '<option value="' + c[0] + '"' + (c[0] === DEFAULT_COUNTRY_CODE ? ' selected' : '') + '>' + c[1] + '</option>').join('') +
     '</select>' +
     '<label class="field-label">الأرقام (رقم كل سطر، أو مفصولة بفواصل — تكتب الرقم المحلي بدون رمز الدولة، أو رقم دولي كامل)</label>' +
-    '<textarea id="numbersText" rows="4" placeholder="07701234567&#10;07709876543"></textarea>' +
+    '<textarea id="numbersText" rows="8" placeholder="07701234567&#10;07709876543"></textarea>' +
     '<button class="btn-outline" id="contactPickerBtn" style="display:none" onclick="pickContacts()">استيراد من جهات الاتصال</button>' +
-    '<label class="field-label">أو ارفع ملف Excel (.xlsx) فيه الأرقام بالعمود الأول</label>' +
-    '<input type="file" id="numbersFile" accept=".xlsx">' +
+    '<label class="field-label">أو ارفع ملف Excel (.xlsx) فيه الأرقام بالعمود الأول — تنعرض بحقل الأرقام فوق تلقائياً</label>' +
+    '<input type="file" id="numbersFile" accept=".xlsx" onchange="previewNumbersFile()">' +
     '<label class="field-label">نص الرسالة / التعليق</label>' +
     '<textarea id="text" rows="5">هلوو</textarea>' +
     '<label class="field-label">صورة، فيديو، أو ملف (اختياري)</label>' +
@@ -1665,6 +1711,18 @@ async function pickContacts() {
     const ta = document.getElementById('numbersText');
     ta.value += (ta.value ? '\n' : '') + nums.join('\n');
   } catch (e) {}
+}
+
+async function previewNumbersFile() {
+  const fileInput = document.getElementById('numbersFile');
+  const file = fileInput.files[0];
+  if (!file) return;
+  const form = new FormData();
+  form.append('numbers_file', file);
+  const r = await fetch('/campaign/preview_numbers', { method: 'POST', body: form }).then(res => res.json());
+  if (!r.ok) { alert(r.error || 'تعذرت قراءة الملف'); fileInput.value = ''; return; }
+  document.getElementById('numbersText').value = r.numbers.join('\n');
+  fileInput.value = ''; // الأرقام الحين بحقل الأرقام القابل للتعديل - ما نحتاج نرسل نفس الملف مرة ثانية
 }
 
 async function startCampaign() {
@@ -1821,7 +1879,7 @@ function renderSettings() {
 
     '<div class="settings-list">' +
       '<div class="settings-head" style="color:#dc2626">' + icon('trash', 12) + ' منطقة الخطر</div>' +
-      '<div class="settings-item" onclick="deleteMyData()">' +
+      '<div class="settings-item" onclick="openDeleteMyDataSheet()">' +
         '<div class="left"><div class="icon-wrap" style="background:rgba(220,38,38,.1);color:#dc2626">' + icon('trash', 15) + '</div><div><span class="text" style="color:#dc2626">حذف بياناتي</span><span class="sub-text">حذف كل حساباتك على واتساب وكل حملاتك نهائياً</span></div></div>' +
         '<i class="fas fa-chevron-left chevron"></i>' +
       '</div>' +
@@ -1890,7 +1948,9 @@ function renderSubscribers() {
   const c = document.getElementById('content');
   const cachedSettings = dataCache.subscriptionSettings;
   const cachedList = dataCache.subscribers;
-  let html = '<div class="page-title"><h2>' + icon('subscribers', 18) + ' الاشتراكات</h2></div>';
+  let html = '<div class="page-title"><h2>' + icon('subscribers', 18) + ' الاشتراكات</h2>' +
+    '<button onclick="showSection(\'accounts\')" style="height:36px;padding:0 14px;border:2px solid rgba(5,134,147,0.08);border-radius:var(--radius-sm);background:transparent;color:var(--text-secondary);font-size:12px;font-weight:700;cursor:pointer;font-family:inherit">رجوع</button>' +
+    '</div>';
   html += subscriptionSettingsHtml();
   html +=
     '<div class="card">' +

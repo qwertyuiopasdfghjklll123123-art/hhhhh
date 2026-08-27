@@ -2515,6 +2515,21 @@ def status(acc_id):
     return jsonify(logged_in=bool(acc) and account_logged_in_fast(acc))
 
 
+@app.route("/campaign/preview_numbers", methods=["POST"])
+@login_required
+def preview_numbers():
+    """يستخرج الأرقام من ملف Excel فوراً (بدون بدء أي حملة) - يستخدمه حقل الأرقام بواجهة
+    الحملات ليعرض الأرقام المستخرجة للمستخدم قبل الإرسال، بنفس منطق الاستخراج بالضبط."""
+    file = request.files.get("numbers_file")
+    if not file or not file.filename:
+        return jsonify(ok=False, error="ما فيه ملف"), 400
+    try:
+        numbers = numbers_from_excel(file)
+    except Exception:
+        return jsonify(ok=False, error="تعذرت قراءة الملف - تأكد إنه ملف Excel صالح"), 400
+    return jsonify(ok=True, numbers=numbers)
+
+
 @app.route("/accounts/<acc_id>/campaign", methods=["POST"])
 @login_required
 def campaign(acc_id):
