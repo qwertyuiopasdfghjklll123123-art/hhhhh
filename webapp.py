@@ -716,6 +716,21 @@ def start_account_driver(acc_id):
     options.add_argument("--window-size=1200,900")
     options.add_argument("--headless=new")
     options.add_argument("--disable-blink-features=AutomationControlled")
+    # تقليل استهلاك الذاكرة/المعالج لخدمات كروم الخلفية غير المتعلقة بواتساب ويب إطلاقاً
+    # (تحديثات، تزامن، تحليلات...) - مهم بسيرفر ذاكرته تحت ضغط دائم مع عدة حسابات شغالة
+    # بنفس الوقت. ما تلمس أي شي متعلق بعرض/تشغيل الصفحة نفسها، فقط خدمات محيطية بكروم
+    options.add_argument("--disable-gpu")
+    options.add_argument("--disable-extensions")
+    options.add_argument("--disable-background-networking")
+    options.add_argument("--disable-default-apps")
+    options.add_argument("--disable-sync")
+    options.add_argument("--disable-translate")
+    options.add_argument("--disable-component-update")
+    options.add_argument("--disable-domain-reliability")
+    options.add_argument("--metrics-recording-only")
+    options.add_argument("--mute-audio")
+    options.add_argument("--no-first-run")
+    options.add_argument("--safebrowsing-disable-auto-update")
     options.add_argument(
         "--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
         "(KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36"
