@@ -1446,13 +1446,6 @@ function renderAccounts() {
     html += '</div>';
   });
   html += '<button class="btn-outline" onclick="openAddAccountSheet()">' + icon('plus', 12) + ' إضافة حساب</button>';
-  html +=
-    '<div class="settings-list">' +
-      '<div class="settings-item" onclick="showSection(\'subscribers\')">' +
-        '<div class="left"><div class="icon-wrap primary">' + icon('subscribers', 15) + '</div><div><span class="text">الاشتراكات</span><span class="sub-text">إدارة مشتركينك وتذكيرات التجديد</span></div></div>' +
-        '<i class="fas fa-chevron-left chevron"></i>' +
-      '</div>' +
-    '</div>';
   c.innerHTML = html;
 
   accounts.filter(a => !a.logged_in).forEach(acc => pollLogin(acc.id, gen));
@@ -1859,6 +1852,10 @@ function renderSettings() {
         '<div class="left"><div class="icon-wrap primary">' + icon('autoreply', 15) + '</div><div><span class="text">الرد الآلي</span><span class="sub-text">قيد التطوير - يتوفر قريباً</span></div></div>' +
         '<i class="fas fa-chevron-left chevron"></i>' +
       '</div>' +
+      '<div class="settings-item" onclick="showSection(\'subscribers\')">' +
+        '<div class="left"><div class="icon-wrap primary">' + icon('subscribers', 15) + '</div><div><span class="text">الاشتراكات</span><span class="sub-text">إدارة مشتركينك وتذكيرات التجديد</span></div></div>' +
+        '<i class="fas fa-chevron-left chevron"></i>' +
+      '</div>' +
       (IS_ADMIN ? (
         '<div class="settings-item" onclick="showSection(\'admin\')">' +
           '<div class="left"><div class="icon-wrap primary">' + icon('admin', 15) + '</div><div><span class="text">لوحة تحكم الأدمن</span><span class="sub-text">إدارة الاشتراكات والذكاء الاصطناعي</span></div></div>' +
@@ -1949,7 +1946,7 @@ function renderSubscribers() {
   const cachedSettings = dataCache.subscriptionSettings;
   const cachedList = dataCache.subscribers;
   let html = '<div class="page-title"><h2>' + icon('subscribers', 18) + ' الاشتراكات</h2>' +
-    '<button onclick="showSection(\'accounts\')" style="height:36px;padding:0 14px;border:2px solid rgba(5,134,147,0.08);border-radius:var(--radius-sm);background:transparent;color:var(--text-secondary);font-size:12px;font-weight:700;cursor:pointer;font-family:inherit">رجوع</button>' +
+    '<button onclick="showSection(\'settings\')" style="height:36px;padding:0 14px;border:2px solid rgba(5,134,147,0.08);border-radius:var(--radius-sm);background:transparent;color:var(--text-secondary);font-size:12px;font-weight:700;cursor:pointer;font-family:inherit">رجوع</button>' +
     '</div>';
   html += subscriptionSettingsHtml();
   html +=
