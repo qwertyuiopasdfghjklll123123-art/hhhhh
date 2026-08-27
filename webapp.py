@@ -873,39 +873,25 @@ def send_to(driver, number, text, media_path=None):
         EC.presence_of_element_located((By.XPATH, '//footer//div[@contenteditable="true"]'))
     )
     if media_path:
-        # نتفادى الضغط على أيقونة "إرفاق" (تتغير بتحديثات واتساب) ونستخدم حقل رفع الملف مباشرة.
-        # نفضّل حقل يقبل صور/فيديو صراحة (accept) لو موجود - الصفحة ممكن تحتوي عدة حقول file
-        # مخفية لأغراض ثانية (تغيير صورة البروفايل مثلاً)، ونرجع لأول حقل كحل احتياطي لو ما
-        # لقينا وحد مميز، حتى ما نغيّر السلوك الحالي لو كان هذا مو السبب الحقيقي بالفشل
+        # جولات تشخيص سابقة أثبتت: الحقل المخفي داخل صندوق الكتابة نفسه (اللي كنا نستخدمه
+        # مباشرة بدون ضغط أي زر) ما يفتح شاشة معاينة الصورة إطلاقاً - جرد فعلي لعناصر
+        # data-testid/data-icon كشف إن زر الإرفاق الحقيقي بواتساب ويب الحالي صار أيقونة "+"
+        # مدورة (data-icon="plus-rounded"، بدل أيقونة المشبك القديمة) يفتح قائمة إرفاق حقيقية.
+        # نضغطه أول قبل ما نبحث عن حقل رفع الملف، حتى يصير الحقل المرتبط فعلياً بإرسال صورة
+        # للمحادثة موجود/مفعّل بالصفحة
+        try:
+            plus_btn = WebDriverWait(driver, 10).until(
+                EC.element_to_be_clickable((By.CSS_SELECTOR, 'span[data-icon="plus-rounded"]'))
+            )
+            plus_btn.click()
+            time.sleep(0.5)
+        except Exception as e:
+            print(f"[حملة] تعذر الضغط على زر الإرفاق (+): {e}")
         file_inputs = driver.find_elements(By.CSS_SELECTOR, 'input[type="file"]')
         if not file_inputs:
             raise RuntimeError("ما لقيت عنصر رفع الملفات بواجهة واتساب")
-        print(f"[حملة] لقيت {len(file_inputs)} عنصر رفع ملفات: {[fi.get_attribute('accept') for fi in file_inputs]}")
+        print(f"[حملة] لقيت {len(file_inputs)} عنصر رفع ملفات بعد فتح قائمة الإرفاق: {[fi.get_attribute('accept') for fi in file_inputs]}")
         media_input = next((fi for fi in file_inputs if "image" in (fi.get_attribute("accept") or "")), file_inputs[0])
-        # آخر جولة جردت 502 عنصر بالصفحة كلها، لكن أول 60 كانت كلها من قائمة الدردشات
-        # الجانبية (قبل منطقة المحادثة بترتيب DOM) ومو مفيدة. نعرف من الجولة قبلها إن عنصر
-        # رفع الملف أبوه footer فيه data-testid="compose-box" - نحصر الجرد بهذا الـ footer
-        # تحديداً حتى نوصل مباشرة لأيقونات المحادثة (إرفاق/مايك/إرسال) بدون ضوضاء القائمة
-        try:
-            inventory = driver.execute_script("""
-                const footers = document.querySelectorAll('footer');
-                const out = [];
-                footers.forEach(f => {
-                    f.querySelectorAll('[data-testid], [data-icon]').forEach(el => out.push({
-                        tag: el.tagName,
-                        testid: el.getAttribute('data-testid'),
-                        icon: el.getAttribute('data-icon'),
-                        title: el.getAttribute('title'),
-                        aria: el.getAttribute('aria-label'),
-                    }));
-                });
-                return out;
-            """)
-            print(f"[حملة][تشخيص] {len(inventory)} عنصر عندهم data-testid أو data-icon داخل أي <footer> بالصفحة:")
-            for item in inventory[:80]:
-                print(f"[حملة][تشخيص]   {item}")
-        except Exception as e:
-            print(f"[حملة][تشخيص] تعذر جرد data-testid/data-icon: {e}")
         media_input.send_keys(media_path)
         time.sleep(1.5)  # مهلة قصيرة حتى تنعكس معالجة الملف بواتساب قبل نلتقط دليل تشخيصي
         try:
