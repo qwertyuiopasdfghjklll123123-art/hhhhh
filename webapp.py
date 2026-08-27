@@ -55,6 +55,7 @@ DB_PATH = "./app.db"
 SECRET_KEY_PATH = "./secret.key"
 DEFAULT_MESSAGE = "هلوو"
 DEFAULT_DELAY = 15
+DEFAULT_MEDIA_DELAY = 2
 EVENTS_MAX = 50
 
 
@@ -138,6 +139,8 @@ def init_db():
         conn.execute("UPDATE users SET plan_active = 1 WHERE trial_ends_at IS NULL")
     if "trial_ended_notified" not in cols:
         conn.execute("ALTER TABLE users ADD COLUMN trial_ended_notified INTEGER NOT NULL DEFAULT 0")
+    if "plan_ends_at" not in cols:
+        conn.execute("ALTER TABLE users ADD COLUMN plan_ends_at TEXT")
     # الدخول عبر واتساب فقط (بدون كلمة مرور) يحتاج email و password_hash تقبل NULL - نعيد
     # بناء الجدول لو كان لسا يفرض NOT NULL من نسخة قديمة، حتى لا نفقد أي مستخدمين موجودين
     cols_info = conn.execute("PRAGMA table_info(users)").fetchall()
@@ -245,6 +248,7 @@ init_db()
 PLAN_NAME = "الخطة الاحترافية"
 PLAN_PRICE_IQD = 60000
 TRIAL_DAYS = 3
+PLAN_ACTIVATION_DAYS = 30  # مدة الاشتراك اللي يفعّله الأدمن يدوياً من لوحة التحكم - يتوقف تلقائياً بعدها
 WHATSAPP_PAY_NUMBER = "9647763835403"  # رقم واتساب لتفعيل الاشتراك، عدّله لرقمك الفعلي لو تغيّر
 
 # مصدر واحد لقائمة رموز الدول: تُستخدم بمنتقي الأدمن لرمز الدولة الافتراضي، وسابقاً كانت
@@ -283,9 +287,25 @@ def fill_subscription_message(template, name, days_left):
     return template.replace("{name}", name).replace("{days}", str(days_left))
 
 
+def effective_plan_active(user):
+    """الاشتراك يعتبر فعّال بس لو plan_active=1 وما انتهت مدته (لو الأدمن حدد مدة عند
+    التفعيل) - يخلي الاشتراك "يتوقف تلقائياً" بمجرد ما تنتهي مدته بدون حاجة لمهمة خلفية
+    تراقب وتطفي العلم بقاعدة البيانات، بنفس أسلوب فحص انتهاء التجربة المجانية أدناه."""
+    if not user["plan_active"]:
+        return False
+    plan_ends_at = user["plan_ends_at"]
+    if not plan_ends_at:
+        return True
+    try:
+        return datetime.now() < datetime.strptime(plan_ends_at, "%Y-%m-%d %H:%M")
+    except ValueError:
+        return True
+
+
 def user_has_access(user):
-    """مفعّل باشتراك حقيقي، أو لسا داخل فترة التجربة المجانية (3 أيام من إنشاء الحساب)."""
-    if user["plan_active"]:
+    """مفعّل باشتراك حقيقي (وما انتهت مدته)، أو لسا داخل فترة التجربة المجانية (3 أيام من
+    إنشاء الحساب)."""
+    if effective_plan_active(user):
         return True
     trial_ends_at = user["trial_ends_at"]
     if not trial_ends_at:
@@ -413,11 +433,25 @@ def db_set_payment_status(payment_id, status):
 
 def db_set_plan_active(user_id, active):
     conn = get_db()
-    conn.execute("UPDATE users SET plan_active = ? WHERE id = ?", (int(active), user_id))
+    if active:
+        conn.execute("UPDATE users SET plan_active = 1 WHERE id = ?", (user_id,))
+    else:
+        conn.execute("UPDATE users SET plan_active = 0, plan_ends_at = NULL WHERE id = ?", (user_id,))
     conn.commit()
     conn.close()
     if active:
         add_event(user_id, None, "تم تفعيل الاشتراك", "فعّل أدمن المنصة اشتراكك بنجاح", kind="success")
+
+
+def db_activate_plan_for_days(user_id, days):
+    """يفعّل اشتراك المستخدم لمدة محددة (افتراضياً 30 يوم) - يتوقف تلقائياً بعدها بدون أي
+    إجراء إضافي من الأدمن (effective_plan_active تتحقق من الانتهاء بنفسها عند كل استخدام)."""
+    conn = get_db()
+    ends_at = (datetime.now() + timedelta(days=days)).strftime("%Y-%m-%d %H:%M")
+    conn.execute("UPDATE users SET plan_active = 1, plan_ends_at = ? WHERE id = ?", (ends_at, user_id))
+    conn.commit()
+    conn.close()
+    add_event(user_id, None, "تم تفعيل الاشتراك", f"فعّل أدمن المنصة اشتراكك لمدة {days} يوم", kind="success")
 
 
 def db_mark_trial_ended_notified(user_id):
@@ -864,7 +898,20 @@ def apply_country_code(number, country_code):
     return country_code + number
 
 
-def send_to(driver, number, text, media_path=None):
+def _type_and_send_text(driver, text):
+    """يكتب نص برسالة عادية بصندوق الدردشة المفتوح حالياً ويرسلها بـ Enter - مستخدم لإرسال
+    النص كرسالة مستقلة بعد الصورة (Enter مؤكد يشتغل صح بهذا الصندوق تحديداً، خلاف صندوق تعليق
+    الصورة اللي طلع يسبب مشكلة "ترسل كملصق")."""
+    box = WebDriverWait(driver, 15).until(
+        EC.presence_of_element_located((By.XPATH, '//footer//div[@contenteditable="true"]'))
+    )
+    box.click()
+    box.send_keys(text)
+    time.sleep(0.5)
+    box.send_keys(Keys.ENTER)
+
+
+def send_to(driver, number, text, media_path=None, media_delay=DEFAULT_MEDIA_DELAY):
     if media_path:
         driver.get(f"https://web.whatsapp.com/send?phone={number}")
     else:
@@ -873,12 +920,9 @@ def send_to(driver, number, text, media_path=None):
         EC.presence_of_element_located((By.XPATH, '//footer//div[@contenteditable="true"]'))
     )
     if media_path:
-        # جولات تشخيص سابقة أثبتت: الحقل المخفي داخل صندوق الكتابة نفسه (اللي كنا نستخدمه
-        # مباشرة بدون ضغط أي زر) ما يفتح شاشة معاينة الصورة إطلاقاً - جرد فعلي لعناصر
-        # data-testid/data-icon كشف إن زر الإرفاق الحقيقي بواتساب ويب الحالي صار أيقونة "+"
-        # مدورة (data-icon="plus-rounded"، بدل أيقونة المشبك القديمة) يفتح قائمة إرفاق حقيقية.
-        # نضغطه أول قبل ما نبحث عن حقل رفع الملف، حتى يصير الحقل المرتبط فعلياً بإرسال صورة
-        # للمحادثة موجود/مفعّل بالصفحة
+        # الصورة تُرسل هلق لحالها (بدون كتابة أي نص بصندوق تعليقها) - النص (لو موجود) يترسل
+        # كرسالة مستقلة بعدها، حتى نتجنب صندوق تعليق الصورة اللي ثبت إنه يسبب مشكلة "ترسل
+        # الصورة كملصق" مهما جرّبنا معه (جولات تشخيص سابقة وثّقت المحاولات والفشل بالتفصيل)
         try:
             plus_btn = WebDriverWait(driver, 10).until(
                 EC.element_to_be_clickable((By.CSS_SELECTOR, 'span[data-icon="plus-rounded"]'))
@@ -887,55 +931,21 @@ def send_to(driver, number, text, media_path=None):
             time.sleep(0.5)
         except Exception as e:
             print(f"[حملة] تعذر الضغط على زر الإرفاق (+): {e}")
-        # جولتين ماضيتين جربوا نظريتين مختلفتين لـ"ليش توصل الصورة كملصق" (تخمين اسم "attach"،
-        # وبعدها مقارنة DOM قبل/بعد الضغط على +) - الاثنتين فشلوا: التخمين طلع صفر نتائج، ومقارنة
-        # الـ DOM طلعت 192 عنصر لكن كلها ضجيج (رسائل محادثة قديمة كانت لسا تترندر بنفس اللحظة،
-        # مو عناصر قائمة إرفاق حقيقية) وحتى ضغطت بالغلط صورة قديمة بالمحادثة (image-thumb) بدل
-        # عنصر إرفاق فعلي. ما زلنا ما لقينا أي دليل حقيقي على وجود خيارات منفصلة "صور" مقابل
-        # "ملصق" بقائمة الإرفاق - نفس حقل رفع الملف الوحيد (accept=image/*) يطلع دايماً بغض
-        # النظر شنو نضغط قبله. رجّعنا الكود لأبسط نسخة مستقرة (بدون تخمين/ضغط إضافي) وبدل ما
-        # نستمر نخمن بنية القائمة، الاحتمال الأقوى الجديد: المشكلة مو بالكود إطلاقاً، وإنما
-        # بخاصية الصورة المستخدمة بالاختبار نفسها (شعار التطبيق: صورة مربعة صغيرة وشفافة على
-        # الأغلب) اللي واتساب نفسه يتعامل معها كملصق تلقائياً بغض النظر شلون انرفعت. حتى نتأكد
-        # بدون تخمين كود إضافي، نلتقط بنية HTML شاشة المعاينة (مختصرة) كدليل - بدون أي ضغط جديد
         file_inputs = driver.find_elements(By.CSS_SELECTOR, 'input[type="file"]')
         if not file_inputs:
             raise RuntimeError("ما لقيت عنصر رفع الملفات بواجهة واتساب")
-        print(f"[حملة] لقيت {len(file_inputs)} عنصر رفع ملفات بعد فتح قائمة الإرفاق: {[fi.get_attribute('accept') for fi in file_inputs]}")
         media_input = next((fi for fi in file_inputs if "image" in (fi.get_attribute("accept") or "")), file_inputs[0])
         media_input.send_keys(media_path)
-        time.sleep(1.5)  # مهلة قصيرة حتى تنعكس معالجة الملف بواتساب قبل نلتقط دليل تشخيصي
+        time.sleep(1.5)  # مهلة قصيرة حتى تنعكس معالجة الملف بواتساب
         try:
             os.makedirs(UPLOADS_DIR, exist_ok=True)
             driver.save_screenshot(os.path.join(UPLOADS_DIR, "_debug_after_file_select.png"))
         except Exception:
             pass
-        caption_candidates = driver.find_elements(By.XPATH, '//div[@contenteditable="true"][@data-tab]')
-        print(f"[حملة] عدد عناصر contenteditable[data-tab] بعد اختيار الملف: {len(caption_candidates)} "
-              f"(أكثر من 1 يعني الاختيار ملتبس - ممكن نكتب بصندوق المحادثة العادي بدل صندوق تعليق الصورة)")
         caption_box = WebDriverWait(driver, 25).until(
             EC.presence_of_element_located((By.XPATH, '//div[@contenteditable="true"][@data-tab]'))
         )
-        # لقطة HTML (مختصرة) لشاشة المعاينة نفسها - بدون أي ضغط أو تخمين جديد. الهدف: نشوف
-        # مباشرة إذا فيه أي إشارة "ملصق/sticker" ببنية الصفحة (كلاس، زر، تبويب) قريبة من صندوق
-        # التعليق، بدل ما نستمر نخمن عناصر نضغطها
-        try:
-            preview_html = driver.execute_script("""
-                let el = arguments[0];
-                for (let i = 0; i < 4 && el.parentElement; i++) el = el.parentElement;
-                return el.outerHTML;
-            """, caption_box)
-            print(f"[حملة][تشخيص] HTML شاشة المعاينة (أول 4000 حرف): {preview_html[:4000]}")
-        except Exception as e:
-            print(f"[حملة][تشخيص] تعذر التقاط HTML شاشة المعاينة: {e}")
-        if text:
-            caption_box.send_keys(text)
-        time.sleep(2)
-        # لقطة الشاشة الأخيرة أكدت وصولنا لشاشة معاينة الصورة الصحيحة فعلياً (زر إرسال أخضر
-        # واضح بالمعاينة) - لكن الصورة لسا ما توصل حتى بعد Enter جوا صندوق التعليق. الشك: Enter
-        # بسياق صندوق تعليق الصورة (مختلف عن صندوق الدردشة العادي) يضيف سطر جديد بدل ما يرسل.
-        # نبحث عن أي عنصر ظاهر معرّفه فيه كلمة send (بدل تخمين اسم محدد يتغير بين نسخ واتساب)
-        # ونضغطه مباشرة؛ لو ما لقينا شي ظاهر أو فشل الضغط، نرجع لمحاولة Enter القديمة كحل احتياطي
+        time.sleep(1)
         sent_via_click = False
         try:
             send_candidates = driver.execute_script("""
@@ -945,35 +955,31 @@ def send_to(driver, number, text, media_path=None):
                         return /send/i.test(t);
                     });
             """)
-            print(f"[حملة][تشخيص] {len(send_candidates)} عنصر فيهم كلمة 'send' بمعرّفهم")
             for el in send_candidates:
                 try:
-                    testid = el.get_attribute("data-testid")
-                    icon = el.get_attribute("data-icon")
                     visible = el.is_displayed()
-                    print(f"[حملة][تشخيص]   - testid={testid} icon={icon} ظاهر={visible}")
                 except Exception:
                     continue
                 if visible and not sent_via_click:
                     try:
                         el.click()
                         sent_via_click = True
-                        print(f"[حملة][تشخيص] ضغطت زر الإرسال (testid={testid} icon={icon})")
-                    except Exception as click_err:
-                        print(f"[حملة][تشخيص] فشل ضغط هذا العنصر: {click_err}")
+                    except Exception:
+                        pass
         except Exception as e:
-            print(f"[حملة][تشخيص] تعذر البحث عن زر الإرسال: {e}")
+            print(f"[حملة] تعذر البحث عن زر الإرسال: {e}")
         if not sent_via_click:
-            print("[حملة][تشخيص] ما نجح ضغط زر إرسال ظاهر، رح أجرب Enter بصندوق التعليق كحل احتياطي")
             caption_box.send_keys(Keys.ENTER)
         time.sleep(3)  # مهلة أطول حتى يكتمل رفع الملف قبل الانتقال للرقم التالي
-        # لقطة بعد الإرسال مباشرة من متصفحنا نفسه (المرسل) - تبيّن شكل الفقاعة اللي فعلاً
-        # انرسلت بمحادثتنا (صورة عادية بفقاعة وعلامات صح، أو ملصق بدون فقاعة) بدون ما ننتظر
-        # لقطة شاشة ثانية من هاتف المستلم بجولة تانية
         try:
             driver.save_screenshot(os.path.join(UPLOADS_DIR, "_debug_after_send.png"))
         except Exception:
             pass
+        print(f"[حملة] أُرسلت الصورة لـ {number} ({'ضغط زر الإرسال' if sent_via_click else 'Enter احتياطي'})")
+        if text:
+            time.sleep(media_delay)
+            _type_and_send_text(driver, text)
+            print(f"[حملة] أُرسل النص لـ {number} كرسالة مستقلة بعد الصورة")
     else:
         time.sleep(2)  # مهلة حتى يكتمل تعبئة نص الرسالة تلقائياً بالحقل قبل الإرسال
         driver.switch_to.active_element.send_keys(Keys.ENTER)
@@ -987,14 +993,14 @@ def find_otp_sender_account():
     return None
 
 
-def run_campaign(acc, numbers, text, delay, media_path):
+def run_campaign(acc, numbers, text, delay, media_path, media_delay=DEFAULT_MEDIA_DELAY):
     state = acc["campaign"]
     started = datetime.now().strftime("%Y-%m-%d %H:%M")
     add_event(acc["owner"], acc["name"], "بدأت حملة جديدة", f'جارِ إرسال {state["total"]} رسالة', kind="info")
     for i, number in enumerate(numbers):
         with acc["lock"]:
             try:
-                send_to(acc["driver"], number, text, media_path)
+                send_to(acc["driver"], number, text, media_path, media_delay)
                 state["sent"] += 1
             except Exception as e:
                 print(f"[حملة] فشل إرسال لـ {number} (حساب {acc['name']}): {e}")
@@ -2156,20 +2162,25 @@ def set_branding():
 def get_subscription():
     user = db_get_user_by_id(session["user_id"])
     payments = db_list_payments_for_user(session["user_id"])
+    plan_active = effective_plan_active(user) if user else False
     trial_days_left = 0
-    if user and not user["plan_active"] and user["trial_ends_at"]:
+    if user and not plan_active and user["trial_ends_at"]:
         try:
             trial_days_left = max(0, (datetime.strptime(user["trial_ends_at"], "%Y-%m-%d %H:%M") - datetime.now()).days + 1)
         except ValueError:
             trial_days_left = 0
-    pay_text = urllib.parse.quote(f"أرغب بتفعيل اشتراكي في منصة واصل ({PLAN_PRICE_IQD:,} د.ع)")
+    subscriber_id = (user["phone"] or user["email"] or "غير محدد") if user else "غير محدد"
+    pay_text = urllib.parse.quote(f"أرغب بتفعيل اشتراكي في منصة واصل ({PLAN_PRICE_IQD:,} د.ع) - رقمي: {subscriber_id}")
+    support_text = urllib.parse.quote("مرحباً، احتاج مساعدة")
     return jsonify(
-        plan_active=bool(user and user["plan_active"]),
+        plan_active=plan_active,
+        plan_ends_at=user["plan_ends_at"] if (user and plan_active) else None,
         has_access=user_has_access(user) if user else False,
         trial_days_left=trial_days_left,
         plan_name=PLAN_NAME,
         price_iqd=PLAN_PRICE_IQD,
         wa_pay_link=f"https://wa.me/{WHATSAPP_PAY_NUMBER}?text={pay_text}",
+        wa_support_link=f"https://wa.me/{WHATSAPP_PAY_NUMBER}?text={support_text}",
         payments=[dict(p) for p in payments],
     )
 
@@ -2302,7 +2313,12 @@ def set_subscription_settings():
 @login_required
 @admin_required
 def admin_customers():
-    return jsonify([dict(u) for u in db_list_users()])
+    rows = []
+    for u in db_list_users():
+        d = dict(u)
+        d["plan_active"] = effective_plan_active(u)  # يعكس الانتهاء التلقائي فوراً، مو الرقم الخام المخزون
+        rows.append(d)
+    return jsonify(rows)
 
 
 @app.route("/admin/customers/<int:user_id>/plan", methods=["POST"])
@@ -2310,7 +2326,10 @@ def admin_customers():
 @admin_required
 def admin_set_plan(user_id):
     data = request.json or {}
-    db_set_plan_active(user_id, bool(data.get("active")))
+    if bool(data.get("active")):
+        db_activate_plan_for_days(user_id, PLAN_ACTIVATION_DAYS)
+    else:
+        db_set_plan_active(user_id, False)
     return jsonify(ok=True)
 
 
@@ -2388,12 +2407,9 @@ def create_account():
     return jsonify(id=acc_id, name=accounts[acc_id]["name"])
 
 
-@app.route("/accounts/<acc_id>/logout", methods=["POST"])
-@login_required
-def account_logout(acc_id):
-    acc = get_owned_account(acc_id)
-    if not acc:
-        return jsonify(ok=False, error="حساب غير موجود"), 404
+def delete_wa_account(acc_id, acc):
+    """يحذف حساب واتساب نهائياً: يوقف المتصفح، يمسح مجلد الجلسة، ويحذف السجل من الذاكرة
+    وقاعدة البيانات (وبالتالي كل سجل حملاته/تاريخه المرتبط، لأنه مخزون بنفس سجل الحساب)."""
     acc["watching"] = False
     if acc["driver"] is not None:
         try:
@@ -2403,7 +2419,28 @@ def account_logout(acc_id):
     shutil.rmtree(f"{SESSIONS_ROOT}/{acc_id}", ignore_errors=True)
     del accounts[acc_id]
     db_delete_wa_account(acc_id)
+
+
+@app.route("/accounts/<acc_id>/logout", methods=["POST"])
+@login_required
+def account_logout(acc_id):
+    acc = get_owned_account(acc_id)
+    if not acc:
+        return jsonify(ok=False, error="حساب غير موجود"), 404
+    delete_wa_account(acc_id, acc)
     return jsonify(ok=True)
+
+
+@app.route("/settings/delete_my_data", methods=["POST"])
+@login_required
+def delete_my_data():
+    """يحذف كل بيانات المستخدم الحالي: كل حساباته على واتساب (جلسات تسجيل الدخول) وكل
+    حملاته وتاريخها (مخزون بنفس سجل كل حساب، فينحذف تلقائياً معه)."""
+    uid = session["user_id"]
+    owned_ids = [aid for aid, a in accounts.items() if a["owner"] == uid]
+    for acc_id in owned_ids:
+        delete_wa_account(acc_id, accounts[acc_id])
+    return jsonify(ok=True, deleted=len(owned_ids))
 
 
 @app.route("/accounts/<acc_id>/otp_sender", methods=["POST"])
@@ -2509,6 +2546,10 @@ def campaign(acc_id):
         delay = max(1, int(request.form.get("delay", DEFAULT_DELAY)))
     except (TypeError, ValueError):
         delay = DEFAULT_DELAY
+    try:
+        media_delay = max(1, int(request.form.get("media_delay", DEFAULT_MEDIA_DELAY)))
+    except (TypeError, ValueError):
+        media_delay = DEFAULT_MEDIA_DELAY
 
     media_path = None
     media = request.files.get("media_file")
@@ -2533,11 +2574,11 @@ def campaign(acc_id):
 
         def delayed():
             time.sleep(wait_seconds)
-            run_campaign(acc, numbers, text, delay, media_path)
+            run_campaign(acc, numbers, text, delay, media_path, media_delay)
 
         threading.Thread(target=delayed, daemon=True).start()
     else:
-        threading.Thread(target=run_campaign, args=(acc, numbers, text, delay, media_path), daemon=True).start()
+        threading.Thread(target=run_campaign, args=(acc, numbers, text, delay, media_path, media_delay), daemon=True).start()
 
     return jsonify(ok=True, total=len(numbers), scheduled_for=acc["campaign"]["scheduled_for"])
 

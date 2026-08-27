@@ -1420,8 +1420,8 @@ function renderAccounts() {
           (acc.otp_sender ? 'checked' : '') + ' onchange="setOtpSender(\'' + acc.id + '\', this.checked)"> ' +
           'استخدامه لإرسال رموز تسجيل الدخول عبر واتساب</label>';
       }
-      html += '<button class="btn-danger" onclick="logoutAccount(\'' + acc.id + '\')">تسجيل الخروج</button>';
     }
+    html += '<button class="btn-danger" onclick="deleteAccount(\'' + acc.id + '\')">حذف الحساب</button>';
     html += '</div>';
   });
   html += '<button class="btn-outline" onclick="openAddAccountSheet()">' + icon('plus', 12) + ' إضافة حساب</button>';
@@ -1511,10 +1511,20 @@ async function deleteSubscriber(id) {
   loadSubscribers();
 }
 
-async function logoutAccount(id) {
-  if (!confirm('تسجيل الخروج من هذا الحساب؟ بيحتاج مسح رمز QR من جديد لاحقاً.')) return;
+async function deleteAccount(id) {
+  if (!confirm('حذف هذا الحساب نهائياً؟ بتحتاج تضيفه من جديد وتمسح رمز QR لاستخدامه مرة ثانية.')) return;
   await fetch('/accounts/' + id + '/logout', { method: 'POST' });
   activeId = null;
+  render();
+}
+
+async function deleteMyData() {
+  if (!confirm('حذف كل بياناتك نهائياً؟ هذا يحذف كل حساباتك على واتساب وكل سجل حملاتك، ولا يمكن التراجع عنه.')) return;
+  if (!confirm('تأكيد أخير: بعد الحذف بتحتاج تضيف حساباتك من جديد وتمسح رموز QR. متأكد تريد المتابعة؟')) return;
+  const r = await fetch('/settings/delete_my_data', { method: 'POST' }).then(res => res.json());
+  accounts = [];
+  activeId = null;
+  alert(r.ok ? 'انحذفت بياناتك بنجاح.' : 'صار خطأ، حاول مرة ثانية.');
   render();
 }
 
@@ -1563,10 +1573,12 @@ function renderCampaigns(myGen) {
     '<label class="field-label">أو ارفع ملف Excel (.xlsx) فيه الأرقام بالعمود الأول</label>' +
     '<input type="file" id="numbersFile" accept=".xlsx">' +
     '<label class="field-label">نص الرسالة / التعليق</label>' +
-    '<input id="text" value="هلوو">' +
+    '<textarea id="text" rows="5">هلوو</textarea>' +
     '<label class="field-label">صورة، فيديو، أو ملف (اختياري)</label>' +
     '<input type="file" id="mediaFile" accept="image/*,video/*,audio/*,.pdf,.doc,.docx,.zip">' +
-    '<label class="field-label">الفاصل الزمني بين كل رسالة وأخرى (بالثواني)</label>' +
+    '<label class="field-label">الفاصل الزمني بين الصورة والنص بنفس الرسالة (بالثواني)</label>' +
+    '<input id="mediaDelay" type="number" min="1" value="2">' +
+    '<label class="field-label">الفاصل الزمني بين كل مستلم والثاني (بالثواني)</label>' +
     '<input id="delay" type="number" min="1" value="15">' +
     '<label class="field-label">جدولة الإرسال (اختياري — اتركه فاضي للإرسال الفوري)</label>' +
     '<input id="sendAt" type="datetime-local">' +
@@ -1662,6 +1674,7 @@ async function startCampaign() {
   form.append('country_code', document.getElementById('campaignCountryCode').value);
   form.append('text', document.getElementById('text').value.trim());
   form.append('delay', document.getElementById('delay').value || 15);
+  form.append('media_delay', document.getElementById('mediaDelay').value || 2);
   form.append('send_at', document.getElementById('sendAt').value || '');
   const numbersFile = document.getElementById('numbersFile').files[0];
   if (numbersFile) form.append('numbers_file', numbersFile);
@@ -1806,12 +1819,20 @@ function renderSettings() {
       '</a>' +
     '</div>' +
 
+    '<div class="settings-list">' +
+      '<div class="settings-head" style="color:#dc2626">' + icon('trash', 12) + ' منطقة الخطر</div>' +
+      '<div class="settings-item" onclick="deleteMyData()">' +
+        '<div class="left"><div class="icon-wrap" style="background:rgba(220,38,38,.1);color:#dc2626">' + icon('trash', 15) + '</div><div><span class="text" style="color:#dc2626">حذف بياناتي</span><span class="sub-text">حذف كل حساباتك على واتساب وكل حملاتك نهائياً</span></div></div>' +
+        '<i class="fas fa-chevron-left chevron"></i>' +
+      '</div>' +
+    '</div>' +
+
     '<button class="btn-logout" onclick="logoutPlatform()">' + icon('logout', 14) + ' تسجيل الخروج من المنصة</button>';
 
   c.innerHTML = html;
   if (dataCache.subscription) {
     const sl = document.getElementById('supportLink');
-    if (sl) sl.href = dataCache.subscription.wa_pay_link;
+    if (sl) sl.href = dataCache.subscription.wa_support_link;
   }
   loadSubscription();
 }
@@ -2030,13 +2051,19 @@ async function loadSubscription() {
   const d = await fetch('/subscription').then(r => r.json());
   dataCache.subscription = d;
   const supportLink = document.getElementById('supportLink');
-  if (supportLink) supportLink.href = d.wa_pay_link;
+  if (supportLink) supportLink.href = d.wa_support_link;
   const box = document.getElementById('subBox');
   if (box) box.innerHTML = subscriptionHtml(d);
 }
 
 function customerStatusPill(u) {
-  if (u.plan_active) return '<span class="pill pill-green">مفعّل</span>';
+  if (u.plan_active) {
+    if (u.plan_ends_at) {
+      const days = Math.ceil((new Date(u.plan_ends_at.replace(' ', 'T')) - new Date()) / 86400000);
+      return '<span class="pill pill-green">مفعّل — يبقى ' + Math.max(0, days) + ' يوم</span>';
+    }
+    return '<span class="pill pill-green">مفعّل</span>';
+  }
   if (u.trial_ends_at) {
     const days = Math.ceil((new Date(u.trial_ends_at.replace(' ', 'T')) - new Date()) / 86400000);
     if (days > 0) return '<span class="pill pill-amber">تجربة ' + days + ' يوم</span>';
@@ -2052,7 +2079,7 @@ function customersHtml(rows) {
         return '<div class="history-row"><span class="flex items-center gap-2">' + avatarHtml(label, String(u.id)) +
         '<span>' + label + '</span></span>' + customerStatusPill(u) +
         '<button class="btn-outline btn-small" onclick="toggleCustomerPlan(' + u.id + ', ' + (u.plan_active ? 'false' : 'true') + ')">' +
-        (u.plan_active ? 'إلغاء' : 'تفعيل') + '</button></div>';
+        (u.plan_active ? 'إلغاء' : 'تفعيل 30 يوم') + '</button></div>';
       }).join('')
     : '<div class="text-muted text-[11px]">ما فيه عملاء بعد</div>';
 }
