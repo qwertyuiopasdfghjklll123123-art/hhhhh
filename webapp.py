@@ -76,8 +76,9 @@ app.secret_key = get_or_create_secret_key()
 app.config["PERMANENT_SESSION_LIFETIME"] = timedelta(days=30)
 
 accounts = {}  # id -> {id, owner, name, driver, lock, campaign, history, auto_reply, watching, otp_sender}
-# مسبح ثريدات خلفي لفحوصات "هل الحساب مسجل دخول" (account_logged_in_fast) - يفصل "قد ياخذ
-# فحص المتصفح حتى 30 ثانية لو كان عالقاً" عن "كم ينتظر طلب HTTP الطالب فعلياً قبل أخذ جواب"
+# مسبح ثريدات خلفي مشترك لأي فحص متصفح ساخن ومتكرر (تسجيل الدخول عبر account_logged_in_fast،
+# وصورة رمز QR عبر account_qr_png) - يفصل "قد ياخذ فحص المتصفح حتى 30 ثانية لو كان عالقاً"
+# عن "كم ينتظر طلب HTTP الطالب فعلياً قبل أخذ جواب"
 login_check_executor = concurrent.futures.ThreadPoolExecutor(max_workers=16, thread_name_prefix="login-check")
 events = []
 events_lock = threading.Lock()
@@ -702,6 +703,8 @@ def new_account_entry(acc_id, owner, name):
         "_login_cache": False,
         "_login_future": None,
         "_login_future_lock": threading.Lock(),
+        "_qr_future": None,
+        "_qr_future_lock": threading.Lock(),
     }
 
 
@@ -780,6 +783,35 @@ def account_logged_in_fast(acc):
         return future.result(timeout=1.5)
     except Exception:
         return acc.get("_login_cache", False)
+
+
+def account_qr_png(acc):
+    """نفس فكرة account_logged_in_fast بالضبط لكن لجلب صورة رمز QR: تسلّم محاولة القراءة
+    الحقيقية من المتصفح لنفس المسبح الخلفي (login_check_executor) وتنتظرها بمهلة قصيرة بس،
+    بدل ما تعلّق ثريد HTTP لحد 30 ثانية لو كان المتصفح عالق. هالمسار بالذات ينفحص بشكل متكرر
+    جداً من الواجهة أثناء انتظار مسح الباركود (كل ثانية أو أقل) - لو تركناه يعلّق مباشرة على
+    متصفح عالق أصلاً، رح تتكدّس عشرات الثريدات العالقة بنفس الوقت على نفس الحساب وتزيد
+    الضغط اللي سبب العلق من الأساس. ترجع None لو ما زالت الصورة جاهزة أو تعذّر الفحص."""
+    d = acc["driver"]
+    if d is None:
+        return None
+    with acc["_qr_future_lock"]:
+        future = acc.get("_qr_future")
+        if future is None or future.done():
+            def _fetch():
+                try:
+                    with acc["lock"]:
+                        canvas = d.find_element(By.TAG_NAME, "canvas")
+                        return canvas.screenshot_as_png
+                except Exception as e:
+                    print(f"[QR] تعذر إيجاد رمز QR لحساب {acc.get('name', acc.get('id'))}: {e}")
+                    return None
+            future = login_check_executor.submit(_fetch)
+            acc["_qr_future"] = future
+    try:
+        return future.result(timeout=1.5)
+    except Exception:
+        return None
 
 
 def numbers_from_text(text):
@@ -2872,12 +2904,10 @@ def qr(acc_id):
     acc = get_owned_account(acc_id)
     if not acc or acc["driver"] is None:
         return "", 204
-    try:
-        canvas = acc["driver"].find_element(By.TAG_NAME, "canvas")
-        return Response(canvas.screenshot_as_png, mimetype="image/png")
-    except Exception as e:
-        print(f"[QR] تعذر إيجاد رمز QR لحساب {acc.get('name', acc_id)}: {e}")
+    png = account_qr_png(acc)
+    if png is None:
         return "", 204
+    return Response(png, mimetype="image/png")
 
 
 @app.route("/accounts/<acc_id>/debug")
