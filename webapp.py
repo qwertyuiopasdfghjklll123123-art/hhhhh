@@ -908,7 +908,41 @@ def send_to(driver, number, text, media_path=None):
         if text:
             caption_box.send_keys(text)
         time.sleep(2)
-        caption_box.send_keys(Keys.ENTER)
+        # لقطة الشاشة الأخيرة أكدت وصولنا لشاشة معاينة الصورة الصحيحة فعلياً (زر إرسال أخضر
+        # واضح بالمعاينة) - لكن الصورة لسا ما توصل حتى بعد Enter جوا صندوق التعليق. الشك: Enter
+        # بسياق صندوق تعليق الصورة (مختلف عن صندوق الدردشة العادي) يضيف سطر جديد بدل ما يرسل.
+        # نبحث عن أي عنصر ظاهر معرّفه فيه كلمة send (بدل تخمين اسم محدد يتغير بين نسخ واتساب)
+        # ونضغطه مباشرة؛ لو ما لقينا شي ظاهر أو فشل الضغط، نرجع لمحاولة Enter القديمة كحل احتياطي
+        sent_via_click = False
+        try:
+            send_candidates = driver.execute_script("""
+                return Array.from(document.querySelectorAll('[data-testid], [data-icon]'))
+                    .filter(el => {
+                        const t = (el.getAttribute('data-testid') || '') + ' ' + (el.getAttribute('data-icon') || '');
+                        return /send/i.test(t);
+                    });
+            """)
+            print(f"[حملة][تشخيص] {len(send_candidates)} عنصر فيهم كلمة 'send' بمعرّفهم")
+            for el in send_candidates:
+                try:
+                    testid = el.get_attribute("data-testid")
+                    icon = el.get_attribute("data-icon")
+                    visible = el.is_displayed()
+                    print(f"[حملة][تشخيص]   - testid={testid} icon={icon} ظاهر={visible}")
+                except Exception:
+                    continue
+                if visible and not sent_via_click:
+                    try:
+                        el.click()
+                        sent_via_click = True
+                        print(f"[حملة][تشخيص] ضغطت زر الإرسال (testid={testid} icon={icon})")
+                    except Exception as click_err:
+                        print(f"[حملة][تشخيص] فشل ضغط هذا العنصر: {click_err}")
+        except Exception as e:
+            print(f"[حملة][تشخيص] تعذر البحث عن زر الإرسال: {e}")
+        if not sent_via_click:
+            print("[حملة][تشخيص] ما نجح ضغط زر إرسال ظاهر، رح أجرب Enter بصندوق التعليق كحل احتياطي")
+            caption_box.send_keys(Keys.ENTER)
         time.sleep(3)  # مهلة أطول حتى يكتمل رفع الملف قبل الانتقال للرقم التالي
     else:
         time.sleep(2)  # مهلة حتى يكتمل تعبئة نص الرسالة تلقائياً بالحقل قبل الإرسال
