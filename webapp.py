@@ -882,6 +882,28 @@ def send_to(driver, number, text, media_path=None):
             raise RuntimeError("ما لقيت عنصر رفع الملفات بواجهة واتساب")
         print(f"[حملة] لقيت {len(file_inputs)} عنصر رفع ملفات: {[fi.get_attribute('accept') for fi in file_inputs]}")
         media_input = next((fi for fi in file_inputs if "image" in (fi.get_attribute("accept") or "")), file_inputs[0])
+        # تشخيص إضافي (بدون تغيير السلوك الحالي بعد): آخر لقطة شاشة أكدت إن شاشة معاينة
+        # الصورة ما تفتح إطلاقاً رغم إن هذا الحقل شكله صحيح (accept=image/*) - قبل أي تغيير
+        # جديد بالكود بعد مقاربتين فاشلتين بدون دليل مباشر، نتحقق من وجود زر الإرفاق بمحددات
+        # معروفة تاريخياً بواتساب ويب (data-icon="clip" مستقر أكثر من كلاسات CSS البصرية عبر
+        # كثير من أدوات الأتمتة)، ونطبع محيط عنصر رفع الملف المختار فعلياً
+        for sel in ['span[data-icon="clip"]', 'span[data-icon="attach-menu-plus"]',
+                    'div[title="إرفاق"]', 'div[aria-label="إرفاق"]',
+                    'div[title="Attach"]', 'div[aria-label="Attach"]']:
+            try:
+                found = driver.find_elements(By.CSS_SELECTOR, sel)
+            except Exception:
+                found = []
+            print(f"[حملة][تشخيص] محدد {sel!r}: {len(found)} عنصر")
+        try:
+            outer = driver.execute_script("return arguments[0].outerHTML;", media_input)
+            parent_outer = driver.execute_script(
+                "return arguments[0].parentElement ? arguments[0].parentElement.outerHTML : '';", media_input
+            )
+            print(f"[حملة][تشخيص] outerHTML لعنصر رفع الملف: {outer[:500]}")
+            print(f"[حملة][تشخيص] outerHTML للعنصر الأب: {parent_outer[:800]}")
+        except Exception as e:
+            print(f"[حملة][تشخيص] تعذر قراءة outerHTML: {e}")
         media_input.send_keys(media_path)
         time.sleep(1.5)  # مهلة قصيرة حتى تنعكس معالجة الملف بواتساب قبل نلتقط دليل تشخيصي
         try:
