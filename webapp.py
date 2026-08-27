@@ -882,23 +882,27 @@ def send_to(driver, number, text, media_path=None):
             raise RuntimeError("ما لقيت عنصر رفع الملفات بواجهة واتساب")
         print(f"[حملة] لقيت {len(file_inputs)} عنصر رفع ملفات: {[fi.get_attribute('accept') for fi in file_inputs]}")
         media_input = next((fi for fi in file_inputs if "image" in (fi.get_attribute("accept") or "")), file_inputs[0])
-        # الجولة الماضية أثبتت: عنصر رفع الملف اللي نستخدمه أبوه data-testid="compose-box" -
-        # يعني هو حقل داخل صندوق كتابة الرسالة العادي (ربما للسحب-والإفلات)، مو مرتبط بقائمة
-        # الإرفاق الحقيقية. ومحددات زر الإرفاق اللي خمّناها (data-icon=clip...) كلها رجعت صفر.
-        # بدل تخمين قيمة ثالثة، نجرد كل عناصر data-testid/data-icon الموجودة فعلياً بالصفحة
-        # حتى نلقى الاسم الصحيح لزر الإرفاق بدل التخمين
+        # آخر جولة جردت 502 عنصر بالصفحة كلها، لكن أول 60 كانت كلها من قائمة الدردشات
+        # الجانبية (قبل منطقة المحادثة بترتيب DOM) ومو مفيدة. نعرف من الجولة قبلها إن عنصر
+        # رفع الملف أبوه footer فيه data-testid="compose-box" - نحصر الجرد بهذا الـ footer
+        # تحديداً حتى نوصل مباشرة لأيقونات المحادثة (إرفاق/مايك/إرسال) بدون ضوضاء القائمة
         try:
             inventory = driver.execute_script("""
-                return Array.from(document.querySelectorAll('[data-testid], [data-icon]')).map(el => ({
-                    tag: el.tagName,
-                    testid: el.getAttribute('data-testid'),
-                    icon: el.getAttribute('data-icon'),
-                    title: el.getAttribute('title'),
-                    aria: el.getAttribute('aria-label'),
-                }));
+                const footers = document.querySelectorAll('footer');
+                const out = [];
+                footers.forEach(f => {
+                    f.querySelectorAll('[data-testid], [data-icon]').forEach(el => out.push({
+                        tag: el.tagName,
+                        testid: el.getAttribute('data-testid'),
+                        icon: el.getAttribute('data-icon'),
+                        title: el.getAttribute('title'),
+                        aria: el.getAttribute('aria-label'),
+                    }));
+                });
+                return out;
             """)
-            print(f"[حملة][تشخيص] {len(inventory)} عنصر عندهم data-testid أو data-icon بالصفحة كلها:")
-            for item in inventory[:60]:
+            print(f"[حملة][تشخيص] {len(inventory)} عنصر عندهم data-testid أو data-icon داخل أي <footer> بالصفحة:")
+            for item in inventory[:80]:
                 print(f"[حملة][تشخيص]   {item}")
         except Exception as e:
             print(f"[حملة][تشخيص] تعذر جرد data-testid/data-icon: {e}")
