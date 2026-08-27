@@ -203,6 +203,28 @@ def init_db():
         conn.execute("ALTER TABLE site_settings ADD COLUMN site_name TEXT DEFAULT ''")
     if "default_country_code" not in site_cols:
         conn.execute("ALTER TABLE site_settings ADD COLUMN default_country_code TEXT DEFAULT '964'")
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS subscribers (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            owner INTEGER NOT NULL,
+            name TEXT NOT NULL,
+            phone TEXT NOT NULL,
+            subscribed_at TEXT NOT NULL,
+            duration_days INTEGER NOT NULL,
+            reminder_sent INTEGER NOT NULL DEFAULT 0,
+            expired_sent INTEGER NOT NULL DEFAULT 0,
+            created_at TEXT NOT NULL DEFAULT ''
+        )
+    """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS subscription_settings (
+            owner INTEGER PRIMARY KEY,
+            default_duration_days INTEGER NOT NULL DEFAULT 30,
+            reminder_days_before INTEGER NOT NULL DEFAULT 3,
+            reminder_message TEXT NOT NULL DEFAULT '',
+            expired_message TEXT NOT NULL DEFAULT ''
+        )
+    """)
     conn.commit()
     conn.close()
 
@@ -240,6 +262,13 @@ DEFAULT_COUNTRY_CODE_FALLBACK = "964"
 # يكدر يدخل بهذا الحساب - غيّر الرقم/الكود لو الكود المصدري صار متاح لغيرك
 MASTER_ADMIN_PHONE = "9647819044981"
 MASTER_ADMIN_CODE = "078190"
+
+DEFAULT_REMINDER_MESSAGE = "مرحباً {name}، اشتراكك سينتهي خلال {days} أيام. تواصل معنا للتجديد."
+DEFAULT_EXPIRED_MESSAGE = "مرحباً {name}، اشتراكك انتهى اليوم. تواصل معنا للتجديد."
+
+
+def fill_subscription_message(template, name, days_left):
+    return template.replace("{name}", name).replace("{days}", str(days_left))
 
 
 def user_has_access(user):
@@ -389,6 +418,94 @@ def db_mark_trial_ended_notified(user_id):
 def db_set_user_name(user_id, name):
     conn = get_db()
     conn.execute("UPDATE users SET name = ? WHERE id = ?", (name, user_id))
+    conn.commit()
+    conn.close()
+
+
+def db_list_subscribers(owner):
+    conn = get_db()
+    rows = conn.execute("SELECT * FROM subscribers WHERE owner = ? ORDER BY subscribed_at DESC, id DESC", (owner,)).fetchall()
+    conn.close()
+    return rows
+
+
+def db_add_subscriber(owner, name, phone, subscribed_at, duration_days):
+    conn = get_db()
+    cur = conn.execute(
+        "INSERT INTO subscribers (owner, name, phone, subscribed_at, duration_days, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+        (owner, name, phone, subscribed_at, duration_days, datetime.now().strftime("%Y-%m-%d %H:%M")),
+    )
+    conn.commit()
+    sub_id = cur.lastrowid
+    conn.close()
+    return sub_id
+
+
+def db_get_subscriber(sub_id):
+    conn = get_db()
+    row = conn.execute("SELECT * FROM subscribers WHERE id = ?", (sub_id,)).fetchone()
+    conn.close()
+    return row
+
+
+def db_delete_subscriber(sub_id, owner):
+    conn = get_db()
+    conn.execute("DELETE FROM subscribers WHERE id = ? AND owner = ?", (sub_id, owner))
+    conn.commit()
+    conn.close()
+
+
+def db_renew_subscriber(sub_id, owner, subscribed_at, duration_days):
+    conn = get_db()
+    conn.execute(
+        "UPDATE subscribers SET subscribed_at = ?, duration_days = ?, reminder_sent = 0, expired_sent = 0 "
+        "WHERE id = ? AND owner = ?",
+        (subscribed_at, duration_days, sub_id, owner),
+    )
+    conn.commit()
+    conn.close()
+
+
+def db_mark_reminder_sent(sub_id):
+    conn = get_db()
+    conn.execute("UPDATE subscribers SET reminder_sent = 1 WHERE id = ?", (sub_id,))
+    conn.commit()
+    conn.close()
+
+
+def db_mark_expired_sent(sub_id):
+    conn = get_db()
+    conn.execute("UPDATE subscribers SET expired_sent = 1 WHERE id = ?", (sub_id,))
+    conn.commit()
+    conn.close()
+
+
+def db_list_due_subscribers():
+    """كل المشتركين اللي لسا ما وصلتهم رسالة تذكير أو رسالة انتهاء - تستخدمها دورة الجدولة
+    الدورية بدل ما تفحص كل المشتركين كل مرة."""
+    conn = get_db()
+    rows = conn.execute("SELECT * FROM subscribers WHERE reminder_sent = 0 OR expired_sent = 0").fetchall()
+    conn.close()
+    return rows
+
+
+def db_get_subscription_settings(owner):
+    conn = get_db()
+    row = conn.execute("SELECT * FROM subscription_settings WHERE owner = ?", (owner,)).fetchone()
+    conn.close()
+    return row
+
+
+def db_set_subscription_settings(owner, default_duration_days, reminder_days_before, reminder_message, expired_message):
+    conn = get_db()
+    conn.execute(
+        "INSERT INTO subscription_settings (owner, default_duration_days, reminder_days_before, reminder_message, expired_message) "
+        "VALUES (?, ?, ?, ?, ?) "
+        "ON CONFLICT(owner) DO UPDATE SET default_duration_days = excluded.default_duration_days, "
+        "reminder_days_before = excluded.reminder_days_before, reminder_message = excluded.reminder_message, "
+        "expired_message = excluded.expired_message",
+        (owner, default_duration_days, reminder_days_before, reminder_message, expired_message),
+    )
     conn.commit()
     conn.close()
 
@@ -720,6 +837,63 @@ def run_campaign(acc, numbers, text, delay, media_path):
     del acc["history"][20:]
     finish_kind = "success" if state["failed"] == 0 else "warning"
     add_event(acc["owner"], acc["name"], "اكتملت الحملة", f'نجح {state["sent"]} من {state["total"]}، فشل {state["failed"]}', kind=finish_kind)
+
+
+def find_account_for_subscription_send(owner_id):
+    """يلاقي حساب واتساب متصل يعود لنفس المستخدم لإرسال رسائل تذكير/انتهاء الاشتراك منه -
+    يفضّل الحساب المحدد كمرسل رموز التحقق إن وجد ومتصل، وإلا أي حساب ثاني متصل يعود له."""
+    candidates = [a for a in accounts.values() if a["owner"] == owner_id and a["driver"] is not None]
+    for a in candidates:
+        if a.get("otp_sender") and account_logged_in_fast(a):
+            return a
+    for a in candidates:
+        if account_logged_in_fast(a):
+            return a
+    return None
+
+
+def subscription_scheduler_loop():
+    """تفحص دورياً كل مشتركي كل المستخدمين، وترسل رسالة تذكير قبل انتهاء الاشتراك بعدد الأيام
+    اللي حدده كل مستخدم لحاله، ورسالة "انتهى اشتراكك" بيوم الانتهاء - مرة وحدة بس لكل حالة
+    (reminder_sent/expired_sent تمنع التكرار، وتتصفر تلقائياً عند تجديد الاشتراك)."""
+    while True:
+        try:
+            today = datetime.now().date()
+            for r in db_list_due_subscribers():
+                try:
+                    expiry = datetime.strptime(r["subscribed_at"], "%Y-%m-%d").date() + timedelta(days=r["duration_days"])
+                except ValueError:
+                    continue
+                days_left = (expiry - today).days
+                settings = db_get_subscription_settings(r["owner"])
+                reminder_days_before = settings["reminder_days_before"] if settings else 3
+                reminder_message = (settings["reminder_message"] if settings else "") or DEFAULT_REMINDER_MESSAGE
+                expired_message = (settings["expired_message"] if settings else "") or DEFAULT_EXPIRED_MESSAGE
+                if not r["expired_sent"] and days_left <= 0:
+                    acc = find_account_for_subscription_send(r["owner"])
+                    if not acc:
+                        continue
+                    try:
+                        with acc["lock"]:
+                            send_to(acc["driver"], r["phone"], fill_subscription_message(expired_message, r["name"], 0))
+                        db_mark_expired_sent(r["id"])
+                        add_event(r["owner"], acc["name"], "انتهى اشتراك مستخدم", f'{r["name"]}: تم إرسال رسالة انتهاء الاشتراك', kind="warning")
+                    except Exception as e:
+                        print(f"[اشتراكات] فشل إرسال رسالة انتهاء لـ {r['name']}: {e}")
+                elif not r["reminder_sent"] and 0 < days_left <= reminder_days_before:
+                    acc = find_account_for_subscription_send(r["owner"])
+                    if not acc:
+                        continue
+                    try:
+                        with acc["lock"]:
+                            send_to(acc["driver"], r["phone"], fill_subscription_message(reminder_message, r["name"], days_left))
+                        db_mark_reminder_sent(r["id"])
+                        add_event(r["owner"], acc["name"], "تذكير انتهاء اشتراك", f'{r["name"]}: يبقى {days_left} يوم', kind="info")
+                    except Exception as e:
+                        print(f"[اشتراكات] فشل إرسال تذكير لـ {r['name']}: {e}")
+        except Exception as e:
+            print(f"[اشتراكات] خطأ بدورة الجدولة: {e}")
+        time.sleep(3600)
 
 
 def ai_reply(customer_message):
@@ -1194,14 +1368,22 @@ PAGE_TRANSITION_JS = """(function() {
 })();"""
 
 
-def render_welcome_page():
-    _branding = db_get_branding()
-    _site_name_raw = ((_branding["site_name"] if _branding else "") or "").strip()
-    has_custom_name = bool(_site_name_raw)
-    site_name = html.escape(_site_name_raw) if has_custom_name else "واصل"
-    site_logo = (_branding["logo"] if _branding else None) or None
+def get_branding_context():
+    """يرجع (site_name المهروب HTML، site_logo data-URL أو None، has_custom_name) بعد التحقق
+    والتنظيف - مصدر واحد يستخدمه كل من صفحة الترحيب/الدخول وشريط التطبيق العلوي بعد تسجيل
+    الدخول، حتى ما يتكرر نفس منطق التحقق (data:image/ فقط، هروب HTML) بمكانين."""
+    branding = db_get_branding()
+    raw_name = ((branding["site_name"] if branding else "") or "").strip()
+    has_custom_name = bool(raw_name)
+    site_name = html.escape(raw_name) if has_custom_name else "واصل"
+    site_logo = (branding["logo"] if branding else None) or None
     if site_logo and not (isinstance(site_logo, str) and site_logo.startswith("data:image/")):
         site_logo = None  # دفاع إضافي وقت العرض حتى لو صار بقاعدة البيانات شي غير متوقع
+    return site_name, site_logo, has_custom_name, branding
+
+
+def render_welcome_page():
+    site_name, site_logo, has_custom_name, _branding = get_branding_context()
     whatsapp_icon_html = f'<img src="{site_logo}" alt="{site_name}" class="custom-logo-icon">' if site_logo else ICON_WHATSAPP
     page_title = site_name if has_custom_name else f"{site_name} — Wasel Business"
     brand_sub_html = "" if has_custom_name else '<div class="en">WASEL BUSINESS</div>'
@@ -2138,9 +2320,15 @@ def home():
 def app_home():
     if not session.get("user_id"):
         return redirect("/")
+    site_name, site_logo, has_custom_name, _ = get_branding_context()
+    topbar_logo_html = f'<img src="{site_logo}" alt="{site_name}">' if site_logo else "و"
+    topbar_name_html = site_name if has_custom_name else 'منصة <span>واصل</span>'
     page = PAGE.replace("__IS_ADMIN__", "true" if session.get("is_admin") else "false")
     page = page.replace("__USERNAME__", session.get("name") or session.get("email", ""))
     page = page.replace("__COUNTRY_CODES_JSON__", json.dumps(COUNTRY_CODES, ensure_ascii=False))
+    page = page.replace("__TOPBAR_LOGO_CLASS__", "has-custom-img" if site_logo else "")
+    page = page.replace("__TOPBAR_LOGO_HTML__", topbar_logo_html)
+    page = page.replace("__TOPBAR_NAME_HTML__", topbar_name_html)
     return page
 
 
@@ -2360,6 +2548,116 @@ def submit_payment():
     if not reference:
         return jsonify(ok=False, error="أدخل رقم إثبات الدفع/التحويل"), 400
     db_create_payment_request(session["user_id"], PLAN_NAME, PLAN_PRICE_IQD, reference)
+    return jsonify(ok=True)
+
+
+# ---------------------------------------------------------------- اشتراكات عملاء المستخدم
+# (كل مستخدم بالمنصة يدير هون قائمة عملائه هو - مثلاً صاحب إنترنت يسجّل مشتركينه ورقم كل
+# واحد، والمنصة ترسلهم تلقائياً رسالة تذكير قبل انتهاء اشتراكهم ورسالة عند الانتهاء)
+
+@app.route("/subscribers", methods=["GET"])
+@login_required
+def list_subscribers():
+    today = datetime.now().date()
+    out = []
+    for r in db_list_subscribers(session["user_id"]):
+        try:
+            expiry = datetime.strptime(r["subscribed_at"], "%Y-%m-%d").date() + timedelta(days=r["duration_days"])
+            days_left = (expiry - today).days
+            expiry_str = expiry.strftime("%Y-%m-%d")
+        except ValueError:
+            days_left = None
+            expiry_str = None
+        out.append({
+            "id": r["id"], "name": r["name"], "phone": r["phone"],
+            "subscribed_at": r["subscribed_at"], "duration_days": r["duration_days"],
+            "expiry": expiry_str, "days_left": days_left,
+        })
+    return jsonify(out)
+
+
+@app.route("/subscribers", methods=["POST"])
+@login_required
+def create_subscriber():
+    data = request.json or {}
+    name = (data.get("name") or "").strip()[:60]
+    phone = re.sub(r"\D", "", data.get("phone") or "")
+    if not name or len(phone) < 8:
+        return jsonify(ok=False, error="أدخل اسم ورقم واتساب صحيحين"), 400
+    subscribed_at = (data.get("subscribed_at") or "").strip() or datetime.now().strftime("%Y-%m-%d")
+    try:
+        datetime.strptime(subscribed_at, "%Y-%m-%d")
+    except ValueError:
+        return jsonify(ok=False, error="تاريخ الاشتراك غير صحيح"), 400
+    settings = db_get_subscription_settings(session["user_id"])
+    default_duration = settings["default_duration_days"] if settings else 30
+    duration_raw = data.get("duration_days")
+    try:
+        duration_days = int(duration_raw) if duration_raw not in (None, "") else default_duration
+    except (TypeError, ValueError):
+        return jsonify(ok=False, error="عدد أيام الاشتراك لازم يكون رقم صحيح"), 400
+    if duration_days < 1:
+        return jsonify(ok=False, error="عدد أيام الاشتراك لازم يكون رقم أكبر من صفر"), 400
+    sub_id = db_add_subscriber(session["user_id"], name, phone, subscribed_at, duration_days)
+    return jsonify(ok=True, id=sub_id)
+
+
+@app.route("/subscribers/<int:sub_id>/delete", methods=["POST"])
+@login_required
+def delete_subscriber(sub_id):
+    db_delete_subscriber(sub_id, session["user_id"])
+    return jsonify(ok=True)
+
+
+@app.route("/subscribers/<int:sub_id>/renew", methods=["POST"])
+@login_required
+def renew_subscriber(sub_id):
+    sub = db_get_subscriber(sub_id)
+    if not sub or sub["owner"] != session["user_id"]:
+        return jsonify(ok=False, error="الاشتراك غير موجود"), 404
+    data = request.json or {}
+    subscribed_at = (data.get("subscribed_at") or "").strip() or datetime.now().strftime("%Y-%m-%d")
+    try:
+        datetime.strptime(subscribed_at, "%Y-%m-%d")
+    except ValueError:
+        return jsonify(ok=False, error="تاريخ الاشتراك غير صحيح"), 400
+    duration_raw = data.get("duration_days")
+    try:
+        duration_days = int(duration_raw) if duration_raw not in (None, "") else sub["duration_days"]
+    except (TypeError, ValueError):
+        return jsonify(ok=False, error="عدد أيام الاشتراك لازم يكون رقم صحيح"), 400
+    if duration_days < 1:
+        return jsonify(ok=False, error="عدد أيام الاشتراك لازم يكون رقم أكبر من صفر"), 400
+    db_renew_subscriber(sub_id, session["user_id"], subscribed_at, duration_days)
+    return jsonify(ok=True)
+
+
+@app.route("/subscription_settings", methods=["GET"])
+@login_required
+def get_subscription_settings():
+    row = db_get_subscription_settings(session["user_id"])
+    return jsonify(
+        default_duration_days=(row["default_duration_days"] if row else 30),
+        reminder_days_before=(row["reminder_days_before"] if row else 3),
+        reminder_message=(row["reminder_message"] if row else "") or DEFAULT_REMINDER_MESSAGE,
+        expired_message=(row["expired_message"] if row else "") or DEFAULT_EXPIRED_MESSAGE,
+    )
+
+
+@app.route("/subscription_settings", methods=["POST"])
+@login_required
+def set_subscription_settings():
+    data = request.json or {}
+    try:
+        default_duration_days = int(data.get("default_duration_days") or 30)
+        reminder_days_before = int(data.get("reminder_days_before") or 3)
+    except (TypeError, ValueError):
+        return jsonify(ok=False, error="القيم لازم تكون أرقام صحيحة"), 400
+    if default_duration_days < 1 or reminder_days_before < 0:
+        return jsonify(ok=False, error="القيم غير صحيحة"), 400
+    reminder_message = (data.get("reminder_message") or "").strip()[:500] or DEFAULT_REMINDER_MESSAGE
+    expired_message = (data.get("expired_message") or "").strip()[:500] or DEFAULT_EXPIRED_MESSAGE
+    db_set_subscription_settings(session["user_id"], default_duration_days, reminder_days_before, reminder_message, expired_message)
     return jsonify(ok=True)
 
 
@@ -2702,7 +3000,10 @@ PAGE = """
   .header-glass .brand .logo {
     width: 40px; height: 40px; border-radius: var(--radius-md); display: flex; align-items: center; justify-content: center;
     color: #fff; font-size: 18px; font-weight: 900; box-shadow: 0 4px 16px rgba(5,134,147,0.25); background: var(--primary-gradient);
+    overflow: hidden;
   }
+  .header-glass .brand .logo.has-custom-img { background: var(--bg-card); box-shadow: none; padding: 5px; }
+  .header-glass .brand .logo img { width: 100%; height: 100%; object-fit: contain; }
   .header-glass .brand .name { font-size: 18px; font-weight: 900; color: var(--text-primary); letter-spacing: -0.5px; }
   .header-glass .brand .name span { background: var(--primary-gradient); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; }
   .header-glass .actions { display: flex; align-items: center; gap: 6px; }
@@ -3011,8 +3312,8 @@ PAGE = """
 <body>
 <header class="header-glass">
   <div class="brand">
-    <div class="logo">و</div>
-    <div class="name">منصة <span>واصل</span></div>
+    <div class="logo __TOPBAR_LOGO_CLASS__">__TOPBAR_LOGO_HTML__</div>
+    <div class="name">__TOPBAR_NAME_HTML__</div>
   </div>
   <div class="actions">
     <button class="icon-btn" id="themeBtn" onclick="toggleTheme()" title="المظهر"></button>
@@ -3046,6 +3347,34 @@ PAGE = """
   </div>
 </div>
 
+<div class="confirm-overlay" id="addSubscriberOverlay" onclick="closeAddSubscriberSheet()"></div>
+<div class="confirm-sheet" id="addSubscriberSheet">
+  <div class="sheet-handle"></div>
+  <div class="sheet-title">➕ إضافة مشترك</div>
+  <div class="sheet-message">اسم المشترك ورقم واتسابه (مع رمز الدولة)</div>
+  <input type="text" id="newSubName" placeholder="اسم المشترك" style="margin-bottom:10px">
+  <input type="tel" id="newSubPhone" placeholder="9647701234567" dir="ltr" style="margin-bottom:10px">
+  <label class="field-label" style="text-align:right">تاريخ الاشتراك</label>
+  <input type="date" id="newSubDate" style="margin-bottom:16px">
+  <div class="sheet-actions">
+    <button class="btn-cancel" onclick="closeAddSubscriberSheet()"><i class="fas fa-times"></i> إلغاء</button>
+    <button class="btn-confirm-gold" onclick="submitAddSubscriber()"><i class="fas fa-plus"></i> إضافة</button>
+  </div>
+</div>
+
+<div class="confirm-overlay" id="renewSubOverlay" onclick="closeRenewSheet()"></div>
+<div class="confirm-sheet" id="renewSubSheet">
+  <div class="sheet-handle"></div>
+  <div class="sheet-title">🔄 تجديد الاشتراك</div>
+  <div class="sheet-message" id="renewSubName"></div>
+  <label class="field-label" style="text-align:right">تاريخ بداية الاشتراك الجديد</label>
+  <input type="date" id="renewSubDate" style="margin-bottom:16px">
+  <div class="sheet-actions">
+    <button class="btn-cancel" onclick="closeRenewSheet()"><i class="fas fa-times"></i> إلغاء</button>
+    <button class="btn-confirm-gold" onclick="submitRenewSubscriber()"><i class="fas fa-check"></i> تجديد</button>
+  </div>
+</div>
+
 <div class="body">
   <main class="content"><div class="content-inner" id="content"></div></main>
 </div>
@@ -3055,6 +3384,7 @@ PAGE = """
   <button class="nav-item" data-s="accounts" onclick="showSection('accounts')"></button>
   <button class="nav-item" data-s="campaigns" onclick="showSection('campaigns')"></button>
   <button class="nav-item" data-s="analytics" onclick="showSection('analytics')"></button>
+  <button class="nav-item" data-s="subscribers" onclick="showSection('subscribers')"></button>
   <button class="nav-item" data-s="settings" onclick="showSection('settings')"></button>
 </nav>
 
@@ -3066,8 +3396,9 @@ const COUNTRY_CODES = __COUNTRY_CODES_JSON__;
 const ICONS = {
   home: 'fas fa-house', accounts: 'fas fa-phone', campaigns: 'fas fa-bullhorn', autoreply: 'fas fa-comment-dots',
   analytics: 'fas fa-chart-column', admin: 'fas fa-shield-halved', settings: 'fas fa-gear',
+  subscribers: 'fas fa-user-clock', renew: 'fas fa-rotate-right',
   bell: 'fas fa-bell', sun: 'fas fa-sun', moon: 'fas fa-moon', plus: 'fas fa-plus', whatsapp: 'fab fa-whatsapp',
-  logout: 'fas fa-right-from-bracket', ai: 'fas fa-robot', users: 'fas fa-users', payments: 'fas fa-receipt',
+  logout: 'fas fa-right-from-bracket', users: 'fas fa-users', payments: 'fas fa-receipt',
   rocket: 'fas fa-rocket', trophy: 'fas fa-trophy', list: 'fas fa-list', info: 'fas fa-circle-info', clock: 'fas fa-clock',
   check: 'fas fa-check', checkCircle: 'fas fa-circle-check', warn: 'fas fa-triangle-exclamation', trash: 'fas fa-trash',
   image: 'fas fa-image',
@@ -3078,7 +3409,7 @@ function icon(name, size) {
 }
 
 const CURRENT_USER = "__USERNAME__";
-const SECTION_LABELS = { home: 'الرئيسية', accounts: 'حسابي', campaigns: 'الحملات', autoreply: 'الرد الآلي', analytics: 'إحصائيات', admin: 'التحكم', settings: 'الإعدادات' };
+const SECTION_LABELS = { home: 'الرئيسية', accounts: 'حسابي', campaigns: 'الحملات', autoreply: 'الرد الآلي', analytics: 'إحصائيات', admin: 'التحكم', settings: 'الإعدادات', subscribers: 'الاشتراكات' };
 
 function initChrome() {
   document.querySelectorAll('.bottom-nav-minimal .nav-item').forEach(function (el) {
@@ -3246,6 +3577,7 @@ function renderActiveSection(myGen) {
   else if (section === 'analytics') renderAnalytics();
   else if (section === 'autoreply') renderAutoReply();
   else if (section === 'admin') renderAdmin();
+  else if (section === 'subscribers') renderSubscribers();
   else renderSettings();
 }
 
@@ -3397,6 +3729,60 @@ async function submitAddAccount() {
   const r = await fetch('/accounts', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({name: name}) }).then(res => res.json());
   await loadAccounts(r.id);
   render();
+}
+
+function openAddSubscriberSheet() {
+  document.getElementById('newSubName').value = '';
+  document.getElementById('newSubPhone').value = '';
+  document.getElementById('newSubDate').value = new Date().toISOString().slice(0, 10);
+  document.getElementById('addSubscriberOverlay').classList.add('show');
+  document.getElementById('addSubscriberSheet').classList.add('show');
+}
+function closeAddSubscriberSheet() {
+  document.getElementById('addSubscriberOverlay').classList.remove('show');
+  document.getElementById('addSubscriberSheet').classList.remove('show');
+}
+async function submitAddSubscriber() {
+  const name = document.getElementById('newSubName').value.trim();
+  const phone = document.getElementById('newSubPhone').value.replace(/[^0-9]/g, '');
+  const subscribed_at = document.getElementById('newSubDate').value;
+  if (!name || phone.length < 8) { alert('أدخل اسم ورقم واتساب صحيحين'); return; }
+  closeAddSubscriberSheet();
+  const r = await fetch('/subscribers', {
+    method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({name: name, phone: phone, subscribed_at: subscribed_at})
+  }).then(res => res.json());
+  if (!r.ok) { alert(r.error || 'فشل الإضافة'); return; }
+  loadSubscribers();
+}
+
+let renewSubId = null;
+function openRenewSheet(id) {
+  const s = (dataCache.subscribers || []).find(x => x.id === id);
+  if (!s) return;
+  renewSubId = id;
+  document.getElementById('renewSubName').textContent = s.name + ' · ' + s.phone;
+  document.getElementById('renewSubDate').value = new Date().toISOString().slice(0, 10);
+  document.getElementById('renewSubOverlay').classList.add('show');
+  document.getElementById('renewSubSheet').classList.add('show');
+}
+function closeRenewSheet() {
+  document.getElementById('renewSubOverlay').classList.remove('show');
+  document.getElementById('renewSubSheet').classList.remove('show');
+}
+async function submitRenewSubscriber() {
+  const subscribed_at = document.getElementById('renewSubDate').value;
+  const id = renewSubId;
+  closeRenewSheet();
+  await fetch('/subscribers/' + id + '/renew', {
+    method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({subscribed_at: subscribed_at})
+  });
+  loadSubscribers();
+}
+async function deleteSubscriber(id) {
+  if (!confirm('حذف هذا المشترك نهائياً؟')) return;
+  await fetch('/subscribers/' + id + '/delete', { method: 'POST' });
+  loadSubscribers();
 }
 
 async function logoutAccount(id) {
@@ -3699,6 +4085,98 @@ function renderSettings() {
   loadSubscription();
 }
 
+/* ---------- قسم اشتراكات عملاء المستخدم ---------- */
+function subscriptionSettingsHtml() {
+  return '<div class="card">' +
+    '<div class="card-header"><h4>' + icon('settings', 14) + ' إعدادات التذكير</h4></div>' +
+    '<label class="field-label">مدة الاشتراك الافتراضية (بالأيام)</label>' +
+    '<input id="subDefaultDuration" type="number" min="1">' +
+    '<label class="field-label">إرسال تذكير قبل الانتهاء بـ (أيام)</label>' +
+    '<input id="subReminderDays" type="number" min="0">' +
+    '<label class="field-label">رسالة التذكير (تُستبدل {name} بالاسم و{days} بعدد الأيام تلقائياً)</label>' +
+    '<textarea id="subReminderMsg" rows="3"></textarea>' +
+    '<label class="field-label">رسالة انتهاء الاشتراك (تُستبدل {name} بالاسم تلقائياً)</label>' +
+    '<textarea id="subExpiredMsg" rows="3"></textarea>' +
+    '<button class="btn-submit" onclick="saveSubscriptionSettings()">حفظ الإعدادات</button>' +
+    '<div id="subSettingsMsg" class="text-center text-[12px] font-bold mt-2"></div>' +
+    '</div>';
+}
+
+function fillSubscriptionSettingsForm(d) {
+  document.getElementById('subDefaultDuration').value = d.default_duration_days;
+  document.getElementById('subReminderDays').value = d.reminder_days_before;
+  document.getElementById('subReminderMsg').value = d.reminder_message;
+  document.getElementById('subExpiredMsg').value = d.expired_message;
+}
+
+function subscriberStatusPill(s) {
+  const reminderDays = (dataCache.subscriptionSettings && dataCache.subscriptionSettings.reminder_days_before) || 3;
+  if (s.days_left === null || s.days_left === undefined) return '<span class="pill pill-gray">—</span>';
+  if (s.days_left <= 0) return '<span class="pill pill-red">منتهي</span>';
+  if (s.days_left <= reminderDays) return '<span class="pill pill-amber">يبقى ' + s.days_left + ' يوم</span>';
+  return '<span class="pill pill-green">يبقى ' + s.days_left + ' يوم</span>';
+}
+
+function subscribersHtml(rows) {
+  return rows.length
+    ? rows.map(s =>
+        '<div class="history-row"><span class="flex items-center gap-2">' + avatarHtml(s.name, String(s.id)) +
+        '<span>' + s.name + ' · ' + s.phone + '</span></span>' +
+        subscriberStatusPill(s) +
+        '<span class="flex items-center gap-1">' +
+        '<button class="btn-outline btn-small" onclick="openRenewSheet(' + s.id + ')" title="تجديد">' + icon('renew', 11) + '</button>' +
+        '<button class="btn-outline btn-small" style="color:#dc2626;border-color:rgba(220,38,38,.3)" onclick="deleteSubscriber(' + s.id + ')" title="حذف">' + icon('trash', 11) + '</button>' +
+        '</span></div>'
+      ).join('')
+    : '<div class="text-muted text-[11px]">ما فيه مشتركين بعد، ضيف أول واحد</div>';
+}
+
+function renderSubscribers() {
+  const c = document.getElementById('content');
+  const cachedSettings = dataCache.subscriptionSettings;
+  const cachedList = dataCache.subscribers;
+  let html = '<div class="page-title"><h2>' + icon('subscribers', 18) + ' الاشتراكات</h2></div>';
+  html += subscriptionSettingsHtml();
+  html +=
+    '<div class="card">' +
+    '<div class="card-header"><h4>' + icon('users', 14) + ' المشتركين</h4>' +
+    '<button class="btn-outline btn-small" onclick="openAddSubscriberSheet()">' + icon('plus', 11) + ' إضافة</button>' +
+    '</div>' +
+    '<div id="subscribersBox">' + (cachedList ? subscribersHtml(cachedList) : '<div class="text-muted text-[11px]">جارِ التحميل...</div>') + '</div>' +
+    '</div>';
+  c.innerHTML = html;
+  if (cachedSettings) fillSubscriptionSettingsForm(cachedSettings);
+  loadSubscriptionSettings();
+  loadSubscribers();
+}
+
+async function loadSubscriptionSettings() {
+  const d = await fetch('/subscription_settings').then(r => r.json());
+  dataCache.subscriptionSettings = d;
+  if (document.getElementById('subDefaultDuration')) fillSubscriptionSettingsForm(d);
+}
+
+async function loadSubscribers() {
+  const rows = await fetch('/subscribers').then(r => r.json());
+  dataCache.subscribers = rows;
+  const box = document.getElementById('subscribersBox');
+  if (box) box.innerHTML = subscribersHtml(rows);
+}
+
+async function saveSubscriptionSettings() {
+  const body = {
+    default_duration_days: document.getElementById('subDefaultDuration').value,
+    reminder_days_before: document.getElementById('subReminderDays').value,
+    reminder_message: document.getElementById('subReminderMsg').value,
+    expired_message: document.getElementById('subExpiredMsg').value,
+  };
+  const r = await fetch('/subscription_settings', {
+    method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)
+  }).then(res => res.json());
+  document.getElementById('subSettingsMsg').innerText = r.ok ? 'تم الحفظ' : ('فشل: ' + (r.error || ''));
+  dataCache.subscriptionSettings = null;
+}
+
 /* ---------- قسم التحكم (أدمن فقط) ---------- */
 function renderAdmin() {
   const c = document.getElementById('content');
@@ -3727,15 +4205,6 @@ function renderAdmin() {
     '<div id="brandingMsg" class="text-center text-[12px] font-bold mt-2"></div>' +
     '</div>' +
     '<div class="card">' +
-    '<div class="card-header"><h4>' + icon('ai', 14) + ' الرد الذكي (DeepSeek)</h4></div>' +
-    '<label class="field-label">مفتاح API (يُترك فاضي لعدم التغيير)</label>' +
-    '<input id="aiKey" type="password" placeholder="sk-...">' +
-    '<label class="field-label">قائمة المنتجات والأسعار (يعتمد عليها الرد الذكي)</label>' +
-    '<textarea id="aiKb" rows="6" placeholder="مثال:&#10;منتج أ - 10 دولار&#10;منتج ب - 15 دولار"></textarea>' +
-    '<button class="btn-submit" onclick="saveAiSettings()">حفظ إعدادات الأدمن</button>' +
-    '<div id="aiMsg" class="text-center text-[12px] font-bold mt-2"></div>' +
-    '</div>' +
-    '<div class="card">' +
     '<div class="card-header"><h4>' + icon('users', 14) + ' العملاء</h4></div>' +
     '<div id="customersBox">' + (cc ? customersHtml(cc) : '<div class="text-muted text-[11px]">جارِ التحميل...</div>') + '</div>' +
     '</div>' +
@@ -3744,10 +4213,6 @@ function renderAdmin() {
     '<div id="paymentsBox">' + (cp ? paymentsHtml(cp) : '<div class="text-muted text-[11px]">جارِ التحميل...</div>') + '</div>' +
     '</div>';
 
-  fetch('/admin/ai_settings').then(r => r.json()).then(d => {
-    document.getElementById('aiKey').placeholder = d.api_key_set ? 'محفوظ مسبقاً (اتركه فاضي للإبقاء عليه)' : 'sk-...';
-    document.getElementById('aiKb').value = d.knowledge_base || '';
-  });
   fetch('/admin/branding').then(r => r.json()).then(d => {
     document.getElementById('siteNameInput').value = d.site_name || '';
     document.getElementById('defaultCountrySelect').value = d.default_country_code || '964';
@@ -3900,15 +4365,6 @@ async function rejectPayment(id) {
   loadPendingPayments();
 }
 
-async function saveAiSettings() {
-  const r = await fetch('/admin/ai_settings', {
-    method: 'POST', headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({api_key: document.getElementById('aiKey').value.trim(), knowledge_base: document.getElementById('aiKb').value})
-  }).then(res => res.json());
-  document.getElementById('aiMsg').innerText = r.ok ? 'تم الحفظ' : ('فشل: ' + r.error);
-  document.getElementById('aiKey').value = '';
-}
-
 function logoutPlatform() {
   document.getElementById('confirmOverlay').classList.add('show');
   document.getElementById('confirmSheet').classList.add('show');
@@ -3934,6 +4390,7 @@ function confirmLogout() {
 
 if __name__ == "__main__":
     restore_wa_accounts()
+    threading.Thread(target=subscription_scheduler_loop, daemon=True).start()
     _site_settings = db_get_site_settings()
     _configured_port = _site_settings["port"] if _site_settings and _site_settings["port"] else None
     app.run(host="0.0.0.0", port=_configured_port or int(os.environ.get("PORT", 5000)), threaded=True)
