@@ -2411,7 +2411,7 @@ def set_auto_reply(acc_id):
     return jsonify(ok=True)
 
 
-FRONTEND_PATH = "./frontend.html"
+FRONTEND_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "frontend.html")
 FRONTEND_WELCOME_START = "<!-- ===== WASEL:WELCOME_PAGE START (لا تحذف هذا السطر - يستخدمه webapp.py لتحديد بداية القسم) ===== -->"
 FRONTEND_WELCOME_END = "<!-- ===== WASEL:WELCOME_PAGE END ===== -->"
 FRONTEND_APP_START = "<!-- ===== WASEL:APP_PAGE START (لا تحذف هذا السطر - يستخدمه webapp.py لتحديد بداية القسم) ===== -->"
