@@ -887,6 +887,44 @@ def send_to(driver, number, text, media_path=None):
             time.sleep(0.5)
         except Exception as e:
             print(f"[حملة] تعذر الضغط على زر الإرفاق (+): {e}")
+        # الجولة الماضية أثبتت (لقطة شاشة من هاتف المستلم): الصورة توصل فعلاً لكن كـ"ملصق"
+        # مو كصورة عادية. أقوى تفسير: قائمة الإرفاق فيها أكثر من خيار (صور وفيديوهات، ملصق،
+        # مستند...) وكل خيار له حقل رفع ملف مخفي خاص به يتفعّل بس لما تضغط عنصر القائمة نفسه -
+        # والحقل الوحيد اللي كان جاهز فوراً بعد فتح القائمة (بدون ضغط عنصر محدد) طلع تبع
+        # "ملصق" مصادفة، مو "صور وفيديوهات". نجرد عناصر القائمة (data-testid/data-icon فيهم
+        # كلمة attach) ونضغط اللي يبدو صور/فيديو تحديداً قبل ما نبحث عن حقل رفع الملف؛ لو ما
+        # لقينا شي واضح، نكمل بنفس الأسلوب القديم (أول حقل صورة موجود) حتى ما نرجع لصفر إرسال
+        try:
+            attach_items = driver.execute_script("""
+                return Array.from(document.querySelectorAll('[data-testid], [data-icon]'))
+                    .filter(el => el.offsetParent !== null)
+                    .filter(el => {
+                        const t = ((el.getAttribute('data-testid') || '') + ' ' + (el.getAttribute('data-icon') || '')).toLowerCase();
+                        return t.includes('attach');
+                    });
+            """)
+            print(f"[حملة][تشخيص] {len(attach_items)} عنصر فيهم كلمة 'attach' بمعرّفهم بقائمة الإرفاق")
+            media_menu_item = None
+            for el in attach_items:
+                try:
+                    testid = el.get_attribute("data-testid") or ""
+                    icon = el.get_attribute("data-icon") or ""
+                    label = el.get_attribute("aria-label") or ""
+                    print(f"[حملة][تشخيص]   - testid={testid!r} icon={icon!r} aria-label={label!r}")
+                except Exception:
+                    continue
+                combo = (testid + " " + icon).lower()
+                if media_menu_item is None and ("image" in combo or "photo" in combo or "video" in combo or "media" in combo) and "sticker" not in combo:
+                    media_menu_item = el
+                    media_menu_item_desc = f"testid={testid!r} icon={icon!r}"
+            if media_menu_item is not None:
+                media_menu_item.click()
+                time.sleep(0.5)
+                print(f"[حملة][تشخيص] ضغطت عنصر قائمة يبدو إنه «صور/فيديو» ({media_menu_item_desc})")
+            else:
+                print("[حملة][تشخيص] ما لقيت عنصر قائمة واضح إنه «صور/فيديو» (مو ملصق) - رح أكمل بنفس الأسلوب القديم")
+        except Exception as e:
+            print(f"[حملة][تشخيص] تعذر جرد عناصر قائمة الإرفاق: {e}")
         file_inputs = driver.find_elements(By.CSS_SELECTOR, 'input[type="file"]')
         if not file_inputs:
             raise RuntimeError("ما لقيت عنصر رفع الملفات بواجهة واتساب")
@@ -944,6 +982,13 @@ def send_to(driver, number, text, media_path=None):
             print("[حملة][تشخيص] ما نجح ضغط زر إرسال ظاهر، رح أجرب Enter بصندوق التعليق كحل احتياطي")
             caption_box.send_keys(Keys.ENTER)
         time.sleep(3)  # مهلة أطول حتى يكتمل رفع الملف قبل الانتقال للرقم التالي
+        # لقطة بعد الإرسال مباشرة من متصفحنا نفسه (المرسل) - تبيّن شكل الفقاعة اللي فعلاً
+        # انرسلت بمحادثتنا (صورة عادية بفقاعة وعلامات صح، أو ملصق بدون فقاعة) بدون ما ننتظر
+        # لقطة شاشة ثانية من هاتف المستلم بجولة تانية
+        try:
+            driver.save_screenshot(os.path.join(UPLOADS_DIR, "_debug_after_send.png"))
+        except Exception:
+            pass
     else:
         time.sleep(2)  # مهلة حتى يكتمل تعبئة نص الرسالة تلقائياً بالحقل قبل الإرسال
         driver.switch_to.active_element.send_keys(Keys.ENTER)
@@ -2423,6 +2468,19 @@ def debug_media_attach_snapshot():
     """لقطة شاشة تُلتقط تلقائياً لحظة محاولة إرفاق صورة/ملف بحملة (send_to) - تشخيص مؤقت
     لمشكلة "الصور ما ترسل". محصورة بالأدمن لأنها ممكن تكشف محتوى حملة مستخدم ثاني."""
     path = os.path.join(UPLOADS_DIR, "_debug_after_file_select.png")
+    if not os.path.exists(path):
+        return "", 404
+    return Response(open(path, "rb").read(), mimetype="image/png")
+
+
+@app.route("/debug/media_after_send_snapshot")
+@login_required
+@admin_required
+def debug_media_after_send_snapshot():
+    """لقطة شاشة تُلتقط مباشرة بعد محاولة إرسال الوسائط (بعد الضغط/Enter) من متصفح
+    الإرسال نفسه - تبيّن شكل الفقاعة اللي فعلاً انرسلت (صورة عادية أو ملصق) بدون انتظار
+    لقطة من هاتف المستلم. محصورة بالأدمن لنفس سبب اللقطة السابقة."""
+    path = os.path.join(UPLOADS_DIR, "_debug_after_send.png")
     if not os.path.exists(path):
         return "", 404
     return Response(open(path, "rb").read(), mimetype="image/png")
