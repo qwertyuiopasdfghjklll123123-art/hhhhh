@@ -22,6 +22,7 @@
 """
 
 import base64
+import concurrent.futures
 import html
 import json
 import os
@@ -75,6 +76,9 @@ app.secret_key = get_or_create_secret_key()
 app.config["PERMANENT_SESSION_LIFETIME"] = timedelta(days=30)
 
 accounts = {}  # id -> {id, owner, name, driver, lock, campaign, history, auto_reply, watching, otp_sender}
+# مسبح ثريدات خلفي لفحوصات "هل الحساب مسجل دخول" (account_logged_in_fast) - يفصل "قد ياخذ
+# فحص المتصفح حتى 30 ثانية لو كان عالقاً" عن "كم ينتظر طلب HTTP الطالب فعلياً قبل أخذ جواب"
+login_check_executor = concurrent.futures.ThreadPoolExecutor(max_workers=16, thread_name_prefix="login-check")
 events = []
 events_lock = threading.Lock()
 otp_codes = {}  # phone -> {code, expires, verified}
@@ -696,6 +700,8 @@ def new_account_entry(acc_id, owner, name):
         "watching": False,
         "otp_sender": False,
         "_login_cache": False,
+        "_login_future": None,
+        "_login_future_lock": threading.Lock(),
     }
 
 
@@ -742,26 +748,38 @@ def account_logged_in(acc):
     try:
         result = len(d.find_elements(By.ID, "pane-side")) > 0
     except Exception:
-        # المتصفح ما استجاب (عالق أو انطفى) - نعتبره غير متصل بدل ما نخلي الاستثناء يوصل
-        # لطلب HTTP فيطلع خطأ 500 ويبقى المستخدم شايف الصفحة عالقة بالتحميل
-        result = False
+        # المتصفح تعذّر فحصه هالمرة (عالق مؤقتاً - متل وقت ضغط الذاكرة بالسيرفر) وهذا لا
+        # يعني فعلاً انفصال الحساب، فقط تعذّر التأكد الآن. نرجع آخر حالة معروفة بدل ما
+        # نفترض "غير متصل" بثقة زائفة ونمسح حالة "متصل" الصحيحة بمجرد تأخير مؤقت بالمتصفح -
+        # هذا بالضبط اللي كان يخلي الموقع ما يعرض تسجيل الدخول بعد مسح الباركود لو صار
+        # المتصفح عالق لثواني بنفس لحظة المسح
+        return acc.get("_login_cache", False)
     acc["_login_cache"] = result
     return result
 
 
 def account_logged_in_fast(acc):
-    """متل account_logged_in لكن ما تعلّق خلف watch_account لو كانت شغالة حالياً على نفس
-    الحساب (تحجز acc["lock"] لفترة معقولة كل دورة مراقبة). تحاول فحص حقيقي بمهلة قصيرة
-    وإلا ترجع آخر حالة معروفة فوراً - مهم لمسارات ساخنة متل إرسال رمز OTP وقائمة الحسابات
-    اللي تنفّذ عند كل تنقل بالتطبيق."""
+    """متل account_logged_in لكن ما تعلّق طلب HTTP فترة طويلة لو كان الفحص بطيء - لا فرق
+    إذا كان السبب ازدحام القفل acc["lock"] (watch_account شغالة) أو المتصفح نفسه عالق (لحد
+    30 ثانية، سقف set_timeout المضروب بـ start_account_driver). تسلّم الفحص الحقيقي لمسبح
+    ثريدات خلفي (login_check_executor) وتنتظره بمهلة قصيرة بس، ولو ما خلص بالوقت ترجع آخر
+    حالة معروفة فوراً بدون ما توقف الفحص الخلفي نفسه - لو خلص لاحقاً (حتى لو بعد نص دقيقة)
+    بيحدّث _login_cache تلقائياً لأجل الطلبات الجاية. مهم لمسارات ساخنة متل إرسال رمز OTP
+    وقائمة الحسابات اللي تنفّذ عند كل تنقل بالتطبيق."""
     if acc["driver"] is None:
         return False
-    if acc["lock"].acquire(timeout=0.2):
-        try:
-            return account_logged_in(acc)
-        finally:
-            acc["lock"].release()
-    return acc.get("_login_cache", False)
+    with acc["_login_future_lock"]:
+        future = acc.get("_login_future")
+        if future is None or future.done():
+            def _check():
+                with acc["lock"]:
+                    return account_logged_in(acc)
+            future = login_check_executor.submit(_check)
+            acc["_login_future"] = future
+    try:
+        return future.result(timeout=1.5)
+    except Exception:
+        return acc.get("_login_cache", False)
 
 
 def numbers_from_text(text):
