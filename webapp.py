@@ -880,6 +880,13 @@ def send_to(driver, number, text, media_path=None):
         # نضغطه أول قبل ما نبحث عن حقل رفع الملف، حتى يصير الحقل المرتبط فعلياً بإرسال صورة
         # للمحادثة موجود/مفعّل بالصفحة
         try:
+            before_marked = driver.execute_script(
+                "return Array.from(document.querySelectorAll('[data-testid], [data-icon]'));"
+            )
+            before_ids = {el.id for el in before_marked}
+        except Exception:
+            before_ids = set()
+        try:
             plus_btn = WebDriverWait(driver, 10).until(
                 EC.element_to_be_clickable((By.CSS_SELECTOR, 'span[data-icon="plus-rounded"]'))
             )
@@ -887,36 +894,41 @@ def send_to(driver, number, text, media_path=None):
             time.sleep(0.5)
         except Exception as e:
             print(f"[حملة] تعذر الضغط على زر الإرفاق (+): {e}")
-        # الجولة الماضية أثبتت (لقطة شاشة من هاتف المستلم): الصورة توصل فعلاً لكن كـ"ملصق"
-        # مو كصورة عادية. أقوى تفسير: قائمة الإرفاق فيها أكثر من خيار (صور وفيديوهات، ملصق،
-        # مستند...) وكل خيار له حقل رفع ملف مخفي خاص به يتفعّل بس لما تضغط عنصر القائمة نفسه -
-        # والحقل الوحيد اللي كان جاهز فوراً بعد فتح القائمة (بدون ضغط عنصر محدد) طلع تبع
-        # "ملصق" مصادفة، مو "صور وفيديوهات". نجرد عناصر القائمة (data-testid/data-icon فيهم
-        # كلمة attach) ونضغط اللي يبدو صور/فيديو تحديداً قبل ما نبحث عن حقل رفع الملف؛ لو ما
-        # لقينا شي واضح، نكمل بنفس الأسلوب القديم (أول حقل صورة موجود) حتى ما نرجع لصفر إرسال
+        # جولتين ماضيتين أثبتوا (لقطة شاشة من هاتف المستلم، مرتين): الصورة توصل فعلاً لكن
+        # كـ"ملصق" مو كصورة عادية. تخميني الأول (عنصر قائمة معرّفه فيه كلمة "attach") طلع صفر
+        # نتائج - واتساب الحالي ما يستخدم هالتسمية. بدل تخمين اسم ثاني، نقارن DOM قبل/بعد
+        # الضغط على + فعلياً: أي عنصر [data-testid]/[data-icon] جديد كلياً (ما كان موجود قبل
+        # الضغط) هو بالتأكيد جزء من قائمة الإرفاق المنسدلة - بغض النظر شلون مسمى، وبدون حاجة
+        # نخمن نطاق بحث. نطبع كل التفاصيل (نص ظاهر + aria-label + testid + icon) عن كل عنصر
+        # جديد، ونضغط أي وحدة يبدو نصها/معرّفها صور أو فيديو ومو ملصق؛ لو ما لقينا شي واضح،
+        # نكمل بنفس الأسلوب القديم (أول حقل صورة موجود) حتى ما نرجع لصفر إرسال
         try:
-            attach_items = driver.execute_script("""
-                return Array.from(document.querySelectorAll('[data-testid], [data-icon]'))
-                    .filter(el => el.offsetParent !== null)
-                    .filter(el => {
-                        const t = ((el.getAttribute('data-testid') || '') + ' ' + (el.getAttribute('data-icon') || '')).toLowerCase();
-                        return t.includes('attach');
-                    });
-            """)
-            print(f"[حملة][تشخيص] {len(attach_items)} عنصر فيهم كلمة 'attach' بمعرّفهم بقائمة الإرفاق")
+            after_marked = driver.execute_script(
+                "return Array.from(document.querySelectorAll('[data-testid], [data-icon]'));"
+            )
+            new_items = [el for el in after_marked if el.id not in before_ids]
+            print(f"[حملة][تشخيص] {len(new_items)} عنصر جديد كلياً ظهر بالصفحة بعد الضغط على + (data-testid/data-icon)")
             media_menu_item = None
-            for el in attach_items:
+            media_menu_item_desc = ""
+            for el in new_items:
                 try:
                     testid = el.get_attribute("data-testid") or ""
                     icon = el.get_attribute("data-icon") or ""
                     label = el.get_attribute("aria-label") or ""
-                    print(f"[حملة][تشخيص]   - testid={testid!r} icon={icon!r} aria-label={label!r}")
+                    text = (el.text or "").strip()
+                    visible = el.is_displayed()
+                    print(f"[حملة][تشخيص]   - testid={testid!r} icon={icon!r} aria-label={label!r} نص={text!r} ظاهر={visible}")
                 except Exception:
                     continue
-                combo = (testid + " " + icon).lower()
-                if media_menu_item is None and ("image" in combo or "photo" in combo or "video" in combo or "media" in combo) and "sticker" not in combo:
+                combo = f"{testid} {icon} {label} {text}".lower()
+                looks_like_sticker = "sticker" in combo or "ملصق" in combo
+                looks_like_media = any(k in combo for k in (
+                    "image", "photo", "video", "media", "gallery",
+                    "صور", "فيديو", "معرض", "وسائط",
+                ))
+                if media_menu_item is None and visible and looks_like_media and not looks_like_sticker:
                     media_menu_item = el
-                    media_menu_item_desc = f"testid={testid!r} icon={icon!r}"
+                    media_menu_item_desc = f"testid={testid!r} icon={icon!r} نص={text!r}"
             if media_menu_item is not None:
                 media_menu_item.click()
                 time.sleep(0.5)
@@ -924,7 +936,7 @@ def send_to(driver, number, text, media_path=None):
             else:
                 print("[حملة][تشخيص] ما لقيت عنصر قائمة واضح إنه «صور/فيديو» (مو ملصق) - رح أكمل بنفس الأسلوب القديم")
         except Exception as e:
-            print(f"[حملة][تشخيص] تعذر جرد عناصر قائمة الإرفاق: {e}")
+            print(f"[حملة][تشخيص] تعذر مقارنة عناصر قائمة الإرفاق قبل/بعد الضغط: {e}")
         file_inputs = driver.find_elements(By.CSS_SELECTOR, 'input[type="file"]')
         if not file_inputs:
             raise RuntimeError("ما لقيت عنصر رفع الملفات بواجهة واتساب")
