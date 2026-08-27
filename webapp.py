@@ -21,6 +21,7 @@
 أول مرة، بنفس طريقة تصحيح إرفاق الصور سابقاً.
 """
 
+import base64
 import html
 import json
 import os
@@ -1408,9 +1409,9 @@ def get_branding_context():
 
 def render_welcome_page():
     site_name, site_logo, has_custom_name, _branding = get_branding_context()
-    whatsapp_icon_html = f'<img src="{site_logo}" alt="{site_name}" class="custom-logo-icon">' if site_logo else ICON_WHATSAPP
-    hero_logo_html = f'<img src="{site_logo}" alt="{site_name}" style="width:78px;height:78px;object-fit:contain;border-radius:20px;">' if site_logo else logo_svg(78)
-    login_logo_html = f'<img src="{site_logo}" alt="{site_name}" style="width:54px;height:54px;object-fit:contain;border-radius:14px;">' if site_logo else logo_svg(54)
+    whatsapp_icon_html = f'<img src="/branding/logo" alt="{site_name}" class="custom-logo-icon">' if site_logo else ICON_WHATSAPP
+    hero_logo_html = f'<img src="/branding/logo" alt="{site_name}" style="width:78px;height:78px;object-fit:contain;border-radius:20px;">' if site_logo else logo_svg(78)
+    login_logo_html = f'<img src="/branding/logo" alt="{site_name}" style="width:54px;height:54px;object-fit:contain;border-radius:14px;">' if site_logo else logo_svg(54)
     hero_logo_class = "w-logo has-custom-logo" if site_logo else "w-logo"
     login_logo_class = "logo has-custom-logo" if site_logo else "logo"
     page_title = site_name if has_custom_name else f"{site_name} — Wasel Business"
@@ -2358,7 +2359,7 @@ def app_home():
     if not session.get("user_id"):
         return redirect("/")
     site_name, site_logo, has_custom_name, _ = get_branding_context()
-    topbar_logo_html = f'<img src="{site_logo}" alt="{site_name}">' if site_logo else "و"
+    topbar_logo_html = f'<img src="/branding/logo" alt="{site_name}">' if site_logo else "و"
     topbar_name_html = site_name if has_custom_name else 'منصة <span>واصل</span>'
     page = PAGE.replace("__IS_ADMIN__", "true" if session.get("is_admin") else "false")
     page = page.replace("__USERNAME__", session.get("name") or session.get("email", ""))
@@ -2515,13 +2516,32 @@ def set_site_settings():
 MAX_LOGO_B64_CHARS = 2 * 1024 * 1024 * 4 // 3 + 100  # ~2 ميغابايت بعد فك ترميز base64
 
 
+@app.route("/branding/logo")
+def branding_logo():
+    """تعرض الشعار كصورة حقيقية (بدل تضمينه base64 مباشرة داخل HTML بكل مكان يظهر فيه - كان
+    يتكرر حرفياً حتى 5 مرات بنفس الصفحة، وقد يوصل حجمه لعدة ميغابايتات لو الشعار كبير).
+    endpoint عام (بدون تسجيل دخول) لأن صفحة الترحيب قبل تسجيل الدخول تحتاجه أيضاً."""
+    _, site_logo, _, _ = get_branding_context()
+    if not site_logo:
+        return "", 404
+    try:
+        header, b64data = site_logo.split(",", 1)
+        mime = header.split(";")[0].replace("data:", "") or "image/png"
+        raw = base64.b64decode(b64data)
+    except Exception:
+        return "", 404
+    resp = Response(raw, mimetype=mime)
+    resp.headers["Cache-Control"] = "public, max-age=300"
+    return resp
+
+
 @app.route("/admin/branding", methods=["GET"])
 @login_required
 @admin_required
 def get_branding():
     row = db_get_branding()
     return jsonify(
-        logo=(row["logo"] if row else None) or None,
+        has_logo=bool(row and row["logo"]),
         site_name=(row["site_name"] if row else "") or "",
         default_country_code=(row["default_country_code"] if row else "") or DEFAULT_COUNTRY_CODE_FALLBACK,
     )
@@ -4261,8 +4281,8 @@ function renderAdmin() {
   fetch('/admin/branding').then(r => r.json()).then(d => {
     document.getElementById('siteNameInput').value = d.site_name || '';
     document.getElementById('defaultCountrySelect').value = d.default_country_code || '964';
-    if (d.logo) {
-      document.getElementById('logoPreview').innerHTML = '<img src="' + d.logo + '" alt="شعار الموقع">';
+    if (d.has_logo) {
+      document.getElementById('logoPreview').innerHTML = '<img src="/branding/logo?t=' + Date.now() + '" alt="شعار الموقع">';
       document.getElementById('logoRemoveBtn').style.display = '';
     }
   });
