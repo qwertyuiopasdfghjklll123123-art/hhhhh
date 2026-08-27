@@ -854,6 +854,16 @@ def numbers_from_excel(file_storage):
     return numbers
 
 
+def apply_country_code(number, country_code):
+    """تضيف رمز الدولة لرقم محلي ما يبدأ فيه أصلاً (نفس منطق تطبيع رقم تسجيل الدخول: تشيل
+    صفر بادئ إن وجد وتضيف الرمز) - رقم يبدأ فيه أصلاً (دولي كامل) يترجع بدون أي تغيير."""
+    if not country_code or number.startswith(country_code):
+        return number
+    if number.startswith("0"):
+        number = number[1:]
+    return country_code + number
+
+
 def send_to(driver, number, text, media_path=None):
     if media_path:
         driver.get(f"https://web.whatsapp.com/send?phone={number}")
@@ -863,11 +873,16 @@ def send_to(driver, number, text, media_path=None):
         EC.presence_of_element_located((By.XPATH, '//footer//div[@contenteditable="true"]'))
     )
     if media_path:
-        # نتفادى الضغط على أيقونة "إرفاق" (تتغير بتحديثات واتساب) ونستخدم حقل رفع الملف مباشرة
+        # نتفادى الضغط على أيقونة "إرفاق" (تتغير بتحديثات واتساب) ونستخدم حقل رفع الملف مباشرة.
+        # نفضّل حقل يقبل صور/فيديو صراحة (accept) لو موجود - الصفحة ممكن تحتوي عدة حقول file
+        # مخفية لأغراض ثانية (تغيير صورة البروفايل مثلاً)، ونرجع لأول حقل كحل احتياطي لو ما
+        # لقينا وحد مميز، حتى ما نغيّر السلوك الحالي لو كان هذا مو السبب الحقيقي بالفشل
         file_inputs = driver.find_elements(By.CSS_SELECTOR, 'input[type="file"]')
         if not file_inputs:
             raise RuntimeError("ما لقيت عنصر رفع الملفات بواجهة واتساب")
-        file_inputs[0].send_keys(media_path)
+        print(f"[حملة] لقيت {len(file_inputs)} عنصر رفع ملفات: {[fi.get_attribute('accept') for fi in file_inputs]}")
+        media_input = next((fi for fi in file_inputs if "image" in (fi.get_attribute("accept") or "")), file_inputs[0])
+        media_input.send_keys(media_path)
         caption_box = WebDriverWait(driver, 25).until(
             EC.presence_of_element_located((By.XPATH, '//div[@contenteditable="true"][@data-tab]'))
         )
@@ -898,7 +913,8 @@ def run_campaign(acc, numbers, text, delay, media_path):
             try:
                 send_to(acc["driver"], number, text, media_path)
                 state["sent"] += 1
-            except Exception:
+            except Exception as e:
+                print(f"[حملة] فشل إرسال لـ {number} (حساب {acc['name']}): {e}")
                 state["failed"] += 1
                 state["failed_numbers"].append(number)
         if i < len(numbers) - 1:
@@ -1832,12 +1848,16 @@ def home():
 def app_home():
     if not session.get("user_id"):
         return redirect("/")
-    site_name, site_logo, has_custom_name, _ = get_branding_context()
+    site_name, site_logo, has_custom_name, branding = get_branding_context()
     topbar_logo_html = f'<img src="/branding/logo" alt="{site_name}">' if site_logo else "و"
     topbar_name_html = site_name if has_custom_name else 'منصة <span>واصل</span>'
+    default_country_code = ((branding["default_country_code"] if branding else "") or "").strip()
+    if default_country_code not in {c for c, _ in COUNTRY_CODES}:
+        default_country_code = DEFAULT_COUNTRY_CODE_FALLBACK
     page = PAGE.replace("__IS_ADMIN__", "true" if session.get("is_admin") else "false")
     page = page.replace("__USERNAME__", session.get("name") or session.get("email", ""))
     page = page.replace("__COUNTRY_CODES_JSON__", json.dumps(COUNTRY_CODES, ensure_ascii=False))
+    page = page.replace("__DEFAULT_COUNTRY_CODE__", default_country_code)
     page = page.replace("__TOPBAR_LOGO_CLASS__", "has-custom-img" if site_logo else "")
     page = page.replace("__TOPBAR_LOGO_HTML__", topbar_logo_html)
     page = page.replace("__TOPBAR_NAME_HTML__", topbar_name_html)
@@ -2366,6 +2386,11 @@ def campaign(acc_id):
     file = request.files.get("numbers_file")
     if file and file.filename:
         numbers += numbers_from_excel(file)
+
+    country_code = (request.form.get("country_code") or "").strip()
+    if country_code not in {c for c, _ in COUNTRY_CODES}:
+        country_code = DEFAULT_COUNTRY_CODE_FALLBACK
+    numbers = [apply_country_code(n, country_code) for n in numbers]
     numbers = list(dict.fromkeys(numbers))  # إزالة التكرار مع حفظ الترتيب
 
     if not numbers:

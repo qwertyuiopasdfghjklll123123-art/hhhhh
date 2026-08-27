@@ -1116,6 +1116,7 @@ async function submitName() {
 <script>
 const IS_ADMIN = __IS_ADMIN__;
 const COUNTRY_CODES = __COUNTRY_CODES_JSON__;
+const DEFAULT_COUNTRY_CODE = '__DEFAULT_COUNTRY_CODE__';
 
 /* ---------- أيقونات خطية (بدون إيموجي) ---------- */
 const ICONS = {
@@ -1552,8 +1553,12 @@ function renderCampaigns(myGen) {
 
   html +=
     '<div class="card">' +
-    '<label class="field-label">الأرقام (رقم كل سطر، أو مفصولة بفواصل)</label>' +
-    '<textarea id="numbersText" rows="4" placeholder="9647701234567&#10;9647709876543"></textarea>' +
+    '<label class="field-label">رمز دولة أرقام هذي الحملة</label>' +
+    '<select id="campaignCountryCode">' +
+      COUNTRY_CODES.map(c => '<option value="' + c[0] + '"' + (c[0] === DEFAULT_COUNTRY_CODE ? ' selected' : '') + '>' + c[1] + '</option>').join('') +
+    '</select>' +
+    '<label class="field-label">الأرقام (رقم كل سطر، أو مفصولة بفواصل — تكتب الرقم المحلي بدون رمز الدولة، أو رقم دولي كامل)</label>' +
+    '<textarea id="numbersText" rows="4" placeholder="07701234567&#10;07709876543"></textarea>' +
     '<button class="btn-outline" id="contactPickerBtn" style="display:none" onclick="pickContacts()">استيراد من جهات الاتصال</button>' +
     '<label class="field-label">أو ارفع ملف Excel (.xlsx) فيه الأرقام بالعمود الأول</label>' +
     '<input type="file" id="numbersFile" accept=".xlsx">' +
@@ -1654,6 +1659,7 @@ async function startCampaign() {
   const accId = activeId;
   const form = new FormData();
   form.append('numbers_text', document.getElementById('numbersText').value);
+  form.append('country_code', document.getElementById('campaignCountryCode').value);
   form.append('text', document.getElementById('text').value.trim());
   form.append('delay', document.getElementById('delay').value || 15);
   form.append('send_at', document.getElementById('sendAt').value || '');
