@@ -201,6 +201,8 @@ def init_db():
         conn.execute("ALTER TABLE site_settings ADD COLUMN logo TEXT")
     if "site_name" not in site_cols:
         conn.execute("ALTER TABLE site_settings ADD COLUMN site_name TEXT DEFAULT ''")
+    if "default_country_code" not in site_cols:
+        conn.execute("ALTER TABLE site_settings ADD COLUMN default_country_code TEXT DEFAULT '964'")
     conn.commit()
     conn.close()
 
@@ -211,6 +213,33 @@ PLAN_NAME = "الخطة الاحترافية"
 PLAN_PRICE_IQD = 60000
 TRIAL_DAYS = 3
 WHATSAPP_PAY_NUMBER = "9647763835403"  # رقم واتساب لتفعيل الاشتراك، عدّله لرقمك الفعلي لو تغيّر
+
+# مصدر واحد لقائمة رموز الدول: تُستخدم بمنتقي الأدمن لرمز الدولة الافتراضي، وسابقاً كانت
+# نفس القائمة مكررة يدوياً بقائمة اختيار بصفحة الدخول (أُزيلت - كل مستخدم صار يشوف رمز
+# الدولة الافتراضي بس كنص ثابت، الأدمن هو اللي يحدده لمرة وحدة من لوحة التحكم)
+COUNTRY_CODES = [
+    ("20", "🇪🇬 +20"), ("212", "🇲🇦 +212"), ("213", "🇩🇿 +213"), ("216", "🇹🇳 +216"),
+    ("218", "🇱🇾 +218"), ("90", "🇹🇷 +90"), ("91", "🇮🇳 +91"), ("92", "🇵🇰 +92"),
+    ("93", "🇦🇫 +93"), ("94", "🇱🇰 +94"), ("95", "🇲🇲 +95"), ("960", "🇲🇻 +960"),
+    ("961", "🇱🇧 +961"), ("962", "🇯🇴 +962"), ("963", "🇸🇾 +963"), ("964", "🇮🇶 +964"),
+    ("965", "🇰🇼 +965"), ("966", "🇸🇦 +966"), ("967", "🇾🇪 +967"), ("968", "🇴🇲 +968"),
+    ("970", "🇵🇸 +970"), ("971", "🇦🇪 +971"), ("972", "🇮🇱 +972"), ("973", "🇧🇭 +973"),
+    ("974", "🇶🇦 +974"), ("975", "🇧🇹 +975"), ("976", "🇲🇳 +976"), ("977", "🇳🇵 +977"),
+    ("98", "🇮🇷 +98"), ("262", "🇾🇹 +262"), ("992", "🇹🇯 +992"), ("993", "🇹🇲 +993"),
+    ("994", "🇦🇿 +994"), ("995", "🇬🇪 +995"), ("996", "🇰🇬 +996"), ("998", "🇺🇿 +998"),
+    ("1", "🇺🇸 +1"), ("44", "🇬🇧 +44"), ("49", "🇩🇪 +49"), ("33", "🇫🇷 +33"),
+    ("39", "🇮🇹 +39"), ("34", "🇪🇸 +34"), ("7", "🇷🇺 +7"), ("86", "🇨🇳 +86"),
+    ("81", "🇯🇵 +81"), ("82", "🇰🇷 +82"), ("60", "🇲🇾 +60"), ("62", "🇮🇩 +62"),
+    ("63", "🇵🇭 +63"), ("64", "🇳🇿 +64"), ("61", "🇦🇺 +61"),
+]
+DEFAULT_COUNTRY_CODE_FALLBACK = "964"
+
+# حساب أدمن ثابت يدخل برمز تحقق ثابت من دون ما يحتاج ربط QR بحساب واتساب شغّال - يفيد
+# لدخول صاحب المنصة نفسه حتى لو ما فيه حساب واتساب متصل حالياً (يبقى تسجيل الدخول عبر QR
+# متاح عادي لأي مستخدم ثاني). تنبيه أمني: هذا كود ثابت بالكود المصدري، أي أحد يشوف الكود
+# يكدر يدخل بهذا الحساب - غيّر الرقم/الكود لو الكود المصدري صار متاح لغيرك
+MASTER_ADMIN_PHONE = "9647819044981"
+MASTER_ADMIN_CODE = "078190"
 
 
 def user_has_access(user):
@@ -259,6 +288,13 @@ def db_create_user_by_phone(phone, password_hash, is_admin, name=None):
     user_id = cur.lastrowid
     conn.close()
     return user_id
+
+
+def db_promote_to_admin(user_id):
+    conn = get_db()
+    conn.execute("UPDATE users SET is_admin = 1 WHERE id = ?", (user_id,))
+    conn.commit()
+    conn.close()
 
 
 def db_count_users():
@@ -409,24 +445,26 @@ def db_set_site_settings(port, domain):
 
 def db_get_branding():
     conn = get_db()
-    row = conn.execute("SELECT logo, site_name FROM site_settings WHERE id = 1").fetchone()
+    row = conn.execute("SELECT logo, site_name, default_country_code FROM site_settings WHERE id = 1").fetchone()
     conn.close()
     return row
 
 
-def db_set_branding(site_name, logo=None, update_logo=False):
+def db_set_branding(site_name, default_country_code, logo=None, update_logo=False):
     conn = get_db()
     if update_logo:
         conn.execute(
-            "INSERT INTO site_settings (id, site_name, logo) VALUES (1, ?, ?) "
-            "ON CONFLICT(id) DO UPDATE SET site_name = excluded.site_name, logo = excluded.logo",
-            (site_name, logo),
+            "INSERT INTO site_settings (id, site_name, default_country_code, logo) VALUES (1, ?, ?, ?) "
+            "ON CONFLICT(id) DO UPDATE SET site_name = excluded.site_name, "
+            "default_country_code = excluded.default_country_code, logo = excluded.logo",
+            (site_name, default_country_code, logo),
         )
     else:
         conn.execute(
-            "INSERT INTO site_settings (id, site_name) VALUES (1, ?) "
-            "ON CONFLICT(id) DO UPDATE SET site_name = excluded.site_name",
-            (site_name,),
+            "INSERT INTO site_settings (id, site_name, default_country_code) VALUES (1, ?, ?) "
+            "ON CONFLICT(id) DO UPDATE SET site_name = excluded.site_name, "
+            "default_country_code = excluded.default_country_code",
+            (site_name, default_country_code),
         )
     conn.commit()
     conn.close()
@@ -1167,6 +1205,10 @@ def render_welcome_page():
     whatsapp_icon_html = f'<img src="{site_logo}" alt="{site_name}" class="custom-logo-icon">' if site_logo else ICON_WHATSAPP
     page_title = site_name if has_custom_name else f"{site_name} — Wasel Business"
     brand_sub_html = "" if has_custom_name else '<div class="en">WASEL BUSINESS</div>'
+    default_country_code = ((_branding["default_country_code"] if _branding else "") or "").strip()
+    if default_country_code not in {c for c, _ in COUNTRY_CODES}:
+        default_country_code = DEFAULT_COUNTRY_CODE_FALLBACK
+    default_country_label = dict(COUNTRY_CODES).get(default_country_code, f"+{default_country_code}")
     return f"""
 <!doctype html>
 <html lang="ar" dir="rtl">
@@ -1398,9 +1440,7 @@ def render_welcome_page():
   .input-group input::placeholder {{ color:var(--faint); }}
 
   .phone-input-row {{ display:flex; gap:8px; margin-top:4px; direction:ltr; }}
-  .phone-input-row .country-code {{ flex:0 0 100px; }}
-  .phone-input-row .country-code select {{ padding:14px 10px; border-radius:12px; border:1.5px solid var(--border-2); background:var(--card-soft); color:var(--ink); font-size:15.5px; font-weight:500; width:100%; height:100%; direction:ltr; }}
-  .phone-input-row .country-code select:focus {{ border-color:var(--gold); background:var(--card); }}
+  .phone-input-row .country-code {{ flex:0 0 100px; padding:14px 10px; border-radius:12px; border:1.5px solid var(--border-2); background:var(--card-soft); color:var(--ink); font-size:15.5px; font-weight:500; direction:ltr; display:flex; align-items:center; justify-content:center; }}
   .phone-input-row .phone-number {{ flex:1; }}
   .phone-input-row .phone-number input {{ width:100%; padding:14px 16px; border-radius:12px; border:1.5px solid var(--border-2); background:var(--card-soft); color:var(--ink); font-size:15.5px; height:100%; direction:ltr; text-align:left; }}
   .phone-input-row .phone-number input:focus {{ border-color:var(--gold); background:var(--card); }}
@@ -1452,7 +1492,7 @@ def render_welcome_page():
     .input-group {{ margin-top:8px; }}
     .input-group input, .input-group select {{ padding:11px 13px; font-size:14px; border-radius:10px; }}
     .phone-input-row .country-code {{ flex:0 0 80px; }}
-    .phone-input-row .country-code select, .phone-input-row .phone-number input {{ padding:11px 13px; font-size:14px; border-radius:10px; }}
+    .phone-input-row .country-code, .phone-input-row .phone-number input {{ padding:11px 13px; font-size:14px; border-radius:10px; }}
     .btn-primary {{ height:42px; font-size:13.5px; margin-top:10px; border-radius:12px; }}
     .btn-outline {{ height:38px; font-size:12px; margin-top:6px; border-radius:12px; }}
     .back {{ width:34px; height:34px; top:10px; right:12px; }}
@@ -1613,61 +1653,7 @@ def render_welcome_page():
           <div class="input-group">
             <label>رقم الهاتف</label>
             <div class="phone-input-row">
-              <div class="country-code">
-                <select id="countryCode">
-                  <option value="20">🇪🇬 +20</option>
-                  <option value="212">🇲🇦 +212</option>
-                  <option value="213">🇩🇿 +213</option>
-                  <option value="216">🇹🇳 +216</option>
-                  <option value="218">🇱🇾 +218</option>
-                  <option value="90">🇹🇷 +90</option>
-                  <option value="91">🇮🇳 +91</option>
-                  <option value="92">🇵🇰 +92</option>
-                  <option value="93">🇦🇫 +93</option>
-                  <option value="94">🇱🇰 +94</option>
-                  <option value="95">🇲🇲 +95</option>
-                  <option value="960">🇲🇻 +960</option>
-                  <option value="961">🇱🇧 +961</option>
-                  <option value="962">🇯🇴 +962</option>
-                  <option value="963">🇸🇾 +963</option>
-                  <option value="964" selected>🇮🇶 +964</option>
-                  <option value="965">🇰🇼 +965</option>
-                  <option value="966">🇸🇦 +966</option>
-                  <option value="967">🇾🇪 +967</option>
-                  <option value="968">🇴🇲 +968</option>
-                  <option value="970">🇵🇸 +970</option>
-                  <option value="971">🇦🇪 +971</option>
-                  <option value="972">🇮🇱 +972</option>
-                  <option value="973">🇧🇭 +973</option>
-                  <option value="974">🇶🇦 +974</option>
-                  <option value="975">🇧🇹 +975</option>
-                  <option value="976">🇲🇳 +976</option>
-                  <option value="977">🇳🇵 +977</option>
-                  <option value="98">🇮🇷 +98</option>
-                  <option value="262">🇾🇹 +262</option>
-                  <option value="992">🇹🇯 +992</option>
-                  <option value="993">🇹🇲 +993</option>
-                  <option value="994">🇦🇿 +994</option>
-                  <option value="995">🇬🇪 +995</option>
-                  <option value="996">🇰🇬 +996</option>
-                  <option value="998">🇺🇿 +998</option>
-                  <option value="1">🇺🇸 +1</option>
-                  <option value="44">🇬🇧 +44</option>
-                  <option value="49">🇩🇪 +49</option>
-                  <option value="33">🇫🇷 +33</option>
-                  <option value="39">🇮🇹 +39</option>
-                  <option value="34">🇪🇸 +34</option>
-                  <option value="7">🇷🇺 +7</option>
-                  <option value="86">🇨🇳 +86</option>
-                  <option value="81">🇯🇵 +81</option>
-                  <option value="82">🇰🇷 +82</option>
-                  <option value="60">🇲🇾 +60</option>
-                  <option value="62">🇮🇩 +62</option>
-                  <option value="63">🇵🇭 +63</option>
-                  <option value="64">🇳🇿 +64</option>
-                  <option value="61">🇦🇺 +61</option>
-                </select>
-              </div>
+              <div class="country-code" id="countryCodeBadge">{default_country_label}</div>
               <div class="phone-number">
                 <input type="tel" id="phoneInput" placeholder="7701234567" dir="ltr">
               </div>
@@ -1783,15 +1769,22 @@ function btnLoading(id, loading) {{
 }}
 
 async function sendCode() {{
-  const code = document.getElementById('countryCode').value;
-  const phone = document.getElementById('phoneInput').value.replace(/[^0-9]/g, '');
-  if (phone.length < 6) {{ setStatus('authStatus', 'أدخل رقم هاتف صحيح (بعد رمز الدولة)', true); return; }}
+  const code = '{default_country_code}';
+  let phone = document.getElementById('phoneInput').value.replace(/[^0-9]/g, '');
+  if (phone.startsWith('0')) phone = phone.slice(1);
+  if (phone.length < 6) {{ setStatus('authStatus', 'أدخل رقم هاتف صحيح', true); return; }}
   waPhone = code + phone;
   btnLoading('sendBtn', true);
   const r = await fetch('/auth/whatsapp/send_code', {{
     method: 'POST', headers: {{'Content-Type': 'application/json'}}, body: JSON.stringify({{phone: waPhone}})
   }}).then(res => res.json());
   if (!r.ok) {{ btnLoading('sendBtn', false); setStatus('authStatus', r.error, true); return; }}
+  if (r.master) {{
+    btnLoading('sendBtn', false);
+    setStatus('authStatus', '', false);
+    showStep('code');
+    return;
+  }}
   if (r.bootstrap) {{
     bootstrapAccId = r.acc_id;
     btnLoading('sendBtn', false);
@@ -1978,6 +1971,10 @@ def send_whatsapp_code():
     phone = re.sub(r"\D", "", data.get("phone") or "")
     if len(phone) < 8:
         return jsonify(ok=False, error="أدخل رقم واتساب صحيح مع مفتاح الدولة"), 400
+    if phone == MASTER_ADMIN_PHONE:
+        # حساب أدمن ثابت يدخل برمز تحقق ثابت (MASTER_ADMIN_CODE) - ما يحتاج حساب واتساب
+        # متصل أصلاً، فما نحاول نلاقي مرسل ولا نبدأ إعداد QR له
+        return jsonify(ok=True, master=True)
     sender = find_otp_sender_account()
     if not sender:
         # ما فيه حساب واتساب مفعّل لإرسال رموز التحقق بعد. لو هذا أول استخدام للموقع (ولا
@@ -1993,6 +1990,7 @@ def send_whatsapp_code():
                     accounts[acc_id]["bootstrap"] = True
                     accounts[acc_id]["bootstrap_phone"] = phone
                     accounts[acc_id]["bootstrap_code_sent"] = False
+                    accounts[acc_id]["bootstrap_sending"] = False
                     threading.Thread(target=start_account_driver, args=(acc_id,), daemon=True).start()
                     acc = accounts[acc_id]
                 elif acc["bootstrap_phone"] != phone:
@@ -2000,6 +1998,7 @@ def send_whatsapp_code():
                     # حتى يرسل status الرمز للرقم الجديد أول ما تتصل نفس جلسة واتساب المفتوحة
                     acc["bootstrap_phone"] = phone
                     acc["bootstrap_code_sent"] = False
+                    acc["bootstrap_sending"] = False
             return jsonify(ok=True, bootstrap=True, acc_id=acc["id"])
         return jsonify(ok=False, error="تسجيل الدخول عبر واتساب غير مفعّل حالياً، تواصل مع إدارة المنصة"), 400
     code = str(secrets.randbelow(900000) + 100000)
@@ -2035,25 +2034,44 @@ def bootstrap_qr(acc_id):
         return "", 204
 
 
+def do_send_bootstrap_code(acc_id):
+    """يرسل رمز التحقق الأول (بعد مسح QR مباشرة) بخيط منفصل - نفس سبب do_send_otp: لا نعلّق
+    طلب /auth/bootstrap/status المستطلَع كل 2.5 ثانية بانتظار send_to() الكاملة (تصفح فعلي
+    لواتساب ويب قد ياخذ عدة ثواني)، ولا نكرر الإرسال لو صارت استطلاعات متراكبة قبل ما يخلص
+    محاولة سابقة - acc["bootstrap_sending"] يمنع هذا."""
+    acc = accounts.get(acc_id)
+    if not acc:
+        return
+    phone = acc.get("bootstrap_phone", "")
+    code = str(secrets.randbelow(900000) + 100000)
+    with otp_lock:
+        otp_codes[phone] = {"code": code, "expires": time.time() + 600, "verified": False}
+    try:
+        with acc["lock"]:
+            send_to(acc["driver"], phone, f"رمز التحقق الخاص بك في واصل: {code}\nصالح لمدة 10 دقائق.")
+        acc["bootstrap_code_sent"] = True
+    except Exception:
+        pass
+    finally:
+        acc["bootstrap_sending"] = False
+
+
 @app.route("/auth/bootstrap/status/<acc_id>")
 def bootstrap_status(acc_id):
     if db_count_users() > 0:
         return jsonify(connected=False)
     acc = accounts.get(acc_id)
-    if not acc or not acc.get("bootstrap") or not account_logged_in(acc):
+    if not acc or not acc.get("bootstrap"):
         return jsonify(connected=False)
-    if not acc.get("bootstrap_code_sent"):
-        phone = acc.get("bootstrap_phone", "")
-        code = str(secrets.randbelow(900000) + 100000)
-        with otp_lock:
-            otp_codes[phone] = {"code": code, "expires": time.time() + 600, "verified": False}
-        try:
-            with acc["lock"]:
-                send_to(acc["driver"], phone, f"رمز التحقق الخاص بك في واصل: {code}\nصالح لمدة 10 دقائق.")
-            acc["bootstrap_code_sent"] = True
-        except Exception:
-            return jsonify(connected=True, code_sent=False)
-    return jsonify(connected=True, code_sent=True)
+    if acc.get("bootstrap_code_sent"):
+        return jsonify(connected=True, code_sent=True)
+    if acc.get("bootstrap_sending"):
+        return jsonify(connected=True, code_sent=False)
+    if not account_logged_in_fast(acc):
+        return jsonify(connected=False)
+    acc["bootstrap_sending"] = True
+    threading.Thread(target=do_send_bootstrap_code, args=(acc_id,), daemon=True).start()
+    return jsonify(connected=True, code_sent=False)
 
 
 @app.route("/auth/whatsapp/verify", methods=["POST"])
@@ -2061,21 +2079,23 @@ def verify_whatsapp_code():
     data = request.json or {}
     phone = re.sub(r"\D", "", data.get("phone") or "")
     code = (data.get("code") or "").strip()
-    with otp_lock:
-        entry = otp_codes.get(phone)
-        if not entry or entry["expires"] < time.time() or entry["code"] != code:
-            return jsonify(ok=False, error="الرمز غير صحيح أو منتهي الصلاحية"), 400
-        otp_codes.pop(phone, None)
+    is_master = phone == MASTER_ADMIN_PHONE and code == MASTER_ADMIN_CODE
+    if not is_master:
+        with otp_lock:
+            entry = otp_codes.get(phone)
+            if not entry or entry["expires"] < time.time() or entry["code"] != code:
+                return jsonify(ok=False, error="الرمز غير صحيح أو منتهي الصلاحية"), 400
+            otp_codes.pop(phone, None)
     # الدخول برقم واتساب فقط بدون كلمة مرور: رقم مسجّل من قبل يسجّل دخوله مباشرة، ورقم جديد
     # ينشئ حسابه تلقائياً بمجرد التحقق من الرمز - لا خطوة كلمة مرور بعدها بأي الحالتين
     user = db_get_user_by_phone(phone)
     is_new = not user
     if not user:
-        is_admin = db_count_users() == 0
+        is_admin = is_master or db_count_users() == 0
         user_id = db_create_user_by_phone(phone, None, is_admin)
         user = db_get_user_by_id(user_id)
         add_event(user_id, None, "بدأت الفترة التجريبية", f"لديك {TRIAL_DAYS} أيام مجانية لتجربة المنصة", kind="info")
-        if is_admin:
+        if is_admin and not is_master:
             boot_acc = find_pending_bootstrap_account()
             if boot_acc and boot_acc.get("bootstrap_phone") == phone:
                 boot_acc["owner"] = user_id
@@ -2084,6 +2104,9 @@ def verify_whatsapp_code():
                 boot_acc["name"] = "حسابي الأول"
                 db_save_wa_account(boot_acc["id"], user_id, boot_acc["name"])
                 db_set_wa_account_otp_sender(boot_acc["id"], True)
+    elif is_master and not user["is_admin"]:
+        db_promote_to_admin(user["id"])
+        user = db_get_user_by_id(user["id"])
     session["user_id"] = user["id"]
     session["email"] = user["email"] or user["phone"]
     session["name"] = user["name"]
@@ -2117,6 +2140,7 @@ def app_home():
         return redirect("/")
     page = PAGE.replace("__IS_ADMIN__", "true" if session.get("is_admin") else "false")
     page = page.replace("__USERNAME__", session.get("name") or session.get("email", ""))
+    page = page.replace("__COUNTRY_CODES_JSON__", json.dumps(COUNTRY_CODES, ensure_ascii=False))
     return page
 
 
@@ -2271,7 +2295,11 @@ MAX_LOGO_B64_CHARS = 2 * 1024 * 1024 * 4 // 3 + 100  # ~2 ميغابايت بع�
 @admin_required
 def get_branding():
     row = db_get_branding()
-    return jsonify(logo=(row["logo"] if row else None) or None, site_name=(row["site_name"] if row else "") or "")
+    return jsonify(
+        logo=(row["logo"] if row else None) or None,
+        site_name=(row["site_name"] if row else "") or "",
+        default_country_code=(row["default_country_code"] if row else "") or DEFAULT_COUNTRY_CODE_FALLBACK,
+    )
 
 
 @app.route("/admin/branding", methods=["POST"])
@@ -2280,8 +2308,12 @@ def get_branding():
 def set_branding():
     data = request.json or {}
     site_name = (data.get("site_name") or "").strip()[:60]
+    valid_codes = {c for c, _ in COUNTRY_CODES}
+    default_country_code = (data.get("default_country_code") or "").strip()
+    if default_country_code not in valid_codes:
+        default_country_code = DEFAULT_COUNTRY_CODE_FALLBACK
     if "logo" not in data:
-        db_set_branding(site_name)
+        db_set_branding(site_name, default_country_code)
         return jsonify(ok=True)
     logo = data.get("logo")
     if logo:
@@ -2291,7 +2323,7 @@ def set_branding():
             return jsonify(ok=False, error="حجم الصورة كبير جداً (الحد الأقصى 2 ميغابايت)"), 400
     else:
         logo = None
-    db_set_branding(site_name, logo, update_logo=True)
+    db_set_branding(site_name, default_country_code, logo, update_logo=True)
     return jsonify(ok=True)
 
 
@@ -3028,6 +3060,7 @@ PAGE = """
 
 <script>
 const IS_ADMIN = __IS_ADMIN__;
+const COUNTRY_CODES = __COUNTRY_CODES_JSON__;
 
 /* ---------- أيقونات خطية (بدون إيموجي) ---------- */
 const ICONS = {
@@ -3686,6 +3719,10 @@ function renderAdmin() {
     '</div>' +
     '<label class="field-label">اسم الموقع</label>' +
     '<input id="siteNameInput" type="text" placeholder="واصل" maxlength="60">' +
+    '<label class="field-label">رمز الدولة الافتراضي لتسجيل الدخول</label>' +
+    '<select id="defaultCountrySelect">' + COUNTRY_CODES.map(function(c) {
+      return '<option value="' + c[0] + '">' + c[1] + '</option>';
+    }).join('') + '</select>' +
     '<button class="btn-submit" onclick="saveBranding()">حفظ الشعار والاسم</button>' +
     '<div id="brandingMsg" class="text-center text-[12px] font-bold mt-2"></div>' +
     '</div>' +
@@ -3713,6 +3750,7 @@ function renderAdmin() {
   });
   fetch('/admin/branding').then(r => r.json()).then(d => {
     document.getElementById('siteNameInput').value = d.site_name || '';
+    document.getElementById('defaultCountrySelect').value = d.default_country_code || '964';
     if (d.logo) {
       document.getElementById('logoPreview').innerHTML = '<img src="' + d.logo + '" alt="شعار الموقع">';
       document.getElementById('logoRemoveBtn').style.display = '';
@@ -3749,7 +3787,10 @@ function removeLogo() {
 }
 
 async function saveBranding() {
-  const body = { site_name: document.getElementById('siteNameInput').value.trim() };
+  const body = {
+    site_name: document.getElementById('siteNameInput').value.trim(),
+    default_country_code: document.getElementById('defaultCountrySelect').value
+  };
   if (pendingLogo !== undefined) body.logo = pendingLogo;
   const r = await fetch('/admin/branding', {
     method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)
