@@ -883,6 +883,15 @@ def send_to(driver, number, text, media_path=None):
         print(f"[حملة] لقيت {len(file_inputs)} عنصر رفع ملفات: {[fi.get_attribute('accept') for fi in file_inputs]}")
         media_input = next((fi for fi in file_inputs if "image" in (fi.get_attribute("accept") or "")), file_inputs[0])
         media_input.send_keys(media_path)
+        time.sleep(1.5)  # مهلة قصيرة حتى تنعكس معالجة الملف بواتساب قبل نلتقط دليل تشخيصي
+        try:
+            os.makedirs(UPLOADS_DIR, exist_ok=True)
+            driver.save_screenshot(os.path.join(UPLOADS_DIR, "_debug_after_file_select.png"))
+        except Exception:
+            pass
+        caption_candidates = driver.find_elements(By.XPATH, '//div[@contenteditable="true"][@data-tab]')
+        print(f"[حملة] عدد عناصر contenteditable[data-tab] بعد اختيار الملف: {len(caption_candidates)} "
+              f"(أكثر من 1 يعني الاختيار ملتبس - ممكن نكتب بصندوق المحادثة العادي بدل صندوق تعليق الصورة)")
         caption_box = WebDriverWait(driver, 25).until(
             EC.presence_of_element_located((By.XPATH, '//div[@contenteditable="true"][@data-tab]'))
         )
@@ -2361,6 +2370,18 @@ def debug(acc_id):
     if not acc or acc["driver"] is None:
         return "driver لسا ما بدأ", 503
     return Response(acc["driver"].get_screenshot_as_png(), mimetype="image/png")
+
+
+@app.route("/debug/media_attach_snapshot")
+@login_required
+@admin_required
+def debug_media_attach_snapshot():
+    """لقطة شاشة تُلتقط تلقائياً لحظة محاولة إرفاق صورة/ملف بحملة (send_to) - تشخيص مؤقت
+    لمشكلة "الصور ما ترسل". محصورة بالأدمن لأنها ممكن تكشف محتوى حملة مستخدم ثاني."""
+    path = os.path.join(UPLOADS_DIR, "_debug_after_file_select.png")
+    if not os.path.exists(path):
+        return "", 404
+    return Response(open(path, "rb").read(), mimetype="image/png")
 
 
 @app.route("/accounts/<acc_id>/status")
