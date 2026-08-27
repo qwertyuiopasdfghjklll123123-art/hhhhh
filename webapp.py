@@ -560,6 +560,9 @@ def start_account_driver(acc_id):
         {"source": "Object.defineProperty(navigator, 'webdriver', {get: () => undefined})"},
     )
     driver.get("https://web.whatsapp.com")
+    # نحدد سقف 30 ثانية لأي أمر سيلينيوم بعد هذا (بدل المهلة الافتراضية 120 ثانية) - لو صار
+    # المتصفح عالق (ضغط ذاكرة بالسيرفر مثلاً) نفشل بسرعة بدل ما نعلّق الطلب اللي يستخدمه لدقيقتين
+    driver.command_executor.set_timeout(30)
     accounts[acc_id]["driver"] = driver
 
 
@@ -573,7 +576,14 @@ def add_account(owner, name):
 
 def account_logged_in(acc):
     d = acc["driver"]
-    result = d is not None and len(d.find_elements(By.ID, "pane-side")) > 0
+    if d is None:
+        return False
+    try:
+        result = len(d.find_elements(By.ID, "pane-side")) > 0
+    except Exception:
+        # المتصفح ما استجاب (عالق أو انطفى) - نعتبره غير متصل بدل ما نخلي الاستثناء يوصل
+        # لطلب HTTP فيطلع خطأ 500 ويبقى المستخدم شايف الصفحة عالقة بالتحميل
+        result = False
     acc["_login_cache"] = result
     return result
 
