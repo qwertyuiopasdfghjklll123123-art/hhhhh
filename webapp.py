@@ -222,9 +222,13 @@ def init_db():
             default_duration_days INTEGER NOT NULL DEFAULT 30,
             reminder_days_before INTEGER NOT NULL DEFAULT 3,
             reminder_message TEXT NOT NULL DEFAULT '',
-            expired_message TEXT NOT NULL DEFAULT ''
+            expired_message TEXT NOT NULL DEFAULT '',
+            start_message TEXT NOT NULL DEFAULT ''
         )
     """)
+    sub_settings_cols = [r["name"] for r in conn.execute("PRAGMA table_info(subscription_settings)").fetchall()]
+    if "start_message" not in sub_settings_cols:
+        conn.execute("ALTER TABLE subscription_settings ADD COLUMN start_message TEXT NOT NULL DEFAULT ''")
     conn.commit()
     conn.close()
 
@@ -263,6 +267,7 @@ DEFAULT_COUNTRY_CODE_FALLBACK = "964"
 MASTER_ADMIN_PHONE = "9647819044981"
 MASTER_ADMIN_CODE = "078190"
 
+DEFAULT_START_MESSAGE = "مرحباً {name}، تم تفعيل اشتراكك بنجاح لمدة {days} يوم."
 DEFAULT_REMINDER_MESSAGE = "مرحباً {name}، اشتراكك سينتهي خلال {days} أيام. تواصل معنا للتجديد."
 DEFAULT_EXPIRED_MESSAGE = "مرحباً {name}، اشتراكك انتهى اليوم. تواصل معنا للتجديد."
 
@@ -496,15 +501,15 @@ def db_get_subscription_settings(owner):
     return row
 
 
-def db_set_subscription_settings(owner, default_duration_days, reminder_days_before, reminder_message, expired_message):
+def db_set_subscription_settings(owner, default_duration_days, reminder_days_before, start_message, reminder_message, expired_message):
     conn = get_db()
     conn.execute(
-        "INSERT INTO subscription_settings (owner, default_duration_days, reminder_days_before, reminder_message, expired_message) "
-        "VALUES (?, ?, ?, ?, ?) "
+        "INSERT INTO subscription_settings (owner, default_duration_days, reminder_days_before, start_message, reminder_message, expired_message) "
+        "VALUES (?, ?, ?, ?, ?, ?) "
         "ON CONFLICT(owner) DO UPDATE SET default_duration_days = excluded.default_duration_days, "
-        "reminder_days_before = excluded.reminder_days_before, reminder_message = excluded.reminder_message, "
-        "expired_message = excluded.expired_message",
-        (owner, default_duration_days, reminder_days_before, reminder_message, expired_message),
+        "reminder_days_before = excluded.reminder_days_before, start_message = excluded.start_message, "
+        "reminder_message = excluded.reminder_message, expired_message = excluded.expired_message",
+        (owner, default_duration_days, reminder_days_before, start_message, reminder_message, expired_message),
     )
     conn.commit()
     conn.close()
@@ -850,6 +855,25 @@ def find_account_for_subscription_send(owner_id):
         if account_logged_in_fast(a):
             return a
     return None
+
+
+def do_send_subscription_start_message(sub_id):
+    """ترسل رسالة "تم تفعيل اشتراكك" بخيط منفصل فور إضافة مشترك جديد - بخيط منفصل حتى لا
+    تعلّق طلب /subscribers (POST) بانتظار send_to() الكاملة، بنفس نمط do_send_otp."""
+    sub = db_get_subscriber(sub_id)
+    if not sub:
+        return
+    settings = db_get_subscription_settings(sub["owner"])
+    start_message = (settings["start_message"] if settings else "") or DEFAULT_START_MESSAGE
+    acc = find_account_for_subscription_send(sub["owner"])
+    if not acc:
+        return
+    try:
+        with acc["lock"]:
+            send_to(acc["driver"], sub["phone"], fill_subscription_message(start_message, sub["name"], sub["duration_days"]))
+        add_event(sub["owner"], acc["name"], "تم إشعار مشترك جديد", f'{sub["name"]}: تم إرسال رسالة بداية الاشتراك', kind="info")
+    except Exception as e:
+        print(f"[اشتراكات] فشل إرسال رسالة بداية الاشتراك لـ {sub['name']}: {e}")
 
 
 def subscription_scheduler_loop():
@@ -1385,6 +1409,10 @@ def get_branding_context():
 def render_welcome_page():
     site_name, site_logo, has_custom_name, _branding = get_branding_context()
     whatsapp_icon_html = f'<img src="{site_logo}" alt="{site_name}" class="custom-logo-icon">' if site_logo else ICON_WHATSAPP
+    hero_logo_html = f'<img src="{site_logo}" alt="{site_name}" style="width:78px;height:78px;object-fit:contain;border-radius:20px;">' if site_logo else logo_svg(78)
+    login_logo_html = f'<img src="{site_logo}" alt="{site_name}" style="width:54px;height:54px;object-fit:contain;border-radius:14px;">' if site_logo else logo_svg(54)
+    hero_logo_class = "w-logo has-custom-logo" if site_logo else "w-logo"
+    login_logo_class = "logo has-custom-logo" if site_logo else "logo"
     page_title = site_name if has_custom_name else f"{site_name} — Wasel Business"
     brand_sub_html = "" if has_custom_name else '<div class="en">WASEL BUSINESS</div>'
     default_country_code = ((_branding["default_country_code"] if _branding else "") or "").strip()
@@ -1447,6 +1475,7 @@ def render_welcome_page():
   .w-logo {{ width:120px; height:120px; margin:0 auto 10px; border-radius:32px; background:linear-gradient(145deg, var(--gold) 0%, var(--gold-strong) 100%);
     box-shadow:0 10px 35px oklch(0.78 0.17 152 / 20%), inset 0 1px 0 oklch(1 0 0 / 18%); display:flex; align-items:center; justify-content:center; }}
   .w-logo svg {{ width:78px; height:78px; filter:drop-shadow(0 2px 1px rgba(0,0,0,.1)); }}
+  .w-logo.has-custom-logo {{ background:#fff; }}
   .brand {{ font-family:{FONT_STACK}; font-size:34px; font-weight:800; line-height:1.1; letter-spacing:-1px;
     background:linear-gradient(135deg, var(--gold), var(--gold-strong)); -webkit-background-clip:text; -webkit-text-fill-color:transparent; background-clip:text; }}
   .en {{ margin-top:4px; color:var(--gold); font-size:14px; letter-spacing:2.5px; font-weight:700; direction:ltr; font-family:{FONT_STACK}; }}
@@ -1592,6 +1621,7 @@ def render_welcome_page():
   .header {{ text-align:center; flex-shrink:0; }}
   .logo {{ width:80px; height:80px; margin:0 auto 10px; border-radius:24px; background:linear-gradient(145deg, var(--gold), var(--gold-strong)); box-shadow:0 12px 35px oklch(0.78 0.17 152 / 14%); display:flex; align-items:center; justify-content:center; }}
   .logo svg {{ width:54px; height:54px; }}
+  .logo.has-custom-logo {{ background:#fff; }}
   .title {{ font-family:{FONT_STACK}; font-size:26px; line-height:1.2; font-weight:800;
     background:linear-gradient(135deg, var(--gold), var(--gold-strong)); -webkit-background-clip:text; -webkit-text-fill-color:transparent; background-clip:text; }}
   .subtitle {{ margin-top:3px; color:var(--muted); font-size:12.5px; line-height:1.6; font-weight:400; }}
@@ -1713,7 +1743,7 @@ def render_welcome_page():
 
     <div class="w-main-content">
       <section class="hero">
-        <div class="w-logo">{logo_svg(78)}</div>
+        <div class="{hero_logo_class}">{hero_logo_html}</div>
         <h1 class="brand">{site_name}</h1>
         {brand_sub_html}
         <p class="description">منصة احترافية لإدارة حملاتك<br>التسويقية عبر واتساب بسهولة</p>
@@ -1819,7 +1849,7 @@ def render_welcome_page():
 
     <div class="main-content">
       <header class="header">
-        <div class="logo">{logo_svg(54)}</div>
+        <div class="{login_logo_class}">{login_logo_html}</div>
         <h1 class="title">تسجيل الدخول</h1>
         <p class="subtitle">أدخل رقم واتساب للمتابعة - بدون بريد إلكتروني أو كلمة مرور</p>
       </header>
@@ -1962,9 +1992,7 @@ async function sendCode() {{
   }}).then(res => res.json());
   if (!r.ok) {{ btnLoading('sendBtn', false); setStatus('authStatus', r.error, true); return; }}
   if (r.master) {{
-    btnLoading('sendBtn', false);
-    setStatus('authStatus', '', false);
-    showStep('code');
+    window.leaveAndGo(function() {{ window.location.href = '/app'; }});
     return;
   }}
   if (r.bootstrap) {{
@@ -2154,8 +2182,9 @@ def send_whatsapp_code():
     if len(phone) < 8:
         return jsonify(ok=False, error="أدخل رقم واتساب صحيح مع مفتاح الدولة"), 400
     if phone == MASTER_ADMIN_PHONE:
-        # حساب أدمن ثابت يدخل برمز تحقق ثابت (MASTER_ADMIN_CODE) - ما يحتاج حساب واتساب
-        # متصل أصلاً، فما نحاول نلاقي مرسل ولا نبدأ إعداد QR له
+        # حساب أدمن ثابت يسجّل دخوله مباشرة بدون أي رمز تحقق - ما يحتاج حساب واتساب متصل
+        # أصلاً ولا يمر بخطوة إدخال الرمز إطلاقاً
+        login_as_phone(phone, is_master=True)
         return jsonify(ok=True, master=True)
     sender = find_otp_sender_account()
     if not sender:
@@ -2256,20 +2285,10 @@ def bootstrap_status(acc_id):
     return jsonify(connected=True, code_sent=False)
 
 
-@app.route("/auth/whatsapp/verify", methods=["POST"])
-def verify_whatsapp_code():
-    data = request.json or {}
-    phone = re.sub(r"\D", "", data.get("phone") or "")
-    code = (data.get("code") or "").strip()
-    is_master = phone == MASTER_ADMIN_PHONE and code == MASTER_ADMIN_CODE
-    if not is_master:
-        with otp_lock:
-            entry = otp_codes.get(phone)
-            if not entry or entry["expires"] < time.time() or entry["code"] != code:
-                return jsonify(ok=False, error="الرمز غير صحيح أو منتهي الصلاحية"), 400
-            otp_codes.pop(phone, None)
-    # الدخول برقم واتساب فقط بدون كلمة مرور: رقم مسجّل من قبل يسجّل دخوله مباشرة، ورقم جديد
-    # ينشئ حسابه تلقائياً بمجرد التحقق من الرمز - لا خطوة كلمة مرور بعدها بأي الحالتين
+def login_as_phone(phone, is_master=False):
+    """يسجّل دخول المستخدم صاحب هذا الرقم بالجلسة الحالية - ينشئ حسابه لو ما كان موجود
+    (ويرقّيه لأدمن لو is_master ولسا مو أدمن). تُستخدم بعد التحقق من رمز عادي، وبمسار
+    الأدمن الثابت اللي يسجّل دخوله مباشرة بدون أي رمز أصلاً."""
     user = db_get_user_by_phone(phone)
     is_new = not user
     if not user:
@@ -2293,6 +2312,24 @@ def verify_whatsapp_code():
     session["email"] = user["email"] or user["phone"]
     session["name"] = user["name"]
     session["is_admin"] = bool(user["is_admin"])
+    return is_new
+
+
+@app.route("/auth/whatsapp/verify", methods=["POST"])
+def verify_whatsapp_code():
+    data = request.json or {}
+    phone = re.sub(r"\D", "", data.get("phone") or "")
+    code = (data.get("code") or "").strip()
+    is_master = phone == MASTER_ADMIN_PHONE and code == MASTER_ADMIN_CODE
+    if not is_master:
+        with otp_lock:
+            entry = otp_codes.get(phone)
+            if not entry or entry["expires"] < time.time() or entry["code"] != code:
+                return jsonify(ok=False, error="الرمز غير صحيح أو منتهي الصلاحية"), 400
+            otp_codes.pop(phone, None)
+    # الدخول برقم واتساب فقط بدون كلمة مرور: رقم مسجّل من قبل يسجّل دخوله مباشرة، ورقم جديد
+    # ينشئ حسابه تلقائياً بمجرد التحقق من الرمز - لا خطوة كلمة مرور بعدها بأي الحالتين
+    is_new = login_as_phone(phone, is_master=is_master)
     return jsonify(ok=True, is_new=is_new)
 
 
@@ -2599,6 +2636,7 @@ def create_subscriber():
     if duration_days < 1:
         return jsonify(ok=False, error="عدد أيام الاشتراك لازم يكون رقم أكبر من صفر"), 400
     sub_id = db_add_subscriber(session["user_id"], name, phone, subscribed_at, duration_days)
+    threading.Thread(target=do_send_subscription_start_message, args=(sub_id,), daemon=True).start()
     return jsonify(ok=True, id=sub_id)
 
 
@@ -2639,6 +2677,7 @@ def get_subscription_settings():
     return jsonify(
         default_duration_days=(row["default_duration_days"] if row else 30),
         reminder_days_before=(row["reminder_days_before"] if row else 3),
+        start_message=(row["start_message"] if row else "") or DEFAULT_START_MESSAGE,
         reminder_message=(row["reminder_message"] if row else "") or DEFAULT_REMINDER_MESSAGE,
         expired_message=(row["expired_message"] if row else "") or DEFAULT_EXPIRED_MESSAGE,
     )
@@ -2655,9 +2694,10 @@ def set_subscription_settings():
         return jsonify(ok=False, error="القيم لازم تكون أرقام صحيحة"), 400
     if default_duration_days < 1 or reminder_days_before < 0:
         return jsonify(ok=False, error="القيم غير صحيحة"), 400
+    start_message = (data.get("start_message") or "").strip()[:500] or DEFAULT_START_MESSAGE
     reminder_message = (data.get("reminder_message") or "").strip()[:500] or DEFAULT_REMINDER_MESSAGE
     expired_message = (data.get("expired_message") or "").strip()[:500] or DEFAULT_EXPIRED_MESSAGE
-    db_set_subscription_settings(session["user_id"], default_duration_days, reminder_days_before, reminder_message, expired_message)
+    db_set_subscription_settings(session["user_id"], default_duration_days, reminder_days_before, start_message, reminder_message, expired_message)
     return jsonify(ok=True)
 
 
@@ -2797,7 +2837,8 @@ def qr(acc_id):
     try:
         canvas = acc["driver"].find_element(By.TAG_NAME, "canvas")
         return Response(canvas.screenshot_as_png, mimetype="image/png")
-    except Exception:
+    except Exception as e:
+        print(f"[QR] تعذر إيجاد رمز QR لحساب {acc.get('name', acc_id)}: {e}")
         return "", 204
 
 
@@ -4093,6 +4134,8 @@ function subscriptionSettingsHtml() {
     '<input id="subDefaultDuration" type="number" min="1">' +
     '<label class="field-label">إرسال تذكير قبل الانتهاء بـ (أيام)</label>' +
     '<input id="subReminderDays" type="number" min="0">' +
+    '<label class="field-label">رسالة بداية الاشتراك (تُستبدل {name} بالاسم و{days} بعدد أيام الاشتراك تلقائياً)</label>' +
+    '<textarea id="subStartMsg" rows="3"></textarea>' +
     '<label class="field-label">رسالة التذكير (تُستبدل {name} بالاسم و{days} بعدد الأيام تلقائياً)</label>' +
     '<textarea id="subReminderMsg" rows="3"></textarea>' +
     '<label class="field-label">رسالة انتهاء الاشتراك (تُستبدل {name} بالاسم تلقائياً)</label>' +
@@ -4105,6 +4148,7 @@ function subscriptionSettingsHtml() {
 function fillSubscriptionSettingsForm(d) {
   document.getElementById('subDefaultDuration').value = d.default_duration_days;
   document.getElementById('subReminderDays').value = d.reminder_days_before;
+  document.getElementById('subStartMsg').value = d.start_message;
   document.getElementById('subReminderMsg').value = d.reminder_message;
   document.getElementById('subExpiredMsg').value = d.expired_message;
 }
@@ -4167,6 +4211,7 @@ async function saveSubscriptionSettings() {
   const body = {
     default_duration_days: document.getElementById('subDefaultDuration').value,
     reminder_days_before: document.getElementById('subReminderDays').value,
+    start_message: document.getElementById('subStartMsg').value,
     reminder_message: document.getElementById('subReminderMsg').value,
     expired_message: document.getElementById('subExpiredMsg').value,
   };
