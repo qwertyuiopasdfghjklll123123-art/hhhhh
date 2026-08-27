@@ -29,6 +29,7 @@ import os
 import re
 import secrets
 import shutil
+import signal
 import sqlite3
 import threading
 import time
@@ -1157,10 +1158,47 @@ def restore_one_account(acc_id):
         watch_account(acc_id)
 
 
+def kill_orphaned_chrome_processes(known_ids):
+    """يقتل عمليات كروم/chromedriver يتيمة من حسابات واتساب قديمة ما عادت موجودة بقاعدة
+    البيانات. تصير هيك لو السيرفر انوقف بأمر قاسي (kill -9 أو fuser -k، وكلاهما يرسل
+    SIGKILL اللي ما ينلتقط أبداً بأي كود تنظيف بايثون) بدل إيقاف نظيف - تضل عمليات كروم
+    شغالة للأبد بذاكرة السيرفر بدون ما يعرف عنها أي بروسس بايثون جديد. تأكدنا من هذا فعلياً
+    بمخرجات ps حقيقية من VPS المستخدم: 6 عمليات كروم قديمة (لحسابات محذوفة/قديمة) كانت تاكل
+    وحدها نحو 3 غيغابايت من أصل 3.8 غيغابايت رام الجهاز، وهذا السبب الحقيقي وراء Swap
+    الممتلئة 100% وفشل رمز QR بالظهور. تفحص فقط عمليات كروم تشير لمجلد SESSIONS_ROOT الخاص
+    بهذا التطبيق تحديداً (عبر cmdline)، حتى ما تلمس أي عملية ثانية على نفس السيرفر."""
+    if not os.path.isdir("/proc"):
+        return
+    pattern = re.compile(r"wa_sessions/([^/\s]+)")
+    killed_ids = set()
+    for entry in os.listdir("/proc"):
+        if not entry.isdigit():
+            continue
+        try:
+            with open(f"/proc/{entry}/comm", encoding="utf-8", errors="replace") as f:
+                if "chrom" not in f.read().lower():
+                    continue
+            with open(f"/proc/{entry}/cmdline", "rb") as f:
+                cmdline = f.read().decode("utf-8", "replace").replace("\x00", " ")
+        except (FileNotFoundError, ProcessLookupError, PermissionError):
+            continue
+        m = pattern.search(cmdline)
+        if not m or m.group(1) in known_ids:
+            continue
+        try:
+            os.kill(int(entry), signal.SIGKILL)
+            killed_ids.add(m.group(1))
+        except (ProcessLookupError, PermissionError):
+            pass
+    if killed_ids:
+        print(f"[تنظيف] قتلت عمليات كروم يتيمة من {len(killed_ids)} حساب قديم ما عاد موجود: {', '.join(sorted(killed_ids))}")
+
+
 def restore_wa_accounts():
     """يستعيد كل حسابات واتساب المحفوظة بقاعدة البيانات عند إقلاع السيرفر، حتى لا يحتاج
     المستخدم يضيف حسابه ويمسح QR من جديد بعد كل إعادة تشغيل أو تحديث كود."""
     rows = db_list_wa_accounts()
+    kill_orphaned_chrome_processes({row["id"] for row in rows})
     for row in rows:
         acc_id = row["id"]
         accounts[acc_id] = new_account_entry(acc_id, row["owner"], row["name"])
