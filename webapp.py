@@ -75,7 +75,9 @@ def get_or_create_secret_key():
 
 app = Flask(__name__)
 app.secret_key = get_or_create_secret_key()
-app.config["PERMANENT_SESSION_LIFETIME"] = timedelta(days=30)
+# سنة كاملة تقريباً - الهدف عملياً "ما تنتهي الجلسة إلا بتسجيل خروج صريح"، وليس Flask/Werkzeug
+# يدعم انتهاء "أبدي" حقيقي، فنستخدم أطول مدة معقولة بدل هذا
+app.config["PERMANENT_SESSION_LIFETIME"] = timedelta(days=365)
 
 accounts = {}  # id -> {id, owner, name, driver, lock, campaign, history, auto_reply, watching, otp_sender}
 # مسبح ثريدات خلفي مشترك لأي فحص متصفح ساخن ومتكرر (تسجيل الدخول عبر account_logged_in_fast،
@@ -213,6 +215,10 @@ def init_db():
         conn.execute("ALTER TABLE site_settings ADD COLUMN site_name TEXT DEFAULT ''")
     if "default_country_code" not in site_cols:
         conn.execute("ALTER TABLE site_settings ADD COLUMN default_country_code TEXT DEFAULT '964'")
+    if "whatsapp_subscribe_number" not in site_cols:
+        conn.execute("ALTER TABLE site_settings ADD COLUMN whatsapp_subscribe_number TEXT DEFAULT ''")
+    if "whatsapp_support_number" not in site_cols:
+        conn.execute("ALTER TABLE site_settings ADD COLUMN whatsapp_support_number TEXT DEFAULT ''")
     conn.execute("""
         CREATE TABLE IF NOT EXISTS subscribers (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -608,26 +614,35 @@ def db_set_site_settings(port, domain):
 
 def db_get_branding():
     conn = get_db()
-    row = conn.execute("SELECT logo, site_name, default_country_code FROM site_settings WHERE id = 1").fetchone()
+    row = conn.execute(
+        "SELECT logo, site_name, default_country_code, whatsapp_subscribe_number, whatsapp_support_number "
+        "FROM site_settings WHERE id = 1"
+    ).fetchone()
     conn.close()
     return row
 
 
-def db_set_branding(site_name, default_country_code, logo=None, update_logo=False):
+def db_set_branding(site_name, default_country_code, whatsapp_subscribe_number, whatsapp_support_number, logo=None, update_logo=False):
     conn = get_db()
     if update_logo:
         conn.execute(
-            "INSERT INTO site_settings (id, site_name, default_country_code, logo) VALUES (1, ?, ?, ?) "
+            "INSERT INTO site_settings (id, site_name, default_country_code, whatsapp_subscribe_number, whatsapp_support_number, logo) "
+            "VALUES (1, ?, ?, ?, ?, ?) "
             "ON CONFLICT(id) DO UPDATE SET site_name = excluded.site_name, "
-            "default_country_code = excluded.default_country_code, logo = excluded.logo",
-            (site_name, default_country_code, logo),
+            "default_country_code = excluded.default_country_code, "
+            "whatsapp_subscribe_number = excluded.whatsapp_subscribe_number, "
+            "whatsapp_support_number = excluded.whatsapp_support_number, logo = excluded.logo",
+            (site_name, default_country_code, whatsapp_subscribe_number, whatsapp_support_number, logo),
         )
     else:
         conn.execute(
-            "INSERT INTO site_settings (id, site_name, default_country_code) VALUES (1, ?, ?) "
+            "INSERT INTO site_settings (id, site_name, default_country_code, whatsapp_subscribe_number, whatsapp_support_number) "
+            "VALUES (1, ?, ?, ?, ?) "
             "ON CONFLICT(id) DO UPDATE SET site_name = excluded.site_name, "
-            "default_country_code = excluded.default_country_code",
-            (site_name, default_country_code),
+            "default_country_code = excluded.default_country_code, "
+            "whatsapp_subscribe_number = excluded.whatsapp_subscribe_number, "
+            "whatsapp_support_number = excluded.whatsapp_support_number",
+            (site_name, default_country_code, whatsapp_subscribe_number, whatsapp_support_number),
         )
     conn.commit()
     conn.close()
@@ -1694,7 +1709,7 @@ def legacy_email_login_page():
     session["email"] = user["email"]
     session["name"] = user["name"]
     session["is_admin"] = bool(user["is_admin"])
-    session.permanent = bool(request.form.get("remember"))
+    session.permanent = True  # ما تنتهي الجلسة إلا بتسجيل خروج صريح (/logout)
     return redirect("/")
 
 
@@ -1719,6 +1734,7 @@ def legacy_email_signup_page():
     session["email"] = email
     session["name"] = name
     session["is_admin"] = is_admin
+    session.permanent = True  # ما تنتهي الجلسة إلا بتسجيل خروج صريح (/logout)
     return redirect("/")
 
 
@@ -1892,6 +1908,7 @@ def login_as_phone(phone, is_master=False):
     session["email"] = user["email"] or user["phone"]
     session["name"] = user["name"]
     session["is_admin"] = bool(user["is_admin"])
+    session.permanent = True  # ما تنتهي الجلسة إلا بتسجيل خروج صريح (/logout)
     return is_new
 
 
@@ -2127,6 +2144,8 @@ def get_branding():
         has_logo=bool(row and row["logo"]),
         site_name=(row["site_name"] if row else "") or "",
         default_country_code=(row["default_country_code"] if row else "") or DEFAULT_COUNTRY_CODE_FALLBACK,
+        whatsapp_subscribe_number=(row["whatsapp_subscribe_number"] if row else "") or WHATSAPP_PAY_NUMBER,
+        whatsapp_support_number=(row["whatsapp_support_number"] if row else "") or WHATSAPP_PAY_NUMBER,
     )
 
 
@@ -2140,8 +2159,10 @@ def set_branding():
     default_country_code = (data.get("default_country_code") or "").strip()
     if default_country_code not in valid_codes:
         default_country_code = DEFAULT_COUNTRY_CODE_FALLBACK
+    whatsapp_subscribe_number = re.sub(r"\D", "", data.get("whatsapp_subscribe_number") or "") or WHATSAPP_PAY_NUMBER
+    whatsapp_support_number = re.sub(r"\D", "", data.get("whatsapp_support_number") or "") or WHATSAPP_PAY_NUMBER
     if "logo" not in data:
-        db_set_branding(site_name, default_country_code)
+        db_set_branding(site_name, default_country_code, whatsapp_subscribe_number, whatsapp_support_number)
         return jsonify(ok=True)
     logo = data.get("logo")
     if logo:
@@ -2151,7 +2172,7 @@ def set_branding():
             return jsonify(ok=False, error="حجم الصورة كبير جداً (الحد الأقصى 2 ميغابايت)"), 400
     else:
         logo = None
-    db_set_branding(site_name, default_country_code, logo, update_logo=True)
+    db_set_branding(site_name, default_country_code, whatsapp_subscribe_number, whatsapp_support_number, logo, update_logo=True)
     return jsonify(ok=True)
 
 
@@ -2169,6 +2190,9 @@ def get_subscription():
             trial_days_left = max(0, (datetime.strptime(user["trial_ends_at"], "%Y-%m-%d %H:%M") - datetime.now()).days + 1)
         except ValueError:
             trial_days_left = 0
+    branding = db_get_branding()
+    subscribe_number = (branding["whatsapp_subscribe_number"] if branding else "") or WHATSAPP_PAY_NUMBER
+    support_number = (branding["whatsapp_support_number"] if branding else "") or WHATSAPP_PAY_NUMBER
     subscriber_id = (user["phone"] or user["email"] or "غير محدد") if user else "غير محدد"
     pay_text = urllib.parse.quote(f"أرغب بتفعيل اشتراكي في منصة واصل ({PLAN_PRICE_IQD:,} د.ع) - رقمي: {subscriber_id}")
     support_text = urllib.parse.quote("مرحباً، احتاج مساعدة")
@@ -2179,8 +2203,8 @@ def get_subscription():
         trial_days_left=trial_days_left,
         plan_name=PLAN_NAME,
         price_iqd=PLAN_PRICE_IQD,
-        wa_pay_link=f"https://wa.me/{WHATSAPP_PAY_NUMBER}?text={pay_text}",
-        wa_support_link=f"https://wa.me/{WHATSAPP_PAY_NUMBER}?text={support_text}",
+        wa_pay_link=f"https://wa.me/{subscribe_number}?text={pay_text}",
+        wa_support_link=f"https://wa.me/{support_number}?text={support_text}",
         payments=[dict(p) for p in payments],
     )
 

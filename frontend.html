@@ -1122,6 +1122,16 @@ async function submitName() {
   </div>
 </div>
 
+<div class="confirm-overlay" id="deleteMyDataSuccessOverlay" onclick="closeDeleteMyDataSuccessSheet()"></div>
+<div class="confirm-sheet" id="deleteMyDataSuccessSheet">
+  <div class="sheet-handle"></div>
+  <div class="sheet-title">✅ تم الحذف</div>
+  <div class="sheet-message">انحذفت بياناتك بنجاح.</div>
+  <div class="sheet-actions">
+    <button class="btn-confirm-gold" onclick="closeDeleteMyDataSuccessSheet()"><i class="fas fa-check"></i> تمام</button>
+  </div>
+</div>
+
 <div class="body">
   <main class="content"><div class="content-inner" id="content"></div></main>
 </div>
@@ -1331,20 +1341,15 @@ function renderActiveSection(myGen) {
 async function render() {
   gen++;
   const myGen = gen;
-  const hasCache = accounts.length > 0;
+  // نعرض المحتوى فوراً بأي بيانات متوفرة حالياً (حتى لو فاضية بأول تحميل) بدل ما ننتظر طلب
+  // /accounts يخلص - نفس الحسابات المخزنة تتحدث بالخلفية وتعيد الرسم لو لسا نفس الجيل الحالي
   const loadPromise = loadAccounts();
-  if (!hasCache) {
-    await loadPromise;
-    if (myGen !== gen) return;
-  }
   renderActiveSection(myGen);
   fadeContent();
-  if (hasCache) {
-    loadPromise.then(function() {
-      if (myGen !== gen) return;
-      renderActiveSection(myGen);
-    });
-  }
+  loadPromise.then(function() {
+    if (myGen !== gen) return;
+    renderActiveSection(myGen);
+  });
 }
 
 /* ---------- قسم الرئيسية ---------- */
@@ -1558,12 +1563,21 @@ function closeDeleteMyDataSheet() {
   document.getElementById('deleteMyDataOverlay').classList.remove('show');
   document.getElementById('deleteMyDataSheet').classList.remove('show');
 }
+function openDeleteMyDataSuccessSheet() {
+  document.getElementById('deleteMyDataSuccessOverlay').classList.add('show');
+  document.getElementById('deleteMyDataSuccessSheet').classList.add('show');
+}
+function closeDeleteMyDataSuccessSheet() {
+  document.getElementById('deleteMyDataSuccessOverlay').classList.remove('show');
+  document.getElementById('deleteMyDataSuccessSheet').classList.remove('show');
+}
 async function confirmDeleteMyData() {
   closeDeleteMyDataSheet();
   const r = await fetch('/settings/delete_my_data', { method: 'POST' }).then(res => res.json());
   accounts = [];
   activeId = null;
-  alert(r.ok ? 'انحذفت بياناتك بنجاح.' : 'صار خطأ، حاول مرة ثانية.');
+  if (r.ok) openDeleteMyDataSuccessSheet();
+  else alert('صار خطأ، حاول مرة ثانية.');
   render();
 }
 
@@ -2014,6 +2028,10 @@ function renderAdmin() {
     '<select id="defaultCountrySelect">' + COUNTRY_CODES.map(function(c) {
       return '<option value="' + c[0] + '">' + c[1] + '</option>';
     }).join('') + '</select>' +
+    '<label class="field-label">رقم واتساب تفعيل الاشتراك (يستقبل طلبات الاشتراك)</label>' +
+    '<input id="whatsappSubscribeInput" type="tel" dir="ltr" placeholder="9647xxxxxxxxx">' +
+    '<label class="field-label">رقم واتساب الدعم الفني (يستقبل طلبات المساعدة)</label>' +
+    '<input id="whatsappSupportInput" type="tel" dir="ltr" placeholder="9647xxxxxxxxx">' +
     '<button class="btn-submit" onclick="saveBranding()">حفظ الشعار والاسم</button>' +
     '<div id="brandingMsg" class="text-center text-[12px] font-bold mt-2"></div>' +
     '</div>' +
@@ -2029,6 +2047,8 @@ function renderAdmin() {
   fetch('/admin/branding').then(r => r.json()).then(d => {
     document.getElementById('siteNameInput').value = d.site_name || '';
     document.getElementById('defaultCountrySelect').value = d.default_country_code || '964';
+    document.getElementById('whatsappSubscribeInput').value = d.whatsapp_subscribe_number || '';
+    document.getElementById('whatsappSupportInput').value = d.whatsapp_support_number || '';
     if (d.has_logo) {
       document.getElementById('logoPreview').innerHTML = '<img src="/branding/logo?t=' + Date.now() + '" alt="شعار الموقع">';
       document.getElementById('logoRemoveBtn').style.display = '';
@@ -2067,7 +2087,9 @@ function removeLogo() {
 async function saveBranding() {
   const body = {
     site_name: document.getElementById('siteNameInput').value.trim(),
-    default_country_code: document.getElementById('defaultCountrySelect').value
+    default_country_code: document.getElementById('defaultCountrySelect').value,
+    whatsapp_subscribe_number: document.getElementById('whatsappSubscribeInput').value.trim(),
+    whatsapp_support_number: document.getElementById('whatsappSupportInput').value.trim()
   };
   if (pendingLogo !== undefined) body.logo = pendingLogo;
   const r = await fetch('/admin/branding', {
