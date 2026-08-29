@@ -2032,12 +2032,29 @@ function renderAdmin() {
     '<input id="whatsappSubscribeInput" type="tel" dir="ltr" placeholder="9647xxxxxxxxx">' +
     '<label class="field-label">رقم واتساب الدعم الفني (يستقبل طلبات المساعدة)</label>' +
     '<input id="whatsappSupportInput" type="tel" dir="ltr" placeholder="9647xxxxxxxxx">' +
+    '<label class="field-label">سعر الاشتراك الشهري (د.ع)</label>' +
+    '<input id="planPriceInput" type="number" min="0" placeholder="60000">' +
     '<button class="btn-submit" onclick="saveBranding()">حفظ الشعار والاسم</button>' +
     '<div id="brandingMsg" class="text-center text-[12px] font-bold mt-2"></div>' +
     '</div>' +
     '<div class="card">' +
     '<div class="card-header"><h4>' + icon('users', 14) + ' العملاء</h4></div>' +
     '<div id="customersBox">' + (cc ? customersHtml(cc) : '<div class="text-muted text-[11px]">جارِ التحميل...</div>') + '</div>' +
+    '</div>' +
+    '<div class="card">' +
+    '<div class="card-header"><h4>' + icon('campaigns', 14) + ' إرسال إعلان لمستخدمي التطبيق</h4></div>' +
+    '<label class="field-label">الحساب المُرسِل</label>' +
+    accountSelectHtml('switchAnnouncementAccount') +
+    '<label class="field-label">نص الإعلان</label>' +
+    '<textarea id="announcementText" rows="4" placeholder="نص الإعلان اللي يوصل لكل مستخدمي التطبيق..."></textarea>' +
+    '<label class="field-label">صورة أو فيديو (اختياري)</label>' +
+    '<input type="file" id="announcementMedia" accept="image/*,video/*">' +
+    '<label class="field-label">الفاصل الزمني بين الصورة والنص (بالثواني)</label>' +
+    '<input id="announcementMediaDelay" type="number" min="1" value="2">' +
+    '<label class="field-label">الفاصل الزمني بين كل مستخدم والثاني (بالثواني)</label>' +
+    '<input id="announcementDelay" type="number" min="1" value="15">' +
+    '<button class="btn-submit" onclick="sendAnnouncement()">' + icon('rocket', 14) + ' إرسال للجميع</button>' +
+    '<div id="announcementMsg" class="text-center text-[12px] font-bold mt-2"></div>' +
     '</div>' +
     '<div class="card">' +
     '<div class="card-header"><h4>' + icon('payments', 14) + ' طلبات الدفع بانتظار المراجعة</h4></div>' +
@@ -2049,6 +2066,7 @@ function renderAdmin() {
     document.getElementById('defaultCountrySelect').value = d.default_country_code || '964';
     document.getElementById('whatsappSubscribeInput').value = d.whatsapp_subscribe_number || '';
     document.getElementById('whatsappSupportInput').value = d.whatsapp_support_number || '';
+    document.getElementById('planPriceInput').value = d.plan_price_iqd || '';
     if (d.has_logo) {
       document.getElementById('logoPreview').innerHTML = '<img src="/branding/logo?t=' + Date.now() + '" alt="شعار الموقع">';
       document.getElementById('logoRemoveBtn').style.display = '';
@@ -2089,7 +2107,8 @@ async function saveBranding() {
     site_name: document.getElementById('siteNameInput').value.trim(),
     default_country_code: document.getElementById('defaultCountrySelect').value,
     whatsapp_subscribe_number: document.getElementById('whatsappSubscribeInput').value.trim(),
-    whatsapp_support_number: document.getElementById('whatsappSupportInput').value.trim()
+    whatsapp_support_number: document.getElementById('whatsappSupportInput').value.trim(),
+    plan_price_iqd: document.getElementById('planPriceInput').value.trim()
   };
   if (pendingLogo !== undefined) body.logo = pendingLogo;
   const r = await fetch('/admin/branding', {
@@ -2155,10 +2174,14 @@ function customersHtml(rows) {
     ? rows.map(u => {
         const contact = u.email || u.phone || '—';
         const label = u.name ? (u.name + ' · ' + contact) : contact;
+        const action = u.plan_active
+          ? '<button class="btn-outline btn-small" style="color:#dc2626;border-color:rgba(220,38,38,.3)" onclick="toggleCustomerPlan(' + u.id + ', false)">إلغاء الاشتراك</button>'
+          : '<span class="flex items-center gap-1">' +
+              '<input type="number" min="1" value="30" id="planDays-' + u.id + '" title="عدد أيام الاشتراك" style="width:52px;height:32px;padding:0 4px;font-size:11px;text-align:center">' +
+              '<button class="btn-outline btn-small" onclick="toggleCustomerPlan(' + u.id + ', true)">تفعيل</button>' +
+            '</span>';
         return '<div class="history-row"><span class="flex items-center gap-2">' + avatarHtml(label, String(u.id)) +
-        '<span>' + label + '</span></span>' + customerStatusPill(u) +
-        '<button class="btn-outline btn-small" onclick="toggleCustomerPlan(' + u.id + ', ' + (u.plan_active ? 'false' : 'true') + ')">' +
-        (u.plan_active ? 'إلغاء' : 'تفعيل 30 يوم') + '</button></div>';
+        '<span>' + label + '</span></span>' + customerStatusPill(u) + action + '</div>';
       }).join('')
     : '<div class="text-muted text-[11px]">ما فيه عملاء بعد</div>';
 }
@@ -2170,9 +2193,33 @@ async function loadCustomers() {
   if (box) box.innerHTML = customersHtml(rows);
 }
 
+function switchAnnouncementAccount(id) { activeId = id; }
+
+async function sendAnnouncement() {
+  const msgEl = document.getElementById('announcementMsg');
+  const text = document.getElementById('announcementText').value.trim();
+  if (!activeId) { msgEl.innerText = 'ضيف حساب واتساب متصل أول'; return; }
+  if (!text) { msgEl.innerText = 'اكتب نص الإعلان أول'; return; }
+  const form = new FormData();
+  form.append('text', text);
+  form.append('delay', document.getElementById('announcementDelay').value || 15);
+  form.append('media_delay', document.getElementById('announcementMediaDelay').value || 2);
+  const mediaFile = document.getElementById('announcementMedia').files[0];
+  if (mediaFile) form.append('media_file', mediaFile);
+  msgEl.innerText = 'جارِ الإرسال...';
+  const r = await fetch('/admin/announcement/' + activeId, { method: 'POST', body: form }).then(res => res.json());
+  msgEl.innerText = r.ok ? ('جارِ الإرسال لـ ' + r.total + ' مستخدم') : ('فشل: ' + (r.error || ''));
+}
+
 async function toggleCustomerPlan(userId, active) {
+  const body = { active: active };
+  if (active) {
+    const daysInput = document.getElementById('planDays-' + userId);
+    const days = parseInt(daysInput && daysInput.value, 10);
+    body.days = days > 0 ? days : 30;
+  }
   await fetch('/admin/customers/' + userId + '/plan', {
-    method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({active: active})
+    method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)
   });
   loadCustomers();
 }

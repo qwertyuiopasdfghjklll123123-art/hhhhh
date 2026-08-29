@@ -219,6 +219,8 @@ def init_db():
         conn.execute("ALTER TABLE site_settings ADD COLUMN whatsapp_subscribe_number TEXT DEFAULT ''")
     if "whatsapp_support_number" not in site_cols:
         conn.execute("ALTER TABLE site_settings ADD COLUMN whatsapp_support_number TEXT DEFAULT ''")
+    if "plan_price_iqd" not in site_cols:
+        conn.execute("ALTER TABLE site_settings ADD COLUMN plan_price_iqd INTEGER")
     conn.execute("""
         CREATE TABLE IF NOT EXISTS subscribers (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -615,34 +617,36 @@ def db_set_site_settings(port, domain):
 def db_get_branding():
     conn = get_db()
     row = conn.execute(
-        "SELECT logo, site_name, default_country_code, whatsapp_subscribe_number, whatsapp_support_number "
+        "SELECT logo, site_name, default_country_code, whatsapp_subscribe_number, whatsapp_support_number, plan_price_iqd "
         "FROM site_settings WHERE id = 1"
     ).fetchone()
     conn.close()
     return row
 
 
-def db_set_branding(site_name, default_country_code, whatsapp_subscribe_number, whatsapp_support_number, logo=None, update_logo=False):
+def db_set_branding(site_name, default_country_code, whatsapp_subscribe_number, whatsapp_support_number, plan_price_iqd, logo=None, update_logo=False):
     conn = get_db()
     if update_logo:
         conn.execute(
-            "INSERT INTO site_settings (id, site_name, default_country_code, whatsapp_subscribe_number, whatsapp_support_number, logo) "
+            "INSERT INTO site_settings (id, site_name, default_country_code, whatsapp_subscribe_number, whatsapp_support_number, plan_price_iqd, logo) "
+            "VALUES (1, ?, ?, ?, ?, ?, ?) "
+            "ON CONFLICT(id) DO UPDATE SET site_name = excluded.site_name, "
+            "default_country_code = excluded.default_country_code, "
+            "whatsapp_subscribe_number = excluded.whatsapp_subscribe_number, "
+            "whatsapp_support_number = excluded.whatsapp_support_number, "
+            "plan_price_iqd = excluded.plan_price_iqd, logo = excluded.logo",
+            (site_name, default_country_code, whatsapp_subscribe_number, whatsapp_support_number, plan_price_iqd, logo),
+        )
+    else:
+        conn.execute(
+            "INSERT INTO site_settings (id, site_name, default_country_code, whatsapp_subscribe_number, whatsapp_support_number, plan_price_iqd) "
             "VALUES (1, ?, ?, ?, ?, ?) "
             "ON CONFLICT(id) DO UPDATE SET site_name = excluded.site_name, "
             "default_country_code = excluded.default_country_code, "
             "whatsapp_subscribe_number = excluded.whatsapp_subscribe_number, "
-            "whatsapp_support_number = excluded.whatsapp_support_number, logo = excluded.logo",
-            (site_name, default_country_code, whatsapp_subscribe_number, whatsapp_support_number, logo),
-        )
-    else:
-        conn.execute(
-            "INSERT INTO site_settings (id, site_name, default_country_code, whatsapp_subscribe_number, whatsapp_support_number) "
-            "VALUES (1, ?, ?, ?, ?) "
-            "ON CONFLICT(id) DO UPDATE SET site_name = excluded.site_name, "
-            "default_country_code = excluded.default_country_code, "
-            "whatsapp_subscribe_number = excluded.whatsapp_subscribe_number, "
-            "whatsapp_support_number = excluded.whatsapp_support_number",
-            (site_name, default_country_code, whatsapp_subscribe_number, whatsapp_support_number),
+            "whatsapp_support_number = excluded.whatsapp_support_number, "
+            "plan_price_iqd = excluded.plan_price_iqd",
+            (site_name, default_country_code, whatsapp_subscribe_number, whatsapp_support_number, plan_price_iqd),
         )
     conn.commit()
     conn.close()
@@ -2146,6 +2150,7 @@ def get_branding():
         default_country_code=(row["default_country_code"] if row else "") or DEFAULT_COUNTRY_CODE_FALLBACK,
         whatsapp_subscribe_number=(row["whatsapp_subscribe_number"] if row else "") or WHATSAPP_PAY_NUMBER,
         whatsapp_support_number=(row["whatsapp_support_number"] if row else "") or WHATSAPP_PAY_NUMBER,
+        plan_price_iqd=(row["plan_price_iqd"] if row else None) or PLAN_PRICE_IQD,
     )
 
 
@@ -2161,8 +2166,13 @@ def set_branding():
         default_country_code = DEFAULT_COUNTRY_CODE_FALLBACK
     whatsapp_subscribe_number = re.sub(r"\D", "", data.get("whatsapp_subscribe_number") or "") or WHATSAPP_PAY_NUMBER
     whatsapp_support_number = re.sub(r"\D", "", data.get("whatsapp_support_number") or "") or WHATSAPP_PAY_NUMBER
+    try:
+        plan_price_iqd = int(data.get("plan_price_iqd") or PLAN_PRICE_IQD)
+    except (TypeError, ValueError):
+        plan_price_iqd = PLAN_PRICE_IQD
+    plan_price_iqd = max(0, plan_price_iqd)
     if "logo" not in data:
-        db_set_branding(site_name, default_country_code, whatsapp_subscribe_number, whatsapp_support_number)
+        db_set_branding(site_name, default_country_code, whatsapp_subscribe_number, whatsapp_support_number, plan_price_iqd)
         return jsonify(ok=True)
     logo = data.get("logo")
     if logo:
@@ -2172,7 +2182,7 @@ def set_branding():
             return jsonify(ok=False, error="حجم الصورة كبير جداً (الحد الأقصى 2 ميغابايت)"), 400
     else:
         logo = None
-    db_set_branding(site_name, default_country_code, whatsapp_subscribe_number, whatsapp_support_number, logo, update_logo=True)
+    db_set_branding(site_name, default_country_code, whatsapp_subscribe_number, whatsapp_support_number, plan_price_iqd, logo, update_logo=True)
     return jsonify(ok=True)
 
 
@@ -2193,8 +2203,9 @@ def get_subscription():
     branding = db_get_branding()
     subscribe_number = (branding["whatsapp_subscribe_number"] if branding else "") or WHATSAPP_PAY_NUMBER
     support_number = (branding["whatsapp_support_number"] if branding else "") or WHATSAPP_PAY_NUMBER
+    price_iqd = (branding["plan_price_iqd"] if branding else None) or PLAN_PRICE_IQD
     subscriber_id = (user["phone"] or user["email"] or "غير محدد") if user else "غير محدد"
-    pay_text = urllib.parse.quote(f"أرغب بتفعيل اشتراكي في منصة واصل ({PLAN_PRICE_IQD:,} د.ع) - رقمي: {subscriber_id}")
+    pay_text = urllib.parse.quote(f"أرغب بتفعيل اشتراكي في منصة واصل ({price_iqd:,} د.ع) - رقمي: {subscriber_id}")
     support_text = urllib.parse.quote("مرحباً، احتاج مساعدة")
     return jsonify(
         plan_active=plan_active,
@@ -2202,7 +2213,7 @@ def get_subscription():
         has_access=user_has_access(user) if user else False,
         trial_days_left=trial_days_left,
         plan_name=PLAN_NAME,
-        price_iqd=PLAN_PRICE_IQD,
+        price_iqd=price_iqd,
         wa_pay_link=f"https://wa.me/{subscribe_number}?text={pay_text}",
         wa_support_link=f"https://wa.me/{support_number}?text={support_text}",
         payments=[dict(p) for p in payments],
@@ -2216,7 +2227,9 @@ def submit_payment():
     reference = (data.get("reference") or "").strip()
     if not reference:
         return jsonify(ok=False, error="أدخل رقم إثبات الدفع/التحويل"), 400
-    db_create_payment_request(session["user_id"], PLAN_NAME, PLAN_PRICE_IQD, reference)
+    branding = db_get_branding()
+    price_iqd = (branding["plan_price_iqd"] if branding else None) or PLAN_PRICE_IQD
+    db_create_payment_request(session["user_id"], PLAN_NAME, price_iqd, reference)
     return jsonify(ok=True)
 
 
@@ -2351,10 +2364,55 @@ def admin_customers():
 def admin_set_plan(user_id):
     data = request.json or {}
     if bool(data.get("active")):
-        db_activate_plan_for_days(user_id, PLAN_ACTIVATION_DAYS)
+        try:
+            days = int(data.get("days") or PLAN_ACTIVATION_DAYS)
+        except (TypeError, ValueError):
+            days = PLAN_ACTIVATION_DAYS
+        days = max(1, days)
+        db_activate_plan_for_days(user_id, days)
     else:
         db_set_plan_active(user_id, False)
     return jsonify(ok=True)
+
+
+@app.route("/admin/announcement/<acc_id>", methods=["POST"])
+@login_required
+@admin_required
+def send_announcement(acc_id):
+    """يرسل إعلان جماعي من أحد حسابات الأدمن نفسه لكل أرقام مستخدمي المنصة المسجلين -
+    يعيد استخدام نفس بنية الحملات (run_campaign/send_to) بالضبط، وبس مصدر الأرقام يختلف."""
+    acc = get_owned_account(acc_id)
+    if not acc or acc["driver"] is None:
+        return jsonify(ok=False, error="تأكد من تسجيل الدخول لهذا الحساب أولاً"), 400
+    if acc["campaign"]["running"]:
+        return jsonify(ok=False, error="فيه حملة أو إعلان شغال حالياً على هذا الحساب"), 400
+
+    numbers = list(dict.fromkeys(u["phone"] for u in db_list_users() if u["phone"]))
+    if not numbers:
+        return jsonify(ok=False, error="ما فيه مستخدمين عندهم رقم واتساب مسجل"), 400
+
+    text = request.form.get("text", "").strip()
+    if not text:
+        return jsonify(ok=False, error="اكتب نص الإعلان"), 400
+    try:
+        delay = max(1, int(request.form.get("delay", DEFAULT_DELAY)))
+    except (TypeError, ValueError):
+        delay = DEFAULT_DELAY
+    try:
+        media_delay = max(1, int(request.form.get("media_delay", DEFAULT_MEDIA_DELAY)))
+    except (TypeError, ValueError):
+        media_delay = DEFAULT_MEDIA_DELAY
+
+    media_path = None
+    media = request.files.get("media_file")
+    if media and media.filename:
+        os.makedirs(UPLOADS_DIR, exist_ok=True)
+        media_path = os.path.abspath(os.path.join(UPLOADS_DIR, f"{uuid.uuid4().hex}_{media.filename}"))
+        media.save(media_path)
+
+    acc["campaign"].update(total=len(numbers), sent=0, failed=0, running=True, failed_numbers=[], scheduled_for=None)
+    threading.Thread(target=run_campaign, args=(acc, numbers, text, delay, media_path, media_delay), daemon=True).start()
+    return jsonify(ok=True, total=len(numbers))
 
 
 @app.route("/admin/payments")
