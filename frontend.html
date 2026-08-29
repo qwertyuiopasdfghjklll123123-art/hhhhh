@@ -999,7 +999,8 @@ async function submitName() {
   }
   @keyframes heroGoldShine { 0% { background-position: 150% 0; } 100% { background-position: -50% 0; } }
   .hero-main .relative-z { position: relative; z-index: 1; }
-  .hero-main .hero-icon-main { width: 38px; height: 38px; margin: 0 auto 6px; border-radius: 50%; background: rgba(255,255,255,0.22); border: 1px solid rgba(255,255,255,0.35); display: flex; align-items: center; justify-content: center; font-size: 16px; color: #fff; }
+  .hero-main .hero-icon-main { width: 38px; height: 38px; margin: 0 auto 6px; border-radius: 50%; background: rgba(255,255,255,0.22); border: 1px solid rgba(255,255,255,0.35); display: flex; align-items: center; justify-content: center; font-size: 16px; color: #fff; overflow: hidden; }
+  .hero-main .hero-icon-main .hero-logo-img { width: 100%; height: 100%; object-fit: cover; }
   .hero-main h1 { font-size: 16px; font-weight: 900; color: #fff; margin-bottom: 0; text-shadow: 0 2px 6px rgba(0,0,0,0.25); }
 
   .welcome-card { background: var(--bg-card); border: 1px solid rgba(5,134,147,0.08); border-radius: var(--radius-md); box-shadow: var(--shadow-sm); padding: 14px 16px; margin-bottom: 14px; text-align: right; }
@@ -1179,6 +1180,7 @@ async function submitName() {
 
 <script>
 const IS_ADMIN = __IS_ADMIN__;
+const HAS_CUSTOM_LOGO = __HAS_LOGO__;
 const COUNTRY_CODES = __COUNTRY_CODES_JSON__;
 const DEFAULT_COUNTRY_CODE = '__DEFAULT_COUNTRY_CODE__';
 
@@ -1408,7 +1410,7 @@ function renderHome() {
   c.innerHTML =
     '<div class="page-title"><h2>' + icon('home', 18) + ' الرئيسية</h2></div>' +
     '<div class="hero-main"><div class="relative-z">' +
-      '<div class="hero-icon-main">' + icon('rocket', 16) + '</div>' +
+      '<div class="hero-icon-main">' + (HAS_CUSTOM_LOGO ? '<img src="/branding/logo" alt="" class="hero-logo-img">' : icon('rocket', 16)) + '</div>' +
       '<h1>منصة واصل</h1>' +
     '</div></div>' +
     '<div class="welcome-card">' +
@@ -2112,7 +2114,7 @@ async function saveSubscriptionSettings() {
 function renderAdmin() {
   const c = document.getElementById('content');
   if (!IS_ADMIN) { c.innerHTML = '<div class="empty-state">هذا القسم لأدمن المنصة فقط</div>'; return; }
-  const cc = dataCache.customers, cp = dataCache.payments;
+  const cc = dataCache.customers;
   c.innerHTML =
     '<div class="page-title"><h2>' + icon('admin', 18) + ' لوحة التحكم</h2></div>' +
     '<div class="card">' +
@@ -2157,10 +2159,6 @@ function renderAdmin() {
     '<input id="announcementDelay" type="number" min="1" value="15">' +
     '<button class="btn-submit" onclick="sendAnnouncement()">' + icon('rocket', 14) + ' إرسال للجميع</button>' +
     '<div id="announcementMsg" class="text-center text-[12px] font-bold mt-2"></div>' +
-    '</div>' +
-    '<div class="card">' +
-    '<div class="card-header"><h4>' + icon('payments', 14) + ' طلبات الدفع بانتظار المراجعة</h4></div>' +
-    '<div id="paymentsBox">' + (cp ? paymentsHtml(cp) : '<div class="text-muted text-[11px]">جارِ التحميل...</div>') + '</div>' +
     '</div>';
 
   fetch('/admin/branding').then(r => r.json()).then(d => {
@@ -2176,7 +2174,6 @@ function renderAdmin() {
     }
   });
   loadCustomers();
-  loadPendingPayments();
 }
 
 let pendingLogo;
@@ -2261,7 +2258,8 @@ function customerStatusPill(u) {
   if (u.plan_active) {
     if (u.plan_ends_at) {
       const days = Math.ceil((new Date(u.plan_ends_at.replace(' ', 'T')) - new Date()) / 86400000);
-      return '<span class="pill pill-green">مفعّل — يبقى ' + Math.max(0, days) + ' يوم</span>';
+      const endDate = u.plan_ends_at.split(' ')[0];
+      return '<span class="pill pill-green">مفعّل — ينتهي ' + endDate + ' (يبقى ' + Math.max(0, days) + ' يوم)</span>';
     }
     return '<span class="pill pill-green">مفعّل</span>';
   }

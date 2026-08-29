@@ -389,7 +389,7 @@ def db_create_user(email, password_hash, is_admin, name=None):
 
 def db_list_users():
     conn = get_db()
-    rows = conn.execute("SELECT id, email, phone, name, is_admin, plan_active, trial_ends_at, created_at FROM users ORDER BY id").fetchall()
+    rows = conn.execute("SELECT id, email, phone, name, is_admin, plan_active, plan_ends_at, trial_ends_at, created_at FROM users ORDER BY id").fetchall()
     conn.close()
     return rows
 
@@ -1065,6 +1065,50 @@ def do_send_subscription_start_message(sub_id):
         add_event(sub["owner"], acc["name"], "تم إشعار مشترك جديد", f'{sub["name"]}: تم إرسال رسالة بداية الاشتراك', kind="info")
     except Exception as e:
         print(f"[اشتراكات] فشل إرسال رسالة بداية الاشتراك لـ {sub['name']}: {e}")
+
+
+def do_send_admin_plan_message(user_id, started, days=None):
+    """يرسل رسالة واتساب "بدأ/انتهى اشتراكك" لمستخدم منصة عند ما الأدمن يفعّل/يجدد/يلغي
+    اشتراكه يدوياً من لوحة التحكم، أو لما تنتهي مدته تلقائياً - من حساب واتساب الأدمن المخصص
+    لإرسال رموز التحقق (otp_sender)، بخيط منفصل حتى لا تعلّق الطلب (نفس نمط do_send_otp)."""
+    user = db_get_user_by_id(user_id)
+    if not user or not user["phone"]:
+        return
+    acc = find_otp_sender_account()
+    if not acc:
+        return
+    name = user["name"] or user["phone"]
+    template = DEFAULT_START_MESSAGE if started else DEFAULT_EXPIRED_MESSAGE
+    text = fill_subscription_message(template, name, days if days is not None else "")
+    try:
+        with acc["lock"]:
+            send_to(acc["driver"], user["phone"], text)
+        label = "بدء" if started else "انتهاء"
+        add_event(acc["owner"], acc["name"], "إشعار اشتراك مستخدم", f"{name}: تم إرسال رسالة {label} الاشتراك", kind="info")
+    except Exception as e:
+        label = "بدء" if started else "انتهاء"
+        print(f"[اشتراك منصة] فشل إرسال رسالة {label} الاشتراك للمستخدم {user_id}: {e}")
+
+
+def platform_plan_expiry_loop():
+    """تفحص دورياً كل مستخدمي المنصة اللي فعّل الأدمن اشتراكهم بمدة محددة وانتهت مدتهم -
+    تطفي الاشتراك فعلياً بقاعدة البيانات (بدل الاعتماد بس على الفحص الحي) وترسل رسالة
+    "انتهى اشتراكك" مرة وحدة، بنفس نمط subscription_scheduler_loop تماماً."""
+    while True:
+        try:
+            conn = get_db()
+            now_str = datetime.now().strftime("%Y-%m-%d %H:%M")
+            rows = conn.execute(
+                "SELECT id FROM users WHERE plan_active = 1 AND plan_ends_at IS NOT NULL AND plan_ends_at <= ?",
+                (now_str,),
+            ).fetchall()
+            conn.close()
+            for row in rows:
+                db_set_plan_active(row["id"], False)
+                do_send_admin_plan_message(row["id"], started=False)
+        except Exception as e:
+            print(f"[انتهاء اشتراك تلقائي] خطأ بدورة الجدولة: {e}")
+        time.sleep(3600)
 
 
 def subscription_scheduler_loop():
@@ -1971,6 +2015,7 @@ def app_home():
     page = page.replace("__TOPBAR_LOGO_CLASS__", "has-custom-img" if site_logo else "")
     page = page.replace("__TOPBAR_LOGO_HTML__", topbar_logo_html)
     page = page.replace("__TOPBAR_NAME_HTML__", topbar_name_html)
+    page = page.replace("__HAS_LOGO__", "true" if site_logo else "false")
     return page
 
 
@@ -2370,8 +2415,10 @@ def admin_set_plan(user_id):
             days = PLAN_ACTIVATION_DAYS
         days = max(1, days)
         db_activate_plan_for_days(user_id, days)
+        threading.Thread(target=do_send_admin_plan_message, args=(user_id, True, days), daemon=True).start()
     else:
         db_set_plan_active(user_id, False)
+        threading.Thread(target=do_send_admin_plan_message, args=(user_id, False, None), daemon=True).start()
     return jsonify(ok=True)
 
 
@@ -2760,6 +2807,7 @@ WELCOME_TEMPLATE, PAGE = load_frontend_sections()
 if __name__ == "__main__":
     restore_wa_accounts()
     threading.Thread(target=subscription_scheduler_loop, daemon=True).start()
+    threading.Thread(target=platform_plan_expiry_loop, daemon=True).start()
     _site_settings = db_get_site_settings()
     _configured_port = _site_settings["port"] if _site_settings and _site_settings["port"] else None
     app.run(host="0.0.0.0", port=_configured_port or int(os.environ.get("PORT", 5000)), threaded=True)
