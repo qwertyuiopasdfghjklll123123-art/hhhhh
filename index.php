@@ -1,747 +1,707 @@
 <?php
 // ============================================================
-// منصة خوادم VPS - نسخة مع استضافات نشطة
+// منصة استضافتي - نظام متكامل (تسجيل حقيقي + طلبات + لوحة أدمن)
 // ============================================================
 
-session_start();
+require_once __DIR__ . '/includes/bootstrap.php';
 
 // ============================================================
-// إعدادات قاعدة البيانات
+// تطبيع رقم الهاتف العراقي إلى الصيغة الدولية 964XXXXXXXXXX
 // ============================================================
-$db_file = __DIR__ . '/vps_platform.db';
-$pdo = null;
+function normalizePhone($raw) {
+    $phone = preg_replace('/[^0-9]/', '', trim((string)$raw));
+    if ($phone === '') return null;
 
-try {
-    $pdo = new PDO("sqlite:" . $db_file);
-    $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
-    
-    $pdo->exec("
-        CREATE TABLE IF NOT EXISTS users (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            name TEXT NOT NULL,
-            phone TEXT UNIQUE NOT NULL,
-            is_admin INTEGER DEFAULT 0,
-            balance REAL DEFAULT 0,
-            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-        );
-        
-        CREATE TABLE IF NOT EXISTS hosting (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            user_id INTEGER NOT NULL,
-            name TEXT NOT NULL,
-            plan TEXT NOT NULL,
-            ip TEXT NOT NULL,
-            username TEXT NOT NULL,
-            password TEXT NOT NULL,
-            status TEXT DEFAULT 'active',
-            expiry_date DATE,
-            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-        );
-        
-        CREATE TABLE IF NOT EXISTS invoices (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            user_id INTEGER NOT NULL,
-            invoice_number TEXT NOT NULL,
-            amount REAL NOT NULL,
-            status TEXT DEFAULT 'pending',
-            due_date DATE,
-            description TEXT,
-            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-        );
-    ");
-    
-} catch (PDOException $e) {
-    // تجاهل خطأ قاعدة البيانات
-}
-
-// ============================================================
-// دوال مساعدة
-// ============================================================
-
-function isLoggedIn() {
-    return isset($_SESSION['user_id']);
-}
-
-function currentUser() {
-    return $_SESSION['user'] ?? null;
-}
-
-// ============================================================
-// معالجة تسجيل الدخول
-// ============================================================
-
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['login'])) {
-    $phone = trim($_POST['phone'] ?? '');
-    $phone = preg_replace('/[^0-9]/', '', $phone);
-    
-    if (strlen($phone) === 10 && $phone[0] === '0') {
+    if (strlen($phone) === 11 && $phone[0] === '0') {
         $phone = '964' . substr($phone, 1);
-    } elseif (strlen($phone) === 9 && $phone[0] === '7') {
+    } elseif (strlen($phone) === 10 && $phone[0] === '7') {
         $phone = '964' . $phone;
     }
-    
-    if (strlen($phone) >= 10) {
-        $is_admin = 0;
-        $name = 'مستخدم جديد';
-        $balance = 0;
-        
-        if ($phone === '9647819044981' || $phone === '07819044981') {
-            $is_admin = 1;
-            $name = 'مدير النظام';
-            $balance = 100;
-        } elseif ($phone === '9647819044911' || $phone === '07819044911') {
-            $is_admin = 0;
-            $name = 'مستخدم عادي';
-            $balance = 50;
+
+    if (strlen($phone) !== 13 || substr($phone, 0, 3) !== '964') {
+        return null;
+    }
+    return $phone;
+}
+
+function safeNextUrl($raw) {
+    $raw = (string)($raw ?? '');
+    if ($raw === '') return null;
+    if (preg_match('#^[a-z][a-z0-9+.-]*://#i', $raw)) return null;
+    if (strpos($raw, '//') === 0) return null;
+    return $raw;
+}
+
+// ============================================================
+// التسجيل وتسجيل الدخول
+// ============================================================
+
+function handleRegister(PDO $pdo) {
+    csrfCheck();
+    $name = trim($_POST['name'] ?? '');
+    $method = ($_POST['method'] ?? 'phone') === 'email' ? 'email' : 'phone';
+
+    if ($name === '') {
+        return 'الرجاء إدخال الاسم الكامل.';
+    }
+
+    if ($method === 'email') {
+        $email = strtolower(trim($_POST['email'] ?? ''));
+        $password = (string)($_POST['password'] ?? '');
+        if (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
+            return 'البريد الإلكتروني غير صحيح.';
         }
-        
-        $_SESSION['user_id'] = 1;
-        $_SESSION['user'] = [
-            'id' => 1,
-            'name' => $name,
-            'phone' => $phone,
-            'is_admin' => $is_admin,
-            'balance' => $balance
-        ];
-        
-        header('Location: ?app=1');
+        if (strlen($password) < 6) {
+            return 'كلمة المرور يجب أن تكون 6 أحرف على الأقل.';
+        }
+        $exists = $pdo->prepare('SELECT id FROM users WHERE email = ?');
+        $exists->execute([$email]);
+        if ($exists->fetch()) {
+            return 'هذا البريد الإلكتروني مسجل مسبقاً.';
+        }
+        $pdo->prepare('INSERT INTO users (name, email, password_hash) VALUES (?,?,?)')
+            ->execute([$name, $email, password_hash($password, PASSWORD_DEFAULT)]);
+    } else {
+        $phone = normalizePhone($_POST['phone'] ?? '');
+        if (!$phone) {
+            return 'رقم الهاتف غير صحيح.';
+        }
+        $exists = $pdo->prepare('SELECT id FROM users WHERE phone = ?');
+        $exists->execute([$phone]);
+        if ($exists->fetch()) {
+            return 'رقم الهاتف مسجل مسبقاً.';
+        }
+        $pdo->prepare('INSERT INTO users (name, phone) VALUES (?,?)')->execute([$name, $phone]);
+    }
+
+    $_SESSION['user_id'] = (int)$pdo->lastInsertId();
+    return null;
+}
+
+function handleLogin(PDO $pdo) {
+    csrfCheck();
+    $identifier = trim($_POST['identifier'] ?? '');
+    $password = (string)($_POST['password'] ?? '');
+
+    if ($identifier === '') {
+        return 'الرجاء إدخال البريد الإلكتروني أو رقم الهاتف.';
+    }
+
+    if (strpos($identifier, '@') !== false) {
+        $stmt = $pdo->prepare('SELECT * FROM users WHERE email = ?');
+        $stmt->execute([strtolower($identifier)]);
+    } else {
+        $phone = normalizePhone($identifier);
+        if (!$phone) {
+            return 'رقم الهاتف غير صحيح.';
+        }
+        $stmt = $pdo->prepare('SELECT * FROM users WHERE phone = ?');
+        $stmt->execute([$phone]);
+    }
+
+    $user = $stmt->fetch(PDO::FETCH_ASSOC);
+    if (!$user) {
+        return 'لا يوجد حساب بهذه البيانات.';
+    }
+    if ($user['password_hash'] && !password_verify($password, $user['password_hash'])) {
+        return 'كلمة المرور غير صحيحة.';
+    }
+
+    $_SESSION['user_id'] = (int)$user['id'];
+    return null;
+}
+
+$registerError = null;
+$loginError = null;
+
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
+    $next = safeNextUrl($_POST['next'] ?? '');
+
+    if ($_POST['action'] === 'register') {
+        $registerError = handleRegister($pdo);
+        if (!$registerError) {
+            header('Location: ' . ($next ?: 'index.php?app=1'));
+            exit;
+        }
+    } elseif ($_POST['action'] === 'login') {
+        $loginError = handleLogin($pdo);
+        if (!$loginError) {
+            header('Location: ' . ($next ?: (isAdmin($pdo) ? 'admin.php' : 'index.php?app=1')));
+            exit;
+        }
+    } elseif ($_POST['action'] === 'submit_order') {
+        requireLogin();
+        $planId = (int)($_POST['plan_id'] ?? 0);
+        $orderError = handleSubmitOrder($pdo);
+        if ($orderError) {
+            header('Location: index.php?app=1&buy=' . $planId . '&order_error=' . urlencode($orderError));
+        } else {
+            header('Location: index.php?app=1&ordered=1');
+        }
+        exit;
+    } elseif ($_POST['action'] === 'top_up') {
+        requireLogin();
+        $topUpError = handleTopUpBalance($pdo);
+        header('Location: index.php?app=1' . ($topUpError ? '&topup_error=' . urlencode($topUpError) : '&topup=1'));
         exit;
     }
 }
 
 // ============================================================
-// معالجة تسجيل الخروج
+// تسجيل الخروج
 // ============================================================
 
 if (isset($_GET['logout'])) {
     session_destroy();
-    header('Location: ?');
+    header('Location: index.php');
     exit;
 }
 
 // ============================================================
-// عرض الصفحات
+// التوجيه
 // ============================================================
 
 if (isset($_GET['app']) && isLoggedIn()) {
-    includeAppPage();
+    if (isAdmin($pdo)) {
+        header('Location: admin.php');
+        exit;
+    }
+    includeAppPage($pdo);
     exit;
 }
 
-if (isLoggedIn()) {
-    header('Location: ?app=1');
+if (isLoggedIn() && !isset($_GET['page'])) {
+    header('Location: ' . (isAdmin($pdo) ? 'admin.php' : 'index.php?app=1'));
+    exit;
+}
+
+$page = $_GET['page'] ?? 'landing';
+
+if ($page === 'buy') {
+    $target = 'index.php?app=1&buy=' . (int)($_GET['plan'] ?? 0);
+    if (!isLoggedIn()) {
+        header('Location: index.php?page=login&next=' . urlencode($target));
+    } else {
+        header('Location: ' . $target);
+    }
+    exit;
+}
+
+if ($page === 'plans') {
+    includePlansPage($pdo);
+    exit;
+}
+
+if ($page === 'login') {
+    includeLoginPage($loginError);
+    exit;
+}
+
+if ($page === 'register') {
+    includeRegisterPage($registerError);
     exit;
 }
 
 // ============================================================
-// صفحة الترحيب
+// التنسيقات المشتركة للصفحات العامة
 // ============================================================
 
-function includeWelcomePage() {
+function sharedThemeCss() {
+    return "
+        :root {
+            --bg-primary: #f7f4f0;
+            --bg-secondary: #ffffff;
+            --bg-card: #fbf7f3;
+            --bg-card-hover: #fdeee0;
+            --text-primary: #221a12;
+            --text-secondary: #6b5d50;
+            --text-muted: #998a7c;
+            --accent: #ff7a1a;
+            --accent-dark: #ee6a05;
+            --accent-light: #ffa64d;
+            --accent-glow: rgba(255,122,26,.12);
+            --border-color: #f0e6da;
+            --border-active: rgba(255,122,26,.3);
+            --shadow: 0 10px 40px rgba(34,26,18,.08);
+            --shadow-sm: 0 6px 20px rgba(34,26,18,.05);
+            --radius: 22px;
+            --radius-sm: 14px;
+            --transition: .3s cubic-bezier(.4,0,.2,1);
+        }
+        * { margin:0; padding:0; box-sizing:border-box; }
+        body { font-family:'IBM Plex Sans Arabic','Tajawal',system-ui,sans-serif; background:var(--bg-primary); color:var(--text-primary); }
+        .hidden { display:none !important; }
+        a { text-decoration:none; color:inherit; }
+        ul { list-style:none; }
+        .text-center { text-align:center; }
+        .text-muted { color:var(--text-muted); }
+    ";
+}
+
+function sharedPublicCss() {
+    return "
+        .site-header {
+            position: sticky; top: 0; z-index: 50;
+            display:flex; align-items:center; justify-content:space-between;
+            padding: 14px 24px;
+            background: rgba(247,244,240,.85);
+            backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+            border-bottom: 1px solid var(--border-color);
+        }
+        .site-header .brand { display:flex; align-items:center; gap:10px; }
+        .site-header .logo-mark {
+            width:40px; height:40px; border-radius:50%;
+            background: linear-gradient(135deg, var(--accent), var(--accent-dark));
+            color:#fff; display:flex; align-items:center; justify-content:center; font-size:18px;
+            flex-shrink:0;
+        }
+        .site-header .brand-name { font-weight:900; font-size:16px; }
+        .site-header .brand-tag { font-size:10px; color:var(--text-muted); }
+        .site-nav { display:flex; align-items:center; gap:16px; font-size:13px; font-weight:700; }
+        .site-nav a:hover { color:var(--accent); }
+        .site-nav .nav-cta {
+            background: linear-gradient(135deg, var(--accent), var(--accent-dark));
+            color:#fff !important; padding:9px 18px; border-radius:999px;
+        }
+
+        .container-public { max-width: 1000px; margin:0 auto; padding: 0 20px; }
+
+        .btn-primary-lg {
+            display:flex; align-items:center; justify-content:center; gap:8px;
+            padding: 16px 24px; border:none; border-radius: var(--radius-sm);
+            background: linear-gradient(135deg, var(--accent), var(--accent-dark));
+            color:#fff; font-weight:800; font-size:15px; font-family:inherit;
+            cursor:pointer; transition: var(--transition);
+            box-shadow: 0 10px 30px rgba(255,122,26,.25);
+        }
+        .btn-primary-lg:hover { transform: translateY(-2px); box-shadow: 0 14px 36px rgba(255,122,26,.35); }
+        .btn-outline-lg {
+            display:flex; align-items:center; justify-content:center; gap:8px;
+            padding: 16px 24px; border:1.5px solid var(--border-color); border-radius: var(--radius-sm);
+            background: var(--bg-secondary); color:var(--text-primary); font-weight:800; font-size:15px; font-family:inherit;
+            cursor:pointer; transition: var(--transition);
+        }
+        .btn-outline-lg:hover { border-color:var(--accent); color:var(--accent); }
+
+        .site-footer { text-align:center; padding: 30px 20px; color:var(--text-muted); font-size:12px; }
+
+        .pill { padding:2px 12px; border-radius:999px; font-size:10px; font-weight:700; display:inline-block; }
+        .pill-gold { background: var(--accent-glow); color: var(--accent); }
+
+        /* -------- الصفحة الرئيسية -------- */
+        .hero { max-width: 640px; margin:0 auto; padding: 40px 20px 20px; text-align:center; }
+        .hero-illustration { position:relative; height: 230px; display:flex; align-items:flex-end; justify-content:center; margin-bottom: 20px; }
+        .cloud-base {
+            position:absolute; bottom:6px; left:50%; transform:translateX(-50%);
+            width: 220px; height: 70px; background:#fff; border-radius: 100px;
+            box-shadow: -46px 14px 0 -8px #fff, 46px 14px 0 -8px #fff, var(--shadow-sm);
+        }
+        .server-stack { position:relative; z-index:2; display:flex; flex-direction:column; gap:6px; margin-bottom: 46px; }
+        .server-unit {
+            width: 168px; height: 40px; border-radius: 9px;
+            background: linear-gradient(135deg, #2e2c38, #1c1a22);
+            display:flex; align-items:center; padding:0 12px; gap:6px;
+            box-shadow: 0 6px 14px rgba(0,0,0,.22);
+        }
+        .server-unit .led { width:6px; height:6px; border-radius:50%; background: var(--accent); box-shadow: 0 0 6px var(--accent); }
+        .server-unit .slit { margin-right:auto; width:44px; height:3px; background:rgba(255,255,255,.15); border-radius:2px; }
+        .shield-badge {
+            position:absolute; bottom:-18px; left:50%; transform:translateX(-50%);
+            width:52px; height:58px; z-index:3;
+            background: linear-gradient(135deg, var(--accent-light), var(--accent));
+            clip-path: polygon(50% 0%, 100% 20%, 100% 62%, 50% 100%, 0% 62%, 0% 20%);
+            display:flex; align-items:center; justify-content:center; color:#fff; font-size:20px;
+            box-shadow: 0 10px 22px rgba(255,122,26,.4);
+        }
+        .hero-badges-grid { display:grid; grid-template-columns:1fr 1fr; gap:10px; max-width:380px; margin:0 auto 28px; }
+        .floating-badge {
+            display:flex; align-items:center; gap:10px; text-align:right;
+            background:#fff; border:1px solid var(--border-color); border-radius:16px;
+            padding:10px 12px; box-shadow: var(--shadow-sm);
+        }
+        .floating-badge .badge-icon {
+            width:34px; height:34px; border-radius:50%; background:var(--accent-glow); color:var(--accent);
+            display:flex; align-items:center; justify-content:center; font-size:14px; flex-shrink:0;
+        }
+        .floating-badge strong { display:block; font-size:11px; }
+        .floating-badge span { display:block; font-size:9px; color:var(--text-muted); }
+
+        .eyebrow {
+            display:inline-flex; align-items:center; gap:6px;
+            font-size:12px; font-weight:700; color:var(--accent);
+            background: var(--accent-glow); padding:6px 14px; border-radius:999px; margin-bottom:14px;
+        }
+        .eyebrow .dot { width:6px; height:6px; border-radius:50%; background:var(--accent); }
+        .headline { font-size:28px; font-weight:900; line-height:1.4; margin-bottom:12px; }
+        .headline .accent-text { color:var(--accent); }
+        .sub-headline { font-size:14px; color:var(--text-secondary); line-height:1.9; margin-bottom:26px; }
+
+        .feature-grid-4 { display:grid; grid-template-columns:repeat(2,1fr); gap:10px; margin-bottom:26px; }
+        .feature-chip {
+            background:var(--bg-secondary); border:1px solid var(--border-color); border-radius:var(--radius-sm);
+            padding:16px 10px; text-align:center; transition:var(--transition);
+        }
+        .feature-chip .chip-icon {
+            width:38px; height:38px; margin:0 auto 8px; border-radius:50%;
+            background:var(--accent-glow); color:var(--accent); display:flex; align-items:center; justify-content:center; font-size:16px;
+        }
+        .feature-chip strong { display:block; font-size:12px; margin-bottom:2px; }
+        .feature-chip span { font-size:10px; color:var(--text-muted); }
+
+        .cta-row { display:flex; flex-direction:column; gap:10px; margin-bottom:22px; }
+        .trust-row { display:flex; flex-wrap:wrap; justify-content:center; gap:14px; font-size:11px; color:var(--text-muted); }
+        .trust-row span { display:flex; align-items:center; gap:5px; }
+        .trust-row i { color: var(--accent); }
+
+        /* -------- صفحة الخطط -------- */
+        .page-title-block { text-align:center; padding: 34px 20px 10px; }
+        .page-title-block h1 { font-size:24px; font-weight:900; margin-bottom:8px; }
+        .page-title-block p { color:var(--text-secondary); font-size:13px; }
+        .plans-public-grid { display:grid; grid-template-columns:1fr; gap:16px; padding: 24px 20px 50px; max-width:420px; margin:0 auto; }
+        @media (min-width: 720px) { .plans-public-grid { max-width:900px; grid-template-columns:repeat(2,1fr); } }
+        .plan-public-card {
+            background:var(--bg-secondary); border:1px solid var(--border-color); border-radius:var(--radius);
+            padding:26px 22px; text-align:center; transition:var(--transition); position:relative;
+        }
+        .plan-public-card:hover { border-color:var(--border-active); transform:translateY(-3px); box-shadow:var(--shadow); }
+        .plan-public-icon { font-size:36px; margin-bottom:6px; }
+        .plan-public-card h3 { font-size:18px; font-weight:900; margin-bottom:6px; }
+        .plan-public-price { font-size:30px; font-weight:900; color:var(--accent); margin:10px 0; }
+        .plan-public-price small { font-size:13px; font-weight:600; color:var(--text-muted); }
+        .plan-specs-list { text-align:right; margin:16px 0 20px; display:flex; flex-direction:column; gap:10px; }
+        .plan-specs-list li { display:flex; align-items:center; gap:10px; font-size:13px; color:var(--text-secondary); }
+        .plan-specs-list i { color:var(--accent); width:18px; text-align:center; }
+
+        /* -------- تسجيل الدخول / إنشاء حساب -------- */
+        .auth-wrap { min-height:100vh; display:flex; align-items:center; justify-content:center; padding:24px; }
+        .auth-card {
+            width:100%; max-width:420px; background:var(--bg-secondary); border:1px solid var(--border-color);
+            border-radius:var(--radius); padding:36px 28px; box-shadow:var(--shadow); text-align:center;
+        }
+        .auth-logo {
+            width:60px; height:60px; margin:0 auto 16px; border-radius:50%;
+            background:linear-gradient(135deg, var(--accent), var(--accent-dark)); color:#fff;
+            display:flex; align-items:center; justify-content:center; font-size:26px;
+        }
+        .auth-card h1 { font-size:20px; font-weight:900; margin-bottom:6px; }
+        .auth-sub { font-size:13px; color:var(--text-muted); margin-bottom:20px; line-height:1.7; }
+        .form-alert {
+            background:rgba(239,68,68,.1); color:#dc2626; border:1px solid rgba(239,68,68,.25);
+            border-radius:var(--radius-sm); padding:10px 14px; font-size:12px; margin-bottom:16px; text-align:right;
+        }
+        .field-label { display:block; font-size:12px; font-weight:700; color:var(--text-secondary); margin:14px 0 6px; text-align:right; }
+        .text-input, .text-input-bare {
+            width:100%; padding:13px 14px; border-radius:var(--radius-sm); border:1.5px solid var(--border-color);
+            background:var(--bg-card); color:var(--text-primary); font-size:14px; font-family:inherit; outline:none;
+            transition:var(--transition);
+        }
+        .text-input:focus { border-color:var(--accent); }
+        .phone-input-wrap {
+            display:flex; gap:8px; background:var(--bg-card); border:1.5px solid var(--border-color);
+            border-radius:var(--radius-sm); padding:4px; direction:ltr; transition:var(--transition);
+        }
+        .phone-input-wrap:focus-within { border-color:var(--accent); }
+        .phone-input-wrap .prefix { padding:10px; font-weight:700; color:var(--text-muted); font-size:13px; flex-shrink:0; }
+        .phone-input-wrap .text-input-bare { flex:1; border:none; background:transparent; padding:10px; direction:ltr; text-align:left; }
+        .method-tabs { display:flex; gap:8px; background:var(--bg-card); border-radius:999px; padding:4px; margin-bottom:6px; }
+        .method-tab {
+            flex:1; padding:9px 6px; border:none; border-radius:999px; background:transparent; color:var(--text-muted);
+            font-family:inherit; font-size:12px; font-weight:700; cursor:pointer; transition:var(--transition);
+        }
+        .method-tab.active { background:var(--accent); color:#fff; }
+        .auth-switch { font-size:12px; color:var(--text-muted); margin-top:14px; }
+        .auth-switch a { color:var(--accent); font-weight:700; }
+    ";
+}
+
+// ============================================================
+// صفحة الهبوط (Landing)
+// ============================================================
+
+function includeLandingPage() {
     ?>
     <!DOCTYPE html>
     <html lang="ar" dir="rtl">
     <head>
         <meta charset="UTF-8">
-        <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-        <title>🚀 خوادم VPS - استضافة احترافية</title>
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>استضافتي - استضافة VPS سريعة وآمنة</title>
         <link rel="preconnect" href="https://fonts.googleapis.com">
         <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
         <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
         <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
         <style>
-            :root {
-                --bg-primary: #f7f4f0;
-                --bg-secondary: #ffffff;
-                --bg-card: #fbf7f3;
-                --bg-card-hover: #fdeee0;
-                --text-primary: #221a12;
-                --text-secondary: #6b5d50;
-                --text-muted: #998a7c;
-                --accent: #ff7a1a;
-                --accent-dark: #ee6a05;
-                --accent-light: #ffa64d;
-                --accent-glow: rgba(255,122,26,.12);
-                --border-color: #f0e6da;
-                --border-active: rgba(255,122,26,.3);
-                --shadow: 0 10px 40px rgba(34,26,18,.08);
-                --shadow-sm: 0 6px 20px rgba(34,26,18,.05);
-                --radius: 22px;
-                --radius-sm: 14px;
-                --transition: .3s cubic-bezier(.4,0,.2,1);
-            }
-
-            [data-theme="dark"] {
-                --bg-primary: #16130f;
-                --bg-secondary: #1e1a15;
-                --bg-card: #26211a;
-                --bg-card-hover: #2e2820;
-                --text-primary: #f5ede6;
-                --text-secondary: #b8a99a;
-                --text-muted: #8a7a6b;
-                --accent: #ff8c3d;
-                --accent-dark: #ee6a05;
-                --accent-light: #ffb066;
-                --accent-glow: rgba(255,140,61,.15);
-                --border-color: rgba(255,140,61,.1);
-                --border-active: rgba(255,140,61,.3);
-                --shadow: 0 8px 40px rgba(0,0,0,.5);
-                --shadow-sm: 0 4px 20px rgba(0,0,0,.3);
-            }
-
-            * { margin:0; padding:0; box-sizing:border-box; }
-
-            body {
-                font-family: 'IBM Plex Sans Arabic', 'Tajawal', system-ui, sans-serif;
-                background: var(--bg-primary);
-                color: var(--text-primary);
-                min-height: 100vh;
-                display: flex;
-                align-items: center;
-                justify-content: center;
-                padding: 20px;
-                transition: background var(--transition), color var(--transition);
-                background-image:
-                    radial-gradient(circle at 20% 0%, rgba(255,122,26,.08) 0%, transparent 50%),
-                    radial-gradient(circle at 80% 70%, rgba(255,122,26,.04) 0%, transparent 40%);
-            }
-            
-            .container {
-                width: 100%;
-                max-width: 500px;
-                position: relative;
-            }
-            
-            .welcome-card {
-                background: var(--bg-secondary);
-                border: 1px solid var(--border-color);
-                border-radius: var(--radius);
-                padding: 40px 28px 32px;
-                box-shadow: var(--shadow);
-                position: relative;
-                overflow: hidden;
-                transition: background var(--transition), border-color var(--transition), box-shadow var(--transition);
-            }
-            
-            .welcome-card::before {
-                content: '';
-                position: absolute;
-                top: -60%;
-                left: -60%;
-                width: 220%;
-                height: 220%;
-                background: conic-gradient(from 0deg at 50% 50%, transparent 0%, rgba(255,122,26,.02) 25%, transparent 50%, rgba(255,122,26,.02) 75%, transparent 100%);
-                animation: spinGlow 25s linear infinite;
-                pointer-events: none;
-            }
-            @keyframes spinGlow {
-                0% { transform: rotate(0deg); }
-                100% { transform: rotate(360deg); }
-            }
-            
-            .welcome-card > * { position: relative; z-index: 1; }
-            
-            .theme-toggle-wrapper {
-                position: absolute;
-                top: 16px;
-                left: 16px;
-                z-index: 10;
-            }
-            
-            .theme-toggle {
-                width: 44px;
-                height: 44px;
-                border-radius: 50%;
-                border: 1px solid var(--border-color);
-                background: var(--bg-card);
-                color: var(--text-secondary);
-                cursor: pointer;
-                font-size: 18px;
-                transition: var(--transition);
-                display: flex;
-                align-items: center;
-                justify-content: center;
-                box-shadow: var(--shadow-sm);
-                font-family: inherit;
-            }
-            .theme-toggle:hover {
-                border-color: var(--accent);
-                color: var(--accent);
-                transform: rotate(15deg);
-                background: var(--bg-card-hover);
-            }
-            
-            .hero-panel {
-                margin: -40px -28px 22px;
-                padding: 40px 24px 30px;
-                background: linear-gradient(160deg, var(--accent-light), var(--accent) 55%, var(--accent-dark));
-                border-radius: 0 0 32px 32px;
-                position: relative;
-            }
-
-            .logo-wrapper {
-                text-align: center;
-                margin-bottom: 16px;
-            }
-
-            .logo {
-                width: 84px;
-                height: 84px;
-                margin: 0 auto;
-                border-radius: 50%;
-                background: rgba(255,255,255,.22);
-                border: 1.5px solid rgba(255,255,255,.4);
-                display: flex;
-                align-items: center;
-                justify-content: center;
-                font-size: 40px;
-                color: #ffffff;
-                box-shadow: 0 12px 40px rgba(34,26,18,.18);
-                transition: var(--transition);
-                position: relative;
-            }
-            .logo::after {
-                content: '';
-                position: absolute;
-                inset: -3px;
-                border-radius: 50%;
-                background: linear-gradient(135deg, rgba(255,255,255,.6), transparent, rgba(255,255,255,.2));
-                opacity: .3;
-                z-index: -1;
-                animation: pulseRing 2s ease-in-out infinite;
-            }
-            @keyframes pulseRing {
-                0%, 100% { transform: scale(1); opacity: .3; }
-                50% { transform: scale(1.1); opacity: .1; }
-            }
-
-            .logo:hover {
-                transform: scale(1.05) rotate(-3deg);
-                box-shadow: 0 16px 50px rgba(34,26,18,.22);
-            }
-
-            .site-title {
-                font-size: 30px;
-                font-weight: 900;
-                text-align: center;
-                color: #ffffff;
-                line-height: 1.2;
-                margin-bottom: 0;
-                letter-spacing: -1px;
-            }
-
-            .site-subtitle {
-                text-align: center;
-                color: var(--text-secondary);
-                font-size: 14px;
-                margin-bottom: 24px;
-                line-height: 1.8;
-                transition: color var(--transition);
-            }
-            .site-subtitle strong {
-                color: var(--accent);
-                -webkit-text-fill-color: var(--accent);
-            }
-            
-            .plans-grid {
-                display: grid;
-                grid-template-columns: 1fr 1fr;
-                gap: 8px;
-                margin-bottom: 20px;
-            }
-            
-            .plan-card {
-                background: var(--bg-card);
-                border: 1px solid var(--border-color);
-                border-radius: var(--radius-sm);
-                padding: 14px 10px;
-                text-align: center;
-                transition: var(--transition);
-                cursor: default;
-            }
-            .plan-card:hover {
-                border-color: var(--border-active);
-                transform: translateY(-3px);
-                background: var(--bg-card-hover);
-                box-shadow: var(--shadow-sm);
-            }
-            
-            .plan-card .plan-name {
-                font-size: 14px;
-                font-weight: 800;
-                color: var(--text-primary);
-                transition: color var(--transition);
-            }
-            .plan-card .plan-specs {
-                font-size: 9px;
-                color: var(--text-muted);
-                margin: 3px 0;
-                transition: color var(--transition);
-            }
-            .plan-card .plan-price {
-                font-size: 19px;
-                font-weight: 900;
-                color: var(--accent);
-            }
-            .plan-card .plan-price small {
-                font-size: 10px;
-                font-weight: 600;
-                color: var(--text-muted);
-                transition: color var(--transition);
-            }
-            .plan-card .plan-badge {
-                display: inline-block;
-                padding: 1px 10px;
-                border-radius: 999px;
-                font-size: 8px;
-                font-weight: 700;
-                background: rgba(255,122,26,.12);
-                color: var(--accent);
-                margin-top: 5px;
-            }
-            
-            .features-grid {
-                display: grid;
-                grid-template-columns: repeat(3, 1fr);
-                gap: 6px;
-                margin-bottom: 22px;
-            }
-            
-            .feature-box {
-                text-align: center;
-                padding: 12px 4px;
-                background: var(--bg-card);
-                border-radius: var(--radius-sm);
-                border: 1px solid var(--border-color);
-                transition: var(--transition);
-            }
-            .feature-box:hover {
-                border-color: var(--border-active);
-                background: var(--bg-card-hover);
-            }
-            
-            .feature-box i {
-                font-size: 22px;
-                color: var(--accent);
-                display: block;
-                margin-bottom: 4px;
-            }
-            .feature-box h4 {
-                font-size: 11px;
-                font-weight: 700;
-                color: var(--text-primary);
-                transition: color var(--transition);
-            }
-            .feature-box p {
-                font-size: 8px;
-                color: var(--text-muted);
-                transition: color var(--transition);
-            }
-            
-            .login-section {
-                margin-top: 4px;
-            }
-            
-            .login-section .field-label {
-                display: block;
-                font-size: 13px;
-                font-weight: 600;
-                color: var(--text-secondary);
-                margin-bottom: 6px;
-                text-align: right;
-                transition: color var(--transition);
-            }
-            
-            .phone-input-wrap {
-                display: flex;
-                gap: 8px;
-                background: var(--bg-card);
-                border: 1.5px solid var(--border-color);
-                border-radius: var(--radius-sm);
-                padding: 4px;
-                transition: var(--transition);
-                direction: ltr;
-            }
-            .phone-input-wrap:focus-within {
-                border-color: var(--accent);
-                box-shadow: 0 0 0 4px var(--accent-glow);
-            }
-            
-            .phone-input-wrap .prefix {
-                padding: 12px 12px;
-                font-weight: 700;
-                color: var(--text-muted);
-                font-size: 14px;
-                flex-shrink: 0;
-                background: transparent;
-                border: none;
-                transition: color var(--transition);
-            }
-            
-            .phone-input-wrap input {
-                flex: 1;
-                padding: 12px 10px;
-                background: transparent;
-                border: none;
-                outline: none;
-                color: var(--text-primary);
-                font-size: 16px;
-                font-family: inherit;
-                direction: ltr;
-                text-align: left;
-                transition: color var(--transition);
-            }
-            .phone-input-wrap input::placeholder {
-                color: var(--text-muted);
-                font-size: 14px;
-                transition: color var(--transition);
-            }
-            
-            .btn-primary {
-                width: 100%;
-                padding: 16px;
-                margin-top: 14px;
-                border: none;
-                border-radius: var(--radius-sm);
-                background: linear-gradient(135deg, var(--accent), var(--accent-dark));
-                color: #ffffff;
-                font-weight: 800;
-                font-size: 17px;
-                font-family: inherit;
-                cursor: pointer;
-                transition: var(--transition);
-                display: flex;
-                align-items: center;
-                justify-content: center;
-                gap: 10px;
-                box-shadow: 0 8px 35px rgba(255,122,26,.15);
-            }
-            .btn-primary:hover {
-                transform: translateY(-3px);
-                box-shadow: 0 12px 45px rgba(255,122,26,.25);
-            }
-            .btn-primary:active {
-                transform: scale(.97);
-            }
-
-            .splash-actions {
-                display: flex;
-                flex-direction: column;
-                gap: 10px;
-                margin-top: 4px;
-            }
-            .btn-secondary-full {
-                width: 100%;
-                padding: 15px;
-                border: 1.5px solid var(--border-color);
-                border-radius: var(--radius-sm);
-                background: var(--bg-card);
-                color: var(--text-primary);
-                font-weight: 800;
-                font-size: 15px;
-                font-family: inherit;
-                cursor: pointer;
-                transition: var(--transition);
-            }
-            .btn-secondary-full:hover {
-                border-color: var(--accent);
-                color: var(--accent);
-            }
-
-            .hidden { display: none !important; }
-
-            .login-hint {
-                text-align: center;
-                color: var(--text-muted);
-                font-size: 11px;
-                margin-top: 14px;
-                line-height: 1.8;
-                transition: color var(--transition);
-            }
-            .login-hint .highlight {
-                color: var(--accent);
-                -webkit-text-fill-color: var(--accent);
-                font-weight: 700;
-            }
-            
-            .secure-badge {
-                display: flex;
-                align-items: center;
-                justify-content: center;
-                gap: 6px;
-                color: var(--text-muted);
-                font-size: 11px;
-                margin-top: 16px;
-                transition: color var(--transition);
-            }
-            .secure-badge i {
-                color: var(--accent);
-            }
-            
-            @media (max-width: 430px) {
-                .plans-grid { grid-template-columns: 1fr 1fr; }
-                .features-grid { grid-template-columns: repeat(2, 1fr); }
-                .welcome-card { padding: 28px 16px 24px; }
-                .site-title { font-size: 28px; }
-                .logo { width: 74px; height: 74px; font-size: 36px; }
-                .theme-toggle { width: 38px; height: 38px; font-size: 16px; }
-            }
-            
-            @media (max-width: 360px) {
-                .plans-grid { grid-template-columns: 1fr; }
-                .features-grid { grid-template-columns: 1fr 1fr; }
-                .welcome-card { padding: 20px 12px 18px; }
-                .site-title { font-size: 24px; }
-                .logo { width: 64px; height: 64px; font-size: 30px; }
-            }
+        <?php echo sharedThemeCss(); ?>
+        <?php echo sharedPublicCss(); ?>
         </style>
     </head>
     <body>
-        <div class="container">
-            <div class="welcome-card">
-                <div class="theme-toggle-wrapper">
-                    <button class="theme-toggle" id="themeToggle" onclick="toggleTheme()" aria-label="تبديل المظهر">
-                        <i class="fas fa-moon" id="themeIcon"></i>
+        <header class="site-header">
+            <div class="brand">
+                <div class="logo-mark"><i class="fas fa-server"></i></div>
+                <div>
+                    <div class="brand-name">استضافتي</div>
+                    <div class="brand-tag">استضافة سريعة وآمنة</div>
+                </div>
+            </div>
+            <nav class="site-nav">
+                <a href="index.php?page=plans">الخطط والأسعار</a>
+                <a href="index.php?page=login">تسجيل الدخول</a>
+                <a href="index.php?page=register" class="nav-cta">إنشاء حساب</a>
+            </nav>
+        </header>
+
+        <section class="hero">
+            <div class="hero-illustration">
+                <div class="cloud-base"></div>
+                <div class="server-stack">
+                    <div class="server-unit"><span class="led"></span><span class="slit"></span></div>
+                    <div class="server-unit"><span class="led"></span><span class="slit"></span></div>
+                    <div class="server-unit"><span class="led"></span><span class="slit"></span></div>
+                </div>
+                <div class="shield-badge"><i class="fas fa-check"></i></div>
+            </div>
+
+            <div class="hero-badges-grid">
+                <div class="floating-badge"><div class="badge-icon"><i class="fas fa-gauge-high"></i></div><div><strong>سرعة فائقة</strong><span>NVMe SSD</span></div></div>
+                <div class="floating-badge"><div class="badge-icon"><i class="fas fa-shield-halved"></i></div><div><strong>أمان متطور</strong><span>حماية متقدمة</span></div></div>
+                <div class="floating-badge"><div class="badge-icon"><i class="fas fa-headset"></i></div><div><strong>دعم فني 24/7</strong><span>فريق محترف</span></div></div>
+                <div class="floating-badge"><div class="badge-icon"><i class="fas fa-rocket"></i></div><div><strong>جاهزية 99.99%</strong><span>وقت تشغيل</span></div></div>
+            </div>
+
+            <div class="eyebrow"><span class="dot"></span> مرحباً بك في استضافتي</div>
+            <h1 class="headline">استضافة <span class="accent-text">موثوقة</span> لأداء لا ينقطع</h1>
+            <p class="sub-headline">نوفر لك أفضل خدمات الاستضافة بأعلى سرعة وأمان، لموقعك وتطبيقاتك لتنمو بدون حدود.</p>
+
+            <div class="feature-grid-4">
+                <div class="feature-chip"><div class="chip-icon"><i class="fas fa-globe"></i></div><strong>نطاق مجاني</strong><span>مع كل خطة</span></div>
+                <div class="feature-chip"><div class="chip-icon"><i class="fas fa-database"></i></div><strong>نسخ احتياطي يومي</strong><span>لحفظ بياناتك</span></div>
+                <div class="feature-chip"><div class="chip-icon"><i class="fas fa-gauge"></i></div><strong>لوحة تحكم سهلة</strong><span>cPanel متكاملة</span></div>
+                <div class="feature-chip"><div class="chip-icon"><i class="fas fa-tags"></i></div><strong>أسعار تنافسية</strong><span>جودة بأفضل سعر</span></div>
+            </div>
+
+            <div class="cta-row">
+                <a href="index.php?page=register" class="btn-primary-lg"><i class="fas fa-arrow-left"></i> ابدأ الآن</a>
+                <a href="index.php?page=plans" class="btn-outline-lg">تصفح الخطط والأسعار</a>
+            </div>
+
+            <div class="trust-row">
+                <span><i class="fas fa-circle-check"></i> بدون رسوم خفية</span>
+                <span><i class="fas fa-shield"></i> ضمان استرداد 30 يوم</span>
+                <span><i class="fas fa-bolt"></i> تفعيل فوري</span>
+            </div>
+        </section>
+
+        <footer class="site-footer">© <?php echo date('Y'); ?> استضافتي. جميع الحقوق محفوظة.</footer>
+    </body>
+    </html>
+    <?php
+}
+
+// ============================================================
+// صفحة الخطط والأسعار (عامة)
+// ============================================================
+
+function includePlansPage(PDO $pdo) {
+    $plans = $pdo->query('SELECT * FROM vps_plans WHERE is_active = 1 ORDER BY sort_order ASC, id ASC')->fetchAll(PDO::FETCH_ASSOC);
+    ?>
+    <!DOCTYPE html>
+    <html lang="ar" dir="rtl">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>الخطط والأسعار - استضافتي</title>
+        <link rel="preconnect" href="https://fonts.googleapis.com">
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
+        <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+        <style>
+        <?php echo sharedThemeCss(); ?>
+        <?php echo sharedPublicCss(); ?>
+        </style>
+    </head>
+    <body>
+        <header class="site-header">
+            <div class="brand">
+                <div class="logo-mark"><i class="fas fa-server"></i></div>
+                <div>
+                    <div class="brand-name">استضافتي</div>
+                    <div class="brand-tag">استضافة سريعة وآمنة</div>
+                </div>
+            </div>
+            <nav class="site-nav">
+                <a href="index.php">الرئيسية</a>
+                <a href="index.php?page=login">تسجيل الدخول</a>
+                <a href="index.php?page=register" class="nav-cta">إنشاء حساب</a>
+            </nav>
+        </header>
+
+        <div class="page-title-block">
+            <h1>الخطط والأسعار</h1>
+            <p>اختر الباقة التي تناسب احتياجاتك، بدون أي رسوم خفية.</p>
+        </div>
+
+        <div class="plans-public-grid">
+            <?php foreach ($plans as $plan): ?>
+            <div class="plan-public-card">
+                <div class="plan-public-icon"><?php echo $plan['icon']; ?></div>
+                <h3><?php echo e($plan['name']); ?></h3>
+                <?php if (!empty($plan['badge'])): ?><span class="pill pill-gold"><?php echo e($plan['badge']); ?></span><?php endif; ?>
+                <div class="plan-public-price"><?php echo (int)$plan['price']; ?>$<small>/شهر</small></div>
+                <ul class="plan-specs-list">
+                    <li><i class="fas fa-microchip"></i> معالج <?php echo e($plan['cpu']); ?></li>
+                    <li><i class="fas fa-memory"></i> ذاكرة <?php echo e($plan['ram']); ?></li>
+                    <li><i class="fas fa-hard-drive"></i> تخزين <?php echo e($plan['storage']); ?></li>
+                    <li><i class="fas fa-network-wired"></i> باندويث <?php echo e($plan['bandwidth']); ?></li>
+                </ul>
+                <a href="index.php?page=buy&plan=<?php echo (int)$plan['id']; ?>" class="btn-primary-lg" style="width:100%">اشتراك الآن</a>
+            </div>
+            <?php endforeach; ?>
+            <?php if (!$plans): ?>
+            <p class="text-muted text-center">لا توجد باقات متاحة حالياً.</p>
+            <?php endif; ?>
+        </div>
+
+        <footer class="site-footer">© <?php echo date('Y'); ?> استضافتي. جميع الحقوق محفوظة.</footer>
+    </body>
+    </html>
+    <?php
+}
+
+// ============================================================
+// تسجيل الدخول
+// ============================================================
+
+function includeLoginPage($error) {
+    $next = $_GET['next'] ?? '';
+    ?>
+    <!DOCTYPE html>
+    <html lang="ar" dir="rtl">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>تسجيل الدخول - استضافتي</title>
+        <link rel="preconnect" href="https://fonts.googleapis.com">
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
+        <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+        <style>
+        <?php echo sharedThemeCss(); ?>
+        <?php echo sharedPublicCss(); ?>
+        </style>
+    </head>
+    <body>
+        <div class="auth-wrap">
+            <div class="auth-card">
+                <div class="auth-logo"><i class="fas fa-server"></i></div>
+                <h1>تسجيل الدخول</h1>
+                <p class="auth-sub">مرحباً بعودتك! سجّل الدخول لمتابعة إدارة استضافتك.</p>
+
+                <?php if ($error): ?><div class="form-alert"><?php echo e($error); ?></div><?php endif; ?>
+
+                <form method="POST" action="index.php?page=login<?php echo $next ? '&next=' . urlencode($next) : ''; ?>">
+                    <?php echo csrfField(); ?>
+                    <input type="hidden" name="action" value="login">
+                    <input type="hidden" name="next" value="<?php echo e($next); ?>">
+
+                    <label class="field-label">البريد الإلكتروني أو رقم الهاتف</label>
+                    <input type="text" name="identifier" class="text-input" placeholder="example@mail.com أو 07xxxxxxxxx" required dir="ltr">
+
+                    <label class="field-label">كلمة المرور</label>
+                    <input type="password" name="password" class="text-input" placeholder="اتركها فارغة إن سجّلت برقم الهاتف فقط" dir="ltr">
+
+                    <button type="submit" class="btn-primary-lg" style="width:100%;margin-top:16px">
+                        <i class="fas fa-right-to-bracket"></i> دخول
                     </button>
-                </div>
-                
-                <div class="hero-panel">
-                    <div class="logo-wrapper">
-                        <div class="logo">
-                            <i class="fas fa-server"></i>
-                        </div>
-                    </div>
+                </form>
 
-                    <h1 class="site-title">خوادم VPS</h1>
-                </div>
+                <p class="auth-switch">ليس لديك حساب؟ <a href="index.php?page=register<?php echo $next ? '&next=' . urlencode($next) : ''; ?>">إنشاء حساب جديد</a></p>
+                <p class="auth-switch"><a href="index.php">« العودة للرئيسية</a></p>
+            </div>
+        </div>
+    </body>
+    </html>
+    <?php
+}
 
-                <p class="site-subtitle">
-                    استضافة احترافية بأعلى أداء وسرعة<br>
-                    <strong>دعم فني 24/7</strong> · <strong>أمان كامل</strong>
-                </p>
-                
-                <div id="splashView">
-                    <div class="plans-grid">
-                        <div class="plan-card">
-                            <div class="plan-name">🚀 أساسي</div>
-                            <div class="plan-specs">1 Core · 2GB · 50GB</div>
-                            <div class="plan-price">25$ <small>/شهر</small></div>
-                            <span class="plan-badge">شائع</span>
-                        </div>
-                        <div class="plan-card">
-                            <div class="plan-name">⚡ متقدم</div>
-                            <div class="plan-specs">2 Core · 4GB · 100GB</div>
-                            <div class="plan-price">45$ <small>/شهر</small></div>
-                            <span class="plan-badge">مفضل</span>
-                        </div>
-                        <div class="plan-card">
-                            <div class="plan-name">🔥 احترافي</div>
-                            <div class="plan-specs">4 Core · 8GB · 200GB</div>
-                            <div class="plan-price">75$ <small>/شهر</small></div>
-                            <span class="plan-badge">قوي</span>
-                        </div>
-                        <div class="plan-card">
-                            <div class="plan-name">👑 مخصص</div>
-                            <div class="plan-specs">8 Core · 16GB · 500GB</div>
-                            <div class="plan-price">120$ <small>/شهر</small></div>
-                            <span class="plan-badge">احترافي</span>
-                        </div>
-                    </div>
+// ============================================================
+// إنشاء حساب
+// ============================================================
 
-                    <div class="features-grid">
-                        <div class="feature-box">
-                            <i class="fas fa-bolt"></i>
-                            <h4>أداء خارق</h4>
-                            <p>معالجات حديثة SSD</p>
-                        </div>
-                        <div class="feature-box">
-                            <i class="fas fa-shield-halved"></i>
-                            <h4>أمان كامل</h4>
-                            <p>حماية DDoS</p>
-                        </div>
-                        <div class="feature-box">
-                            <i class="fas fa-headset"></i>
-                            <h4>دعم فني</h4>
-                            <p>خدمة 24/7</p>
-                        </div>
-                    </div>
+function includeRegisterPage($error) {
+    $next = $_GET['next'] ?? '';
+    ?>
+    <!DOCTYPE html>
+    <html lang="ar" dir="rtl">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>إنشاء حساب - استضافتي</title>
+        <link rel="preconnect" href="https://fonts.googleapis.com">
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
+        <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+        <style>
+        <?php echo sharedThemeCss(); ?>
+        <?php echo sharedPublicCss(); ?>
+        </style>
+    </head>
+    <body>
+        <div class="auth-wrap">
+            <div class="auth-card">
+                <div class="auth-logo"><i class="fas fa-server"></i></div>
+                <h1>إنشاء حساب جديد</h1>
+                <p class="auth-sub">انضم إلى استضافتي وابدأ باستضافة مشاريعك اليوم.</p>
 
-                    <div class="splash-actions">
-                        <button type="button" class="btn-primary" onclick="showLoginForm()">
-                            <i class="fas fa-rocket"></i> ابدأ الآن
-                        </button>
-                        <button type="button" class="btn-secondary-full" onclick="showLoginForm()">
-                            تسجيل الدخول
-                        </button>
-                    </div>
+                <?php if ($error): ?><div class="form-alert"><?php echo e($error); ?></div><?php endif; ?>
+
+                <div class="method-tabs">
+                    <button type="button" class="method-tab active" id="tabPhone" onclick="switchMethod('phone')">رقم الهاتف</button>
+                    <button type="button" class="method-tab" id="tabEmail" onclick="switchMethod('email')">البريد الإلكتروني</button>
                 </div>
 
-                <div id="loginView" class="hidden">
-                    <div class="login-section">
-                        <form method="POST" action="">
-                            <label class="field-label">
-                                <i class="fas fa-phone"></i> رقم الهاتف للدخول
-                            </label>
-                            <div class="phone-input-wrap">
-                                <span class="prefix">🇮🇶 +964</span>
-                                <input type="tel" name="phone" placeholder="7701234567" dir="ltr" required>
-                            </div>
+                <form method="POST" action="index.php?page=register<?php echo $next ? '&next=' . urlencode($next) : ''; ?>">
+                    <?php echo csrfField(); ?>
+                    <input type="hidden" name="action" value="register">
+                    <input type="hidden" name="next" value="<?php echo e($next); ?>">
+                    <input type="hidden" name="method" id="methodField" value="phone">
 
-                            <button type="submit" name="login" class="btn-primary">
-                                <i class="fas fa-rocket"></i> دخول إلى لوحة التحكم
-                            </button>
-                        </form>
+                    <label class="field-label">الاسم الكامل</label>
+                    <input type="text" name="name" class="text-input" required>
 
-                        <div class="login-hint">
-                            <span class="highlight">📱 أرقام تجريبية:</span><br>
-                            <span style="color:var(--accent)">07819044981</span> ← أدمن &nbsp;|&nbsp;
-                            <span style="color:var(--accent)">07819044911</span> ← مستخدم
-                        </div>
-
-                        <div class="secure-badge">
-                            <i class="fas fa-lock"></i>
-                            <span>آمن ومشفر · بدون كلمة مرور</span>
+                    <div id="phoneFields">
+                        <label class="field-label">رقم الهاتف</label>
+                        <div class="phone-input-wrap">
+                            <span class="prefix">🇮🇶 +964</span>
+                            <input type="tel" name="phone" class="text-input-bare" placeholder="7701234567" dir="ltr">
                         </div>
                     </div>
-                </div>
+
+                    <div id="emailFields" class="hidden">
+                        <label class="field-label">البريد الإلكتروني</label>
+                        <input type="email" name="email" class="text-input" placeholder="example@mail.com" dir="ltr">
+                        <label class="field-label">كلمة المرور</label>
+                        <input type="password" name="password" class="text-input" placeholder="6 أحرف على الأقل" dir="ltr">
+                    </div>
+
+                    <button type="submit" class="btn-primary-lg" style="width:100%;margin-top:16px">
+                        <i class="fas fa-user-plus"></i> إنشاء الحساب
+                    </button>
+                </form>
+
+                <p class="auth-switch">لديك حساب مسبقاً؟ <a href="index.php?page=login<?php echo $next ? '&next=' . urlencode($next) : ''; ?>">تسجيل الدخول</a></p>
+                <p class="auth-switch"><a href="index.php">« العودة للرئيسية</a></p>
             </div>
         </div>
 
         <script>
-        function showLoginForm() {
-            document.getElementById('splashView').classList.add('hidden');
-            document.getElementById('loginView').classList.remove('hidden');
-            const phoneInput = document.querySelector('#loginView input[name="phone"]');
-            if (phoneInput) phoneInput.focus();
+        function switchMethod(m) {
+            document.getElementById('methodField').value = m;
+            document.getElementById('tabPhone').classList.toggle('active', m === 'phone');
+            document.getElementById('tabEmail').classList.toggle('active', m === 'email');
+            document.getElementById('phoneFields').classList.toggle('hidden', m !== 'phone');
+            document.getElementById('emailFields').classList.toggle('hidden', m !== 'email');
         }
-
-        function toggleTheme() {
-            const html = document.documentElement;
-            const currentTheme = html.getAttribute('data-theme') || 'light';
-            const newTheme = currentTheme === 'dark' ? 'light' : 'dark';
-            
-            html.setAttribute('data-theme', newTheme);
-            localStorage.setItem('theme', newTheme);
-            
-            const icon = document.getElementById('themeIcon');
-            if (newTheme === 'dark') {
-                icon.className = 'fas fa-moon';
-            } else {
-                icon.className = 'fas fa-sun';
-            }
-        }
-        
-        (function() {
-            const savedTheme = localStorage.getItem('theme') || 'light';
-            document.documentElement.setAttribute('data-theme', savedTheme);
-            
-            const icon = document.getElementById('themeIcon');
-            if (savedTheme === 'dark') {
-                icon.className = 'fas fa-moon';
-            } else {
-                icon.className = 'fas fa-sun';
-            }
-        })();
         </script>
     </body>
     </html>
@@ -752,66 +712,120 @@ function includeWelcomePage() {
 // صفحة لوحة التحكم
 // ============================================================
 
-function includeAppPage() {
-    $user = currentUser();
-    $is_admin = $user['is_admin'] ?? 0;
-    $user_name = $user['name'] ?? 'مستخدم';
-    $balance = $user['balance'] ?? 0;
-    
-    // استضافات وهمية
-    $hosting = [
-        [
-            'id' => 1,
-            'name' => 'خادم أساسي - مشروع 1',
-            'plan' => 'أساسي',
-            'ip' => '192.168.1.100',
-            'username' => 'admin',
-            'password' => 'P@ssw0rd123',
-            'status' => 'active',
-            'expiry_date' => '2025-01-15'
-        ],
-        [
-            'id' => 2,
-            'name' => 'خادم متقدم - متجر إلكتروني',
-            'plan' => 'متقدم',
-            'ip' => '192.168.1.101',
-            'username' => 'root',
-            'password' => 'Secure#2024',
-            'status' => 'active',
-            'expiry_date' => '2024-12-20'
-        ],
-        [
-            'id' => 3,
-            'name' => 'خادم احترافي - منصة تعليمية',
-            'plan' => 'احترافي',
-            'ip' => '192.168.1.102',
-            'username' => 'admin',
-            'password' => 'Edu@2024',
-            'status' => 'expired',
-            'expiry_date' => '2024-11-01'
-        ],
-    ];
-    
-    $invoices = [
-        ['id' => 1, 'number' => 'VPS-2024-001', 'amount' => 25, 'status' => 'paid', 'due_date' => '2024-12-01', 'description' => 'خادم أساسي - شهر ديسمبر'],
-        ['id' => 2, 'number' => 'VPS-2024-002', 'amount' => 45, 'status' => 'pending', 'due_date' => '2024-12-15', 'description' => 'خادم متقدم - شهر ديسمبر'],
-        ['id' => 3, 'number' => 'VPS-2024-003', 'amount' => 75, 'status' => 'overdue', 'due_date' => '2024-11-01', 'description' => 'خادم احترافي - شهر نوفمبر'],
-    ];
-    
-    $payment_methods = [
-        ['id' => 'zain_cash', 'name' => 'زين كاش', 'icon' => 'fa-mobile-alt', 'color' => 'green'],
-        ['id' => 'asia_cell', 'name' => 'آسيا سيل', 'icon' => 'fa-sim-card', 'color' => 'blue'],
-        ['id' => 'credit_card', 'name' => 'بطاقة ائتمانية', 'icon' => 'fa-credit-card', 'color' => 'purple'],
-        ['id' => 'bank_transfer', 'name' => 'تحويل بنكي', 'icon' => 'fa-university', 'color' => 'gold'],
-    ];
+function handleSubmitOrder(PDO $pdo) {
+    csrfCheck();
+    $userId = (int)$_SESSION['user_id'];
+    $planId = (int)($_POST['plan_id'] ?? 0);
+    $paymentChoice = trim($_POST['payment_method_id'] ?? '');
 
-    // باقات VPS للطلب
-    $vps_plans = [
-        ['id' => 'basic', 'icon' => '🚀', 'name' => 'أساسي', 'price' => 25, 'cpu' => '1 Core', 'ram' => '2 GB', 'storage' => '50 GB SSD', 'bandwidth' => '1 TB', 'badge' => '🔥 الأكثر طلباً'],
-        ['id' => 'advanced', 'icon' => '⚡', 'name' => 'متقدم', 'price' => 45, 'cpu' => '2 Core', 'ram' => '4 GB', 'storage' => '100 GB SSD', 'bandwidth' => '2 TB', 'badge' => null],
-        ['id' => 'pro', 'icon' => '🔥', 'name' => 'احترافي', 'price' => 75, 'cpu' => '4 Core', 'ram' => '8 GB', 'storage' => '200 GB SSD', 'bandwidth' => '3 TB', 'badge' => null],
-        ['id' => 'custom', 'icon' => '👑', 'name' => 'مخصص', 'price' => 120, 'cpu' => '8 Core', 'ram' => '16 GB', 'storage' => '500 GB SSD', 'bandwidth' => '5 TB', 'badge' => null],
-    ];
+    $stmt = $pdo->prepare('SELECT * FROM vps_plans WHERE id = ? AND is_active = 1');
+    $stmt->execute([$planId]);
+    $plan = $stmt->fetch(PDO::FETCH_ASSOC);
+    if (!$plan) {
+        return 'الباقة المختارة غير متاحة.';
+    }
+
+    $paymentMethodId = null;
+    $proofPath = null;
+
+    if ($paymentChoice === 'balance') {
+        $user = currentUser($pdo);
+        if ((float)$user['balance'] < (float)$plan['price']) {
+            return 'رصيدك الحالي غير كافٍ لإتمام هذا الطلب.';
+        }
+        $pdo->prepare('UPDATE users SET balance = balance - ? WHERE id = ?')->execute([$plan['price'], $userId]);
+    } else {
+        $paymentMethodId = (int)$paymentChoice;
+        $pm = $pdo->prepare('SELECT id FROM payment_methods WHERE id = ? AND is_active = 1');
+        $pm->execute([$paymentMethodId]);
+        if (!$pm->fetch()) {
+            return 'طريقة الدفع المختارة غير متاحة.';
+        }
+        [$proofPath, $uploadError] = handleImageUpload('proof_image', PROOFS_DIR, 'uploads/proofs');
+        if ($uploadError) {
+            return $uploadError;
+        }
+        if (!$proofPath) {
+            return 'الرجاء إرفاق صورة إيصال التحويل.';
+        }
+    }
+
+    $pdo->prepare('INSERT INTO orders (user_id, plan_id, payment_method_id, amount, proof_image, status) VALUES (?,?,?,?,?,?)')
+        ->execute([$userId, $planId, $paymentMethodId, $plan['price'], $proofPath, 'pending']);
+    $orderId = (int)$pdo->lastInsertId();
+
+    $pdo->prepare('INSERT INTO invoices (user_id, order_id, invoice_number, amount, status, description) VALUES (?,?,?,?,?,?)')
+        ->execute([$userId, $orderId, nextInvoiceNumber($pdo), $plan['price'], $paymentChoice === 'balance' ? 'paid' : 'pending', 'اشتراك باقة ' . $plan['name']]);
+
+    return null;
+}
+
+function handleTopUpBalance(PDO $pdo) {
+    csrfCheck();
+    $userId = (int)$_SESSION['user_id'];
+    $amount = (float)($_POST['amount'] ?? 0);
+    $paymentMethodId = (int)($_POST['payment_method_id'] ?? 0);
+
+    if ($amount <= 0) {
+        return 'الرجاء إدخال مبلغ صحيح.';
+    }
+    $pm = $pdo->prepare('SELECT id FROM payment_methods WHERE id = ? AND is_active = 1');
+    $pm->execute([$paymentMethodId]);
+    if (!$pm->fetch()) {
+        return 'طريقة الدفع المختارة غير متاحة.';
+    }
+    [$proofPath, $uploadError] = handleImageUpload('proof_image', PROOFS_DIR, 'uploads/proofs');
+    if ($uploadError) {
+        return $uploadError;
+    }
+    if (!$proofPath) {
+        return 'الرجاء إرفاق صورة إيصال التحويل.';
+    }
+
+    $pdo->prepare('INSERT INTO invoices (user_id, invoice_number, amount, status, description) VALUES (?,?,?,?,?)')
+        ->execute([$userId, nextInvoiceNumber($pdo), $amount, 'pending', 'طلب شحن رصيد']);
+
+    return null;
+}
+
+// ============================================================
+// صفحة لوحة التحكم
+// ============================================================
+
+function includeAppPage(PDO $pdo) {
+    $user = currentUser($pdo);
+    $user_name = $user['name'] ?? 'مستخدم';
+    $balance = (float)($user['balance'] ?? 0);
+    $userId = (int)$user['id'];
+
+    $hostingStmt = $pdo->prepare('SELECT * FROM hosting WHERE user_id = ? ORDER BY created_at DESC');
+    $hostingStmt->execute([$userId]);
+    $hosting = $hostingStmt->fetchAll(PDO::FETCH_ASSOC);
+
+    $invoicesStmt = $pdo->prepare('SELECT id, invoice_number AS number, amount, status, due_date, description FROM invoices WHERE user_id = ? ORDER BY created_at DESC');
+    $invoicesStmt->execute([$userId]);
+    $invoices = $invoicesStmt->fetchAll(PDO::FETCH_ASSOC);
+
+    $ordersStmt = $pdo->prepare("
+        SELECT o.*, p.name AS plan_name, p.icon AS plan_icon
+        FROM orders o JOIN vps_plans p ON p.id = o.plan_id
+        WHERE o.user_id = ? ORDER BY o.created_at DESC
+    ");
+    $ordersStmt->execute([$userId]);
+    $orders = $ordersStmt->fetchAll(PDO::FETCH_ASSOC);
+
+    $payment_methods = $pdo->query('SELECT * FROM payment_methods WHERE is_active = 1 ORDER BY sort_order ASC, id ASC')->fetchAll(PDO::FETCH_ASSOC);
+    $pmColors = ['blue', 'purple', 'gold', 'green'];
+    foreach ($payment_methods as $i => &$pmRow) {
+        $pmRow['color'] = $pmColors[$i % count($pmColors)];
+    }
+    unset($pmRow);
+
+    $vps_plans = $pdo->query('SELECT * FROM vps_plans WHERE is_active = 1 ORDER BY sort_order ASC, id ASC')->fetchAll(PDO::FETCH_ASSOC);
+
+    $buyPlanId = (int)($_GET['buy'] ?? 0);
+    $orderedFlag = isset($_GET['ordered']);
+    $orderErrorMsg = $_GET['order_error'] ?? null;
 
     // بيانات المساعد الذكي (تجريبية)
     $ai_tools = [
@@ -1781,6 +1795,15 @@ function includeAppPage() {
                 font-size: 18px;
             }
             
+            .form-alert-inline {
+                background: rgba(239,68,68,.1);
+                color: #dc2626;
+                border: 1px solid rgba(239,68,68,.25);
+                border-radius: var(--radius-sm);
+                padding: 10px 14px;
+                font-size: 12px;
+                margin-bottom: 12px;
+            }
             .btn-pay {
                 width: 100%;
                 padding: 14px;
@@ -2075,41 +2098,6 @@ function includeAppPage() {
             .pay-option .icon-wrap { flex-shrink: 0; }
             .pay-option .title { font-size: 13px; font-weight: 700; color: var(--text-primary); }
             .pay-option .sub { font-size: 11px; color: var(--text-muted); }
-
-            .saved-card {
-                background: linear-gradient(135deg, #2b2440, #4a3f6b);
-                border-radius: var(--radius);
-                padding: 20px;
-                color: #fff;
-                margin-bottom: 14px;
-                position: relative;
-                overflow: hidden;
-            }
-            .saved-card .brand-row {
-                display: flex;
-                justify-content: space-between;
-                align-items: center;
-                margin-bottom: 24px;
-                font-size: 13px;
-                font-weight: 700;
-                opacity: .85;
-            }
-            .saved-card .brand-row i { font-size: 20px; }
-            .saved-card .number {
-                font-size: 17px;
-                letter-spacing: 2px;
-                font-family: monospace;
-                margin-bottom: 16px;
-                direction: ltr;
-                text-align: right;
-            }
-            .saved-card .bottom-row {
-                display: flex;
-                justify-content: space-between;
-                font-size: 11px;
-                opacity: .75;
-                direction: ltr;
-            }
 
             .order-total-row {
                 display: flex;
@@ -2454,18 +2442,21 @@ function includeAppPage() {
                         <h3><i class="fas fa-server"></i> استضافاتي النشطة</h3>
                         <span style="font-size:11px;color:var(--text-muted);cursor:pointer" onclick="showSection('servers')">عرض الكل</span>
                     </div>
+                    <?php if (!$hosting): ?>
+                    <div class="text-muted text-center" style="padding:20px 0;font-size:12px">📭 ما عندك استضافات بعد</div>
+                    <?php endif; ?>
                     <?php foreach ($hosting as $h): ?>
                     <div class="hosting-item" onclick="showHostingDetail(<?php echo $h['id']; ?>)">
                         <div class="info">
-                            <div class="name"><?php echo $h['name']; ?></div>
-                            <div class="sub"><?php echo $h['plan']; ?> · <?php echo $h['ip']; ?></div>
+                            <div class="name"><?php echo e($h['name']); ?></div>
+                            <div class="sub"><?php echo e($h['plan']); ?> · <?php echo e($h['ip']); ?></div>
                         </div>
                         <div class="status-badge">
                             <span class="pill <?php echo $h['status'] === 'active' ? 'pill-green' : 'pill-red'; ?>">
                                 <?php echo $h['status'] === 'active' ? '✅ مفعل' : '❌ منتهي'; ?>
                             </span>
                             <div style="font-size:9px;color:var(--text-muted);margin-top:2px">
-                                ينتهي: <?php echo $h['expiry_date']; ?>
+                                ينتهي: <?php echo e($h['expiry_date']); ?>
                             </div>
                         </div>
                     </div>
@@ -2478,35 +2469,26 @@ function includeAppPage() {
                         <h3><i class="fas fa-receipt"></i> آخر الفواتير</h3>
                         <span style="font-size:11px;color:var(--text-muted);cursor:pointer" onclick="showSection('invoices')">عرض الكل</span>
                     </div>
-                    <?php foreach (array_slice($invoices, 0, 3) as $inv): ?>
-                    <div class="invoice-item" onclick="showInvoiceDetail(<?php echo $inv['id']; ?>)">
+                    <?php if (!$invoices): ?>
+                    <div class="text-muted text-center" style="padding:20px 0;font-size:12px">📭 لا توجد فواتير بعد</div>
+                    <?php endif; ?>
+                    <?php foreach (array_slice($invoices, 0, 3) as $inv):
+                        $homeInvLabel = ['paid' => '✅ مدفوع', 'pending' => '⏳ معلق', 'rejected' => '❌ مرفوض'][$inv['status']] ?? $inv['status'];
+                        $homeInvPill = ['paid' => 'pill-green', 'pending' => 'pill-amber', 'rejected' => 'pill-red'][$inv['status']] ?? 'pill-amber';
+                    ?>
+                    <div class="invoice-item" onclick="showInvoiceDetail(<?php echo (int)$inv['id']; ?>)">
                         <div class="info">
-                            <div class="number"><?php echo $inv['number']; ?></div>
-                            <div class="date">استحقاق: <?php echo $inv['due_date']; ?></div>
+                            <div class="number"><?php echo e($inv['number']); ?></div>
+                            <div class="date"><?php echo $inv['due_date'] ? 'استحقاق: ' . e($inv['due_date']) : e($inv['description']); ?></div>
                         </div>
                         <div style="text-align:left">
-                            <div class="amount">$<?php echo $inv['amount']; ?></div>
-                            <span class="pill <?php echo $inv['status'] === 'paid' ? 'pill-green' : ($inv['status'] === 'pending' ? 'pill-amber' : 'pill-red'); ?>">
-                                <?php echo $inv['status'] === 'paid' ? '✅ مدفوع' : ($inv['status'] === 'pending' ? '⏳ معلق' : '❌ متأخر'); ?>
-                            </span>
+                            <div class="amount">$<?php echo money($inv['amount']); ?></div>
+                            <span class="pill <?php echo $homeInvPill; ?>"><?php echo $homeInvLabel; ?></span>
                         </div>
                     </div>
                     <?php endforeach; ?>
                 </div>
                 
-                <?php if ($is_admin): ?>
-                <div class="card" style="border-color:rgba(255,122,26,.15)">
-                    <div class="card-header">
-                        <h3><i class="fas fa-shield-halved"></i> لوحة الأدمن</h3>
-                        <span class="admin-badge">👑 أدمن</span>
-                    </div>
-                    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
-                        <button class="btn-outline" onclick="alert('📊 عرض جميع المستخدمين')"><i class="fas fa-users"></i> المستخدمين</button>
-                        <button class="btn-outline" onclick="alert('📋 عرض جميع الطلبات')"><i class="fas fa-list"></i> كل الطلبات</button>
-                        <button class="btn-outline" onclick="alert('📈 تقارير')"><i class="fas fa-chart-line"></i> تقارير</button>
-                    </div>
-                </div>
-                <?php endif; ?>
             </div>
             
             <!-- ============================================================
@@ -2631,27 +2613,42 @@ function includeAppPage() {
                         <h3><i class="fas fa-credit-card"></i> طريقة الدفع</h3>
                         <button class="btn-back" onclick="wizardGoTo('summary')">رجوع</button>
                     </div>
-                    <div class="saved-card">
-                        <div class="brand-row"><span>VISA</span><i class="fab fa-cc-visa"></i></div>
-                        <div class="number">•••• •••• •••• 4242</div>
-                        <div class="bottom-row"><span><?php echo htmlspecialchars($user_name); ?></span><span>12/28</span></div>
-                    </div>
-                    <div id="payOptionsContent"></div>
-                    <div class="order-total-row">
-                        <span>الإجمالي</span>
-                        <span class="amount" id="paymentTotalAmount"></span>
-                    </div>
-                    <button class="btn-gold" onclick="wizardPay()" style="margin-top:14px"><i class="fas fa-lock"></i> ادفع الآن</button>
+
+                    <?php if (!empty($orderErrorMsg)): ?>
+                        <div class="form-alert-inline"><?php echo e($orderErrorMsg); ?></div>
+                    <?php endif; ?>
+
+                    <form method="POST" action="index.php" enctype="multipart/form-data" id="orderForm">
+                        <?php echo csrfField(); ?>
+                        <input type="hidden" name="action" value="submit_order">
+                        <input type="hidden" name="plan_id" id="orderPlanId" value="">
+                        <input type="hidden" name="payment_method_id" id="orderPaymentMethodId" value="">
+
+                        <div id="payOptionsContent"></div>
+
+                        <div id="proofUploadWrap" class="hidden">
+                            <div class="hosting-detail" id="payInstructionsBox" style="margin-bottom:12px"></div>
+                            <label class="field-label" style="display:block;text-align:right;font-size:13px;color:var(--text-muted);margin-bottom:6px">صورة إيصال التحويل</label>
+                            <input type="file" name="proof_image" id="proofImageInput" accept="image/png,image/jpeg,image/webp" style="width:100%;padding:10px;border-radius:var(--radius-sm);border:1.5px solid var(--border-color);background:var(--bg-card);color:var(--text-primary);font-size:13px;font-family:inherit;margin-bottom:12px">
+                        </div>
+
+                        <div class="order-total-row">
+                            <span>الإجمالي</span>
+                            <span class="amount" id="paymentTotalAmount"></span>
+                        </div>
+                        <button type="submit" class="btn-gold" style="margin-top:14px"><i class="fas fa-lock"></i> إرسال الطلب</button>
+                    </form>
+                    <div class="text-muted text-center" style="margin-top:10px;font-size:12px">سيتم تجهيز سيرفرك بعد مراجعة طلبك من الإدارة.</div>
                 </div>
 
                 <!-- خطوة 5: نجاح الطلب -->
                 <div class="wizard-step hidden" id="vpsStepSuccess">
                     <div class="success-screen">
                         <div class="icon-big"><i class="fas fa-check"></i></div>
-                        <h2>تم إنشاء الطلب بنجاح!</h2>
-                        <p>جاري تجهيز سيرفرك الآن، ستصلك تفاصيل الدخول عبر البريد الإلكتروني خلال دقائق.</p>
+                        <h2>تم إرسال طلبك بنجاح!</h2>
+                        <p>طلبك الآن قيد المراجعة من فريقنا، بعد الموافقة ستظهر تفاصيل سيرفرك في "سيرفراتي" وستصلك فاتورة بالحالة.</p>
                     </div>
-                    <button class="btn-gold" onclick="showSection('servers')"><i class="fas fa-server"></i> الذهاب إلى سيرفراتي</button>
+                    <button class="btn-gold" onclick="showSection('orders')"><i class="fas fa-list"></i> الذهاب إلى طلباتي</button>
                 </div>
             </div>
             
@@ -2677,17 +2674,22 @@ function includeAppPage() {
                         </div>
                         <div class="payment-methods-grid">
                             <?php foreach ($payment_methods as $pm): ?>
-                            <div class="payment-method" onclick="showPaymentPage('<?php echo $pm['id']; ?>', '<?php echo $pm['name']; ?>')">
-                                <div class="icon <?php echo $pm['color']; ?>">
-                                    <i class="fas <?php echo $pm['icon']; ?>"></i>
+                            <div class="payment-method"
+                                data-id="<?php echo (int)$pm['id']; ?>"
+                                data-name="<?php echo e($pm['name']); ?>"
+                                data-account="<?php echo e($pm['account_number']); ?>"
+                                data-instructions="<?php echo e($pm['instructions']); ?>"
+                                onclick="showPaymentPage(this.dataset.id, this.dataset.name, this.dataset.account, this.dataset.instructions)">
+                                <div class="icon <?php echo e($pm['color']); ?>">
+                                    <i class="fas <?php echo e($pm['icon']); ?>"></i>
                                 </div>
-                                <div class="name"><?php echo $pm['name']; ?></div>
+                                <div class="name"><?php echo e($pm['name']); ?></div>
                             </div>
                             <?php endforeach; ?>
                         </div>
                     </div>
                 </div>
-                
+
                 <!-- صفحة الدفع -->
                 <div id="paymentPage" class="hidden">
                     <div class="card">
@@ -2695,34 +2697,56 @@ function includeAppPage() {
                             <h3><i class="fas fa-credit-card"></i> <span id="paymentMethodName">الدفع</span></h3>
                             <button class="btn-back" onclick="hidePaymentPage()">رجوع</button>
                         </div>
-                        <div class="input-group" style="margin-bottom:12px">
-                            <label style="display:block;font-size:13px;color:var(--text-muted);margin-bottom:4px">المبلغ ($)</label>
-                            <input type="number" id="paymentAmount" placeholder="أدخل المبلغ" style="width:100%;padding:12px 14px;border-radius:var(--radius-sm);border:1.5px solid var(--border-color);background:var(--bg-card);color:var(--text-primary);font-size:15px;font-family:inherit;outline:none">
-                        </div>
-                        <button class="btn-pay" onclick="processPayment()">
-                            <i class="fas fa-check"></i> تأكيد الدفع
-                        </button>
-                        <div id="paymentStatus" class="text-center" style="margin-top:10px;font-size:13px;color:var(--text-muted)"></div>
+                        <form method="POST" action="index.php" enctype="multipart/form-data">
+                            <?php echo csrfField(); ?>
+                            <input type="hidden" name="action" value="top_up">
+                            <input type="hidden" name="payment_method_id" id="topUpPaymentMethodId" value="">
+
+                            <div id="topUpInstructions" class="hosting-detail" style="margin-bottom:12px"></div>
+
+                            <div class="input-group" style="margin-bottom:12px">
+                                <label style="display:block;font-size:13px;color:var(--text-muted);margin-bottom:4px">المبلغ ($)</label>
+                                <input type="number" name="amount" min="1" step="0.01" placeholder="أدخل المبلغ" required style="width:100%;padding:12px 14px;border-radius:var(--radius-sm);border:1.5px solid var(--border-color);background:var(--bg-card);color:var(--text-primary);font-size:15px;font-family:inherit;outline:none">
+                            </div>
+
+                            <div style="margin-bottom:12px">
+                                <label style="display:block;font-size:13px;color:var(--text-muted);margin-bottom:4px">صورة إيصال التحويل</label>
+                                <input type="file" name="proof_image" accept="image/png,image/jpeg,image/webp" required style="width:100%;padding:10px;border-radius:var(--radius-sm);border:1.5px solid var(--border-color);background:var(--bg-card);color:var(--text-primary);font-size:13px;font-family:inherit">
+                            </div>
+
+                            <?php if (!empty($_GET['topup_error'])): ?>
+                                <div class="form-alert-inline"><?php echo e($_GET['topup_error']); ?></div>
+                            <?php endif; ?>
+
+                            <button type="submit" class="btn-pay">
+                                <i class="fas fa-check"></i> إرسال طلب الشحن
+                            </button>
+                        </form>
+                        <div class="text-muted text-center" style="margin-top:10px;font-size:12px">سيتم إضافة الرصيد بعد مراجعة الإيصال من الإدارة.</div>
                     </div>
                 </div>
-                
+
                 <!-- قائمة الفواتير -->
                 <div id="invoicesList">
                     <div class="card">
                         <div class="card-header">
                             <h3><i class="fas fa-receipt"></i> جميع الفواتير</h3>
                         </div>
-                        <?php foreach ($invoices as $inv): ?>
-                        <div class="invoice-item" onclick="showInvoiceDetail(<?php echo $inv['id']; ?>)">
+                        <?php if (!$invoices): ?>
+                        <div class="text-muted text-center" style="padding:24px 0">لا توجد فواتير بعد</div>
+                        <?php endif; ?>
+                        <?php foreach ($invoices as $inv):
+                            $invStatusLabel = ['paid' => '✅ مدفوع', 'pending' => '⏳ معلق', 'rejected' => '❌ مرفوض'][$inv['status']] ?? $inv['status'];
+                            $invStatusPill = ['paid' => 'pill-green', 'pending' => 'pill-amber', 'rejected' => 'pill-red'][$inv['status']] ?? 'pill-amber';
+                        ?>
+                        <div class="invoice-item" onclick="showInvoiceDetail(<?php echo (int)$inv['id']; ?>)">
                             <div class="info">
-                                <div class="number"><?php echo $inv['number']; ?></div>
-                                <div class="date">استحقاق: <?php echo $inv['due_date']; ?></div>
+                                <div class="number"><?php echo e($inv['number']); ?></div>
+                                <div class="date"><?php echo $inv['due_date'] ? 'استحقاق: ' . e($inv['due_date']) : e($inv['description']); ?></div>
                             </div>
                             <div style="text-align:left">
-                                <div class="amount">$<?php echo $inv['amount']; ?></div>
-                                <span class="pill <?php echo $inv['status'] === 'paid' ? 'pill-green' : ($inv['status'] === 'pending' ? 'pill-amber' : 'pill-red'); ?>">
-                                    <?php echo $inv['status'] === 'paid' ? '✅ مدفوع' : ($inv['status'] === 'pending' ? '⏳ معلق' : '❌ متأخر'); ?>
-                                </span>
+                                <div class="amount">$<?php echo money($inv['amount']); ?></div>
+                                <span class="pill <?php echo $invStatusPill; ?>"><?php echo $invStatusLabel; ?></span>
                             </div>
                         </div>
                         <?php endforeach; ?>
@@ -2747,7 +2771,7 @@ function includeAppPage() {
             <div id="section-orders" class="section-content hidden">
                 <div class="card" style="background:linear-gradient(135deg, #ffa64d, #ff7a1a, #f26a00);border:none;color:#ffffff;text-align:center">
                     <h3 style="font-size:18px;font-weight:900">📋 طلباتي</h3>
-                    <div style="font-size:13px;opacity:.8">إجمالي الطلبات: <span id="ordersCount">0</span></div>
+                    <div style="font-size:13px;opacity:.8">إجمالي الطلبات: <?php echo count($orders); ?></div>
                 </div>
 
                 <div class="card">
@@ -2755,11 +2779,26 @@ function includeAppPage() {
                         <h3><i class="fas fa-list"></i> جميع الطلبات</h3>
                         <button class="btn-outline btn-small" onclick="showSection('vps')"><i class="fas fa-plus"></i> طلب جديد</button>
                     </div>
-                    <div id="ordersListContent"></div>
-                    <div class="text-muted text-center" id="ordersEmptyState" style="padding:30px 0">
+                    <?php if (!$orders): ?>
+                    <div class="text-muted text-center" style="padding:30px 0">
                         📭 ما عندك طلبات VPS بعد<br>
                         <span style="color:var(--accent);cursor:pointer" onclick="showSection('vps')">اطلب خادمك الآن</span>
                     </div>
+                    <?php else: foreach ($orders as $o):
+                        $statusLabel = ['pending' => '⏳ قيد المراجعة', 'approved' => '✅ مقبول', 'rejected' => '❌ مرفوض'][$o['status']] ?? $o['status'];
+                        $statusPill = ['pending' => 'pill-amber', 'approved' => 'pill-green', 'rejected' => 'pill-red'][$o['status']] ?? 'pill-amber';
+                    ?>
+                    <div class="invoice-item">
+                        <div class="info">
+                            <div class="number"><?php echo $o['plan_icon']; ?> خادم <?php echo e($o['plan_name']); ?></div>
+                            <div class="date">تاريخ الطلب: <?php echo e(substr($o['created_at'], 0, 10)); ?></div>
+                        </div>
+                        <div style="text-align:left">
+                            <div class="amount">$<?php echo money($o['amount']); ?></div>
+                            <span class="pill <?php echo $statusPill; ?>"><?php echo $statusLabel; ?></span>
+                        </div>
+                    </div>
+                    <?php endforeach; endif; ?>
                 </div>
             </div>
             
@@ -2773,7 +2812,7 @@ function includeAppPage() {
                         <div class="info">
                             <h4><?php echo htmlspecialchars($user_name); ?></h4>
                             <div class="sub"><?php echo htmlspecialchars($user['phone'] ?? ''); ?></div>
-                            <span class="badge"><?php echo $is_admin ? '👑 أدمن' : '👤 مستخدم'; ?></span>
+                            <span class="badge">👤 مستخدم</span>
                         </div>
                     </div>
                     
@@ -3119,13 +3158,17 @@ function includeAppPage() {
             // ============================================================
             const HOSTING = <?php echo json_encode($hosting); ?>;
             const INVOICES = <?php echo json_encode($invoices); ?>;
-            const USER_BALANCE = <?php echo $balance; ?>;
+            const USER_BALANCE = <?php echo (float)$balance; ?>;
             const VPS_PLANS = <?php echo json_encode($vps_plans); ?>;
+            const PAYMENT_METHODS = <?php echo json_encode($payment_methods); ?>;
             const AI_CONVERSATIONS = <?php echo json_encode($ai_conversations); ?>;
             const USER_NAME = <?php echo json_encode($user_name); ?>;
+            const ROUTE_HINT = {
+                buyPlanId: <?php echo (int)$buyPlanId; ?>,
+                ordered: <?php echo $orderedFlag ? 'true' : 'false'; ?>,
+                hasOrderError: <?php echo !empty($orderErrorMsg) ? 'true' : 'false'; ?>,
+            };
 
-            let nextHostingId = HOSTING.reduce((max, h) => Math.max(max, h.id), 0) + 1;
-            let ORDERS = [];
             let detailReturnSection = 'home';
             
             // ============================================================
@@ -3380,7 +3423,7 @@ function includeAppPage() {
 
             function renderPlanList() {
                 document.getElementById('planListContent').innerHTML = VPS_PLANS.map(plan => `
-                    <div class="plan-select-item ${wizardState.planId === plan.id ? 'selected' : ''}" onclick="wizardSelectPlan('${plan.id}')">
+                    <div class="plan-select-item ${wizardState.planId === plan.id ? 'selected' : ''}" onclick="wizardSelectPlan(${plan.id})">
                         <div class="radio-circle ${wizardState.planId === plan.id ? 'checked' : ''}"><i class="fas fa-check"></i></div>
                         <div class="info">
                             <div class="top-row">
@@ -3395,7 +3438,7 @@ function includeAppPage() {
             }
 
             function wizardSelectPlan(planId) {
-                wizardState.planId = planId;
+                wizardState.planId = Number(planId);
                 renderPlanList();
                 document.getElementById('planContinueBtn').disabled = false;
             }
@@ -3434,16 +3477,26 @@ function includeAppPage() {
             }
 
             function renderPayOptions() {
-                const options = [
-                    { id: 'saved_card', icon: 'fa-credit-card', color: 'blue', title: 'بطاقة فيزا •••• 4242', sub: 'تنتهي 12/28' },
-                    { id: 'paypal', icon: 'fa-brands fa-paypal', color: 'purple', title: 'PayPal', sub: 'ادفع عبر حسابك في PayPal' },
-                    { id: 'crypto', icon: 'fa-brands fa-bitcoin', color: 'gold', title: 'Crypto Payment', sub: 'ادفع بعملة رقمية' },
-                    { id: 'balance', icon: 'fa-wallet', color: 'green', title: 'رصيد الحساب', sub: '$' + Number(USER_BALANCE).toFixed(2) + ' متاح' },
-                ];
-                if (!wizardState.paymentMethod) wizardState.paymentMethod = 'saved_card';
+                const options = PAYMENT_METHODS.map(pm => ({
+                    id: String(pm.id),
+                    icon: pm.icon,
+                    color: pm.color,
+                    title: pm.name,
+                    sub: 'تحويل يدوي',
+                    manual: true,
+                    account_number: pm.account_number,
+                    instructions: pm.instructions,
+                }));
+                options.push({
+                    id: 'balance', icon: 'fa-wallet', color: 'green', title: 'رصيد الحساب',
+                    sub: '$' + Number(USER_BALANCE).toFixed(2) + ' متاح', manual: false,
+                });
+
+                if (!wizardState.paymentMethod) wizardState.paymentMethod = options[0].id;
+
                 document.getElementById('payOptionsContent').innerHTML = options.map(opt => `
                     <div class="pay-option ${wizardState.paymentMethod === opt.id ? 'selected' : ''}" onclick="wizardSelectPayment('${opt.id}')">
-                        <div class="icon-wrap ${opt.color}"><i class="${opt.icon.startsWith('fa-brands') ? opt.icon : 'fas ' + opt.icon}"></i></div>
+                        <div class="icon-wrap ${opt.color}"><i class="fas ${opt.icon}"></i></div>
                         <div style="flex:1">
                             <div class="title">${opt.title}</div>
                             <div class="sub">${opt.sub}</div>
@@ -3451,6 +3504,25 @@ function includeAppPage() {
                         <div class="radio-circle ${wizardState.paymentMethod === opt.id ? 'checked' : ''}"><i class="fas fa-check"></i></div>
                     </div>
                 `).join('');
+
+                const plan = currentPlan();
+                document.getElementById('orderPlanId').value = plan ? plan.id : '';
+                document.getElementById('orderPaymentMethodId').value = wizardState.paymentMethod;
+
+                const selected = options.find(o => o.id === wizardState.paymentMethod);
+                const uploadWrap = document.getElementById('proofUploadWrap');
+                const proofInput = document.getElementById('proofImageInput');
+                if (selected && selected.manual) {
+                    uploadWrap.classList.remove('hidden');
+                    proofInput.required = true;
+                    document.getElementById('payInstructionsBox').innerHTML = `
+                        <div class="detail-row"><span class="label">حوّل إلى</span><span class="value">${selected.account_number || '-'}</span></div>
+                        ${selected.instructions ? `<div class="detail-row"><span class="label">ملاحظة</span><span class="value" style="direction:rtl;text-align:right;font-weight:400;font-size:12px">${selected.instructions}</span></div>` : ''}
+                    `;
+                } else {
+                    uploadWrap.classList.add('hidden');
+                    proofInput.required = false;
+                }
             }
 
             function wizardSelectPayment(id) {
@@ -3477,70 +3549,6 @@ function includeAppPage() {
                 window.scrollTo({ top: 0, behavior: 'smooth' });
             }
 
-            function wizardPay() {
-                const plan = currentPlan();
-                if (!plan) return;
-
-                const newId = nextHostingId++;
-                const newHosting = {
-                    id: newId,
-                    name: 'خادم ' + plan.name + ' - طلب جديد',
-                    plan: plan.name,
-                    ip: '192.168.1.' + (100 + newId),
-                    username: 'root',
-                    password: 'Vps#' + Math.random().toString(36).slice(2, 8),
-                    status: 'active',
-                    expiry_date: new Date(Date.now() + 30 * 24 * 3600 * 1000).toISOString().slice(0, 10)
-                };
-                HOSTING.push(newHosting);
-                ORDERS.push({ plan: plan.name, price: plan.price, date: new Date().toLocaleDateString('ar-IQ') });
-
-                renderServersList();
-                renderOrdersList();
-                wizardGoTo('success');
-            }
-
-            function renderServersList() {
-                const list = document.getElementById('serversListContent');
-                const noResults = document.getElementById('noServerResults');
-                list.querySelectorAll('.server-list-item').forEach(el => el.remove());
-                HOSTING.forEach(h => {
-                    const div = document.createElement('div');
-                    div.className = 'hosting-item server-list-item';
-                    div.dataset.name = h.name.toLowerCase();
-                    div.onclick = () => showHostingDetail(h.id);
-                    div.innerHTML = `
-                        <div class="info">
-                            <div class="name">${h.name}</div>
-                            <div class="sub">${h.plan} · ${h.ip}</div>
-                        </div>
-                        <div class="status-badge">
-                            <span class="pill ${h.status === 'active' ? 'pill-green' : 'pill-red'}">${h.status === 'active' ? '✅ قيد التشغيل' : '❌ منتهي'}</span>
-                            <div style="font-size:9px;color:var(--text-muted);margin-top:2px">ينتهي: ${h.expiry_date}</div>
-                        </div>
-                    `;
-                    list.insertBefore(div, noResults);
-                });
-                document.getElementById('section-servers').querySelector('.card-header span').textContent = HOSTING.length + ' سيرفر';
-            }
-
-            function renderOrdersList() {
-                document.getElementById('ordersCount').textContent = ORDERS.length;
-                document.getElementById('ordersEmptyState').classList.toggle('hidden', ORDERS.length > 0);
-                document.getElementById('ordersListContent').innerHTML = ORDERS.map(o => `
-                    <div class="invoice-item">
-                        <div class="info">
-                            <div class="number">خادم ${o.plan}</div>
-                            <div class="date">تاريخ الطلب: ${o.date}</div>
-                        </div>
-                        <div style="text-align:left">
-                            <div class="amount">$${o.price}</div>
-                            <span class="pill pill-green">✅ مكتمل</span>
-                        </div>
-                    </div>
-                `).join('');
-            }
-            
             // ============================================================
             // الفواتير
             // ============================================================
@@ -3556,56 +3564,32 @@ function includeAppPage() {
                 document.getElementById('invoicesList').classList.remove('hidden');
             }
             
-            function showPaymentPage(methodId, methodName) {
-                document.getElementById('paymentMethodName').textContent = 'الدفع عبر ' + methodName;
+            function showPaymentPage(methodId, methodName, accountNumber, instructions) {
+                document.getElementById('paymentMethodName').textContent = 'شحن عبر ' + methodName;
+                document.getElementById('topUpPaymentMethodId').value = methodId;
+                document.getElementById('topUpInstructions').innerHTML = `
+                    <div class="detail-row"><span class="label">حوّل إلى</span><span class="value">${accountNumber || '-'}</span></div>
+                ` + (instructions ? `<div class="detail-row"><span class="label">ملاحظة</span><span class="value" style="direction:rtl;text-align:right;font-weight:400;font-size:12px">${instructions}</span></div>` : '');
                 document.getElementById('paymentPage').classList.remove('hidden');
                 document.getElementById('addBalanceSection').classList.add('hidden');
-                document.getElementById('paymentStatus').textContent = '';
-                document.getElementById('paymentStatus').className = 'text-center';
             }
-            
+
             function hidePaymentPage() {
                 document.getElementById('paymentPage').classList.add('hidden');
                 document.getElementById('addBalanceSection').classList.remove('hidden');
             }
-            
-            function processPayment() {
-                const amount = document.getElementById('paymentAmount').value;
-                const status = document.getElementById('paymentStatus');
-                
-                if (!amount || amount <= 0) {
-                    status.textContent = '⚠️ أدخل مبلغ صحيح';
-                    status.className = 'text-center error';
-                    status.style.color = '#f87171';
-                    return;
-                }
-                
-                status.textContent = '⏳ جاري معالجة الدفع...';
-                status.className = 'text-center';
-                status.style.color = 'var(--text-muted)';
-                
-                setTimeout(function() {
-                    status.textContent = '✅ تم إضافة $' + amount + ' إلى رصيدك بنجاح!';
-                    status.className = 'text-center success';
-                    status.style.color = '#34d399';
-                    
-                    setTimeout(function() {
-                        hidePaymentPage();
-                        hideAddBalance();
-                        document.getElementById('invoicesList').classList.remove('hidden');
-                    }, 2000);
-                }, 1500);
-            }
-            
+
             function showInvoiceDetail(id) {
                 const invoice = INVOICES.find(inv => inv.id === id);
                 if (!invoice) return;
-                
-                const statusText = invoice.status === 'paid' ? 'مدفوع ✅' : 
-                                  (invoice.status === 'pending' ? 'معلق ⏳' : 'متأخر ❌');
-                const statusClass = invoice.status === 'paid' ? 'pill-green' : 
-                                   (invoice.status === 'pending' ? 'pill-amber' : 'pill-red');
-                
+
+                const statusMap = {
+                    paid: ['مدفوع ✅', 'pill-green'],
+                    pending: ['قيد المراجعة ⏳', 'pill-amber'],
+                    rejected: ['مرفوض ❌', 'pill-red'],
+                };
+                const [statusText, statusClass] = statusMap[invoice.status] || [invoice.status, 'pill-amber'];
+
                 document.getElementById('invoiceDetailContent').innerHTML = `
                     <div class="detail-row">
                         <span class="label">رقم الفاتورة</span>
@@ -3613,27 +3597,18 @@ function includeAppPage() {
                     </div>
                     <div class="detail-row">
                         <span class="label">المبلغ</span>
-                        <span class="value amount">$${invoice.amount}</span>
+                        <span class="value amount">${Number(invoice.amount).toFixed(2)}$</span>
                     </div>
                     <div class="detail-row">
                         <span class="label">الحالة</span>
                         <span class="value"><span class="pill ${statusClass}">${statusText}</span></span>
                     </div>
                     <div class="detail-row">
-                        <span class="label">تاريخ الاستحقاق</span>
-                        <span class="value">${invoice.due_date}</span>
-                    </div>
-                    <div class="detail-row">
                         <span class="label">الوصف</span>
                         <span class="value">${invoice.description || 'لا يوجد وصف'}</span>
                     </div>
-                    ${invoice.status !== 'paid' ? `
-                    <button class="btn-pay" onclick="showPaymentPage('invoice', 'دفع الفاتورة')">
-                        <i class="fas fa-credit-card"></i> دفع الفاتورة الآن
-                    </button>
-                    ` : ''}
                 `;
-                
+
                 document.getElementById('invoicesList').classList.add('hidden');
                 document.getElementById('invoiceDetail').classList.remove('hidden');
                 document.getElementById('addBalanceSection').classList.add('hidden');
@@ -3835,6 +3810,15 @@ function includeAppPage() {
             // عرض القسم الافتراضي
             // ============================================================
             showSection('home');
+
+            if (ROUTE_HINT.ordered) {
+                showSection('vps');
+                wizardGoTo('success');
+            } else if (ROUTE_HINT.buyPlanId) {
+                showSection('vps');
+                wizardSelectPlan(ROUTE_HINT.buyPlanId);
+                wizardGoTo(ROUTE_HINT.hasOrderError ? 'payment' : 'details');
+            }
         </script>
     </body>
     </html>
@@ -3845,5 +3829,5 @@ function includeAppPage() {
 // بدء التشغيل
 // ============================================================
 
-includeWelcomePage();
+includeLandingPage();
 ?>

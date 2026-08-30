@@ -1,0 +1,5 @@
+/vps_platform.db
+/uploads/proofs/*
+/uploads/logos/*
+!/uploads/proofs/.gitkeep
+!/uploads/logos/.gitkeep
