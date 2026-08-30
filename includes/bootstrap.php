@@ -117,6 +117,51 @@ try {
     ");
 
     // ------------------------------------------------------------
+    // ترحيل قواعد بيانات قديمة من نسخة سابقة للتطبيق (تضيف الأعمدة
+    // الناقصة دون فقدان البيانات الموجودة أصلاً)
+    // ------------------------------------------------------------
+    $ensureColumn = function ($table, $column, $definition) use ($pdo) {
+        $existing = $pdo->query("PRAGMA table_info($table)")->fetchAll(PDO::FETCH_ASSOC);
+        foreach ($existing as $col) {
+            if ($col['name'] === $column) return;
+        }
+        $pdo->exec("ALTER TABLE $table ADD COLUMN $column $definition");
+    };
+
+    $usersCols = array_column($pdo->query('PRAGMA table_info(users)')->fetchAll(PDO::FETCH_ASSOC), 'name');
+    if (!in_array('email', $usersCols, true) || !in_array('password_hash', $usersCols, true)) {
+        // النسخة القديمة كانت تفرض phone TEXT UNIQUE NOT NULL، وهذا القيد لا يمكن
+        // إزالته بـ ALTER TABLE في SQLite، لذا نعيد بناء الجدول بالكامل محافظين على البيانات
+        try {
+            $pdo->beginTransaction();
+            $pdo->exec("
+                CREATE TABLE users_migrated (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    name TEXT NOT NULL,
+                    email TEXT,
+                    phone TEXT,
+                    password_hash TEXT,
+                    is_admin INTEGER NOT NULL DEFAULT 0,
+                    balance REAL NOT NULL DEFAULT 0,
+                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                )
+            ");
+            $pdo->exec('INSERT INTO users_migrated (id, name, phone, is_admin, balance, created_at) SELECT id, name, phone, is_admin, balance, created_at FROM users');
+            $pdo->exec('DROP TABLE users');
+            $pdo->exec('ALTER TABLE users_migrated RENAME TO users');
+            $pdo->commit();
+        } catch (PDOException $e) {
+            $pdo->rollBack();
+            throw $e;
+        }
+    }
+    $pdo->exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_users_email ON users(email)');
+    $pdo->exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_users_phone ON users(phone)');
+
+    $ensureColumn('hosting', 'order_id', 'INTEGER');
+    $ensureColumn('invoices', 'order_id', 'INTEGER');
+
+    // ------------------------------------------------------------
     // بيانات ابتدائية (تُدرج مرة واحدة فقط إذا كانت الجداول فارغة)
     // ------------------------------------------------------------
     if ((int)$pdo->query('SELECT COUNT(*) FROM vps_plans')->fetchColumn() === 0) {
