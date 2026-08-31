@@ -114,6 +114,22 @@ try {
             FOREIGN KEY (user_id) REFERENCES users(id),
             FOREIGN KEY (order_id) REFERENCES orders(id)
         );
+
+        CREATE TABLE IF NOT EXISTS settings (
+            key TEXT PRIMARY KEY,
+            value TEXT
+        );
+
+        CREATE TABLE IF NOT EXISTS notifications (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL,
+            title TEXT NOT NULL,
+            body TEXT,
+            type TEXT NOT NULL DEFAULT 'system',
+            is_read INTEGER NOT NULL DEFAULT 0,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (user_id) REFERENCES users(id)
+        );
     ");
 
     // ------------------------------------------------------------
@@ -160,6 +176,8 @@ try {
 
     $ensureColumn('hosting', 'order_id', 'INTEGER');
     $ensureColumn('invoices', 'order_id', 'INTEGER');
+    $ensureColumn('vps_plans', 'original_price', 'REAL');
+    $ensureColumn('users', 'google_id', 'TEXT');
 
     // ------------------------------------------------------------
     // بيانات ابتدائية (تُدرج مرة واحدة فقط إذا كانت الجداول فارغة)
@@ -182,6 +200,17 @@ try {
     if ((int)$pdo->query('SELECT COUNT(*) FROM users WHERE is_admin = 1')->fetchColumn() === 0) {
         $pdo->prepare('INSERT INTO users (name, email, password_hash, is_admin, balance) VALUES (?,?,?,1,0)')
             ->execute(['مدير النظام', 'admin@istidafati.local', password_hash('Admin@12345', PASSWORD_DEFAULT)]);
+    }
+
+    if ((int)$pdo->query('SELECT COUNT(*) FROM settings')->fetchColumn() === 0) {
+        $seed = $pdo->prepare('INSERT INTO settings (key, value) VALUES (?, ?)');
+        $seed->execute(['site_name', 'استضافتي']);
+        $seed->execute(['site_tagline', 'استضافة سريعة وآمنة']);
+        $seed->execute(['site_logo', '']);
+        $seed->execute(['nvidia_api_key', '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']);
+        $seed->execute(['nvidia_model', 'openai/gpt-oss-120b']);
+        $seed->execute(['google_client_id', '']);
+        $seed->execute(['google_client_secret', '']);
     }
 } catch (PDOException $e) {
     http_response_code(500);
@@ -295,6 +324,93 @@ function money($amount) {
     return number_format((float)$amount, 2);
 }
 
+function planDiscountPct($plan) {
+    $original = (float)($plan['original_price'] ?? 0);
+    $price = (float)($plan['price'] ?? 0);
+    if ($original <= $price) return null;
+    return (int)round((($original - $price) / $original) * 100);
+}
+
 function e($str) {
     return htmlspecialchars((string)$str, ENT_QUOTES, 'UTF-8');
+}
+
+// ============================================================
+// الإعدادات (اسم الموقع، الشعار، مفاتيح API) - يديرها الأدمن
+// ============================================================
+
+function getAllSettings(PDO $pdo) {
+    static $cache = null;
+    if ($cache !== null) return $cache;
+    $rows = $pdo->query('SELECT key, value FROM settings')->fetchAll(PDO::FETCH_KEY_PAIR);
+    $cache = $rows;
+    return $cache;
+}
+
+function getSetting(PDO $pdo, $key, $default = '') {
+    $all = getAllSettings($pdo);
+    return $all[$key] ?? $default;
+}
+
+function setSetting(PDO $pdo, $key, $value) {
+    $pdo->prepare('INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value')
+        ->execute([$key, $value]);
+}
+
+// ============================================================
+// إشعارات المستخدم
+// ============================================================
+
+function notifyUser(PDO $pdo, $userId, $title, $body, $type = 'system') {
+    $pdo->prepare('INSERT INTO notifications (user_id, title, body, type) VALUES (?,?,?,?)')
+        ->execute([$userId, $title, $body, $type]);
+}
+
+// ============================================================
+// استدعاء واجهة الذكاء الاصطناعي (متوافقة مع NVIDIA / OpenAI chat completions)
+// ============================================================
+
+function callAiApi(PDO $pdo, $messages) {
+    $apiKey = getSetting($pdo, 'nvidia_api_key', '');
+    $model = getSetting($pdo, 'nvidia_model', 'openai/gpt-oss-120b');
+
+    if ($apiKey === '') {
+        return [null, 'لم يتم إعداد مفتاح الذكاء الاصطناعي بعد. الرجاء التواصل مع الإدارة.'];
+    }
+
+    $ch = curl_init('https://integrate.api.nvidia.com/v1/chat/completions');
+    curl_setopt_array($ch, [
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_POST => true,
+        CURLOPT_HTTPHEADER => [
+            'Content-Type: application/json',
+            'Authorization: Bearer ' . $apiKey,
+        ],
+        CURLOPT_POSTFIELDS => json_encode([
+            'model' => $model,
+            'messages' => $messages,
+            'temperature' => 0.6,
+            'top_p' => 0.9,
+            'max_tokens' => 1024,
+            'stream' => false,
+        ]),
+        CURLOPT_TIMEOUT => 45,
+    ]);
+    $response = curl_exec($ch);
+    $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    $curlError = curl_error($ch);
+    curl_close($ch);
+
+    if ($curlError) {
+        return [null, 'تعذر الاتصال بخدمة الذكاء الاصطناعي: ' . $curlError];
+    }
+    if ($httpCode !== 200) {
+        return [null, 'خطأ من خدمة الذكاء الاصطناعي (HTTP ' . $httpCode . ').'];
+    }
+    $data = json_decode($response, true);
+    $reply = $data['choices'][0]['message']['content'] ?? null;
+    if (!$reply) {
+        return [null, 'لم يصل رد من خدمة الذكاء الاصطناعي.'];
+    }
+    return [$reply, null];
 }

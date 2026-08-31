@@ -8,7 +8,7 @@ requireAdmin($pdo);
 
 $admin = currentUser($pdo);
 $section = $_GET['section'] ?? 'orders';
-if (!in_array($section, ['orders', 'topups', 'plans', 'payments'], true)) {
+if (!in_array($section, ['orders', 'topups', 'plans', 'payments', 'settings'], true)) {
     $section = 'orders';
 }
 
@@ -36,6 +36,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $storage = trim($_POST['storage'] ?? '');
         $bandwidth = trim($_POST['bandwidth'] ?? '');
         $price = (float)($_POST['price'] ?? 0);
+        $originalPriceRaw = trim($_POST['original_price'] ?? '');
+        $originalPrice = $originalPriceRaw === '' ? null : (float)$originalPriceRaw;
         $badge = trim($_POST['badge'] ?? '') ?: null;
         $isActive = isset($_POST['is_active']) ? 1 : 0;
         $sortOrder = (int)($_POST['sort_order'] ?? 0);
@@ -43,13 +45,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if ($name === '' || $cpu === '' || $ram === '' || $storage === '' || $bandwidth === '' || $price <= 0) {
             adminRedirect('plans', null, 'الرجاء تعبئة جميع الحقول المطلوبة (السعر يجب أن يكون أكبر من صفر).');
         }
+        if ($originalPrice !== null && $originalPrice <= $price) {
+            $originalPrice = null;
+        }
 
         if ($id > 0) {
-            $pdo->prepare('UPDATE vps_plans SET name=?, icon=?, cpu=?, ram=?, storage=?, bandwidth=?, price=?, badge=?, is_active=?, sort_order=? WHERE id=?')
-                ->execute([$name, $icon, $cpu, $ram, $storage, $bandwidth, $price, $badge, $isActive, $sortOrder, $id]);
+            $pdo->prepare('UPDATE vps_plans SET name=?, icon=?, cpu=?, ram=?, storage=?, bandwidth=?, price=?, original_price=?, badge=?, is_active=?, sort_order=? WHERE id=?')
+                ->execute([$name, $icon, $cpu, $ram, $storage, $bandwidth, $price, $originalPrice, $badge, $isActive, $sortOrder, $id]);
         } else {
-            $pdo->prepare('INSERT INTO vps_plans (name, icon, cpu, ram, storage, bandwidth, price, badge, is_active, sort_order) VALUES (?,?,?,?,?,?,?,?,?,?)')
-                ->execute([$name, $icon, $cpu, $ram, $storage, $bandwidth, $price, $badge, $isActive, $sortOrder]);
+            $pdo->prepare('INSERT INTO vps_plans (name, icon, cpu, ram, storage, bandwidth, price, original_price, badge, is_active, sort_order) VALUES (?,?,?,?,?,?,?,?,?,?,?)')
+                ->execute([$name, $icon, $cpu, $ram, $storage, $bandwidth, $price, $originalPrice, $badge, $isActive, $sortOrder]);
         }
         adminRedirect('plans', 'تم حفظ الباقة بنجاح.');
     }
@@ -124,6 +129,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             ->execute([$order['user_id'], $orderId, $hostName, $plan['name'] ?? '-', $ip, $username, $password, 'active', $expiry]);
         $pdo->prepare("UPDATE orders SET status = 'approved', decided_at = CURRENT_TIMESTAMP WHERE id = ?")->execute([$orderId]);
         $pdo->prepare("UPDATE invoices SET status = 'paid' WHERE order_id = ?")->execute([$orderId]);
+        notifyUser($pdo, $order['user_id'], '✅ تم قبول طلبك', 'تم تفعيل استضافتك (' . $hostName . ') وهي جاهزة الآن ضمن "سيرفراتي".', 'order_approved');
         $pdo->commit();
 
         adminRedirect('orders', 'تم قبول الطلب وتفعيل الاستضافة للمستخدم.');
@@ -131,8 +137,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     if ($action === 'order_reject') {
         $orderId = (int)($_POST['order_id'] ?? 0);
-        $pdo->prepare("UPDATE orders SET status = 'rejected', decided_at = CURRENT_TIMESTAMP WHERE id = ? AND status = 'pending'")->execute([$orderId]);
-        $pdo->prepare("UPDATE invoices SET status = 'rejected' WHERE order_id = ?")->execute([$orderId]);
+        $stmt = $pdo->prepare("SELECT * FROM orders WHERE id = ? AND status = 'pending'");
+        $stmt->execute([$orderId]);
+        $order = $stmt->fetch(PDO::FETCH_ASSOC);
+        if ($order) {
+            $pdo->prepare("UPDATE orders SET status = 'rejected', decided_at = CURRENT_TIMESTAMP WHERE id = ?")->execute([$orderId]);
+            $pdo->prepare("UPDATE invoices SET status = 'rejected' WHERE order_id = ?")->execute([$orderId]);
+            notifyUser($pdo, $order['user_id'], '❌ تم رفض طلبك', 'تم رفض طلب الاشتراك. تواصل مع الدعم الفني لمعرفة السبب.', 'order_rejected');
+        }
         adminRedirect('orders', 'تم رفض الطلب.');
     }
 
@@ -145,14 +157,43 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $pdo->beginTransaction();
             $pdo->prepare('UPDATE users SET balance = balance + ? WHERE id = ?')->execute([$inv['amount'], $inv['user_id']]);
             $pdo->prepare("UPDATE invoices SET status = 'paid' WHERE id = ?")->execute([$invId]);
+            notifyUser($pdo, $inv['user_id'], '💰 تم شحن رصيدك', 'تم إضافة $' . money($inv['amount']) . ' إلى رصيد حسابك.', 'topup_approved');
             $pdo->commit();
         }
         adminRedirect('topups', 'تم تأكيد الشحن وإضافة الرصيد للمستخدم.');
     }
 
     if ($action === 'topup_reject') {
-        $pdo->prepare("UPDATE invoices SET status = 'rejected' WHERE id = ? AND order_id IS NULL")->execute([(int)($_POST['invoice_id'] ?? 0)]);
+        $invId = (int)($_POST['invoice_id'] ?? 0);
+        $stmt = $pdo->prepare("SELECT * FROM invoices WHERE id = ? AND status = 'pending' AND order_id IS NULL");
+        $stmt->execute([$invId]);
+        $inv = $stmt->fetch(PDO::FETCH_ASSOC);
+        if ($inv) {
+            $pdo->prepare("UPDATE invoices SET status = 'rejected' WHERE id = ?")->execute([$invId]);
+            notifyUser($pdo, $inv['user_id'], '❌ تم رفض طلب الشحن', 'لم نتمكن من تأكيد إيصال التحويل الخاص بك. تواصل مع الدعم الفني.', 'topup_rejected');
+        }
         adminRedirect('topups', 'تم رفض طلب الشحن.');
+    }
+
+    if ($action === 'settings_save') {
+        setSetting($pdo, 'site_name', trim($_POST['site_name'] ?? '') ?: 'استضافتي');
+        setSetting($pdo, 'site_tagline', trim($_POST['site_tagline'] ?? ''));
+        setSetting($pdo, 'nvidia_api_key', trim($_POST['nvidia_api_key'] ?? ''));
+        setSetting($pdo, 'nvidia_model', trim($_POST['nvidia_model'] ?? '') ?: 'openai/gpt-oss-120b');
+        setSetting($pdo, 'google_client_id', trim($_POST['google_client_id'] ?? ''));
+        if (trim($_POST['google_client_secret'] ?? '') !== '') {
+            setSetting($pdo, 'google_client_secret', trim($_POST['google_client_secret']));
+        }
+
+        [$logoPath, $uploadErr] = handleImageUpload('site_logo', LOGOS_DIR, 'uploads/logos');
+        if ($uploadErr) {
+            adminRedirect('settings', null, $uploadErr);
+        }
+        if ($logoPath) {
+            setSetting($pdo, 'site_logo', $logoPath);
+        }
+
+        adminRedirect('settings', 'تم حفظ الإعدادات بنجاح.');
     }
 
     adminRedirect($section);
@@ -320,6 +361,7 @@ $activeHostingCount = (int)$pdo->query("SELECT COUNT(*) FROM hosting WHERE statu
         </a>
         <a class="admin-tab <?php echo $section === 'plans' ? 'active' : ''; ?>" href="admin.php?section=plans"><i class="fas fa-server"></i> الباقات</a>
         <a class="admin-tab <?php echo $section === 'payments' ? 'active' : ''; ?>" href="admin.php?section=payments"><i class="fas fa-credit-card"></i> طرق الدفع</a>
+        <a class="admin-tab <?php echo $section === 'settings' ? 'active' : ''; ?>" href="admin.php?section=settings"><i class="fas fa-gear"></i> الإعدادات</a>
     </nav>
 
     <div class="admin-container">
@@ -340,6 +382,8 @@ $activeHostingCount = (int)$pdo->query("SELECT COUNT(*) FROM hosting WHERE statu
             renderAdminPayments($pdo);
         } elseif ($section === 'topups') {
             renderAdminTopups($pdo);
+        } elseif ($section === 'settings') {
+            renderAdminSettings($pdo);
         } else {
             renderAdminOrders($pdo);
         }
@@ -533,6 +577,7 @@ function renderAdminPlans(PDO $pdo) {
                 <div class="field-row"><label class="field-label">التخزين</label><input type="text" name="storage" class="text-input" placeholder="100 GB SSD" required></div>
                 <div class="field-row"><label class="field-label">الباندويث</label><input type="text" name="bandwidth" class="text-input" placeholder="2 TB" required></div>
                 <div class="field-row"><label class="field-label">السعر الشهري ($)</label><input type="number" step="0.01" min="0.01" name="price" class="text-input" required></div>
+                <div class="field-row"><label class="field-label">السعر قبل الخصم (اختياري)</label><input type="number" step="0.01" min="0.01" name="original_price" class="text-input" placeholder="اتركه فارغاً بدون خصم"></div>
                 <div class="field-row"><label class="field-label">شارة (اختياري)</label><input type="text" name="badge" class="text-input" placeholder="🔥 الأكثر طلباً"></div>
                 <div class="field-row"><label class="field-label">ترتيب العرض</label><input type="number" name="sort_order" class="text-input" value="0"></div>
             </div>
@@ -546,7 +591,13 @@ function renderAdminPlans(PDO $pdo) {
         <?php foreach ($plans as $plan): ?>
         <details style="border-bottom:1px solid var(--border-color);padding:10px 0">
             <summary style="cursor:pointer;display:flex;align-items:center;justify-content:space-between;list-style:none">
-                <span><span class="plan-icon-preview"><?php echo $plan['icon']; ?></span> <strong><?php echo e($plan['name']); ?></strong> — $<?php echo money($plan['price']); ?>/شهر</span>
+                <span>
+                    <span class="plan-icon-preview"><?php echo $plan['icon']; ?></span> <strong><?php echo e($plan['name']); ?></strong> —
+                    <?php if (!empty($plan['original_price'])): ?>
+                        <s class="text-muted">$<?php echo money($plan['original_price']); ?></s>
+                    <?php endif; ?>
+                    $<?php echo money($plan['price']); ?>/شهر
+                </span>
                 <span class="pill <?php echo $plan['is_active'] ? 'pill-green' : 'pill-gray'; ?>"><?php echo $plan['is_active'] ? 'مفعّلة' : 'موقوفة'; ?></span>
             </summary>
             <form method="POST" action="admin.php?section=plans" style="margin-top:14px">
@@ -561,6 +612,7 @@ function renderAdminPlans(PDO $pdo) {
                     <div class="field-row"><label class="field-label">التخزين</label><input type="text" name="storage" class="text-input" value="<?php echo e($plan['storage']); ?>" required></div>
                     <div class="field-row"><label class="field-label">الباندويث</label><input type="text" name="bandwidth" class="text-input" value="<?php echo e($plan['bandwidth']); ?>" required></div>
                     <div class="field-row"><label class="field-label">السعر الشهري ($)</label><input type="number" step="0.01" min="0.01" name="price" class="text-input" value="<?php echo e($plan['price']); ?>" required></div>
+                    <div class="field-row"><label class="field-label">السعر قبل الخصم (اختياري)</label><input type="number" step="0.01" min="0.01" name="original_price" class="text-input" value="<?php echo e($plan['original_price'] ?? ''); ?>" placeholder="اتركه فارغاً بدون خصم"></div>
                     <div class="field-row"><label class="field-label">شارة (اختياري)</label><input type="text" name="badge" class="text-input" value="<?php echo e($plan['badge']); ?>"></div>
                     <div class="field-row"><label class="field-label">ترتيب العرض</label><input type="number" name="sort_order" class="text-input" value="<?php echo (int)$plan['sort_order']; ?>"></div>
                 </div>
@@ -644,6 +696,53 @@ function renderAdminPayments(PDO $pdo) {
             </form>
         </details>
         <?php endforeach; ?>
+    </div>
+    <?php
+}
+
+// ============================================================
+// قسم: الإعدادات (اسم الموقع، الشعار، مفاتيح الذكاء الاصطناعي، Google OAuth)
+// ============================================================
+function renderAdminSettings(PDO $pdo) {
+    $s = getAllSettings($pdo);
+    $scheme = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http';
+    $redirectUri = $scheme . '://' . $_SERVER['HTTP_HOST'] . '/index.php?action=google_callback';
+    ?>
+    <div class="admin-card">
+        <div class="admin-card-header"><h2><i class="fas fa-shop"></i> اسم الموقع والشعار</h2></div>
+        <form method="POST" action="admin.php?section=settings" enctype="multipart/form-data">
+            <?php echo csrfField(); ?>
+            <input type="hidden" name="action" value="settings_save">
+            <div class="field-grid-2">
+                <div class="field-row"><label class="field-label">اسم الموقع</label><input type="text" name="site_name" class="text-input" value="<?php echo e($s['site_name'] ?? ''); ?>" required></div>
+                <div class="field-row"><label class="field-label">الشعار النصي (Tagline)</label><input type="text" name="site_tagline" class="text-input" value="<?php echo e($s['site_tagline'] ?? ''); ?>"></div>
+            </div>
+            <div class="field-row">
+                <label class="field-label">شعار الموقع (صورة)</label>
+                <?php if (!empty($s['site_logo'])): ?>
+                    <div style="margin-bottom:8px"><img src="<?php echo e($s['site_logo']); ?>" alt="" style="width:56px;height:56px;border-radius:14px;object-fit:cover;border:1px solid var(--border-color)"></div>
+                <?php endif; ?>
+                <input type="file" name="site_logo" class="text-input" accept="image/png,image/jpeg,image/webp">
+            </div>
+
+            <div class="admin-card-header" style="margin-top:20px"><h2><i class="fas fa-robot"></i> المساعد الذكي (NVIDIA API)</h2></div>
+            <div class="field-row"><label class="field-label">مفتاح API</label><input type="text" name="nvidia_api_key" class="text-input" value="<?php echo e($s['nvidia_api_key'] ?? ''); ?>" dir="ltr" placeholder="nvapi-..."></div>
+            <div class="field-row"><label class="field-label">اسم النموذج (Model)</label><input type="text" name="nvidia_model" class="text-input" value="<?php echo e($s['nvidia_model'] ?? ''); ?>" dir="ltr"></div>
+
+            <div class="admin-card-header" style="margin-top:20px"><h2><i class="fab fa-google"></i> تسجيل الدخول عبر Google</h2></div>
+            <p style="font-size:12px;color:var(--text-muted);margin-bottom:12px;line-height:1.8">
+                أنشئ OAuth Client ID من
+                <a href="https://console.cloud.google.com/apis/credentials" target="_blank" style="color:var(--accent);font-weight:700">Google Cloud Console</a>
+                من نوع "Web application"، وأضف رابط إعادة التوجيه التالي بالضبط ضمن Authorized redirect URIs:
+            </p>
+            <div class="text-input" style="direction:ltr;text-align:left;font-family:monospace;font-size:12px;margin-bottom:14px;user-select:all"><?php echo e($redirectUri); ?></div>
+            <div class="field-grid-2">
+                <div class="field-row"><label class="field-label">Google Client ID</label><input type="text" name="google_client_id" class="text-input" value="<?php echo e($s['google_client_id'] ?? ''); ?>" dir="ltr"></div>
+                <div class="field-row"><label class="field-label">Google Client Secret</label><input type="text" name="google_client_secret" class="text-input" placeholder="<?php echo !empty($s['google_client_secret']) ? '•••••••• (محفوظ - اتركه فارغاً للإبقاء عليه)' : ''; ?>" dir="ltr"></div>
+            </div>
+
+            <button type="submit" class="btn btn-accent" style="margin-top:8px"><i class="fas fa-floppy-disk"></i> حفظ الإعدادات</button>
+        </form>
     </div>
     <?php
 }

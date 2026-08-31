@@ -5,25 +5,6 @@
 
 require_once __DIR__ . '/includes/bootstrap.php';
 
-// ============================================================
-// تطبيع رقم الهاتف العراقي إلى الصيغة الدولية 964XXXXXXXXXX
-// ============================================================
-function normalizePhone($raw) {
-    $phone = preg_replace('/[^0-9]/', '', trim((string)$raw));
-    if ($phone === '') return null;
-
-    if (strlen($phone) === 11 && $phone[0] === '0') {
-        $phone = '964' . substr($phone, 1);
-    } elseif (strlen($phone) === 10 && $phone[0] === '7') {
-        $phone = '964' . $phone;
-    }
-
-    if (strlen($phone) !== 13 || substr($phone, 0, 3) !== '964') {
-        return null;
-    }
-    return $phone;
-}
-
 function safeNextUrl($raw) {
     $raw = (string)($raw ?? '');
     if ($raw === '') return null;
@@ -39,40 +20,25 @@ function safeNextUrl($raw) {
 function handleRegister(PDO $pdo) {
     csrfCheck();
     $name = trim($_POST['name'] ?? '');
-    $method = ($_POST['method'] ?? 'phone') === 'email' ? 'email' : 'phone';
+    $email = strtolower(trim($_POST['email'] ?? ''));
+    $password = (string)($_POST['password'] ?? '');
 
     if ($name === '') {
         return 'الرجاء إدخال الاسم الكامل.';
     }
-
-    if ($method === 'email') {
-        $email = strtolower(trim($_POST['email'] ?? ''));
-        $password = (string)($_POST['password'] ?? '');
-        if (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
-            return 'البريد الإلكتروني غير صحيح.';
-        }
-        if (strlen($password) < 6) {
-            return 'كلمة المرور يجب أن تكون 6 أحرف على الأقل.';
-        }
-        $exists = $pdo->prepare('SELECT id FROM users WHERE email = ?');
-        $exists->execute([$email]);
-        if ($exists->fetch()) {
-            return 'هذا البريد الإلكتروني مسجل مسبقاً.';
-        }
-        $pdo->prepare('INSERT INTO users (name, email, password_hash) VALUES (?,?,?)')
-            ->execute([$name, $email, password_hash($password, PASSWORD_DEFAULT)]);
-    } else {
-        $phone = normalizePhone($_POST['phone'] ?? '');
-        if (!$phone) {
-            return 'رقم الهاتف غير صحيح.';
-        }
-        $exists = $pdo->prepare('SELECT id FROM users WHERE phone = ?');
-        $exists->execute([$phone]);
-        if ($exists->fetch()) {
-            return 'رقم الهاتف مسجل مسبقاً.';
-        }
-        $pdo->prepare('INSERT INTO users (name, phone) VALUES (?,?)')->execute([$name, $phone]);
+    if (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
+        return 'البريد الإلكتروني غير صحيح.';
     }
+    if (strlen($password) < 6) {
+        return 'كلمة المرور يجب أن تكون 6 أحرف على الأقل.';
+    }
+    $exists = $pdo->prepare('SELECT id FROM users WHERE email = ?');
+    $exists->execute([$email]);
+    if ($exists->fetch()) {
+        return 'هذا البريد الإلكتروني مسجل مسبقاً.';
+    }
+    $pdo->prepare('INSERT INTO users (name, email, password_hash) VALUES (?,?,?)')
+        ->execute([$name, $email, password_hash($password, PASSWORD_DEFAULT)]);
 
     $_SESSION['user_id'] = (int)$pdo->lastInsertId();
     return null;
@@ -80,30 +46,21 @@ function handleRegister(PDO $pdo) {
 
 function handleLogin(PDO $pdo) {
     csrfCheck();
-    $identifier = trim($_POST['identifier'] ?? '');
+    $email = strtolower(trim($_POST['email'] ?? ''));
     $password = (string)($_POST['password'] ?? '');
 
-    if ($identifier === '') {
-        return 'الرجاء إدخال البريد الإلكتروني أو رقم الهاتف.';
+    if (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
+        return 'الرجاء إدخال بريد إلكتروني صحيح.';
     }
 
-    if (strpos($identifier, '@') !== false) {
-        $stmt = $pdo->prepare('SELECT * FROM users WHERE email = ?');
-        $stmt->execute([strtolower($identifier)]);
-    } else {
-        $phone = normalizePhone($identifier);
-        if (!$phone) {
-            return 'رقم الهاتف غير صحيح.';
-        }
-        $stmt = $pdo->prepare('SELECT * FROM users WHERE phone = ?');
-        $stmt->execute([$phone]);
-    }
-
+    $stmt = $pdo->prepare('SELECT * FROM users WHERE email = ?');
+    $stmt->execute([$email]);
     $user = $stmt->fetch(PDO::FETCH_ASSOC);
-    if (!$user) {
-        return 'لا يوجد حساب بهذه البيانات.';
+
+    if (!$user || !$user['password_hash']) {
+        return 'لا يوجد حساب بهذا البريد الإلكتروني (أو أنه مسجّل عبر Google، جرّب الدخول بواسطته).';
     }
-    if ($user['password_hash'] && !password_verify($password, $user['password_hash'])) {
+    if (!password_verify($password, $user['password_hash'])) {
         return 'كلمة المرور غير صحيحة.';
     }
 
@@ -111,8 +68,123 @@ function handleLogin(PDO $pdo) {
     return null;
 }
 
+// ============================================================
+// تسجيل الدخول عبر Google
+// ============================================================
+
+function googleRedirectUri() {
+    $scheme = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http';
+    return $scheme . '://' . $_SERVER['HTTP_HOST'] . '/index.php?action=google_callback';
+}
+
+function handleGoogleLoginRedirect(PDO $pdo) {
+    $clientId = getSetting($pdo, 'google_client_id', '');
+    if ($clientId === '') {
+        header('Location: index.php?page=login&err=' . urlencode('تسجيل الدخول عبر Google غير مفعّل حالياً.'));
+        exit;
+    }
+    $state = bin2hex(random_bytes(16));
+    $_SESSION['google_oauth_state'] = $state;
+    $_SESSION['google_oauth_next'] = safeNextUrl($_GET['next'] ?? '') ?: '';
+
+    $params = http_build_query([
+        'client_id' => $clientId,
+        'redirect_uri' => googleRedirectUri(),
+        'response_type' => 'code',
+        'scope' => 'openid email profile',
+        'state' => $state,
+        'prompt' => 'select_account',
+    ]);
+    header('Location: https://accounts.google.com/o/oauth2/v2/auth?' . $params);
+    exit;
+}
+
+function handleGoogleCallback(PDO $pdo) {
+    $clientId = getSetting($pdo, 'google_client_id', '');
+    $clientSecret = getSetting($pdo, 'google_client_secret', '');
+    $code = $_GET['code'] ?? '';
+    $state = $_GET['state'] ?? '';
+    $storedState = $_SESSION['google_oauth_state'] ?? '';
+    unset($_SESSION['google_oauth_state']);
+
+    if ($clientId === '' || $clientSecret === '' || $code === '' || !hash_equals($storedState, $state)) {
+        header('Location: index.php?page=login&err=' . urlencode('تعذر تسجيل الدخول عبر Google، حاول مجدداً.'));
+        exit;
+    }
+
+    $ch = curl_init('https://oauth2.googleapis.com/token');
+    curl_setopt_array($ch, [
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_POST => true,
+        CURLOPT_POSTFIELDS => http_build_query([
+            'code' => $code,
+            'client_id' => $clientId,
+            'client_secret' => $clientSecret,
+            'redirect_uri' => googleRedirectUri(),
+            'grant_type' => 'authorization_code',
+        ]),
+        CURLOPT_TIMEOUT => 20,
+    ]);
+    $tokenResponse = curl_exec($ch);
+    $tokenHttpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    curl_close($ch);
+    $tokenData = json_decode((string)$tokenResponse, true);
+
+    if ($tokenHttpCode !== 200 || empty($tokenData['access_token'])) {
+        header('Location: index.php?page=login&err=' . urlencode('تعذر تسجيل الدخول عبر Google.'));
+        exit;
+    }
+
+    $ch = curl_init('https://www.googleapis.com/oauth2/v3/userinfo');
+    curl_setopt_array($ch, [
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_HTTPHEADER => ['Authorization: Bearer ' . $tokenData['access_token']],
+        CURLOPT_TIMEOUT => 20,
+    ]);
+    $userInfoResponse = curl_exec($ch);
+    curl_close($ch);
+    $googleUser = json_decode((string)$userInfoResponse, true);
+
+    $email = strtolower(trim($googleUser['email'] ?? ''));
+    $name = trim($googleUser['name'] ?? '') ?: $email;
+    $googleId = $googleUser['sub'] ?? null;
+
+    if ($email === '') {
+        header('Location: index.php?page=login&err=' . urlencode('تعذر الحصول على بريدك الإلكتروني من Google.'));
+        exit;
+    }
+
+    $stmt = $pdo->prepare('SELECT * FROM users WHERE email = ?');
+    $stmt->execute([$email]);
+    $user = $stmt->fetch(PDO::FETCH_ASSOC);
+
+    if ($user) {
+        if ($googleId && !$user['google_id']) {
+            $pdo->prepare('UPDATE users SET google_id = ? WHERE id = ?')->execute([$googleId, $user['id']]);
+        }
+        $_SESSION['user_id'] = (int)$user['id'];
+    } else {
+        $pdo->prepare('INSERT INTO users (name, email, google_id) VALUES (?,?,?)')->execute([$name, $email, $googleId]);
+        $_SESSION['user_id'] = (int)$pdo->lastInsertId();
+    }
+
+    $next = $_SESSION['google_oauth_next'] ?? '';
+    unset($_SESSION['google_oauth_next']);
+    header('Location: ' . ($next ?: 'index.php?app=1'));
+    exit;
+}
+
 $registerError = null;
 $loginError = null;
+
+if ($_SERVER['REQUEST_METHOD'] === 'GET' && isset($_GET['action'])) {
+    if ($_GET['action'] === 'google_login') {
+        handleGoogleLoginRedirect($pdo);
+    }
+    if ($_GET['action'] === 'google_callback') {
+        handleGoogleCallback($pdo);
+    }
+}
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
     $next = safeNextUrl($_POST['next'] ?? '');
@@ -126,7 +198,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
     } elseif ($_POST['action'] === 'login') {
         $loginError = handleLogin($pdo);
         if (!$loginError) {
-            header('Location: ' . ($next ?: (isAdmin($pdo) ? 'admin.php' : 'index.php?app=1')));
+            header('Location: ' . ($next ?: 'index.php?app=1'));
             exit;
         }
     } elseif ($_POST['action'] === 'submit_order') {
@@ -148,6 +220,83 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
 }
 
 // ============================================================
+// المساعد الذكي - نقطة اتصال AJAX
+// ============================================================
+
+if (isset($_GET['ajax']) && $_GET['ajax'] === 'ai_chat' && $_SERVER['REQUEST_METHOD'] === 'POST') {
+    header('Content-Type: application/json; charset=utf-8');
+
+    if (!isLoggedIn()) {
+        http_response_code(401);
+        echo json_encode(['error' => 'يجب تسجيل الدخول.']);
+        exit;
+    }
+
+    $body = json_decode((string)file_get_contents('php://input'), true) ?: [];
+    if (!hash_equals($_SESSION['csrf_token'] ?? '', (string)($body['csrf_token'] ?? ''))) {
+        http_response_code(400);
+        echo json_encode(['error' => 'انتهت صلاحية الجلسة، أعد تحميل الصفحة.']);
+        exit;
+    }
+
+    $section = (string)($body['section'] ?? 'home');
+    $userMessage = trim((string)($body['message'] ?? ''));
+    $history = is_array($body['history'] ?? null) ? array_slice($body['history'], -12) : [];
+
+    if ($userMessage === '') {
+        echo json_encode(['error' => 'الرسالة فارغة.']);
+        exit;
+    }
+
+    $systemPrompts = [
+        'home' => 'أنت "المساعد الذكي" داخل تطبيق استضافة خوادم VPS. تساعد المستخدمين في كل ما يخص تنصيب وإدارة وحل مشاكل خوادم VPS وتثبيت البرمجيات والمكتبات اللازمة وتعليمهم خطوة بخطوة. أجب بالعربية بوضوح وإيجاز.',
+        'solve' => 'أنت خبير VPS ولينكس محترف. شخّص المشكلة التقنية التي يصفها المستخدم (اتصال، أداء، خدمات، شبكة) واقترح خطوات عملية مرقّمة للحل بالعربية.',
+        'explain' => 'أنت خبير أوامر لينكس وVPS. اشرح أي أمر يرسله المستخدم: ماذا يفعل، متى يُستخدم، ومثال عملي عليه. إن لم يرسل أمراً بل سؤالاً عاماً أجب عليه بنفس الروح. أجب بالعربية بإيجاز ووضوح، وضع الأوامر داخل أسطر كود.',
+        'tips' => 'أنت خبير في تحسين أداء وأمان سيرفرات VPS. قدّم نصائح عملية ومحددة قابلة للتطبيق فوراً بالعربية.',
+        'suggestions' => 'أنت مساعد ذكي متخصص باستضافة المواقع وخوادم VPS، تقدّم اقتراحات ذكية ومفيدة لإدارة السيرفر وتحسين تجربة المستخدم، بالعربية.',
+    ];
+    $systemPrompt = $systemPrompts[$section] ?? $systemPrompts['home'];
+
+    $messages = [['role' => 'system', 'content' => $systemPrompt]];
+    foreach ($history as $h) {
+        if (isset($h['role'], $h['content']) && in_array($h['role'], ['user', 'assistant'], true)) {
+            $messages[] = ['role' => (string)$h['role'], 'content' => (string)$h['content']];
+        }
+    }
+    $messages[] = ['role' => 'user', 'content' => $userMessage];
+
+    [$reply, $aiError] = callAiApi($pdo, $messages);
+    echo json_encode($aiError ? ['error' => $aiError] : ['reply' => $reply]);
+    exit;
+}
+
+// ============================================================
+// تحديد الإشعارات كمقروءة
+// ============================================================
+
+if (isset($_GET['ajax']) && $_GET['ajax'] === 'mark_notifications_read' && $_SERVER['REQUEST_METHOD'] === 'POST') {
+    header('Content-Type: application/json; charset=utf-8');
+
+    if (!isLoggedIn()) {
+        http_response_code(401);
+        echo json_encode(['error' => 'يجب تسجيل الدخول.']);
+        exit;
+    }
+
+    $body = json_decode((string)file_get_contents('php://input'), true) ?: [];
+    if (!hash_equals($_SESSION['csrf_token'] ?? '', (string)($body['csrf_token'] ?? ''))) {
+        http_response_code(400);
+        echo json_encode(['error' => 'انتهت صلاحية الجلسة، أعد تحميل الصفحة.']);
+        exit;
+    }
+
+    $pdo->prepare('UPDATE notifications SET is_read = 1 WHERE user_id = ? AND is_read = 0')
+        ->execute([(int)$_SESSION['user_id']]);
+    echo json_encode(['ok' => true]);
+    exit;
+}
+
+// ============================================================
 // تسجيل الخروج
 // ============================================================
 
@@ -162,16 +311,12 @@ if (isset($_GET['logout'])) {
 // ============================================================
 
 if (isset($_GET['app']) && isLoggedIn()) {
-    if (isAdmin($pdo)) {
-        header('Location: admin.php');
-        exit;
-    }
     includeAppPage($pdo);
     exit;
 }
 
 if (isLoggedIn() && !isset($_GET['page'])) {
-    header('Location: ' . (isAdmin($pdo) ? 'admin.php' : 'index.php?app=1'));
+    header('Location: index.php?app=1');
     exit;
 }
 
@@ -193,12 +338,12 @@ if ($page === 'plans') {
 }
 
 if ($page === 'login') {
-    includeLoginPage($loginError);
+    includeLoginPage($pdo, $loginError ?: ($_GET['err'] ?? null));
     exit;
 }
 
 if ($page === 'register') {
-    includeRegisterPage($registerError);
+    includeRegisterPage($pdo, $registerError);
     exit;
 }
 
@@ -253,8 +398,10 @@ function sharedPublicCss() {
             width:40px; height:40px; border-radius:50%;
             background: linear-gradient(135deg, var(--accent), var(--accent-dark));
             color:#fff; display:flex; align-items:center; justify-content:center; font-size:18px;
-            flex-shrink:0;
+            flex-shrink:0; overflow:hidden;
         }
+        .site-header .logo-mark img { width:100%; height:100%; object-fit:cover; }
+        .site-header-plain { justify-content:flex-start; }
         .site-header .brand-name { font-weight:900; font-size:16px; }
         .site-header .brand-tag { font-size:10px; color:var(--text-muted); }
         .site-nav { display:flex; align-items:center; gap:16px; font-size:13px; font-weight:700; }
@@ -368,6 +515,12 @@ function sharedPublicCss() {
         .plan-public-card h3 { font-size:18px; font-weight:900; margin-bottom:6px; }
         .plan-public-price { font-size:30px; font-weight:900; color:var(--accent); margin:10px 0; }
         .plan-public-price small { font-size:13px; font-weight:600; color:var(--text-muted); }
+        .plan-public-price .price-original { font-size:16px; font-weight:700; color:var(--text-muted); margin-left:6px; }
+        .discount-ribbon {
+            position:absolute; top:14px; left:14px; background:linear-gradient(135deg,#ef4444,#dc2626);
+            color:#fff; font-size:11px; font-weight:800; padding:4px 12px; border-radius:999px;
+            box-shadow:0 4px 12px rgba(239,68,68,.3);
+        }
         .plan-specs-list { text-align:right; margin:16px 0 20px; display:flex; flex-direction:column; gap:10px; }
         .plan-specs-list li { display:flex; align-items:center; gap:10px; font-size:13px; color:var(--text-secondary); }
         .plan-specs-list i { color:var(--accent); width:18px; text-align:center; }
@@ -390,27 +543,25 @@ function sharedPublicCss() {
             border-radius:var(--radius-sm); padding:10px 14px; font-size:12px; margin-bottom:16px; text-align:right;
         }
         .field-label { display:block; font-size:12px; font-weight:700; color:var(--text-secondary); margin:14px 0 6px; text-align:right; }
-        .text-input, .text-input-bare {
+        .text-input {
             width:100%; padding:13px 14px; border-radius:var(--radius-sm); border:1.5px solid var(--border-color);
             background:var(--bg-card); color:var(--text-primary); font-size:14px; font-family:inherit; outline:none;
             transition:var(--transition);
         }
         .text-input:focus { border-color:var(--accent); }
-        .phone-input-wrap {
-            display:flex; gap:8px; background:var(--bg-card); border:1.5px solid var(--border-color);
-            border-radius:var(--radius-sm); padding:4px; direction:ltr; transition:var(--transition);
-        }
-        .phone-input-wrap:focus-within { border-color:var(--accent); }
-        .phone-input-wrap .prefix { padding:10px; font-weight:700; color:var(--text-muted); font-size:13px; flex-shrink:0; }
-        .phone-input-wrap .text-input-bare { flex:1; border:none; background:transparent; padding:10px; direction:ltr; text-align:left; }
-        .method-tabs { display:flex; gap:8px; background:var(--bg-card); border-radius:999px; padding:4px; margin-bottom:6px; }
-        .method-tab {
-            flex:1; padding:9px 6px; border:none; border-radius:999px; background:transparent; color:var(--text-muted);
-            font-family:inherit; font-size:12px; font-weight:700; cursor:pointer; transition:var(--transition);
-        }
-        .method-tab.active { background:var(--accent); color:#fff; }
         .auth-switch { font-size:12px; color:var(--text-muted); margin-top:14px; }
         .auth-switch a { color:var(--accent); font-weight:700; }
+
+        .btn-google {
+            display:flex; align-items:center; justify-content:center; gap:10px;
+            width:100%; padding:13px; border-radius:var(--radius-sm); border:1.5px solid var(--border-color);
+            background:var(--bg-secondary); color:var(--text-primary); font-weight:700; font-size:14px;
+            font-family:inherit; cursor:pointer; transition:var(--transition);
+        }
+        .btn-google:hover { border-color:var(--border-active); background:var(--bg-card); }
+        .btn-google i { color:#EA4335; font-size:16px; }
+        .auth-divider { display:flex; align-items:center; gap:10px; margin:18px 0; color:var(--text-muted); font-size:12px; }
+        .auth-divider::before, .auth-divider::after { content:''; flex:1; height:1px; background:var(--border-color); }
     ";
 }
 
@@ -418,14 +569,17 @@ function sharedPublicCss() {
 // صفحة الهبوط (Landing)
 // ============================================================
 
-function includeLandingPage() {
+function includeLandingPage(PDO $pdo) {
+    $siteName = getSetting($pdo, 'site_name', 'استضافتي');
+    $siteTagline = getSetting($pdo, 'site_tagline', 'استضافة سريعة وآمنة');
+    $siteLogo = getSetting($pdo, 'site_logo', '');
     ?>
     <!DOCTYPE html>
     <html lang="ar" dir="rtl">
     <head>
         <meta charset="UTF-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>استضافتي - استضافة VPS سريعة وآمنة</title>
+        <title><?php echo e($siteName); ?> - استضافة VPS سريعة وآمنة</title>
         <link rel="preconnect" href="https://fonts.googleapis.com">
         <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
         <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
@@ -436,19 +590,14 @@ function includeLandingPage() {
         </style>
     </head>
     <body>
-        <header class="site-header">
+        <header class="site-header site-header-plain">
             <div class="brand">
-                <div class="logo-mark"><i class="fas fa-server"></i></div>
+                <div class="logo-mark"><?php echo $siteLogo ? '<img src="' . e($siteLogo) . '" alt="">' : '<i class="fas fa-server"></i>'; ?></div>
                 <div>
-                    <div class="brand-name">استضافتي</div>
-                    <div class="brand-tag">استضافة سريعة وآمنة</div>
+                    <div class="brand-name"><?php echo e($siteName); ?></div>
+                    <div class="brand-tag"><?php echo e($siteTagline); ?></div>
                 </div>
             </div>
-            <nav class="site-nav">
-                <a href="index.php?page=plans">الخطط والأسعار</a>
-                <a href="index.php?page=login">تسجيل الدخول</a>
-                <a href="index.php?page=register" class="nav-cta">إنشاء حساب</a>
-            </nav>
         </header>
 
         <section class="hero">
@@ -469,7 +618,7 @@ function includeLandingPage() {
                 <div class="floating-badge"><div class="badge-icon"><i class="fas fa-rocket"></i></div><div><strong>جاهزية 99.99%</strong><span>وقت تشغيل</span></div></div>
             </div>
 
-            <div class="eyebrow"><span class="dot"></span> مرحباً بك في استضافتي</div>
+            <div class="eyebrow"><span class="dot"></span> مرحباً بك في <?php echo e($siteName); ?></div>
             <h1 class="headline">استضافة <span class="accent-text">موثوقة</span> لأداء لا ينقطع</h1>
             <p class="sub-headline">نوفر لك أفضل خدمات الاستضافة بأعلى سرعة وأمان، لموقعك وتطبيقاتك لتنمو بدون حدود.</p>
 
@@ -481,8 +630,8 @@ function includeLandingPage() {
             </div>
 
             <div class="cta-row">
-                <a href="index.php?page=register" class="btn-primary-lg"><i class="fas fa-arrow-left"></i> ابدأ الآن</a>
-                <a href="index.php?page=plans" class="btn-outline-lg">تصفح الخطط والأسعار</a>
+                <a href="index.php?page=plans" class="btn-primary-lg"><i class="fas fa-arrow-left"></i> تصفح الخطط والأسعار</a>
+                <a href="index.php?page=register" class="btn-outline-lg">إنشاء حساب</a>
             </div>
 
             <div class="trust-row">
@@ -492,7 +641,7 @@ function includeLandingPage() {
             </div>
         </section>
 
-        <footer class="site-footer">© <?php echo date('Y'); ?> استضافتي. جميع الحقوق محفوظة.</footer>
+        <footer class="site-footer">© <?php echo date('Y'); ?> <?php echo e($siteName); ?>. جميع الحقوق محفوظة.</footer>
     </body>
     </html>
     <?php
@@ -542,12 +691,16 @@ function includePlansPage(PDO $pdo) {
         </div>
 
         <div class="plans-public-grid">
-            <?php foreach ($plans as $plan): ?>
+            <?php foreach ($plans as $plan): $discountPct = planDiscountPct($plan); ?>
             <div class="plan-public-card">
+                <?php if ($discountPct): ?><span class="discount-ribbon">خصم <?php echo $discountPct; ?>%</span><?php endif; ?>
                 <div class="plan-public-icon"><?php echo $plan['icon']; ?></div>
                 <h3><?php echo e($plan['name']); ?></h3>
                 <?php if (!empty($plan['badge'])): ?><span class="pill pill-gold"><?php echo e($plan['badge']); ?></span><?php endif; ?>
-                <div class="plan-public-price"><?php echo (int)$plan['price']; ?>$<small>/شهر</small></div>
+                <div class="plan-public-price">
+                    <?php if ($discountPct): ?><s class="price-original">$<?php echo (int)$plan['original_price']; ?></s><?php endif; ?>
+                    <?php echo (int)$plan['price']; ?>$<small>/شهر</small>
+                </div>
                 <ul class="plan-specs-list">
                     <li><i class="fas fa-microchip"></i> معالج <?php echo e($plan['cpu']); ?></li>
                     <li><i class="fas fa-memory"></i> ذاكرة <?php echo e($plan['ram']); ?></li>
@@ -572,15 +725,18 @@ function includePlansPage(PDO $pdo) {
 // تسجيل الدخول
 // ============================================================
 
-function includeLoginPage($error) {
+function includeLoginPage(PDO $pdo, $error) {
     $next = $_GET['next'] ?? '';
+    $siteName = getSetting($pdo, 'site_name', 'استضافتي');
+    $googleEnabled = getSetting($pdo, 'google_client_id', '') !== '';
+    $googleUrl = 'index.php?action=google_login' . ($next ? '&next=' . urlencode($next) : '');
     ?>
     <!DOCTYPE html>
     <html lang="ar" dir="rtl">
     <head>
         <meta charset="UTF-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>تسجيل الدخول - استضافتي</title>
+        <title>تسجيل الدخول - <?php echo e($siteName); ?></title>
         <link rel="preconnect" href="https://fonts.googleapis.com">
         <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
         <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
@@ -599,16 +755,21 @@ function includeLoginPage($error) {
 
                 <?php if ($error): ?><div class="form-alert"><?php echo e($error); ?></div><?php endif; ?>
 
+                <?php if ($googleEnabled): ?>
+                <a href="<?php echo e($googleUrl); ?>" class="btn-google"><i class="fab fa-google"></i> متابعة عبر Google</a>
+                <div class="auth-divider"><span>أو عبر البريد الإلكتروني</span></div>
+                <?php endif; ?>
+
                 <form method="POST" action="index.php?page=login<?php echo $next ? '&next=' . urlencode($next) : ''; ?>">
                     <?php echo csrfField(); ?>
                     <input type="hidden" name="action" value="login">
                     <input type="hidden" name="next" value="<?php echo e($next); ?>">
 
-                    <label class="field-label">البريد الإلكتروني أو رقم الهاتف</label>
-                    <input type="text" name="identifier" class="text-input" placeholder="example@mail.com أو 07xxxxxxxxx" required dir="ltr">
+                    <label class="field-label">البريد الإلكتروني</label>
+                    <input type="email" name="email" class="text-input" placeholder="example@mail.com" required dir="ltr" autofocus>
 
                     <label class="field-label">كلمة المرور</label>
-                    <input type="password" name="password" class="text-input" placeholder="اتركها فارغة إن سجّلت برقم الهاتف فقط" dir="ltr">
+                    <input type="password" name="password" class="text-input" placeholder="••••••••" required dir="ltr">
 
                     <button type="submit" class="btn-primary-lg" style="width:100%;margin-top:16px">
                         <i class="fas fa-right-to-bracket"></i> دخول
@@ -628,15 +789,18 @@ function includeLoginPage($error) {
 // إنشاء حساب
 // ============================================================
 
-function includeRegisterPage($error) {
+function includeRegisterPage(PDO $pdo, $error) {
     $next = $_GET['next'] ?? '';
+    $siteName = getSetting($pdo, 'site_name', 'استضافتي');
+    $googleEnabled = getSetting($pdo, 'google_client_id', '') !== '';
+    $googleUrl = 'index.php?action=google_login' . ($next ? '&next=' . urlencode($next) : '');
     ?>
     <!DOCTYPE html>
     <html lang="ar" dir="rtl">
     <head>
         <meta charset="UTF-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>إنشاء حساب - استضافتي</title>
+        <title>إنشاء حساب - <?php echo e($siteName); ?></title>
         <link rel="preconnect" href="https://fonts.googleapis.com">
         <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
         <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
@@ -651,38 +815,28 @@ function includeRegisterPage($error) {
             <div class="auth-card">
                 <div class="auth-logo"><i class="fas fa-server"></i></div>
                 <h1>إنشاء حساب جديد</h1>
-                <p class="auth-sub">انضم إلى استضافتي وابدأ باستضافة مشاريعك اليوم.</p>
+                <p class="auth-sub">انضم إلى <?php echo e($siteName); ?> وابدأ باستضافة مشاريعك اليوم.</p>
 
                 <?php if ($error): ?><div class="form-alert"><?php echo e($error); ?></div><?php endif; ?>
 
-                <div class="method-tabs">
-                    <button type="button" class="method-tab active" id="tabPhone" onclick="switchMethod('phone')">رقم الهاتف</button>
-                    <button type="button" class="method-tab" id="tabEmail" onclick="switchMethod('email')">البريد الإلكتروني</button>
-                </div>
+                <?php if ($googleEnabled): ?>
+                <a href="<?php echo e($googleUrl); ?>" class="btn-google"><i class="fab fa-google"></i> إنشاء حساب عبر Google</a>
+                <div class="auth-divider"><span>أو عبر البريد الإلكتروني</span></div>
+                <?php endif; ?>
 
                 <form method="POST" action="index.php?page=register<?php echo $next ? '&next=' . urlencode($next) : ''; ?>">
                     <?php echo csrfField(); ?>
                     <input type="hidden" name="action" value="register">
                     <input type="hidden" name="next" value="<?php echo e($next); ?>">
-                    <input type="hidden" name="method" id="methodField" value="phone">
 
                     <label class="field-label">الاسم الكامل</label>
                     <input type="text" name="name" class="text-input" required>
 
-                    <div id="phoneFields">
-                        <label class="field-label">رقم الهاتف</label>
-                        <div class="phone-input-wrap">
-                            <span class="prefix">🇮🇶 +964</span>
-                            <input type="tel" name="phone" class="text-input-bare" placeholder="7701234567" dir="ltr">
-                        </div>
-                    </div>
+                    <label class="field-label">البريد الإلكتروني</label>
+                    <input type="email" name="email" class="text-input" placeholder="example@mail.com" required dir="ltr">
 
-                    <div id="emailFields" class="hidden">
-                        <label class="field-label">البريد الإلكتروني</label>
-                        <input type="email" name="email" class="text-input" placeholder="example@mail.com" dir="ltr">
-                        <label class="field-label">كلمة المرور</label>
-                        <input type="password" name="password" class="text-input" placeholder="6 أحرف على الأقل" dir="ltr">
-                    </div>
+                    <label class="field-label">كلمة المرور</label>
+                    <input type="password" name="password" class="text-input" placeholder="6 أحرف على الأقل" required dir="ltr">
 
                     <button type="submit" class="btn-primary-lg" style="width:100%;margin-top:16px">
                         <i class="fas fa-user-plus"></i> إنشاء الحساب
@@ -693,16 +847,6 @@ function includeRegisterPage($error) {
                 <p class="auth-switch"><a href="index.php">« العودة للرئيسية</a></p>
             </div>
         </div>
-
-        <script>
-        function switchMethod(m) {
-            document.getElementById('methodField').value = m;
-            document.getElementById('tabPhone').classList.toggle('active', m === 'phone');
-            document.getElementById('tabEmail').classList.toggle('active', m === 'email');
-            document.getElementById('phoneFields').classList.toggle('hidden', m !== 'phone');
-            document.getElementById('emailFields').classList.toggle('hidden', m !== 'email');
-        }
-        </script>
     </body>
     </html>
     <?php
@@ -797,6 +941,15 @@ function includeAppPage(PDO $pdo) {
     $user_name = $user['name'] ?? 'مستخدم';
     $balance = (float)($user['balance'] ?? 0);
     $userId = (int)$user['id'];
+    $isAdmin = (int)($user['is_admin'] ?? 0) === 1;
+
+    $notifStmt = $pdo->prepare('SELECT * FROM notifications WHERE user_id = ? ORDER BY created_at DESC LIMIT 50');
+    $notifStmt->execute([$userId]);
+    $notifications = $notifStmt->fetchAll(PDO::FETCH_ASSOC);
+    $unreadNotifCount = 0;
+    foreach ($notifications as $n) {
+        if (!(int)$n['is_read']) $unreadNotifCount++;
+    }
 
     $hostingStmt = $pdo->prepare('SELECT * FROM hosting WHERE user_id = ? ORDER BY created_at DESC');
     $hostingStmt->execute([$userId]);
@@ -846,7 +999,10 @@ function includeAppPage(PDO $pdo) {
     <head>
         <meta charset="UTF-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>لوحة تحكم VPS</title>
+        <title><?php echo e(getSetting($pdo, 'site_name', 'استضافتي')); ?> - لوحة التحكم</title>
+        <link rel="manifest" href="manifest.php">
+        <meta name="theme-color" content="#ff7a1a">
+        <link rel="apple-touch-icon" href="assets/icons/icon-192.png">
         <link rel="preconnect" href="https://fonts.googleapis.com">
         <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
         <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
@@ -876,21 +1032,21 @@ function includeAppPage(PDO $pdo) {
             }
 
             [data-theme="dark"] {
-                --bg-primary: #16130f;
-                --bg-secondary: #1e1a15;
-                --bg-card: #26211a;
-                --bg-card-hover: #2e2820;
-                --text-primary: #f5ede6;
-                --text-secondary: #b8a99a;
-                --text-muted: #8a7a6b;
+                --bg-primary: #000000;
+                --bg-secondary: #0a0a0a;
+                --bg-card: #121212;
+                --bg-card-hover: #1c1c1c;
+                --text-primary: #f5f5f5;
+                --text-secondary: #a8a29e;
+                --text-muted: #78716c;
                 --accent: #ff8c3d;
                 --accent-dark: #ee6a05;
                 --accent-light: #ffb066;
                 --accent-glow: rgba(255,140,61,.15);
-                --border-color: rgba(255,140,61,.1);
-                --border-active: rgba(255,140,61,.3);
-                --shadow: 0 8px 40px rgba(0,0,0,.4);
-                --shadow-sm: 0 4px 20px rgba(0,0,0,.3);
+                --border-color: rgba(255,255,255,.08);
+                --border-active: rgba(255,140,61,.35);
+                --shadow: 0 8px 40px rgba(0,0,0,.6);
+                --shadow-sm: 0 4px 20px rgba(0,0,0,.5);
             }
             
             * { margin:0; padding:0; box-sizing:border-box; }
@@ -952,6 +1108,7 @@ function includeAppPage(PDO $pdo) {
             }
             
             .header-theme-toggle {
+                position: relative;
                 width: 38px;
                 height: 38px;
                 border-radius: 50%;
@@ -971,6 +1128,23 @@ function includeAppPage(PDO $pdo) {
                 color: var(--accent);
                 transform: rotate(15deg);
                 background: var(--bg-card-hover);
+            }
+            .notif-badge {
+                position: absolute;
+                top: -4px;
+                right: -4px;
+                min-width: 17px;
+                height: 17px;
+                padding: 0 4px;
+                border-radius: 999px;
+                background: #EF4444;
+                color: #fff;
+                font-size: 9px;
+                font-weight: 800;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                border: 2px solid var(--bg-secondary);
             }
             
             .container {
@@ -1373,9 +1547,9 @@ function includeAppPage(PDO $pdo) {
                 -webkit-backdrop-filter: blur(8px);
                 z-index: 999;
                 display: none;
-                align-items: center;
+                align-items: flex-end;
                 justify-content: center;
-                padding: 20px;
+                padding: 0;
                 animation: fadeOverlay .3s ease;
             }
             .logout-overlay.show {
@@ -1385,14 +1559,15 @@ function includeAppPage(PDO $pdo) {
                 from { opacity: 0; }
                 to { opacity: 1; }
             }
-            
+
             .logout-sheet {
                 background: var(--bg-secondary);
                 border: 1px solid var(--border-color);
-                border-radius: var(--radius);
-                max-width: 400px;
+                border-bottom: none;
+                border-radius: var(--radius) var(--radius) 0 0;
+                max-width: 480px;
                 width: 100%;
-                padding: 32px 24px 28px;
+                padding: 32px 24px calc(28px + env(safe-area-inset-bottom));
                 box-shadow: var(--shadow);
                 text-align: center;
                 animation: slideUp .35s cubic-bezier(.34,1.56,.64,1);
@@ -1416,8 +1591,8 @@ function includeAppPage(PDO $pdo) {
                 100% { transform: rotate(360deg); }
             }
             @keyframes slideUp {
-                from { transform: translateY(30px) scale(.95); opacity: 0; }
-                to { transform: translateY(0) scale(1); opacity: 1; }
+                from { transform: translateY(100%); opacity: 0; }
+                to { transform: translateY(0); opacity: 1; }
             }
             
             .logout-sheet .icon-box {
@@ -1484,49 +1659,6 @@ function includeAppPage(PDO $pdo) {
             .logout-sheet .btn-confirm:hover {
                 transform: translateY(-2px);
                 box-shadow: 0 8px 24px rgba(239,68,68,.35);
-            }
-            
-            /* ============================================================
-               طرق الدفع - مصغرة
-               ============================================================ */
-            .payment-methods-grid {
-                display: grid;
-                grid-template-columns: 1fr 1fr 1fr 1fr;
-                gap: 8px;
-            }
-            .payment-method {
-                background: var(--bg-card);
-                border: 1px solid var(--border-color);
-                border-radius: var(--radius-sm);
-                padding: 10px 6px;
-                text-align: center;
-                cursor: pointer;
-                transition: var(--transition);
-            }
-            .payment-method:hover {
-                border-color: var(--accent);
-                transform: translateY(-2px);
-                box-shadow: var(--shadow-sm);
-            }
-            .payment-method .icon {
-                width: 36px;
-                height: 36px;
-                margin: 0 auto 4px;
-                border-radius: 50%;
-                display: flex;
-                align-items: center;
-                justify-content: center;
-                font-size: 16px;
-            }
-            .payment-method .icon.green { background: rgba(16,185,129,.12); color: #34d399; }
-            .payment-method .icon.blue { background: rgba(59,130,246,.12); color: #3B82F6; }
-            .payment-method .icon.purple { background: rgba(139,92,246,.12); color: #8B5CF6; }
-            .payment-method .icon.gold { background: rgba(255,122,26,.12); color: var(--accent); }
-            .payment-method .name {
-                font-size: 10px;
-                font-weight: 600;
-                color: var(--text-primary);
-                transition: color var(--transition);
             }
             
             /* ============================================================
@@ -2081,6 +2213,32 @@ function includeAppPage(PDO $pdo) {
             .icon-wrap.green { background: rgba(16,185,129,.1); color: #34d399; }
             .icon-wrap.purple { background: rgba(139,92,246,.1); color: #8B5CF6; }
 
+            .notif-item {
+                display: flex; align-items: flex-start; gap: 12px;
+                padding: 14px 0; border-bottom: 1px solid var(--border-color);
+            }
+            .notif-item:last-child { border-bottom: none; }
+            .notif-item.unread { position: relative; }
+            .notif-item.unread::after {
+                content: ''; position: absolute; top: 18px; left: 0;
+                width: 8px; height: 8px; border-radius: 50%; background: var(--accent);
+            }
+            .notif-item .notif-title { font-weight: 800; font-size: 13px; color: var(--text-primary); margin-bottom: 3px; }
+            .notif-item .notif-body { font-size: 12px; color: var(--text-muted); line-height: 1.6; margin-bottom: 4px; }
+            .notif-item .notif-time { font-size: 10px; color: var(--text-muted); }
+
+            .onboard-card .onboard-top { display: flex; align-items: flex-start; gap: 12px; margin-bottom: 14px; }
+            .onboard-card .onboard-icon {
+                width: 42px; height: 42px; border-radius: 50%;
+                background: var(--accent-glow); color: var(--accent);
+                display: flex; align-items: center; justify-content: center;
+                font-size: 18px; flex-shrink: 0;
+            }
+            .onboard-card .onboard-title { font-weight: 800; font-size: 14px; color: var(--text-primary); margin-bottom: 3px; }
+            .onboard-card .onboard-sub { font-size: 12px; color: var(--text-muted); line-height: 1.6; }
+            .onboard-card .onboard-actions { display: flex; gap: 8px; }
+            .onboard-card .onboard-actions button { flex: 1; justify-content: center; }
+
             .pay-option {
                 display: flex;
                 align-items: center;
@@ -2341,7 +2499,6 @@ function includeAppPage(PDO $pdo) {
                 .hosting-stats-grid { grid-template-columns: repeat(2, 1fr); }
                 .quick-grid { grid-template-columns: repeat(2, 1fr); }
                 .vps-grid { grid-template-columns: 1fr; }
-                .payment-methods-grid { grid-template-columns: 1fr 1fr; }
                 .container { padding: 12px 14px; }
                 .card { padding: 16px 12px; }
                 .header { padding: 10px 14px; }
@@ -2349,8 +2506,7 @@ function includeAppPage(PDO $pdo) {
                 .profile-card { padding: 18px 14px; flex-direction: column; text-align: center; }
                 .profile-card .avatar-large { width: 56px; height: 56px; font-size: 24px; }
                 .settings-item { padding: 12px 14px; flex-wrap: wrap; gap: 8px; }
-                .logout-sheet { padding: 24px 16px 20px; }
-                .logout-sheet .actions { flex-direction: column; }
+                .logout-sheet { padding: 24px 16px calc(20px + env(safe-area-inset-bottom)); }
                 .hosting-detail .detail-row { flex-direction: column; align-items: flex-start; gap: 4px; }
                 .hosting-detail .detail-row .value { text-align: right; width: 100%; }
             }
@@ -2383,8 +2539,11 @@ function includeAppPage(PDO $pdo) {
                 <span>خوادم VPS</span>
             </div>
             <div class="header-actions">
-                <button class="header-theme-toggle" id="headerThemeToggle" onclick="toggleTheme()">
-                    <i class="fas fa-moon" id="headerThemeIcon"></i>
+                <button class="header-theme-toggle" id="headerNotifBtn" onclick="showSection('notifications')">
+                    <i class="fas fa-bell"></i>
+                    <?php if ($unreadNotifCount > 0): ?>
+                    <span class="notif-badge"><?php echo $unreadNotifCount > 9 ? '9+' : $unreadNotifCount; ?></span>
+                    <?php endif; ?>
                 </button>
             </div>
         </header>
@@ -2397,6 +2556,34 @@ function includeAppPage(PDO $pdo) {
             القسم: الرئيسية - استضافاتي النشطة
             ============================================================ -->
             <div id="section-home" class="section-content">
+                <div class="card onboard-card hidden" id="pwaInstallCard">
+                    <div class="onboard-top">
+                        <div class="onboard-icon"><i class="fas fa-mobile-screen-button"></i></div>
+                        <div>
+                            <div class="onboard-title">ثبّت التطبيق على جهازك</div>
+                            <div class="onboard-sub">وصول أسرع، وتجربة أشبه بتطبيق حقيقي، مباشرة من شاشتك الرئيسية.</div>
+                        </div>
+                    </div>
+                    <div class="onboard-actions">
+                        <button class="btn-outline btn-small" onclick="dismissOnboardCard('pwa')">لاحقاً</button>
+                        <button class="btn-gold btn-small" onclick="triggerPwaInstall()"><i class="fas fa-download"></i> تثبيت التطبيق</button>
+                    </div>
+                </div>
+
+                <div class="card onboard-card hidden" id="notifPermCard">
+                    <div class="onboard-top">
+                        <div class="onboard-icon"><i class="fas fa-bell"></i></div>
+                        <div>
+                            <div class="onboard-title">فعّل إشعارات المتصفح</div>
+                            <div class="onboard-sub">لتصلك فوراً إشعارات شحن الرصيد، والموافقة على الطلبات، وتحديثات النظام.</div>
+                        </div>
+                    </div>
+                    <div class="onboard-actions">
+                        <button class="btn-outline btn-small" onclick="dismissOnboardCard('notif')">لاحقاً</button>
+                        <button class="btn-gold btn-small" onclick="requestNotifPermission()"><i class="fas fa-bell"></i> تفعيل الإشعارات</button>
+                    </div>
+                </div>
+
                 <div class="card" style="background:linear-gradient(135deg, #ffa64d, #ff7a1a, #f26a00);border:none;color:#ffffff">
                     <div style="display:flex;align-items:center;gap:14px">
                         <div style="width:52px;height:52px;border-radius:50%;background:rgba(255,255,255,.22);display:flex;align-items:center;justify-content:center;font-size:24px">🚀</div>
@@ -2672,18 +2859,22 @@ function includeAppPage(PDO $pdo) {
                             <h3><i class="fas fa-credit-card"></i> طرق الدفع</h3>
                             <button class="btn-back" onclick="hideAddBalance()">رجوع</button>
                         </div>
-                        <div class="payment-methods-grid">
+                        <div>
                             <?php foreach ($payment_methods as $pm): ?>
-                            <div class="payment-method"
+                            <div class="pay-option"
                                 data-id="<?php echo (int)$pm['id']; ?>"
                                 data-name="<?php echo e($pm['name']); ?>"
                                 data-account="<?php echo e($pm['account_number']); ?>"
                                 data-instructions="<?php echo e($pm['instructions']); ?>"
                                 onclick="showPaymentPage(this.dataset.id, this.dataset.name, this.dataset.account, this.dataset.instructions)">
-                                <div class="icon <?php echo e($pm['color']); ?>">
+                                <div class="icon-wrap <?php echo e($pm['color']); ?>">
                                     <i class="fas <?php echo e($pm['icon']); ?>"></i>
                                 </div>
-                                <div class="name"><?php echo e($pm['name']); ?></div>
+                                <div style="flex:1">
+                                    <div class="title"><?php echo e($pm['name']); ?></div>
+                                    <div class="sub">تحويل يدوي</div>
+                                </div>
+                                <i class="fas fa-chevron-left" style="color:var(--text-muted);font-size:12px"></i>
                             </div>
                             <?php endforeach; ?>
                         </div>
@@ -2803,6 +2994,40 @@ function includeAppPage(PDO $pdo) {
             </div>
             
             <!-- ============================================================
+            القسم: الإشعارات
+            ============================================================ -->
+            <div id="section-notifications" class="section-content hidden">
+                <div class="card-header" style="margin-bottom:14px">
+                    <h3><i class="fas fa-bell"></i> الإشعارات</h3>
+                    <button class="btn-back" onclick="showSection('home')">رجوع</button>
+                </div>
+
+                <?php if ($notifications): ?>
+                <div class="card" style="padding:6px 14px">
+                    <?php foreach ($notifications as $n):
+                        $nMeta = [
+                            'topup_approved' => ['fa-wallet', 'green'],
+                            'order_approved' => ['fa-circle-check', 'green'],
+                            'order_rejected' => ['fa-circle-xmark', 'gold'],
+                            'topup_rejected' => ['fa-circle-xmark', 'gold'],
+                        ][$n['type']] ?? ['fa-bullhorn', 'blue'];
+                    ?>
+                    <div class="notif-item<?php echo (int)$n['is_read'] ? '' : ' unread'; ?>">
+                        <div class="icon-wrap <?php echo $nMeta[1]; ?>"><i class="fas <?php echo $nMeta[0]; ?>"></i></div>
+                        <div class="notif-text">
+                            <div class="notif-title"><?php echo e($n['title']); ?></div>
+                            <?php if ($n['body']): ?><div class="notif-body"><?php echo e($n['body']); ?></div><?php endif; ?>
+                            <div class="notif-time"><?php echo e($n['created_at']); ?></div>
+                        </div>
+                    </div>
+                    <?php endforeach; ?>
+                </div>
+                <?php else: ?>
+                <div class="text-muted text-center" style="padding:40px 0">📭 لا توجد إشعارات حالياً</div>
+                <?php endif; ?>
+            </div>
+
+            <!-- ============================================================
             القسم: إعدادات
             ============================================================ -->
             <div id="section-settings" class="section-content hidden">
@@ -2811,16 +3036,36 @@ function includeAppPage(PDO $pdo) {
                         <div class="avatar-large"><?php echo mb_substr($user_name, 0, 1); ?></div>
                         <div class="info">
                             <h4><?php echo htmlspecialchars($user_name); ?></h4>
-                            <div class="sub"><?php echo htmlspecialchars($user['phone'] ?? ''); ?></div>
-                            <span class="badge">👤 مستخدم</span>
+                            <div class="sub"><?php echo htmlspecialchars($user['email'] ?? ($user['phone'] ?? '')); ?></div>
+                            <span class="badge"><?php echo $isAdmin ? '🛡️ مدير' : '👤 مستخدم'; ?></span>
                         </div>
                     </div>
-                    
+
+                    <?php if ($isAdmin): ?>
+                    <div class="settings-group">
+                        <div class="group-header">
+                            <i class="fas fa-user-shield"></i> الإدارة
+                        </div>
+                        <div class="settings-item" onclick="location.href='admin.php'">
+                            <div class="left">
+                                <div class="icon-wrap gold"><i class="fas fa-gauge"></i></div>
+                                <div class="text">
+                                    <div class="title">لوحة التحكم</div>
+                                    <div class="sub">إدارة الموقع والطلبات والإعدادات</div>
+                                </div>
+                            </div>
+                            <div class="right">
+                                <i class="fas fa-chevron-left chevron"></i>
+                            </div>
+                        </div>
+                    </div>
+                    <?php endif; ?>
+
                     <div class="settings-group">
                         <div class="group-header">
                             <i class="fas fa-sliders-h"></i> الإعدادات العامة
                         </div>
-                        
+
                         <div class="settings-item" onclick="toggleTheme()">
                             <div class="left">
                                 <div class="icon-wrap gold"><i class="fas fa-moon"></i></div>
@@ -2836,20 +3081,20 @@ function includeAppPage(PDO $pdo) {
                                 </label>
                             </div>
                         </div>
-                        
-                        <div class="settings-item">
+
+                        <div class="settings-item" onclick="showSection('notifications')">
                             <div class="left">
                                 <div class="icon-wrap blue"><i class="fas fa-bell"></i></div>
                                 <div class="text">
                                     <div class="title">الإشعارات</div>
-                                    <div class="sub">إشعارات فورية</div>
+                                    <div class="sub"><?php echo $unreadNotifCount > 0 ? $unreadNotifCount . ' إشعار غير مقروء' : 'لا توجد إشعارات جديدة'; ?></div>
                                 </div>
                             </div>
                             <div class="right">
-                                <span style="color:var(--accent);font-weight:600;font-size:12px">مفعلة ✅</span>
+                                <i class="fas fa-chevron-left chevron"></i>
                             </div>
                         </div>
-                        
+
                         <div class="settings-item">
                             <div class="left">
                                 <div class="icon-wrap green"><i class="fas fa-language"></i></div>
@@ -2864,7 +3109,7 @@ function includeAppPage(PDO $pdo) {
                             </div>
                         </div>
                     </div>
-                    
+
                     <div class="settings-group">
                         <div class="group-header">
                             <i class="fas fa-headset"></i> الدعم والتواصل
@@ -2999,8 +3244,8 @@ function includeAppPage(PDO $pdo) {
                     <div class="ai-quick-grid">
                         <button class="ai-quick-card" onclick="showAiView('solve')"><i class="fas fa-wrench"></i><span>حل مشكلة</span></button>
                         <button class="ai-quick-card" onclick="showAiView('explain')"><i class="fas fa-terminal"></i><span>شرح أمر</span></button>
-                        <button class="ai-quick-card" onclick="showAiView('tools')"><i class="fas fa-wand-magic-sparkles"></i><span>نصائح التحسين</span></button>
-                        <button class="ai-quick-card" onclick="showAiView('tools')"><i class="fas fa-lightbulb"></i><span>اقتراحات ذكية</span></button>
+                        <button class="ai-quick-card" onclick="showAiView('tips')"><i class="fas fa-wand-magic-sparkles"></i><span>نصائح التحسين</span></button>
+                        <button class="ai-quick-card" onclick="showAiView('suggestions')"><i class="fas fa-lightbulb"></i><span>اقتراحات ذكية</span></button>
                     </div>
                     <div class="chat-log" id="aiHomeChatLog"></div>
                 </div>
@@ -3013,6 +3258,16 @@ function includeAppPage(PDO $pdo) {
                 <!-- حل مشكلة -->
                 <div id="aiViewSolve" class="ai-view hidden">
                     <div class="chat-log" id="aiSolveChatLog"></div>
+                </div>
+
+                <!-- نصائح التحسين -->
+                <div id="aiViewTips" class="ai-view hidden">
+                    <div class="chat-log" id="aiTipsChatLog"></div>
+                </div>
+
+                <!-- اقتراحات ذكية -->
+                <div id="aiViewSuggestions" class="ai-view hidden">
+                    <div class="chat-log" id="aiSuggestionsChatLog"></div>
                 </div>
 
                 <!-- الأدوات الذكية -->
@@ -3163,6 +3418,7 @@ function includeAppPage(PDO $pdo) {
             const PAYMENT_METHODS = <?php echo json_encode($payment_methods); ?>;
             const AI_CONVERSATIONS = <?php echo json_encode($ai_conversations); ?>;
             const USER_NAME = <?php echo json_encode($user_name); ?>;
+            const CSRF_TOKEN = <?php echo json_encode(csrfToken()); ?>;
             const ROUTE_HINT = {
                 buyPlanId: <?php echo (int)$buyPlanId; ?>,
                 ordered: <?php echo $orderedFlag ? 'true' : 'false'; ?>,
@@ -3181,44 +3437,87 @@ function includeAppPage(PDO $pdo) {
                 
                 html.setAttribute('data-theme', newTheme);
                 localStorage.setItem('theme', newTheme);
-                
-                const icons = [
-                    document.getElementById('headerThemeIcon'),
-                    document.getElementById('themeIcon')
-                ];
-                icons.forEach(icon => {
-                    if (icon) {
-                        icon.className = newTheme === 'dark' ? 'fas fa-moon' : 'fas fa-sun';
-                    }
-                });
-                
+
                 const toggle = document.getElementById('darkModeToggle');
                 if (toggle) {
                     toggle.checked = newTheme === 'dark';
                 }
             }
-            
+
             // استعادة المظهر
             (function() {
                 const savedTheme = localStorage.getItem('theme') || 'light';
                 document.documentElement.setAttribute('data-theme', savedTheme);
-                
-                const icons = [
-                    document.getElementById('headerThemeIcon'),
-                    document.getElementById('themeIcon')
-                ];
-                icons.forEach(icon => {
-                    if (icon) {
-                        icon.className = savedTheme === 'dark' ? 'fas fa-moon' : 'fas fa-sun';
-                    }
-                });
-                
+
                 const toggle = document.getElementById('darkModeToggle');
                 if (toggle) {
                     toggle.checked = savedTheme === 'dark';
                 }
             })();
-            
+
+            // ============================================================
+            // تثبيت التطبيق (PWA) + إشعارات المتصفح
+            // ============================================================
+            let deferredInstallPrompt = null;
+
+            if ('serviceWorker' in navigator) {
+                window.addEventListener('load', () => {
+                    navigator.serviceWorker.register('sw.js').catch(() => {});
+                });
+            }
+
+            function isStandalonePwa() {
+                return window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true;
+            }
+
+            function maybeShowOnboardCards() {
+                const pwaCard = document.getElementById('pwaInstallCard');
+                const notifCard = document.getElementById('notifPermCard');
+                if (!pwaCard || !notifCard) return;
+
+                const canShowPwa = !!deferredInstallPrompt && !isStandalonePwa() && localStorage.getItem('pwaInstallDismissed') !== '1';
+                const canShowNotif = 'Notification' in window && Notification.permission === 'default' && localStorage.getItem('notifPermDismissed') !== '1';
+
+                pwaCard.classList.toggle('hidden', !canShowPwa);
+                notifCard.classList.toggle('hidden', !canShowNotif);
+            }
+
+            window.addEventListener('beforeinstallprompt', (e) => {
+                e.preventDefault();
+                deferredInstallPrompt = e;
+                maybeShowOnboardCards();
+            });
+
+            window.addEventListener('appinstalled', () => {
+                deferredInstallPrompt = null;
+                localStorage.setItem('pwaInstallDismissed', '1');
+                document.getElementById('pwaInstallCard')?.classList.add('hidden');
+            });
+
+            async function triggerPwaInstall() {
+                if (!deferredInstallPrompt) return;
+                deferredInstallPrompt.prompt();
+                await deferredInstallPrompt.userChoice;
+                deferredInstallPrompt = null;
+                localStorage.setItem('pwaInstallDismissed', '1');
+                document.getElementById('pwaInstallCard')?.classList.add('hidden');
+            }
+
+            function requestNotifPermission() {
+                if (!('Notification' in window)) return;
+                Notification.requestPermission().then(() => {
+                    localStorage.setItem('notifPermDismissed', '1');
+                    document.getElementById('notifPermCard')?.classList.add('hidden');
+                });
+            }
+
+            function dismissOnboardCard(which) {
+                localStorage.setItem(which === 'pwa' ? 'pwaInstallDismissed' : 'notifPermDismissed', '1');
+                document.getElementById(which === 'pwa' ? 'pwaInstallCard' : 'notifPermCard')?.classList.add('hidden');
+            }
+
+            maybeShowOnboardCards();
+
             // ============================================================
             // التنقل بين الأقسام
             // ============================================================
@@ -3247,8 +3546,31 @@ function includeAppPage(PDO $pdo) {
                     if (searchInput) searchInput.value = '';
                     filterServers();
                 }
+                if (section === 'notifications') {
+                    markNotificationsRead();
+                }
 
                 window.scrollTo({ top: 0, behavior: 'smooth' });
+            }
+
+            async function markNotificationsRead() {
+                const badge = document.querySelector('#headerNotifBtn .notif-badge');
+                if (!badge) return;
+                badge.remove();
+                document.querySelectorAll('#section-notifications .notif-item.unread').forEach(el => {
+                    el.classList.remove('unread');
+                });
+                const notifSettingsSub = document.querySelector('.settings-item[onclick*="notifications"] .sub');
+                if (notifSettingsSub) notifSettingsSub.textContent = 'لا توجد إشعارات جديدة';
+                try {
+                    await fetch('index.php?ajax=mark_notifications_read', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ csrf_token: CSRF_TOKEN }),
+                    });
+                } catch (err) {
+                    // تجاهل أخطاء الشبكة هنا، ستظهر الإشعارات كمقروءة بعد إعادة تحميل لاحقة
+                }
             }
             
             // ============================================================
@@ -3421,20 +3743,31 @@ function includeAppPage(PDO $pdo) {
             // ============================================================
             let wizardState = { planId: null };
 
+            function planDiscountPct(plan) {
+                const original = Number(plan.original_price) || 0;
+                const price = Number(plan.price) || 0;
+                if (original <= price) return null;
+                return Math.round(((original - price) / original) * 100);
+            }
+
             function renderPlanList() {
-                document.getElementById('planListContent').innerHTML = VPS_PLANS.map(plan => `
+                document.getElementById('planListContent').innerHTML = VPS_PLANS.map(plan => {
+                    const discountPct = planDiscountPct(plan);
+                    return `
                     <div class="plan-select-item ${wizardState.planId === plan.id ? 'selected' : ''}" onclick="wizardSelectPlan(${plan.id})">
                         <div class="radio-circle ${wizardState.planId === plan.id ? 'checked' : ''}"><i class="fas fa-check"></i></div>
                         <div class="info">
                             <div class="top-row">
                                 <span class="plan-title">${plan.icon} ${plan.name}</span>
-                                <span class="plan-price">${plan.price}$<small style="font-size:10px;font-weight:600;color:var(--text-muted)">/شهر</small></span>
+                                <span class="plan-price">${discountPct ? `<s style="font-size:11px;font-weight:600;color:var(--text-muted)">${plan.original_price}$</s> ` : ''}${plan.price}$<small style="font-size:10px;font-weight:600;color:var(--text-muted)">/شهر</small></span>
                             </div>
                             <div class="plan-meta">${plan.cpu} · ${plan.ram} RAM · ${plan.storage}</div>
                             ${plan.badge ? `<span class="pill pill-gold" style="margin-top:6px">${plan.badge}</span>` : ''}
+                            ${discountPct ? `<span class="pill" style="margin-top:6px;margin-right:4px;background:rgba(239,68,68,.12);color:#ef4444">خصم ${discountPct}%</span>` : ''}
                         </div>
                     </div>
-                `).join('');
+                `;
+                }).join('');
             }
 
             function wizardSelectPlan(planId) {
@@ -3452,7 +3785,8 @@ function includeAppPage(PDO $pdo) {
                 if (!plan) return;
                 document.getElementById('planDetailsIcon').textContent = plan.icon;
                 document.getElementById('planDetailsName').textContent = plan.name;
-                document.getElementById('planDetailsPrice').innerHTML = `${plan.price}$ <small style="font-size:13px;color:var(--text-muted)">/شهر</small>`;
+                const detailsDiscountPct = planDiscountPct(plan);
+                document.getElementById('planDetailsPrice').innerHTML = `${detailsDiscountPct ? `<s style="font-size:16px;color:var(--text-muted);margin-left:6px">${plan.original_price}$</s>` : ''}${plan.price}$ <small style="font-size:13px;color:var(--text-muted)">/شهر</small>`;
                 document.getElementById('planDetailsSpecs').innerHTML = `
                     <div class="detail-row"><span class="label">المعالج</span><span class="value">${plan.cpu}</span></div>
                     <div class="detail-row"><span class="label">الذاكرة (RAM)</span><span class="value">${plan.ram}</span></div>
@@ -3660,11 +3994,20 @@ function includeAppPage(PDO $pdo) {
                 home: 'المساعد الذكي',
                 explain: 'شرح أمر',
                 solve: 'حل مشكلة',
+                tips: 'نصائح التحسين',
+                suggestions: 'اقتراحات ذكية',
                 tools: 'الأدوات الذكية',
                 conversations: 'المحادثات',
                 settings: 'إعدادات المساعد'
             };
-            const AI_CHAT_VIEWS = ['home', 'explain', 'solve'];
+            const AI_CHAT_VIEWS = ['home', 'explain', 'solve', 'tips', 'suggestions'];
+            const AI_WELCOME_HINTS = {
+                explain: 'اكتب أي أمر لينكس (مثل: sudo apt update) وسأشرحه لك خطوة بخطوة 👇',
+                solve: 'صف المشكلة التي تواجهها مع سيرفرك (اتصال، أداء، خدمة معينة...) وسأساعدك بتشخيصها وحلها 🔧',
+                tips: 'اسألني عن أي جانب من سيرفرك (الأداء، الأمان، إدارة الموارد) وسأقترح تحسينات عملية 🚀',
+                suggestions: 'اكتب ما تعمل عليه بسيرفرك وسأقترح عليك أفكاراً وخطوات ذكية 💡',
+            };
+            const aiHistories = { home: [], explain: [], solve: [], tips: [], suggestions: [] };
 
             function showAiView(view) {
                 document.querySelectorAll('.ai-view').forEach(el => el.classList.add('hidden'));
@@ -3679,11 +4022,10 @@ function includeAppPage(PDO $pdo) {
                     el.classList.toggle('active', el.dataset.aiView === view);
                 });
 
-                if (view === 'explain' && !document.getElementById('aiExplainChatLog').children.length) {
-                    explainCommand('apt update');
-                }
-                if (view === 'solve' && !document.getElementById('aiSolveChatLog').children.length) {
-                    renderSolveExample();
+                const logId = 'ai' + view.charAt(0).toUpperCase() + view.slice(1) + 'ChatLog';
+                const log = document.getElementById(logId);
+                if (AI_WELCOME_HINTS[view] && log && !log.children.length) {
+                    appendChatBubble(logId, 'bot', escapeHtml(AI_WELCOME_HINTS[view]));
                 }
 
                 document.getElementById('aiBody').scrollTop = 0;
@@ -3695,6 +4037,14 @@ function includeAppPage(PDO $pdo) {
                 return div.innerHTML;
             }
 
+            function formatAiReply(text) {
+                let safe = escapeHtml(text);
+                safe = safe.replace(/```([\s\S]*?)```/g, (m, code) => '<code style="display:block;white-space:pre-wrap;margin:8px 0">' + code.trim() + '</code>');
+                safe = safe.replace(/`([^`]+)`/g, '<code>$1</code>');
+                safe = safe.replace(/\n/g, '<br>');
+                return safe;
+            }
+
             function appendChatBubble(logId, sender, html) {
                 const log = document.getElementById(logId);
                 const bubble = document.createElement('div');
@@ -3702,75 +4052,34 @@ function includeAppPage(PDO $pdo) {
                 bubble.innerHTML = html;
                 log.appendChild(bubble);
                 document.getElementById('aiBody').scrollTop = document.getElementById('aiBody').scrollHeight;
+                return bubble;
             }
 
-            function explainCommand(cmd) {
-                const c = (cmd || '').trim();
-                const log = document.getElementById('aiExplainChatLog');
-                if (c) {
-                    const bubble = document.createElement('div');
-                    bubble.className = 'chat-bubble user';
-                    bubble.textContent = c;
-                    log.appendChild(bubble);
-                }
-                const card = document.createElement('div');
-                card.className = 'ai-card';
-                if (/apt update/i.test(c) || !c) {
-                    card.innerHTML = `
-                        <h4><i class="fas fa-terminal"></i> شرح أمر: apt update</h4>
-                        <p style="font-size:13px;color:var(--text-secondary);line-height:1.8">
-                            يقوم هذا الأمر بتحديث قائمة الحزم المتوفرة من مستودعات النظام، دون تثبيت أي تحديثات فعلياً — فقط يحدّث "الفهرس" ليعرف النظام أحدث الإصدارات المتاحة.
-                        </p>
-                        <div style="font-weight:700;font-size:12px;margin:10px 0 4px;color:var(--text-primary)">مثال الاستخدام:</div>
-                        <code>sudo apt update</code>
-                    `;
-                } else {
-                    card.innerHTML = `
-                        <h4><i class="fas fa-terminal"></i> شرح أمر</h4>
-                        <p style="font-size:13px;color:var(--text-secondary);line-height:1.8">
-                            هذه ميزة تجريبية بردود جاهزة — جرّب أمر <strong>apt update</strong> لرؤية مثال كامل على الشرح.
-                        </p>
-                        <code>${escapeHtml(c)}</code>
-                    `;
-                }
-                log.appendChild(card);
-                document.getElementById('aiBody').scrollTop = document.getElementById('aiBody').scrollHeight;
-            }
+            async function sendToAi(section, logId, userText) {
+                appendChatBubble(logId, 'user', escapeHtml(userText));
+                const history = (aiHistories[section] || []).slice();
+                aiHistories[section] = history.concat([{ role: 'user', content: userText }]);
 
-            function renderSolveExample() {
-                const log = document.getElementById('aiSolveChatLog');
-                const card = document.createElement('div');
-                card.className = 'ai-card';
-                card.innerHTML = `
-                    <h4><i class="fas fa-triangle-exclamation" style="color:#f87171"></i> المشكلة: لا يمكن الاتصال بالسيرفر</h4>
-                    <div style="font-weight:700;font-size:12px;margin:10px 0 4px;color:var(--text-primary)">الأسباب المحتملة:</div>
-                    <ol>
-                        <li>الشبكة مقطوعة عن السيرفر</li>
-                        <li>جدار الحماية يمنع الاتصال</li>
-                        <li>المشكلة في مزود الخدمة</li>
-                        <li>إعدادات IP غير صحيحة</li>
-                    </ol>
-                    <div style="font-weight:700;font-size:12px;margin:10px 0 4px;color:var(--text-primary)">الحلول المقترحة:</div>
-                    <ol>
-                        <li>تأكد من أن السيرفر يعمل من لوحة التحكم</li>
-                        <li>تحقق من إعدادات الشبكة والفايروول</li>
-                    </ol>
-                `;
-                log.appendChild(card);
-            }
+                const typing = appendChatBubble(logId, 'bot', '<i class="fas fa-ellipsis"></i> جاري الكتابة...');
 
-            function craftAiReply(text) {
-                const t = text.toLowerCase();
-                if (t.includes('apt') || t.includes('تحديث') || t.includes('update')) {
-                    return 'هذا يبدو كسؤال عن أوامر التحديث! جرب قسم "شرح أمر" لأشرح لك أي أمر بالتفصيل 🖥️';
+                try {
+                    const res = await fetch('index.php?ajax=ai_chat', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ csrf_token: CSRF_TOKEN, section: section, message: userText, history: history }),
+                    });
+                    const data = await res.json();
+                    typing.remove();
+                    if (data.error) {
+                        appendChatBubble(logId, 'bot', '⚠️ ' + escapeHtml(data.error));
+                    } else {
+                        appendChatBubble(logId, 'bot', formatAiReply(data.reply));
+                        aiHistories[section].push({ role: 'assistant', content: data.reply });
+                    }
+                } catch (err) {
+                    typing.remove();
+                    appendChatBubble(logId, 'bot', '⚠️ تعذر الاتصال بالخادم، حاول مجدداً.');
                 }
-                if (t.includes('اتصال') || t.includes('مشكلة') || t.includes('down') || t.includes('لا يعمل')) {
-                    return 'يبدو أن هناك مشكلة بالاتصال. افتح قسم "حل مشكلة" لأساعدك في تشخيصها خطوة بخطوة 🔧';
-                }
-                if (t.includes('بطيء') || t.includes('أداء') || t.includes('سرعة')) {
-                    return 'لتحسين الأداء: جرب أداة "تحسين حالة السيرفر" من قسم الأدوات الذكية، وتأكد من عدم امتلاء التخزين 🚀';
-                }
-                return 'شكراً لسؤالك! هذه نسخة تجريبية من المساعد بردود جاهزة — جرب الأزرار السريعة أعلاه لتجربة كاملة 🤖';
             }
 
             function sendAiMessage() {
@@ -3780,20 +4089,8 @@ function includeAppPage(PDO $pdo) {
                 input.value = '';
 
                 const activeView = AI_CHAT_VIEWS.find(v => !document.getElementById('aiView' + v.charAt(0).toUpperCase() + v.slice(1)).classList.contains('hidden')) || 'home';
-
-                if (activeView === 'explain') {
-                    explainCommand(text);
-                    return;
-                }
-                if (activeView === 'solve') {
-                    appendChatBubble('aiSolveChatLog', 'user', escapeHtml(text));
-                    appendChatBubble('aiSolveChatLog', 'bot', 'جرب الحلول المقترحة أعلاه أولاً. إذا استمرت المشكلة، تواصل مع الدعم الفني عبر واتساب من صفحة الحساب.');
-                    return;
-                }
-
-                appendChatBubble('aiHomeChatLog', 'user', escapeHtml(text));
-                const reply = craftAiReply(text);
-                setTimeout(() => appendChatBubble('aiHomeChatLog', 'bot', reply), 400);
+                const logId = 'ai' + activeView.charAt(0).toUpperCase() + activeView.slice(1) + 'ChatLog';
+                sendToAi(activeView, logId, text);
             }
 
             function openConversation(title) {
@@ -3829,5 +4126,5 @@ function includeAppPage(PDO $pdo) {
 // بدء التشغيل
 // ============================================================
 
-includeLandingPage();
+includeLandingPage($pdo);
 ?>
