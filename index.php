@@ -204,11 +204,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
     } elseif ($_POST['action'] === 'submit_order') {
         requireLogin();
         $planId = (int)($_POST['plan_id'] ?? 0);
-        $orderError = handleSubmitOrder($pdo);
+        [$newOrderId, $orderError] = handleSubmitOrder($pdo);
         if ($orderError) {
             header('Location: index.php?app=1&buy=' . $planId . '&order_error=' . urlencode($orderError));
         } else {
-            header('Location: index.php?app=1&ordered=1');
+            header('Location: index.php?app=1&ordered=1&order_id=' . $newOrderId);
         }
         exit;
     } elseif ($_POST['action'] === 'top_up') {
@@ -256,6 +256,7 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === 'ai_chat' && $_SERVER['REQUEST_MET
         'suggestions' => 'أنت مساعد ذكي متخصص باستضافة المواقع وخوادم VPS، تقدّم اقتراحات ذكية ومفيدة لإدارة السيرفر وتحسين تجربة المستخدم، بالعربية.',
     ];
     $systemPrompt = $systemPrompts[$section] ?? $systemPrompts['home'];
+    $systemPrompt .= aiAccountStatusContext($pdo, (int)$_SESSION['user_id']);
 
     $messages = [['role' => 'system', 'content' => $systemPrompt]];
     foreach ($history as $h) {
@@ -292,6 +293,49 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === 'mark_notifications_read' && $_SER
 
     $pdo->prepare('UPDATE notifications SET is_read = 1 WHERE user_id = ? AND is_read = 0')
         ->execute([(int)$_SESSION['user_id']]);
+    echo json_encode(['ok' => true]);
+    exit;
+}
+
+if (isset($_GET['ajax']) && $_GET['ajax'] === 'delete_notification' && $_SERVER['REQUEST_METHOD'] === 'POST') {
+    header('Content-Type: application/json; charset=utf-8');
+
+    if (!isLoggedIn()) {
+        http_response_code(401);
+        echo json_encode(['error' => 'يجب تسجيل الدخول.']);
+        exit;
+    }
+
+    $body = json_decode((string)file_get_contents('php://input'), true) ?: [];
+    if (!hash_equals($_SESSION['csrf_token'] ?? '', (string)($body['csrf_token'] ?? ''))) {
+        http_response_code(400);
+        echo json_encode(['error' => 'انتهت صلاحية الجلسة، أعد تحميل الصفحة.']);
+        exit;
+    }
+
+    $pdo->prepare('DELETE FROM notifications WHERE id = ? AND user_id = ?')
+        ->execute([(int)($body['id'] ?? 0), (int)$_SESSION['user_id']]);
+    echo json_encode(['ok' => true]);
+    exit;
+}
+
+if (isset($_GET['ajax']) && $_GET['ajax'] === 'delete_all_notifications' && $_SERVER['REQUEST_METHOD'] === 'POST') {
+    header('Content-Type: application/json; charset=utf-8');
+
+    if (!isLoggedIn()) {
+        http_response_code(401);
+        echo json_encode(['error' => 'يجب تسجيل الدخول.']);
+        exit;
+    }
+
+    $body = json_decode((string)file_get_contents('php://input'), true) ?: [];
+    if (!hash_equals($_SESSION['csrf_token'] ?? '', (string)($body['csrf_token'] ?? ''))) {
+        http_response_code(400);
+        echo json_encode(['error' => 'انتهت صلاحية الجلسة، أعد تحميل الصفحة.']);
+        exit;
+    }
+
+    $pdo->prepare('DELETE FROM notifications WHERE user_id = ?')->execute([(int)$_SESSION['user_id']]);
     echo json_encode(['ok' => true]);
     exit;
 }
@@ -587,9 +631,22 @@ function includeLandingPage(PDO $pdo) {
         <style>
         <?php echo sharedThemeCss(); ?>
         <?php echo sharedPublicCss(); ?>
+        /* تجعل الصفحة الترحيبية على الجوال تملأ الشاشة دون الحاجة للتمرير */
+        @media (max-width: 600px) {
+            #landingPage { height: 100vh; height: 100dvh; overflow: hidden; display: flex; flex-direction: column; }
+            #landingPage .hero { flex: 1; display: flex; flex-direction: column; justify-content: center; padding: 6px 20px; overflow: hidden; }
+            #landingPage .hero-illustration { transform: scale(.68); margin: -16px 0; }
+            #landingPage .hero-badges-grid, #landingPage .feature-grid-4 { display: none; }
+            #landingPage .headline { font-size: 22px; margin-bottom: 4px; }
+            #landingPage .sub-headline { font-size: 12px; margin-bottom: 10px; }
+            #landingPage .eyebrow { margin-bottom: 8px; }
+            #landingPage .cta-row { margin: 8px 0; }
+            #landingPage .trust-row { margin-top: 8px; gap: 8px; font-size: 10px; flex-wrap: wrap; justify-content: center; }
+            #landingPage .site-footer { padding: 6px; font-size: 10px; }
+        }
         </style>
     </head>
-    <body>
+    <body id="landingPage">
         <header class="site-header site-header-plain">
             <div class="brand">
                 <div class="logo-mark"><?php echo $siteLogo ? '<img src="' . e($siteLogo) . '" alt="">' : '<i class="fas fa-server"></i>'; ?></div>
@@ -698,8 +755,8 @@ function includePlansPage(PDO $pdo) {
                 <h3><?php echo e($plan['name']); ?></h3>
                 <?php if (!empty($plan['badge'])): ?><span class="pill pill-gold"><?php echo e($plan['badge']); ?></span><?php endif; ?>
                 <div class="plan-public-price">
-                    <?php if ($discountPct): ?><s class="price-original">$<?php echo (int)$plan['original_price']; ?></s><?php endif; ?>
-                    <?php echo (int)$plan['price']; ?>$<small>/شهر</small>
+                    <?php if ($discountPct): ?><s class="price-original" data-usd="<?php echo (float)$plan['original_price']; ?>">$<?php echo (int)$plan['original_price']; ?></s><?php endif; ?>
+                    <span data-usd="<?php echo (float)$plan['price']; ?>"><?php echo (int)$plan['price']; ?>$</span><small>/شهر</small>
                 </div>
                 <ul class="plan-specs-list">
                     <li><i class="fas fa-microchip"></i> معالج <?php echo e($plan['cpu']); ?></li>
@@ -716,6 +773,7 @@ function includePlansPage(PDO $pdo) {
         </div>
 
         <footer class="site-footer">© <?php echo date('Y'); ?> استضافتي. جميع الحقوق محفوظة.</footer>
+        <?php echo currencyJsSnippet($pdo); ?>
     </body>
     </html>
     <?php
@@ -861,47 +919,51 @@ function handleSubmitOrder(PDO $pdo) {
     $userId = (int)$_SESSION['user_id'];
     $planId = (int)($_POST['plan_id'] ?? 0);
     $paymentChoice = trim($_POST['payment_method_id'] ?? '');
+    $billingCycle = ($_POST['billing_cycle'] ?? 'monthly') === 'yearly' ? 'yearly' : 'monthly';
 
     $stmt = $pdo->prepare('SELECT * FROM vps_plans WHERE id = ? AND is_active = 1');
     $stmt->execute([$planId]);
     $plan = $stmt->fetch(PDO::FETCH_ASSOC);
     if (!$plan) {
-        return 'الباقة المختارة غير متاحة.';
+        return [null, 'الباقة المختارة غير متاحة.'];
     }
+
+    $amount = ($billingCycle === 'yearly' && !empty($plan['price_yearly'])) ? (float)$plan['price_yearly'] : (float)$plan['price'];
 
     $paymentMethodId = null;
     $proofPath = null;
 
     if ($paymentChoice === 'balance') {
         $user = currentUser($pdo);
-        if ((float)$user['balance'] < (float)$plan['price']) {
-            return 'رصيدك الحالي غير كافٍ لإتمام هذا الطلب.';
+        if ((float)$user['balance'] < $amount) {
+            return [null, 'رصيدك الحالي غير كافٍ لإتمام هذا الطلب.'];
         }
-        $pdo->prepare('UPDATE users SET balance = balance - ? WHERE id = ?')->execute([$plan['price'], $userId]);
+        $pdo->prepare('UPDATE users SET balance = balance - ? WHERE id = ?')->execute([$amount, $userId]);
     } else {
         $paymentMethodId = (int)$paymentChoice;
         $pm = $pdo->prepare('SELECT id FROM payment_methods WHERE id = ? AND is_active = 1');
         $pm->execute([$paymentMethodId]);
         if (!$pm->fetch()) {
-            return 'طريقة الدفع المختارة غير متاحة.';
+            return [null, 'طريقة الدفع المختارة غير متاحة.'];
         }
         [$proofPath, $uploadError] = handleImageUpload('proof_image', PROOFS_DIR, 'uploads/proofs');
         if ($uploadError) {
-            return $uploadError;
+            return [null, $uploadError];
         }
         if (!$proofPath) {
-            return 'الرجاء إرفاق صورة إيصال التحويل.';
+            return [null, 'الرجاء إرفاق صورة إيصال التحويل.'];
         }
     }
 
-    $pdo->prepare('INSERT INTO orders (user_id, plan_id, payment_method_id, amount, proof_image, status) VALUES (?,?,?,?,?,?)')
-        ->execute([$userId, $planId, $paymentMethodId, $plan['price'], $proofPath, 'pending']);
+    $pdo->prepare('INSERT INTO orders (user_id, plan_id, payment_method_id, amount, billing_cycle, proof_image, status) VALUES (?,?,?,?,?,?,?)')
+        ->execute([$userId, $planId, $paymentMethodId, $amount, $billingCycle, $proofPath, 'pending']);
     $orderId = (int)$pdo->lastInsertId();
 
+    $cycleLabel = $billingCycle === 'yearly' ? 'سنوي' : 'شهري';
     $pdo->prepare('INSERT INTO invoices (user_id, order_id, invoice_number, amount, status, description) VALUES (?,?,?,?,?,?)')
-        ->execute([$userId, $orderId, nextInvoiceNumber($pdo), $plan['price'], $paymentChoice === 'balance' ? 'paid' : 'pending', 'اشتراك باقة ' . $plan['name']]);
+        ->execute([$userId, $orderId, nextInvoiceNumber($pdo), $amount, $paymentChoice === 'balance' ? 'paid' : 'pending', 'اشتراك باقة ' . $plan['name'] . ' (' . $cycleLabel . ')']);
 
-    return null;
+    return [$orderId, null];
 }
 
 function handleTopUpBalance(PDO $pdo) {
@@ -978,6 +1040,7 @@ function includeAppPage(PDO $pdo) {
 
     $buyPlanId = (int)($_GET['buy'] ?? 0);
     $orderedFlag = isset($_GET['ordered']);
+    $orderedId = (int)($_GET['order_id'] ?? 0);
     $orderErrorMsg = $_GET['order_error'] ?? null;
 
     // بيانات المساعد الذكي (تجريبية)
@@ -2223,9 +2286,18 @@ function includeAppPage(PDO $pdo) {
                 content: ''; position: absolute; top: 18px; left: 0;
                 width: 8px; height: 8px; border-radius: 50%; background: var(--accent);
             }
+            .notif-item .notif-text { flex: 1; min-width: 0; }
             .notif-item .notif-title { font-weight: 800; font-size: 13px; color: var(--text-primary); margin-bottom: 3px; }
             .notif-item .notif-body { font-size: 12px; color: var(--text-muted); line-height: 1.6; margin-bottom: 4px; }
             .notif-item .notif-time { font-size: 10px; color: var(--text-muted); }
+            .notif-item .notif-delete-btn {
+                flex-shrink: 0; width: 26px; height: 26px; border-radius: 50%; border: none;
+                background: transparent; color: var(--text-muted); cursor: pointer; font-size: 12px;
+                display: flex; align-items: center; justify-content: center; transition: var(--transition);
+            }
+            .notif-item .notif-delete-btn:hover { background: rgba(239,68,68,.12); color: #ef4444; }
+            .notif-actions-row { display: flex; gap: 8px; margin-bottom: 12px; }
+            .notif-actions-row button { flex: 1; justify-content: center; }
 
             .onboard-card .onboard-top { display: flex; align-items: flex-start; gap: 12px; margin-bottom: 14px; }
             .onboard-card .onboard-icon {
@@ -2669,13 +2741,13 @@ function includeAppPage(PDO $pdo) {
                             <div class="date"><?php echo $inv['due_date'] ? 'استحقاق: ' . e($inv['due_date']) : e($inv['description']); ?></div>
                         </div>
                         <div style="text-align:left">
-                            <div class="amount">$<?php echo money($inv['amount']); ?></div>
+                            <div class="amount" data-usd="<?php echo (float)$inv['amount']; ?>">$<?php echo money($inv['amount']); ?></div>
                             <span class="pill <?php echo $homeInvPill; ?>"><?php echo $homeInvLabel; ?></span>
                         </div>
                     </div>
                     <?php endforeach; ?>
                 </div>
-                
+
             </div>
             
             <!-- ============================================================
@@ -2695,7 +2767,7 @@ function includeAppPage(PDO $pdo) {
                         <?php foreach ($hosting as $h): ?>
                         <div class="hosting-item server-list-item" data-name="<?php echo htmlspecialchars(mb_strtolower($h['name'])); ?>" onclick="showHostingDetail(<?php echo $h['id']; ?>)">
                             <div class="info">
-                                <div class="name"><?php echo $h['name']; ?></div>
+                                <div class="name"><?php echo $h['name']; ?> <span style="color:var(--text-muted);font-weight:600;font-size:11px">#<?php echo (int)$h['id']; ?></span></div>
                                 <div class="sub"><?php echo $h['plan']; ?> · <?php echo $h['ip']; ?></div>
                             </div>
                             <div class="status-badge">
@@ -2765,6 +2837,10 @@ function includeAppPage(PDO $pdo) {
                         <h3 style="font-size:20px;font-weight:900">🚀 اختر الباقة المناسبة</h3>
                         <div style="font-size:13px;opacity:.8;margin-top:4px">اختر الباقة التي تناسب احتياجاتك</div>
                     </div>
+                    <div class="tab-strip" style="margin-bottom:12px">
+                        <button class="tab-btn active" id="billingTabMonthly" onclick="wizardSetBillingCycle('monthly')">شهري</button>
+                        <button class="tab-btn" id="billingTabYearly" onclick="wizardSetBillingCycle('yearly')">سنوي</button>
+                    </div>
                     <div id="planListContent"></div>
                     <button class="btn-gold" id="planContinueBtn" onclick="wizardGoTo('details')" disabled>متابعة</button>
                 </div>
@@ -2809,6 +2885,7 @@ function includeAppPage(PDO $pdo) {
                         <?php echo csrfField(); ?>
                         <input type="hidden" name="action" value="submit_order">
                         <input type="hidden" name="plan_id" id="orderPlanId" value="">
+                        <input type="hidden" name="billing_cycle" id="orderBillingCycle" value="monthly">
                         <input type="hidden" name="payment_method_id" id="orderPaymentMethodId" value="">
 
                         <div id="payOptionsContent"></div>
@@ -2833,6 +2910,7 @@ function includeAppPage(PDO $pdo) {
                     <div class="success-screen">
                         <div class="icon-big"><i class="fas fa-check"></i></div>
                         <h2>تم إرسال طلبك بنجاح!</h2>
+                        <p id="orderSuccessId" class="text-muted" style="font-weight:800;direction:ltr"></p>
                         <p>طلبك الآن قيد المراجعة من فريقنا، بعد الموافقة ستظهر تفاصيل سيرفرك في "سيرفراتي" وستصلك فاتورة بالحالة.</p>
                     </div>
                     <button class="btn-gold" onclick="showSection('orders')"><i class="fas fa-list"></i> الذهاب إلى طلباتي</button>
@@ -2846,7 +2924,7 @@ function includeAppPage(PDO $pdo) {
                 <!-- الرصيد -->
                 <div class="card" style="background:linear-gradient(135deg, #ffa64d, #ff7a1a, #f26a00);border:none;color:#ffffff;text-align:center">
                     <div style="font-size:14px;opacity:.8">الرصيد الحالي</div>
-                    <div style="font-size:36px;font-weight:900">$<?php echo number_format($balance, 2); ?></div>
+                    <div style="font-size:36px;font-weight:900" data-usd="<?php echo (float)$balance; ?>">$<?php echo number_format($balance, 2); ?></div>
                     <button class="btn-gold" style="padding:10px;font-size:14px;margin-top:8px;width:auto;display:inline-flex" onclick="showAddBalance()">
                         <i class="fas fa-plus-circle"></i> إضافة رصيد
                     </button>
@@ -2936,7 +3014,7 @@ function includeAppPage(PDO $pdo) {
                                 <div class="date"><?php echo $inv['due_date'] ? 'استحقاق: ' . e($inv['due_date']) : e($inv['description']); ?></div>
                             </div>
                             <div style="text-align:left">
-                                <div class="amount">$<?php echo money($inv['amount']); ?></div>
+                                <div class="amount" data-usd="<?php echo (float)$inv['amount']; ?>">$<?php echo money($inv['amount']); ?></div>
                                 <span class="pill <?php echo $invStatusPill; ?>"><?php echo $invStatusLabel; ?></span>
                             </div>
                         </div>
@@ -2985,7 +3063,7 @@ function includeAppPage(PDO $pdo) {
                             <div class="date">تاريخ الطلب: <?php echo e(substr($o['created_at'], 0, 10)); ?></div>
                         </div>
                         <div style="text-align:left">
-                            <div class="amount">$<?php echo money($o['amount']); ?></div>
+                            <div class="amount" data-usd="<?php echo (float)$o['amount']; ?>">$<?php echo money($o['amount']); ?></div>
                             <span class="pill <?php echo $statusPill; ?>"><?php echo $statusLabel; ?></span>
                         </div>
                     </div>
@@ -3003,7 +3081,11 @@ function includeAppPage(PDO $pdo) {
                 </div>
 
                 <?php if ($notifications): ?>
-                <div class="card" style="padding:6px 14px">
+                <div class="notif-actions-row">
+                    <button class="btn-outline btn-small" onclick="markNotificationsRead()"><i class="fas fa-check-double"></i> تحديد الكل كمقروء</button>
+                    <button class="btn-outline btn-small" onclick="deleteAllNotifications()"><i class="fas fa-trash"></i> حذف الكل</button>
+                </div>
+                <div class="card" style="padding:6px 14px" id="notificationsListCard">
                     <?php foreach ($notifications as $n):
                         $nMeta = [
                             'topup_approved' => ['fa-wallet', 'green'],
@@ -3012,18 +3094,19 @@ function includeAppPage(PDO $pdo) {
                             'topup_rejected' => ['fa-circle-xmark', 'gold'],
                         ][$n['type']] ?? ['fa-bullhorn', 'blue'];
                     ?>
-                    <div class="notif-item<?php echo (int)$n['is_read'] ? '' : ' unread'; ?>">
+                    <div class="notif-item<?php echo (int)$n['is_read'] ? '' : ' unread'; ?>" data-notif-id="<?php echo (int)$n['id']; ?>">
                         <div class="icon-wrap <?php echo $nMeta[1]; ?>"><i class="fas <?php echo $nMeta[0]; ?>"></i></div>
                         <div class="notif-text">
                             <div class="notif-title"><?php echo e($n['title']); ?></div>
                             <?php if ($n['body']): ?><div class="notif-body"><?php echo e($n['body']); ?></div><?php endif; ?>
                             <div class="notif-time"><?php echo e($n['created_at']); ?></div>
                         </div>
+                        <button class="notif-delete-btn" onclick="deleteNotification(<?php echo (int)$n['id']; ?>)" title="حذف"><i class="fas fa-xmark"></i></button>
                     </div>
                     <?php endforeach; ?>
                 </div>
                 <?php else: ?>
-                <div class="text-muted text-center" style="padding:40px 0">📭 لا توجد إشعارات حالياً</div>
+                <div class="text-muted text-center" style="padding:40px 0" id="noNotificationsMsg">📭 لا توجد إشعارات حالياً</div>
                 <?php endif; ?>
             </div>
 
@@ -3106,6 +3189,19 @@ function includeAppPage(PDO $pdo) {
                             <div class="right">
                                 <span style="color:var(--text-secondary);font-weight:600;font-size:12px">العربية</span>
                                 <i class="fas fa-chevron-left chevron"></i>
+                            </div>
+                        </div>
+
+                        <div class="settings-item">
+                            <div class="left">
+                                <div class="icon-wrap gold"><i class="fas fa-coins"></i></div>
+                                <div class="text">
+                                    <div class="title">العملة</div>
+                                    <div class="sub">عملة عرض الأسعار في التطبيق</div>
+                                </div>
+                            </div>
+                            <div class="right">
+                                <select id="currencyPicker" onchange="setDisplayCurrency(this.value)" style="background:var(--bg-card);color:var(--text-primary);border:1px solid var(--border-color);border-radius:var(--radius-sm);padding:6px 10px;font-size:12px;font-family:inherit"></select>
                             </div>
                         </div>
                     </div>
@@ -3407,6 +3503,8 @@ function includeAppPage(PDO $pdo) {
             </nav>
         </div>
 
+        <?php echo currencyJsSnippet($pdo); ?>
+
         <script>
             // ============================================================
             // بيانات PHP
@@ -3422,6 +3520,7 @@ function includeAppPage(PDO $pdo) {
             const ROUTE_HINT = {
                 buyPlanId: <?php echo (int)$buyPlanId; ?>,
                 ordered: <?php echo $orderedFlag ? 'true' : 'false'; ?>,
+                orderedId: <?php echo (int)$orderedId; ?>,
                 hasOrderError: <?php echo !empty($orderErrorMsg) ? 'true' : 'false'; ?>,
             };
 
@@ -3519,6 +3618,18 @@ function includeAppPage(PDO $pdo) {
             maybeShowOnboardCards();
 
             // ============================================================
+            // اختيار العملة
+            // ============================================================
+            (function initCurrencyPicker() {
+                const picker = document.getElementById('currencyPicker');
+                if (!picker) return;
+                picker.innerHTML = Object.keys(CURRENCIES).map(code =>
+                    `<option value="${code}">${CURRENCIES[code].name} (${CURRENCIES[code].symbol})</option>`
+                ).join('');
+                picker.value = detectCurrencyCode();
+            })();
+
+            // ============================================================
             // التنقل بين الأقسام
             // ============================================================
             function showSection(section) {
@@ -3546,17 +3657,11 @@ function includeAppPage(PDO $pdo) {
                     if (searchInput) searchInput.value = '';
                     filterServers();
                 }
-                if (section === 'notifications') {
-                    markNotificationsRead();
-                }
-
                 window.scrollTo({ top: 0, behavior: 'smooth' });
             }
 
             async function markNotificationsRead() {
-                const badge = document.querySelector('#headerNotifBtn .notif-badge');
-                if (!badge) return;
-                badge.remove();
+                document.querySelector('#headerNotifBtn .notif-badge')?.remove();
                 document.querySelectorAll('#section-notifications .notif-item.unread').forEach(el => {
                     el.classList.remove('unread');
                 });
@@ -3570,6 +3675,46 @@ function includeAppPage(PDO $pdo) {
                     });
                 } catch (err) {
                     // تجاهل أخطاء الشبكة هنا، ستظهر الإشعارات كمقروءة بعد إعادة تحميل لاحقة
+                }
+            }
+
+            async function deleteNotification(id) {
+                const item = document.querySelector(`#section-notifications .notif-item[data-notif-id="${id}"]`);
+                item?.remove();
+                updateNotifEmptyState();
+                try {
+                    await fetch('index.php?ajax=delete_notification', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ csrf_token: CSRF_TOKEN, id }),
+                    });
+                } catch (err) {
+                    // تجاهل أخطاء الشبكة، سيُعاد تحميلها لاحقاً
+                }
+            }
+
+            async function deleteAllNotifications() {
+                if (!confirm('هل تريد حذف جميع الإشعارات نهائياً؟')) return;
+                document.querySelectorAll('#section-notifications .notif-item').forEach(el => el.remove());
+                document.querySelector('.notif-actions-row')?.remove();
+                document.querySelector('#headerNotifBtn .notif-badge')?.remove();
+                updateNotifEmptyState();
+                try {
+                    await fetch('index.php?ajax=delete_all_notifications', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ csrf_token: CSRF_TOKEN }),
+                    });
+                } catch (err) {
+                    // تجاهل أخطاء الشبكة، سيُعاد تحميلها لاحقاً
+                }
+            }
+
+            function updateNotifEmptyState() {
+                const list = document.getElementById('notificationsListCard');
+                if (list && !list.querySelector('.notif-item')) {
+                    list.outerHTML = '<div class="text-muted text-center" style="padding:40px 0" id="noNotificationsMsg">📭 لا توجد إشعارات حالياً</div>';
+                    document.querySelector('.notif-actions-row')?.remove();
                 }
             }
             
@@ -3622,6 +3767,10 @@ function includeAppPage(PDO $pdo) {
                 switchDetailTab('usage');
 
                 document.getElementById('hostingDetailContent').innerHTML = `
+                    <div class="detail-row">
+                        <span class="label">معرّف السيرفر</span>
+                        <span class="value" style="direction:ltr">#${hosting.id}</span>
+                    </div>
                     <div class="detail-row">
                         <span class="label">اسم الاستضافة</span>
                         <span class="value">${hosting.name}</span>
@@ -3741,7 +3890,7 @@ function includeAppPage(PDO $pdo) {
             // ============================================================
             // معالج طلب VPS
             // ============================================================
-            let wizardState = { planId: null };
+            let wizardState = { planId: null, billingCycle: 'monthly' };
 
             function planDiscountPct(plan) {
                 const original = Number(plan.original_price) || 0;
@@ -3750,24 +3899,40 @@ function includeAppPage(PDO $pdo) {
                 return Math.round(((original - price) / original) * 100);
             }
 
+            function planPriceForCycle(plan) {
+                if (wizardState.billingCycle === 'yearly' && plan.price_yearly) {
+                    return { price: Number(plan.price_yearly), suffix: '/سنة', discountPct: null, original: null };
+                }
+                return { price: Number(plan.price), suffix: '/شهر', discountPct: planDiscountPct(plan), original: Number(plan.original_price) || null };
+            }
+
+            function wizardSetBillingCycle(cycle) {
+                wizardState.billingCycle = cycle;
+                document.getElementById('orderBillingCycle').value = cycle;
+                document.getElementById('billingTabMonthly').classList.toggle('active', cycle === 'monthly');
+                document.getElementById('billingTabYearly').classList.toggle('active', cycle === 'yearly');
+                renderPlanList();
+            }
+
             function renderPlanList() {
                 document.getElementById('planListContent').innerHTML = VPS_PLANS.map(plan => {
-                    const discountPct = planDiscountPct(plan);
+                    const p = planPriceForCycle(plan);
                     return `
                     <div class="plan-select-item ${wizardState.planId === plan.id ? 'selected' : ''}" onclick="wizardSelectPlan(${plan.id})">
                         <div class="radio-circle ${wizardState.planId === plan.id ? 'checked' : ''}"><i class="fas fa-check"></i></div>
                         <div class="info">
                             <div class="top-row">
                                 <span class="plan-title">${plan.icon} ${plan.name}</span>
-                                <span class="plan-price">${discountPct ? `<s style="font-size:11px;font-weight:600;color:var(--text-muted)">${plan.original_price}$</s> ` : ''}${plan.price}$<small style="font-size:10px;font-weight:600;color:var(--text-muted)">/شهر</small></span>
+                                <span class="plan-price">${p.discountPct ? `<s style="font-size:11px;font-weight:600;color:var(--text-muted)" data-usd="${p.original}">${p.original}$</s> ` : ''}<span data-usd="${p.price}">${p.price}$</span><small style="font-size:10px;font-weight:600;color:var(--text-muted)">${p.suffix}</small></span>
                             </div>
                             <div class="plan-meta">${plan.cpu} · ${plan.ram} RAM · ${plan.storage}</div>
                             ${plan.badge ? `<span class="pill pill-gold" style="margin-top:6px">${plan.badge}</span>` : ''}
-                            ${discountPct ? `<span class="pill" style="margin-top:6px;margin-right:4px;background:rgba(239,68,68,.12);color:#ef4444">خصم ${discountPct}%</span>` : ''}
+                            ${p.discountPct ? `<span class="pill" style="margin-top:6px;margin-right:4px;background:rgba(239,68,68,.12);color:#ef4444">خصم ${p.discountPct}%</span>` : ''}
                         </div>
                     </div>
                 `;
                 }).join('');
+                applyCurrencyDisplay(document.getElementById('planListContent'));
             }
 
             function wizardSelectPlan(planId) {
@@ -3785,8 +3950,8 @@ function includeAppPage(PDO $pdo) {
                 if (!plan) return;
                 document.getElementById('planDetailsIcon').textContent = plan.icon;
                 document.getElementById('planDetailsName').textContent = plan.name;
-                const detailsDiscountPct = planDiscountPct(plan);
-                document.getElementById('planDetailsPrice').innerHTML = `${detailsDiscountPct ? `<s style="font-size:16px;color:var(--text-muted);margin-left:6px">${plan.original_price}$</s>` : ''}${plan.price}$ <small style="font-size:13px;color:var(--text-muted)">/شهر</small>`;
+                const p = planPriceForCycle(plan);
+                document.getElementById('planDetailsPrice').innerHTML = `${p.discountPct ? `<s style="font-size:16px;color:var(--text-muted);margin-left:6px" data-usd="${p.original}">${p.original}$</s>` : ''}<span data-usd="${p.price}">${p.price}$</span> <small style="font-size:13px;color:var(--text-muted)">${p.suffix}</small>`;
                 document.getElementById('planDetailsSpecs').innerHTML = `
                     <div class="detail-row"><span class="label">المعالج</span><span class="value">${plan.cpu}</span></div>
                     <div class="detail-row"><span class="label">الذاكرة (RAM)</span><span class="value">${plan.ram}</span></div>
@@ -3795,19 +3960,25 @@ function includeAppPage(PDO $pdo) {
                     <div class="detail-row"><span class="label">نظام التشغيل</span><span class="value">Ubuntu 22.04</span></div>
                     <div class="detail-row"><span class="label">موقع السيرفر</span><span class="value">Frankfurt, Germany</span></div>
                 `;
+                applyCurrencyDisplay(document.getElementById('planDetailsPrice'));
             }
 
             function renderOrderSummary() {
                 const plan = currentPlan();
                 if (!plan) return;
+                const p = planPriceForCycle(plan);
+                const cycleLabel = wizardState.billingCycle === 'yearly' ? 'سنوي' : 'شهري';
                 document.getElementById('orderSummaryContent').innerHTML = `
                     <div class="detail-row"><span class="label">الباقة</span><span class="value">${plan.icon} ${plan.name}</span></div>
                     <div class="detail-row"><span class="label">موقع السيرفر</span><span class="value">Frankfurt, Germany</span></div>
                     <div class="detail-row"><span class="label">نظام التشغيل</span><span class="value">Ubuntu 22.04</span></div>
-                    <div class="detail-row"><span class="label">مدة الاشتراك</span><span class="value">شهري</span></div>
-                    <div class="detail-row"><span class="label">السعر</span><span class="value">${plan.price}$/شهر</span></div>
+                    <div class="detail-row"><span class="label">مدة الاشتراك</span><span class="value">${cycleLabel}</span></div>
+                    <div class="detail-row"><span class="label">السعر</span><span class="value" data-usd="${p.price}">${p.price}$${p.suffix}</span></div>
                 `;
-                document.getElementById('paymentTotalAmount').textContent = plan.price + '$';
+                document.getElementById('paymentTotalAmount').setAttribute('data-usd', p.price);
+                document.getElementById('paymentTotalAmount').textContent = p.price + '$';
+                applyCurrencyDisplay(document.getElementById('orderSummaryContent'));
+                applyCurrencyDisplay(document.getElementById('vpsStepPayment'));
             }
 
             function renderPayOptions() {
@@ -3823,7 +3994,7 @@ function includeAppPage(PDO $pdo) {
                 }));
                 options.push({
                     id: 'balance', icon: 'fa-wallet', color: 'green', title: 'رصيد الحساب',
-                    sub: '$' + Number(USER_BALANCE).toFixed(2) + ' متاح', manual: false,
+                    sub: formatUsd(USER_BALANCE) + ' متاح', manual: false,
                 });
 
                 if (!wizardState.paymentMethod) wizardState.paymentMethod = options[0].id;
@@ -3931,7 +4102,7 @@ function includeAppPage(PDO $pdo) {
                     </div>
                     <div class="detail-row">
                         <span class="label">المبلغ</span>
-                        <span class="value amount">${Number(invoice.amount).toFixed(2)}$</span>
+                        <span class="value amount" data-usd="${invoice.amount}">${Number(invoice.amount).toFixed(2)}$</span>
                     </div>
                     <div class="detail-row">
                         <span class="label">الحالة</span>
@@ -3942,6 +4113,7 @@ function includeAppPage(PDO $pdo) {
                         <span class="value">${invoice.description || 'لا يوجد وصف'}</span>
                     </div>
                 `;
+                applyCurrencyDisplay(document.getElementById('invoiceDetailContent'));
 
                 document.getElementById('invoicesList').classList.add('hidden');
                 document.getElementById('invoiceDetail').classList.remove('hidden');
@@ -4111,6 +4283,8 @@ function includeAppPage(PDO $pdo) {
             if (ROUTE_HINT.ordered) {
                 showSection('vps');
                 wizardGoTo('success');
+                const orderSuccessIdEl = document.getElementById('orderSuccessId');
+                if (orderSuccessIdEl && ROUTE_HINT.orderedId) orderSuccessIdEl.textContent = '#' + ROUTE_HINT.orderedId;
             } else if (ROUTE_HINT.buyPlanId) {
                 showSection('vps');
                 wizardSelectPlan(ROUTE_HINT.buyPlanId);

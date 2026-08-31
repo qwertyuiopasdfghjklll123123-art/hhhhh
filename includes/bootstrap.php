@@ -130,6 +130,15 @@ try {
             created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY (user_id) REFERENCES users(id)
         );
+
+        CREATE TABLE IF NOT EXISTS currencies (
+            code TEXT PRIMARY KEY,
+            name TEXT NOT NULL,
+            symbol TEXT NOT NULL,
+            rate_per_usd REAL NOT NULL DEFAULT 1,
+            is_active INTEGER NOT NULL DEFAULT 1,
+            sort_order INTEGER NOT NULL DEFAULT 0
+        );
     ");
 
     // ------------------------------------------------------------
@@ -177,7 +186,11 @@ try {
     $ensureColumn('hosting', 'order_id', 'INTEGER');
     $ensureColumn('invoices', 'order_id', 'INTEGER');
     $ensureColumn('vps_plans', 'original_price', 'REAL');
+    $ensureColumn('vps_plans', 'price_yearly', 'REAL');
     $ensureColumn('users', 'google_id', 'TEXT');
+    $ensureColumn('orders', 'billing_cycle', "TEXT NOT NULL DEFAULT 'monthly'");
+    $ensureColumn('payment_methods', 'method_type', "TEXT NOT NULL DEFAULT 'manual'");
+    $ensureColumn('payment_methods', 'currency_code', "TEXT NOT NULL DEFAULT 'USD'");
 
     // ------------------------------------------------------------
     // بيانات ابتدائية (تُدرج مرة واحدة فقط إذا كانت الجداول فارغة)
@@ -197,6 +210,12 @@ try {
         $seed->execute(['تحويل بنكي', 'fa-building-columns', 'IQ00 BANK 0000 0000 0000 000', 'حوّل المبلغ إلى رقم الحساب البنكي أعلاه، ثم ارفع صورة إيصال التحويل هنا.', 3]);
     }
 
+    if ((int)$pdo->query('SELECT COUNT(*) FROM currencies')->fetchColumn() === 0) {
+        $seed = $pdo->prepare('INSERT INTO currencies (code, name, symbol, rate_per_usd, sort_order) VALUES (?,?,?,?,?)');
+        $seed->execute(['USD', 'دولار أمريكي', '$', 1, 1]);
+        $seed->execute(['IQD', 'دينار عراقي', 'د.ع', 1310, 2]);
+    }
+
     if ((int)$pdo->query('SELECT COUNT(*) FROM users WHERE is_admin = 1')->fetchColumn() === 0) {
         $pdo->prepare('INSERT INTO users (name, email, password_hash, is_admin, balance) VALUES (?,?,?,1,0)')
             ->execute(['مدير النظام', 'admin@istidafati.local', password_hash('Admin@12345', PASSWORD_DEFAULT)]);
@@ -211,6 +230,7 @@ try {
         $seed->execute(['nvidia_model', 'openai/gpt-oss-120b']);
         $seed->execute(['google_client_id', '']);
         $seed->execute(['google_client_secret', '']);
+        $seed->execute(['app_currency', '']);
     }
 } catch (PDOException $e) {
     http_response_code(500);
@@ -331,6 +351,84 @@ function planDiscountPct($plan) {
     return (int)round((($original - $price) / $original) * 100);
 }
 
+// ============================================================
+// العملات (كل الأسعار مخزّنة بالدولار كعملة أساس؛ هذه الدوال
+// تُستخدم فقط لعرضها بعملة أخرى محوّلة، وليس لتخزينها)
+// ============================================================
+
+function getActiveCurrencies(PDO $pdo) {
+    static $cache = null;
+    if ($cache !== null) return $cache;
+    $cache = $pdo->query('SELECT * FROM currencies WHERE is_active = 1 ORDER BY sort_order ASC, code ASC')->fetchAll(PDO::FETCH_ASSOC);
+    return $cache;
+}
+
+function getAllCurrencies(PDO $pdo) {
+    return $pdo->query('SELECT * FROM currencies ORDER BY sort_order ASC, code ASC')->fetchAll(PDO::FETCH_ASSOC);
+}
+
+function getCurrency(PDO $pdo, $code) {
+    foreach (getActiveCurrencies($pdo) as $c) {
+        if ($c['code'] === $code) return $c;
+    }
+    return ['code' => 'USD', 'name' => 'دولار أمريكي', 'symbol' => '$', 'rate_per_usd' => 1];
+}
+
+// يُطبع داخل <script> في أي صفحة تعرض أسعاراً: يحوّل كل عنصر يحمل
+// data-usd="<amount>" لعملة الزائر المكتشفة تلقائياً من لغة متصفحه
+// (أو العملة التي يفرضها الأدمن من الإعدادات)، دون أي تغيير على
+// الأسعار الفعلية المخزّنة بالدولار.
+function currencyJsSnippet(PDO $pdo) {
+    $currencies = [];
+    foreach (getActiveCurrencies($pdo) as $c) {
+        $currencies[$c['code']] = ['name' => $c['name'], 'symbol' => $c['symbol'], 'rate' => (float)$c['rate_per_usd']];
+    }
+    $forced = getSetting($pdo, 'app_currency', '');
+    $currenciesJson = json_encode($currencies, JSON_UNESCAPED_UNICODE);
+    $forcedJson = json_encode($forced);
+    return <<<JS
+    <script>
+        const CURRENCIES = {$currenciesJson};
+        const APP_CURRENCY_FORCED = {$forcedJson};
+        const REGION_CURRENCY_MAP = { IQ:'IQD', SA:'SAR', AE:'AED', KW:'KWD', QA:'QAR', BH:'BHD', OM:'OMR', JO:'JOD', EG:'EGP', US:'USD', GB:'GBP' };
+
+        function detectCurrencyCode() {
+            try {
+                const saved = localStorage.getItem('displayCurrency');
+                if (saved && CURRENCIES[saved]) return saved;
+            } catch (e) {}
+            if (APP_CURRENCY_FORCED && CURRENCIES[APP_CURRENCY_FORCED]) return APP_CURRENCY_FORCED;
+            const locale = navigator.language || 'en-US';
+            const region = (locale.split('-')[1] || '').toUpperCase();
+            const mapped = REGION_CURRENCY_MAP[region];
+            return (mapped && CURRENCIES[mapped]) ? mapped : 'USD';
+        }
+
+        function setDisplayCurrency(code) {
+            try { localStorage.setItem('displayCurrency', code); } catch (e) {}
+            applyCurrencyDisplay();
+        }
+
+        function formatUsd(amountUsd) {
+            const code = detectCurrencyCode();
+            const cur = CURRENCIES[code] || { symbol: '\$', rate: 1 };
+            const converted = (Number(amountUsd) || 0) * cur.rate;
+            const decimals = code === 'USD' ? 2 : 0;
+            const num = converted.toLocaleString('en-US', { minimumFractionDigits: decimals, maximumFractionDigits: decimals });
+            return num + ' ' + cur.symbol;
+        }
+
+        function applyCurrencyDisplay(root) {
+            (root || document).querySelectorAll('[data-usd]').forEach(el => {
+                el.textContent = formatUsd(el.getAttribute('data-usd'));
+            });
+        }
+
+        document.addEventListener('DOMContentLoaded', () => applyCurrencyDisplay());
+    </script>
+    JS;
+}
+
 function e($str) {
     return htmlspecialchars((string)$str, ENT_QUOTES, 'UTF-8');
 }
@@ -414,3 +512,34 @@ function callAiApi(PDO $pdo, $messages) {
     }
     return [$reply, null];
 }
+
+// يُضاف لآخر system prompt الخاص بالمساعد الذكي، ليعرف الحالة الحقيقية
+// لطلبات وشحنات المستخدم المعلقة، فيطمئنه بدل أن يعطيه رداً عاماً غير دقيق
+function aiAccountStatusContext(PDO $pdo, $userId) {
+    $lines = [];
+
+    $orders = $pdo->prepare("
+        SELECT o.id, o.created_at, p.name AS plan_name
+        FROM orders o JOIN vps_plans p ON p.id = o.plan_id
+        WHERE o.user_id = ? AND o.status = 'pending' ORDER BY o.created_at DESC
+    ");
+    $orders->execute([$userId]);
+    foreach ($orders->fetchAll(PDO::FETCH_ASSOC) as $o) {
+        $lines[] = '- طلب اشتراك رقم #' . $o['id'] . ' لباقة "' . $o['plan_name'] . '" بتاريخ ' . $o['created_at'] . '، لا يزال قيد المراجعة من الإدارة.';
+    }
+
+    $topups = $pdo->prepare("SELECT id, amount, created_at FROM invoices WHERE user_id = ? AND order_id IS NULL AND status = 'pending' ORDER BY created_at DESC");
+    $topups->execute([$userId]);
+    foreach ($topups->fetchAll(PDO::FETCH_ASSOC) as $t) {
+        $lines[] = '- طلب شحن رصيد رقم #' . $t['id'] . ' بمبلغ $' . money($t['amount']) . ' بتاريخ ' . $t['created_at'] . '، لا يزال قيد المراجعة من الإدارة.';
+    }
+
+    if (!$lines) {
+        return "\n\nملاحظة: لا توجد لدى هذا المستخدم حالياً أي طلبات اشتراك أو شحن رصيد معلقة.";
+    }
+
+    return "\n\nمعلومات حقيقية عن حساب هذا المستخدم الآن (استخدمها فقط إذا سأل عن حالة طلب أو شحن رصيد أو تأخير في الموافقة):\n"
+        . implode("\n", $lines)
+        . "\nإذا سأل عن سبب التأخير أو متى ستتم الموافقة: اذكر له رقم الطلب/الشحن المعلق أعلاه، وطمئنه بأن طلبه مسجّل وأن الفريق يعمل على مراجعته حالياً، واطلب منه التحلي بالصبر قليلاً دون الوعد بوقت محدد.";
+}
+

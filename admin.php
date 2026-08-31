@@ -38,6 +38,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $price = (float)($_POST['price'] ?? 0);
         $originalPriceRaw = trim($_POST['original_price'] ?? '');
         $originalPrice = $originalPriceRaw === '' ? null : (float)$originalPriceRaw;
+        $yearlyPriceRaw = trim($_POST['price_yearly'] ?? '');
+        $yearlyPrice = $yearlyPriceRaw === '' ? null : (float)$yearlyPriceRaw;
         $badge = trim($_POST['badge'] ?? '') ?: null;
         $isActive = isset($_POST['is_active']) ? 1 : 0;
         $sortOrder = (int)($_POST['sort_order'] ?? 0);
@@ -48,14 +50,32 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if ($originalPrice !== null && $originalPrice <= $price) {
             $originalPrice = null;
         }
-
-        if ($id > 0) {
-            $pdo->prepare('UPDATE vps_plans SET name=?, icon=?, cpu=?, ram=?, storage=?, bandwidth=?, price=?, original_price=?, badge=?, is_active=?, sort_order=? WHERE id=?')
-                ->execute([$name, $icon, $cpu, $ram, $storage, $bandwidth, $price, $originalPrice, $badge, $isActive, $sortOrder, $id]);
-        } else {
-            $pdo->prepare('INSERT INTO vps_plans (name, icon, cpu, ram, storage, bandwidth, price, original_price, badge, is_active, sort_order) VALUES (?,?,?,?,?,?,?,?,?,?,?)')
-                ->execute([$name, $icon, $cpu, $ram, $storage, $bandwidth, $price, $originalPrice, $badge, $isActive, $sortOrder]);
+        if ($yearlyPrice !== null && $yearlyPrice <= 0) {
+            $yearlyPrice = null;
         }
+
+        $previousOriginalPrice = null;
+        if ($id > 0) {
+            $prevStmt = $pdo->prepare('SELECT original_price FROM vps_plans WHERE id = ?');
+            $prevStmt->execute([$id]);
+            $previousOriginalPrice = $prevStmt->fetchColumn();
+            $previousOriginalPrice = $previousOriginalPrice !== false && $previousOriginalPrice !== null ? (float)$previousOriginalPrice : null;
+
+            $pdo->prepare('UPDATE vps_plans SET name=?, icon=?, cpu=?, ram=?, storage=?, bandwidth=?, price=?, original_price=?, price_yearly=?, badge=?, is_active=?, sort_order=? WHERE id=?')
+                ->execute([$name, $icon, $cpu, $ram, $storage, $bandwidth, $price, $originalPrice, $yearlyPrice, $badge, $isActive, $sortOrder, $id]);
+        } else {
+            $pdo->prepare('INSERT INTO vps_plans (name, icon, cpu, ram, storage, bandwidth, price, original_price, price_yearly, badge, is_active, sort_order) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)')
+                ->execute([$name, $icon, $cpu, $ram, $storage, $bandwidth, $price, $originalPrice, $yearlyPrice, $badge, $isActive, $sortOrder]);
+        }
+
+        if ($isActive && $originalPrice !== null && $originalPrice !== $previousOriginalPrice) {
+            $discountPct = (int)round((($originalPrice - $price) / $originalPrice) * 100);
+            $userIds = $pdo->query('SELECT id FROM users')->fetchAll(PDO::FETCH_COLUMN);
+            foreach ($userIds as $uid) {
+                notifyUser($pdo, (int)$uid, '🔥 خصم جديد!', 'احصل الآن على خصم ' . $discountPct . '% على باقة "' . $name . '" - بسعر $' . money($price) . ' بدلاً من $' . money($originalPrice) . '.', 'system');
+            }
+        }
+
         adminRedirect('plans', 'تم حفظ الباقة بنجاح.');
     }
 
@@ -70,6 +90,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $icon = trim($_POST['icon'] ?? '') ?: 'fa-money-bill-wave';
         $account = trim($_POST['account_number'] ?? '');
         $instructions = trim($_POST['instructions'] ?? '');
+        $currencyCode = trim($_POST['currency_code'] ?? '') ?: 'USD';
         $isActive = isset($_POST['is_active']) ? 1 : 0;
         $sortOrder = (int)($_POST['sort_order'] ?? 0);
 
@@ -84,15 +105,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
         if ($id > 0) {
             if ($logoPath) {
-                $pdo->prepare('UPDATE payment_methods SET name=?, icon=?, account_number=?, instructions=?, is_active=?, sort_order=?, logo_path=? WHERE id=?')
-                    ->execute([$name, $icon, $account, $instructions, $isActive, $sortOrder, $logoPath, $id]);
+                $pdo->prepare('UPDATE payment_methods SET name=?, icon=?, account_number=?, instructions=?, currency_code=?, is_active=?, sort_order=?, logo_path=? WHERE id=?')
+                    ->execute([$name, $icon, $account, $instructions, $currencyCode, $isActive, $sortOrder, $logoPath, $id]);
             } else {
-                $pdo->prepare('UPDATE payment_methods SET name=?, icon=?, account_number=?, instructions=?, is_active=?, sort_order=? WHERE id=?')
-                    ->execute([$name, $icon, $account, $instructions, $isActive, $sortOrder, $id]);
+                $pdo->prepare('UPDATE payment_methods SET name=?, icon=?, account_number=?, instructions=?, currency_code=?, is_active=?, sort_order=? WHERE id=?')
+                    ->execute([$name, $icon, $account, $instructions, $currencyCode, $isActive, $sortOrder, $id]);
             }
         } else {
-            $pdo->prepare('INSERT INTO payment_methods (name, icon, account_number, instructions, is_active, sort_order, logo_path) VALUES (?,?,?,?,?,?,?)')
-                ->execute([$name, $icon, $account, $instructions, $isActive, $sortOrder, $logoPath]);
+            $pdo->prepare('INSERT INTO payment_methods (name, icon, account_number, instructions, currency_code, is_active, sort_order, logo_path) VALUES (?,?,?,?,?,?,?,?)')
+                ->execute([$name, $icon, $account, $instructions, $currencyCode, $isActive, $sortOrder, $logoPath]);
         }
         adminRedirect('payments', 'تم حفظ طريقة الدفع بنجاح.');
     }
@@ -100,6 +121,46 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if ($action === 'pm_delete') {
         $pdo->prepare('DELETE FROM payment_methods WHERE id = ?')->execute([(int)($_POST['id'] ?? 0)]);
         adminRedirect('payments', 'تم حذف طريقة الدفع.');
+    }
+
+    if ($action === 'currency_save') {
+        $code = strtoupper(trim($_POST['code'] ?? ''));
+        $name = trim($_POST['name'] ?? '');
+        $symbol = trim($_POST['symbol'] ?? '');
+        $rate = (float)($_POST['rate_per_usd'] ?? 0);
+        $isActive = isset($_POST['is_active']) ? 1 : 0;
+        $sortOrder = (int)($_POST['sort_order'] ?? 0);
+
+        if (!preg_match('/^[A-Z]{3}$/', $code) || $name === '' || $symbol === '' || $rate <= 0) {
+            adminRedirect('settings', null, 'رمز العملة يجب أن يكون 3 أحرف (مثل USD)، مع اسم ورمز وسعر صرف أكبر من صفر.');
+        }
+
+        $pdo->prepare('INSERT INTO currencies (code, name, symbol, rate_per_usd, is_active, sort_order) VALUES (?,?,?,?,?,?)
+            ON CONFLICT(code) DO UPDATE SET name = excluded.name, symbol = excluded.symbol, rate_per_usd = excluded.rate_per_usd, is_active = excluded.is_active, sort_order = excluded.sort_order')
+            ->execute([$code, $name, $symbol, $rate, $isActive, $sortOrder]);
+        adminRedirect('settings', 'تم حفظ العملة بنجاح.');
+    }
+
+    if ($action === 'currency_delete') {
+        $code = strtoupper(trim($_POST['code'] ?? ''));
+        if ($code === 'USD') {
+            adminRedirect('settings', null, 'لا يمكن حذف الدولار الأمريكي، فهو العملة الأساسية للأسعار.');
+        }
+        $pdo->prepare('DELETE FROM currencies WHERE code = ?')->execute([$code]);
+        adminRedirect('settings', 'تم حذف العملة.');
+    }
+
+    if ($action === 'broadcast_notification') {
+        $title = trim($_POST['title'] ?? '');
+        $body = trim($_POST['body'] ?? '');
+        if ($title === '') {
+            adminRedirect('settings', null, 'الرجاء إدخال عنوان الإشعار.');
+        }
+        $userIds = $pdo->query('SELECT id FROM users')->fetchAll(PDO::FETCH_COLUMN);
+        foreach ($userIds as $uid) {
+            notifyUser($pdo, (int)$uid, $title, $body, 'system');
+        }
+        adminRedirect('settings', 'تم إرسال الإشعار إلى ' . count($userIds) . ' مستخدم.');
     }
 
     if ($action === 'order_fulfill') {
@@ -118,7 +179,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $ip = trim($_POST['host_ip'] ?? '');
         $username = trim($_POST['host_username'] ?? '');
         $password = trim($_POST['host_password'] ?? '');
-        $expiry = trim($_POST['host_expiry'] ?? '') ?: date('Y-m-d', strtotime('+30 days'));
+        $expiryInterval = $order['billing_cycle'] === 'yearly' ? '+1 year' : '+1 month';
+        $expiry = date('Y-m-d', strtotime($expiryInterval));
 
         if ($ip === '' || $username === '' || $password === '') {
             adminRedirect('orders', null, 'الرجاء تعبئة عنوان IP واسم المستخدم وكلمة المرور لتفعيل الاستضافة.');
@@ -184,6 +246,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if (trim($_POST['google_client_secret'] ?? '') !== '') {
             setSetting($pdo, 'google_client_secret', trim($_POST['google_client_secret']));
         }
+        setSetting($pdo, 'app_currency', trim($_POST['app_currency'] ?? ''));
 
         [$logoPath, $uploadErr] = handleImageUpload('site_logo', LOGOS_DIR, 'uploads/logos');
         if ($uploadErr) {
@@ -433,7 +496,7 @@ function renderAdminOrders(PDO $pdo) {
         <div class="order-card <?php echo $o['status'] === 'pending' ? 'pending' : ''; ?>">
             <div class="order-card-top">
                 <div class="who">
-                    <?php echo e($o['user_name']); ?>
+                    <?php echo e($o['user_name']); ?> <span style="color:var(--text-muted);font-weight:600">#<?php echo (int)$o['id']; ?></span>
                     <span><?php echo e($o['user_email'] ?: $o['user_phone']); ?></span>
                 </div>
                 <span class="pill <?php echo $statusPill; ?>"><?php echo $statusLabel; ?></span>
@@ -442,6 +505,7 @@ function renderAdminOrders(PDO $pdo) {
             <div class="order-meta">
                 <div><strong><?php echo $o['plan_icon']; ?> <?php echo e($o['plan_name']); ?></strong><span>الباقة</span></div>
                 <div><strong>$<?php echo money($o['amount']); ?></strong><span>المبلغ</span></div>
+                <div><strong><?php echo $o['billing_cycle'] === 'yearly' ? 'سنوي' : 'شهري'; ?></strong><span>مدة الاشتراك</span></div>
                 <div><strong><?php echo e($o['pm_name'] ?: 'رصيد الحساب'); ?></strong><span>طريقة الدفع</span></div>
                 <div><strong><?php echo e(substr($o['created_at'], 0, 16)); ?></strong><span>تاريخ الطلب</span></div>
             </div>
@@ -479,10 +543,6 @@ function renderAdminOrders(PDO $pdo) {
                             <input type="text" name="host_ip" class="text-input" placeholder="192.168.1.100" required dir="ltr">
                         </div>
                         <div class="field-row">
-                            <label class="field-label">تاريخ الانتهاء</label>
-                            <input type="date" name="host_expiry" class="text-input" value="<?php echo e(date('Y-m-d', strtotime('+30 days'))); ?>">
-                        </div>
-                        <div class="field-row">
                             <label class="field-label">اسم المستخدم</label>
                             <input type="text" name="host_username" class="text-input" placeholder="root" required dir="ltr">
                         </div>
@@ -491,6 +551,11 @@ function renderAdminOrders(PDO $pdo) {
                             <input type="text" name="host_password" class="text-input" placeholder="كلمة مرور قوية" required dir="ltr">
                         </div>
                     </div>
+                    <p style="font-size:12px;color:var(--text-muted);margin-bottom:10px">
+                        <i class="fas fa-circle-info"></i>
+                        مدة الاشتراك <?php echo $o['billing_cycle'] === 'yearly' ? 'سنوية' : 'شهرية'; ?> (كما اختارها المستخدم عند الطلب)،
+                        وسيُحسب تاريخ الانتهاء تلقائياً: <?php echo e(date('Y-m-d', strtotime($o['billing_cycle'] === 'yearly' ? '+1 year' : '+1 month'))); ?>.
+                    </p>
                     <button type="submit" class="btn btn-accent btn-block"><i class="fas fa-server"></i> تفعيل الاستضافة وإرسالها للمستخدم</button>
                 </form>
             </div>
@@ -526,13 +591,14 @@ function renderAdminTopups(PDO $pdo) {
         <div class="order-card <?php echo $inv['status'] === 'pending' ? 'pending' : ''; ?>">
             <div class="order-card-top">
                 <div class="who">
-                    <?php echo e($inv['user_name']); ?>
+                    <?php echo e($inv['user_name']); ?> <span style="color:var(--text-muted);font-weight:600">#<?php echo (int)$inv['id']; ?></span>
                     <span><?php echo e($inv['user_email'] ?: $inv['user_phone']); ?></span>
                 </div>
                 <span class="pill <?php echo $statusPill; ?>"><?php echo $statusLabel; ?></span>
             </div>
             <div class="order-meta">
                 <div><strong>$<?php echo money($inv['amount']); ?></strong><span>المبلغ</span></div>
+                <div><strong><?php echo e($inv['invoice_number']); ?></strong><span>رقم الفاتورة</span></div>
                 <div><strong><?php echo e(substr($inv['created_at'], 0, 16)); ?></strong><span>تاريخ الطلب</span></div>
             </div>
             <?php if ($inv['status'] === 'pending'): ?>
@@ -578,6 +644,7 @@ function renderAdminPlans(PDO $pdo) {
                 <div class="field-row"><label class="field-label">الباندويث</label><input type="text" name="bandwidth" class="text-input" placeholder="2 TB" required></div>
                 <div class="field-row"><label class="field-label">السعر الشهري ($)</label><input type="number" step="0.01" min="0.01" name="price" class="text-input" required></div>
                 <div class="field-row"><label class="field-label">السعر قبل الخصم (اختياري)</label><input type="number" step="0.01" min="0.01" name="original_price" class="text-input" placeholder="اتركه فارغاً بدون خصم"></div>
+                <div class="field-row"><label class="field-label">السعر السنوي (اختياري)</label><input type="number" step="0.01" min="0.01" name="price_yearly" class="text-input" placeholder="اتركه فارغاً لإخفاء خيار الاشتراك السنوي"></div>
                 <div class="field-row"><label class="field-label">شارة (اختياري)</label><input type="text" name="badge" class="text-input" placeholder="🔥 الأكثر طلباً"></div>
                 <div class="field-row"><label class="field-label">ترتيب العرض</label><input type="number" name="sort_order" class="text-input" value="0"></div>
             </div>
@@ -613,6 +680,7 @@ function renderAdminPlans(PDO $pdo) {
                     <div class="field-row"><label class="field-label">الباندويث</label><input type="text" name="bandwidth" class="text-input" value="<?php echo e($plan['bandwidth']); ?>" required></div>
                     <div class="field-row"><label class="field-label">السعر الشهري ($)</label><input type="number" step="0.01" min="0.01" name="price" class="text-input" value="<?php echo e($plan['price']); ?>" required></div>
                     <div class="field-row"><label class="field-label">السعر قبل الخصم (اختياري)</label><input type="number" step="0.01" min="0.01" name="original_price" class="text-input" value="<?php echo e($plan['original_price'] ?? ''); ?>" placeholder="اتركه فارغاً بدون خصم"></div>
+                    <div class="field-row"><label class="field-label">السعر السنوي (اختياري)</label><input type="number" step="0.01" min="0.01" name="price_yearly" class="text-input" value="<?php echo e($plan['price_yearly'] ?? ''); ?>" placeholder="اتركه فارغاً لإخفاء خيار الاشتراك السنوي"></div>
                     <div class="field-row"><label class="field-label">شارة (اختياري)</label><input type="text" name="badge" class="text-input" value="<?php echo e($plan['badge']); ?>"></div>
                     <div class="field-row"><label class="field-label">ترتيب العرض</label><input type="number" name="sort_order" class="text-input" value="<?php echo (int)$plan['sort_order']; ?>"></div>
                 </div>
@@ -638,6 +706,7 @@ function renderAdminPlans(PDO $pdo) {
 // ============================================================
 function renderAdminPayments(PDO $pdo) {
     $methods = $pdo->query('SELECT * FROM payment_methods ORDER BY sort_order ASC, id ASC')->fetchAll(PDO::FETCH_ASSOC);
+    $currencies = getAllCurrencies($pdo);
     ?>
     <div class="admin-card">
         <div class="admin-card-header"><h2><i class="fas fa-plus"></i> إضافة طريقة دفع جديدة</h2></div>
@@ -650,6 +719,14 @@ function renderAdminPayments(PDO $pdo) {
                 <div class="field-row"><label class="field-label">أيقونة FontAwesome (اختياري)</label><input type="text" name="icon" class="text-input" placeholder="fa-mobile-screen" dir="ltr"></div>
                 <div class="field-row"><label class="field-label">رقم الحساب / التحويل</label><input type="text" name="account_number" class="text-input" placeholder="07xxxxxxxxx" dir="ltr"></div>
                 <div class="field-row"><label class="field-label">ترتيب العرض</label><input type="number" name="sort_order" class="text-input" value="0"></div>
+                <div class="field-row">
+                    <label class="field-label">العملة التي تستقبل بها الدفع</label>
+                    <select name="currency_code" class="text-input">
+                        <?php foreach ($currencies as $c): ?>
+                        <option value="<?php echo e($c['code']); ?>" <?php echo $c['code'] === 'USD' ? 'selected' : ''; ?>><?php echo e($c['name']); ?> (<?php echo e($c['symbol']); ?>)</option>
+                        <?php endforeach; ?>
+                    </select>
+                </div>
             </div>
             <div class="field-row"><label class="field-label">تعليمات الدفع</label><textarea name="instructions" class="text-input" placeholder="حوّل المبلغ إلى الرقم أعلاه ثم ارفع صورة الإيصال."></textarea></div>
             <div class="field-row"><label class="field-label">شعار (صورة، اختياري)</label><input type="file" name="logo" class="text-input" accept="image/png,image/jpeg,image/webp"></div>
@@ -680,6 +757,14 @@ function renderAdminPayments(PDO $pdo) {
                     <div class="field-row"><label class="field-label">أيقونة FontAwesome</label><input type="text" name="icon" class="text-input" value="<?php echo e($pm['icon']); ?>" dir="ltr"></div>
                     <div class="field-row"><label class="field-label">رقم الحساب / التحويل</label><input type="text" name="account_number" class="text-input" value="<?php echo e($pm['account_number']); ?>" dir="ltr"></div>
                     <div class="field-row"><label class="field-label">ترتيب العرض</label><input type="number" name="sort_order" class="text-input" value="<?php echo (int)$pm['sort_order']; ?>"></div>
+                    <div class="field-row">
+                        <label class="field-label">العملة التي تستقبل بها الدفع</label>
+                        <select name="currency_code" class="text-input">
+                            <?php foreach ($currencies as $c): ?>
+                            <option value="<?php echo e($c['code']); ?>" <?php echo $c['code'] === $pm['currency_code'] ? 'selected' : ''; ?>><?php echo e($c['name']); ?> (<?php echo e($c['symbol']); ?>)</option>
+                            <?php endforeach; ?>
+                        </select>
+                    </div>
                 </div>
                 <div class="field-row"><label class="field-label">تعليمات الدفع</label><textarea name="instructions" class="text-input"><?php echo e($pm['instructions']); ?></textarea></div>
                 <div class="field-row"><label class="field-label">تغيير الشعار (اختياري)</label><input type="file" name="logo" class="text-input" accept="image/png,image/jpeg,image/webp"></div>
@@ -707,6 +792,7 @@ function renderAdminSettings(PDO $pdo) {
     $s = getAllSettings($pdo);
     $scheme = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http';
     $redirectUri = $scheme . '://' . $_SERVER['HTTP_HOST'] . '/index.php?action=google_callback';
+    $currencies = getAllCurrencies($pdo);
     ?>
     <div class="admin-card">
         <div class="admin-card-header"><h2><i class="fas fa-shop"></i> اسم الموقع والشعار</h2></div>
@@ -723,6 +809,15 @@ function renderAdminSettings(PDO $pdo) {
                     <div style="margin-bottom:8px"><img src="<?php echo e($s['site_logo']); ?>" alt="" style="width:56px;height:56px;border-radius:14px;object-fit:cover;border:1px solid var(--border-color)"></div>
                 <?php endif; ?>
                 <input type="file" name="site_logo" class="text-input" accept="image/png,image/jpeg,image/webp">
+            </div>
+            <div class="field-row">
+                <label class="field-label">عملة عرض الأسعار</label>
+                <select name="app_currency" class="text-input">
+                    <option value="">تلقائي حسب بلد الزائر</option>
+                    <?php foreach ($currencies as $c): ?>
+                    <option value="<?php echo e($c['code']); ?>" <?php echo ($s['app_currency'] ?? '') === $c['code'] ? 'selected' : ''; ?>><?php echo e($c['name']); ?> (<?php echo e($c['symbol']); ?>) - دائماً</option>
+                    <?php endforeach; ?>
+                </select>
             </div>
 
             <div class="admin-card-header" style="margin-top:20px"><h2><i class="fas fa-robot"></i> المساعد الذكي (NVIDIA API)</h2></div>
@@ -742,6 +837,65 @@ function renderAdminSettings(PDO $pdo) {
             </div>
 
             <button type="submit" class="btn btn-accent" style="margin-top:8px"><i class="fas fa-floppy-disk"></i> حفظ الإعدادات</button>
+        </form>
+    </div>
+
+    <div class="admin-card">
+        <div class="admin-card-header"><h2><i class="fas fa-coins"></i> العملات وأسعار الصرف</h2></div>
+        <p style="font-size:12px;color:var(--text-muted);margin-bottom:14px;line-height:1.8">
+            كل الأسعار في النظام مخزّنة بالدولار الأمريكي كعملة أساس. أضف هنا أي عملة أخرى وسعر صرفها مقابل الدولار،
+            لتُستخدم في عرض الأسعار للزوار وفي طرق الدفع.
+        </p>
+        <form method="POST" action="admin.php?section=settings">
+            <?php echo csrfField(); ?>
+            <input type="hidden" name="action" value="currency_save">
+            <div class="field-grid-2">
+                <div class="field-row"><label class="field-label">رمز العملة (3 أحرف)</label><input type="text" name="code" class="text-input" placeholder="SAR" maxlength="3" dir="ltr" style="text-transform:uppercase" required></div>
+                <div class="field-row"><label class="field-label">اسم العملة</label><input type="text" name="name" class="text-input" placeholder="ريال سعودي" required></div>
+                <div class="field-row"><label class="field-label">رمز مختصر</label><input type="text" name="symbol" class="text-input" placeholder="ر.س" required></div>
+                <div class="field-row"><label class="field-label">سعر الصرف مقابل 1 دولار</label><input type="number" step="0.0001" min="0.0001" name="rate_per_usd" class="text-input" placeholder="3.75" required></div>
+            </div>
+            <div class="checkbox-row"><input type="checkbox" name="is_active" id="newCurrencyActive" checked><label for="newCurrencyActive">مفعّلة</label></div>
+            <button type="submit" class="btn btn-accent btn-sm"><i class="fas fa-plus"></i> إضافة / تحديث العملة</button>
+        </form>
+
+        <?php foreach ($currencies as $c): ?>
+        <div class="settings-item" style="margin-top:14px;padding-top:14px;border-top:1px solid var(--border-color)">
+            <form method="POST" action="admin.php?section=settings" style="width:100%">
+                <?php echo csrfField(); ?>
+                <input type="hidden" name="action" value="currency_save">
+                <input type="hidden" name="code" value="<?php echo e($c['code']); ?>">
+                <div class="field-grid-2">
+                    <div class="field-row"><label class="field-label">الرمز</label><input type="text" class="text-input" value="<?php echo e($c['code']); ?>" disabled dir="ltr"></div>
+                    <div class="field-row"><label class="field-label">اسم العملة</label><input type="text" name="name" class="text-input" value="<?php echo e($c['name']); ?>" required></div>
+                    <div class="field-row"><label class="field-label">رمز مختصر</label><input type="text" name="symbol" class="text-input" value="<?php echo e($c['symbol']); ?>" required></div>
+                    <div class="field-row"><label class="field-label">سعر الصرف مقابل 1 دولار</label><input type="number" step="0.0001" min="0.0001" name="rate_per_usd" class="text-input" value="<?php echo e($c['rate_per_usd']); ?>" required></div>
+                </div>
+                <div class="checkbox-row"><input type="checkbox" name="is_active" id="currencyActive<?php echo e($c['code']); ?>" <?php echo $c['is_active'] ? 'checked' : ''; ?>><label for="currencyActive<?php echo e($c['code']); ?>">مفعّلة</label></div>
+                <div class="order-actions">
+                    <button type="submit" class="btn btn-accent btn-sm"><i class="fas fa-floppy-disk"></i> حفظ</button>
+                </div>
+            </form>
+            <?php if ($c['code'] !== 'USD'): ?>
+            <form method="POST" action="admin.php?section=settings" style="margin-top:8px" onsubmit="return confirmAndSubmit(this, 'حذف هذه العملة؟')">
+                <?php echo csrfField(); ?>
+                <input type="hidden" name="action" value="currency_delete">
+                <input type="hidden" name="code" value="<?php echo e($c['code']); ?>">
+                <button type="submit" class="btn btn-danger btn-sm"><i class="fas fa-trash"></i> حذف العملة</button>
+            </form>
+            <?php endif; ?>
+        </div>
+        <?php endforeach; ?>
+    </div>
+
+    <div class="admin-card">
+        <div class="admin-card-header"><h2><i class="fas fa-bullhorn"></i> إرسال إشعار لجميع المستخدمين</h2></div>
+        <form method="POST" action="admin.php?section=settings" onsubmit="return confirmAndSubmit(this, 'إرسال هذا الإشعار لجميع المستخدمين؟')">
+            <?php echo csrfField(); ?>
+            <input type="hidden" name="action" value="broadcast_notification">
+            <div class="field-row"><label class="field-label">عنوان الإشعار</label><input type="text" name="title" class="text-input" placeholder="📢 تحديث جديد" required></div>
+            <div class="field-row"><label class="field-label">نص الإشعار (اختياري)</label><textarea name="body" class="text-input" placeholder="تفاصيل الإشعار..."></textarea></div>
+            <button type="submit" class="btn btn-accent"><i class="fas fa-paper-plane"></i> إرسال للجميع</button>
         </form>
     </div>
     <?php
