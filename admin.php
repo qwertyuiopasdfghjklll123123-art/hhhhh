@@ -247,6 +247,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             setSetting($pdo, 'google_client_secret', trim($_POST['google_client_secret']));
         }
         setSetting($pdo, 'app_currency', trim($_POST['app_currency'] ?? ''));
+        setSetting($pdo, 'site_terms', trim($_POST['site_terms'] ?? ''));
+        setSetting($pdo, 'site_privacy', trim($_POST['site_privacy'] ?? ''));
 
         [$logoPath, $uploadErr] = handleImageUpload('site_logo', LOGOS_DIR, 'uploads/logos');
         if ($uploadErr) {
@@ -254,6 +256,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
         if ($logoPath) {
             setSetting($pdo, 'site_logo', $logoPath);
+        }
+
+        [$aiLogoPath, $aiLogoErr] = handleImageUpload('ai_logo', LOGOS_DIR, 'uploads/logos');
+        if ($aiLogoErr) {
+            adminRedirect('settings', null, $aiLogoErr);
+        }
+        if ($aiLogoPath) {
+            setSetting($pdo, 'ai_logo', $aiLogoPath);
+        }
+
+        [$aiBannerPath, $aiBannerErr] = handleImageUpload('ai_home_banner', LOGOS_DIR, 'uploads/logos');
+        if ($aiBannerErr) {
+            adminRedirect('settings', null, $aiBannerErr);
+        }
+        if ($aiBannerPath) {
+            setSetting($pdo, 'ai_home_banner', $aiBannerPath);
         }
 
         adminRedirect('settings', 'تم حفظ الإعدادات بنجاح.');
@@ -823,6 +841,22 @@ function renderAdminSettings(PDO $pdo) {
             <div class="admin-card-header" style="margin-top:20px"><h2><i class="fas fa-robot"></i> المساعد الذكي (NVIDIA API)</h2></div>
             <div class="field-row"><label class="field-label">مفتاح API</label><input type="text" name="nvidia_api_key" class="text-input" value="<?php echo e($s['nvidia_api_key'] ?? ''); ?>" dir="ltr" placeholder="nvapi-..."></div>
             <div class="field-row"><label class="field-label">اسم النموذج (Model)</label><input type="text" name="nvidia_model" class="text-input" value="<?php echo e($s['nvidia_model'] ?? ''); ?>" dir="ltr"></div>
+            <div class="field-grid-2">
+                <div class="field-row">
+                    <label class="field-label">شعار المساعد الذكي (اختياري)</label>
+                    <?php if (!empty($s['ai_logo'])): ?>
+                        <div style="margin-bottom:8px"><img src="<?php echo e($s['ai_logo']); ?>" alt="" style="width:48px;height:48px;border-radius:50%;object-fit:cover;border:1px solid var(--border-color)"></div>
+                    <?php endif; ?>
+                    <input type="file" name="ai_logo" class="text-input" accept="image/png,image/jpeg,image/webp">
+                </div>
+                <div class="field-row">
+                    <label class="field-label">صورة بطاقة المساعد الذكي بالرئيسية (اختياري)</label>
+                    <?php if (!empty($s['ai_home_banner'])): ?>
+                        <div style="margin-bottom:8px"><img src="<?php echo e($s['ai_home_banner']); ?>" alt="" style="width:100%;max-width:220px;border-radius:10px;object-fit:cover;border:1px solid var(--border-color)"></div>
+                    <?php endif; ?>
+                    <input type="file" name="ai_home_banner" class="text-input" accept="image/png,image/jpeg,image/webp">
+                </div>
+            </div>
 
             <div class="admin-card-header" style="margin-top:20px"><h2><i class="fab fa-google"></i> تسجيل الدخول عبر Google</h2></div>
             <p style="font-size:12px;color:var(--text-muted);margin-bottom:12px;line-height:1.8">
@@ -835,6 +869,11 @@ function renderAdminSettings(PDO $pdo) {
                 <div class="field-row"><label class="field-label">Google Client ID</label><input type="text" name="google_client_id" class="text-input" value="<?php echo e($s['google_client_id'] ?? ''); ?>" dir="ltr"></div>
                 <div class="field-row"><label class="field-label">Google Client Secret</label><input type="text" name="google_client_secret" class="text-input" placeholder="<?php echo !empty($s['google_client_secret']) ? '•••••••• (محفوظ - اتركه فارغاً للإبقاء عليه)' : ''; ?>" dir="ltr"></div>
             </div>
+
+            <div class="admin-card-header" style="margin-top:20px"><h2><i class="fas fa-file-contract"></i> الشروط والسياسات</h2></div>
+            <p style="font-size:12px;color:var(--text-muted);margin-bottom:12px">تظهر هذه النصوص للمستخدمين من قسم الإعدادات، وعند إنشاء حساب جديد.</p>
+            <div class="field-row"><label class="field-label">الشروط والأحكام</label><textarea name="site_terms" class="text-input" rows="6"><?php echo e($s['site_terms'] ?? ''); ?></textarea></div>
+            <div class="field-row"><label class="field-label">سياسة الخصوصية</label><textarea name="site_privacy" class="text-input" rows="6"><?php echo e($s['site_privacy'] ?? ''); ?></textarea></div>
 
             <button type="submit" class="btn btn-accent" style="margin-top:8px"><i class="fas fa-floppy-disk"></i> حفظ الإعدادات</button>
         </form>

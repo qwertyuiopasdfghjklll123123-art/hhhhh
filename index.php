@@ -391,6 +391,11 @@ if ($page === 'register') {
     exit;
 }
 
+if ($page === 'policies') {
+    includePoliciesPage($pdo, ($_GET['type'] ?? 'terms') === 'privacy' ? 'privacy' : 'terms');
+    exit;
+}
+
 // ============================================================
 // التنسيقات المشتركة للصفحات العامة
 // ============================================================
@@ -606,6 +611,9 @@ function sharedPublicCss() {
         .btn-google i { color:#EA4335; font-size:16px; }
         .auth-divider { display:flex; align-items:center; gap:10px; margin:18px 0; color:var(--text-muted); font-size:12px; }
         .auth-divider::before, .auth-divider::after { content:''; flex:1; height:1px; background:var(--border-color); }
+        .auth-terms-check { display:flex; align-items:flex-start; gap:8px; margin-top:14px; font-size:11px; color:var(--text-muted); line-height:1.6; cursor:pointer; text-align:right; }
+        .auth-terms-check input { margin-top:2px; flex-shrink:0; accent-color:var(--accent); }
+        .auth-terms-check a { color:var(--accent); font-weight:700; }
     ";
 }
 
@@ -710,13 +718,16 @@ function includeLandingPage(PDO $pdo) {
 
 function includePlansPage(PDO $pdo) {
     $plans = $pdo->query('SELECT * FROM vps_plans WHERE is_active = 1 ORDER BY sort_order ASC, id ASC')->fetchAll(PDO::FETCH_ASSOC);
+    $siteName = getSetting($pdo, 'site_name', 'استضافتي');
+    $siteTagline = getSetting($pdo, 'site_tagline', 'استضافة سريعة وآمنة');
+    $siteLogo = getSetting($pdo, 'site_logo', '');
     ?>
     <!DOCTYPE html>
     <html lang="ar" dir="rtl">
     <head>
         <meta charset="UTF-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>الخطط والأسعار - استضافتي</title>
+        <title>الخطط والأسعار - <?php echo e($siteName); ?></title>
         <link rel="preconnect" href="https://fonts.googleapis.com">
         <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
         <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
@@ -729,16 +740,14 @@ function includePlansPage(PDO $pdo) {
     <body>
         <header class="site-header">
             <div class="brand">
-                <div class="logo-mark"><i class="fas fa-server"></i></div>
+                <div class="logo-mark"><?php echo $siteLogo ? '<img src="' . e($siteLogo) . '" alt="">' : '<i class="fas fa-server"></i>'; ?></div>
                 <div>
-                    <div class="brand-name">استضافتي</div>
-                    <div class="brand-tag">استضافة سريعة وآمنة</div>
+                    <div class="brand-name"><?php echo e($siteName); ?></div>
+                    <div class="brand-tag"><?php echo e($siteTagline); ?></div>
                 </div>
             </div>
             <nav class="site-nav">
-                <a href="index.php">الرئيسية</a>
-                <a href="index.php?page=login">تسجيل الدخول</a>
-                <a href="index.php?page=register" class="nav-cta">إنشاء حساب</a>
+                <a href="index.php"><i class="fas fa-arrow-right"></i> رجوع</a>
             </nav>
         </header>
 
@@ -772,8 +781,59 @@ function includePlansPage(PDO $pdo) {
             <?php endif; ?>
         </div>
 
-        <footer class="site-footer">© <?php echo date('Y'); ?> استضافتي. جميع الحقوق محفوظة.</footer>
+        <footer class="site-footer">© <?php echo date('Y'); ?> <?php echo e($siteName); ?>. جميع الحقوق محفوظة.</footer>
         <?php echo currencyJsSnippet($pdo); ?>
+    </body>
+    </html>
+    <?php
+}
+
+// ============================================================
+// الشروط والأحكام / سياسة الخصوصية
+// ============================================================
+
+function includePoliciesPage(PDO $pdo, $type) {
+    $siteName = getSetting($pdo, 'site_name', 'استضافتي');
+    $isPrivacy = $type === 'privacy';
+    $title = $isPrivacy ? 'سياسة الخصوصية' : 'الشروط والأحكام';
+    $content = getSetting($pdo, $isPrivacy ? 'site_privacy' : 'site_terms', '');
+    ?>
+    <!DOCTYPE html>
+    <html lang="ar" dir="rtl">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title><?php echo e($title); ?> - <?php echo e($siteName); ?></title>
+        <link rel="preconnect" href="https://fonts.googleapis.com">
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
+        <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+        <style>
+        <?php echo sharedThemeCss(); ?>
+        <?php echo sharedPublicCss(); ?>
+        .policy-content { max-width: 720px; margin: 0 auto; padding: 8px 20px 60px; font-size: 14px; line-height: 2.1; color: var(--text-secondary); white-space: pre-line; }
+        </style>
+    </head>
+    <body>
+        <header class="site-header">
+            <div class="brand">
+                <div class="logo-mark"><i class="fas fa-server"></i></div>
+                <div>
+                    <div class="brand-name"><?php echo e($siteName); ?></div>
+                </div>
+            </div>
+            <nav class="site-nav">
+                <a href="javascript:history.back()"><i class="fas fa-arrow-right"></i> رجوع</a>
+            </nav>
+        </header>
+
+        <div class="page-title-block">
+            <h1><?php echo e($title); ?></h1>
+        </div>
+
+        <div class="policy-content"><?php echo e($content ?: 'لا يوجد محتوى بعد.'); ?></div>
+
+        <footer class="site-footer">© <?php echo date('Y'); ?> <?php echo e($siteName); ?>. جميع الحقوق محفوظة.</footer>
     </body>
     </html>
     <?php
@@ -896,6 +956,11 @@ function includeRegisterPage(PDO $pdo, $error) {
                     <label class="field-label">كلمة المرور</label>
                     <input type="password" name="password" class="text-input" placeholder="6 أحرف على الأقل" required dir="ltr">
 
+                    <label class="auth-terms-check">
+                        <input type="checkbox" required>
+                        <span>أوافق على <a href="index.php?page=policies&amp;type=terms" target="_blank">الشروط والأحكام</a> و<a href="index.php?page=policies&amp;type=privacy" target="_blank">سياسة الخصوصية</a></span>
+                    </label>
+
                     <button type="submit" class="btn-primary-lg" style="width:100%;margin-top:16px">
                         <i class="fas fa-user-plus"></i> إنشاء الحساب
                     </button>
@@ -1004,6 +1069,10 @@ function includeAppPage(PDO $pdo) {
     $balance = (float)($user['balance'] ?? 0);
     $userId = (int)$user['id'];
     $isAdmin = (int)($user['is_admin'] ?? 0) === 1;
+    $siteName = getSetting($pdo, 'site_name', 'استضافتي');
+    $siteLogo = getSetting($pdo, 'site_logo', '');
+    $aiLogo = getSetting($pdo, 'ai_logo', '');
+    $aiHomeBanner = getSetting($pdo, 'ai_home_banner', '');
 
     $notifStmt = $pdo->prepare('SELECT * FROM notifications WHERE user_id = ? ORDER BY created_at DESC LIMIT 50');
     $notifStmt->execute([$userId]);
@@ -1156,7 +1225,10 @@ function includeAppPage(PDO $pdo) {
                 justify-content: center;
                 color: #ffffff;
                 font-size: 18px;
+                overflow: hidden;
+                flex-shrink: 0;
             }
+            .header .brand .logo img { width: 100%; height: 100%; object-fit: cover; }
             .header .brand span {
                 background: linear-gradient(135deg, var(--accent), var(--accent-light), var(--accent-dark));
                 -webkit-background-clip: text;
@@ -2076,11 +2148,15 @@ function includeAppPage(PDO $pdo) {
                 justify-content: center;
                 font-size: 22px;
                 flex-shrink: 0;
+                overflow: hidden;
             }
+            .promo-ai-card .icon img { width: 100%; height: 100%; object-fit: cover; }
             .promo-ai-card .text { flex: 1; }
             .promo-ai-card .text h3 { font-size: 14px; font-weight: 800; color: #fff; }
             .promo-ai-card .text p { font-size: 11px; color: rgba(255,255,255,.65); margin-top: 2px; }
             .promo-ai-card .chevron { color: rgba(255,255,255,.5); font-size: 14px; }
+            .promo-ai-card.has-banner { padding: 0; background: transparent; overflow: hidden; }
+            .promo-ai-banner-img { width: 100%; height: auto; max-height: 140px; object-fit: cover; display: block; border-radius: var(--radius); }
 
             /* ============================================================
                صف أزرار سريعة دائرية (تفاصيل السيرفر)
@@ -2275,6 +2351,11 @@ function includeAppPage(PDO $pdo) {
             .icon-wrap.blue { background: rgba(59,130,246,.1); color: #3B82F6; }
             .icon-wrap.green { background: rgba(16,185,129,.1); color: #34d399; }
             .icon-wrap.purple { background: rgba(139,92,246,.1); color: #8B5CF6; }
+            .pm-logo-wrap {
+                width: 38px; height: 38px; border-radius: var(--radius-sm); flex-shrink: 0;
+                overflow: hidden; background: var(--bg-card); border: 1px solid var(--border-color);
+            }
+            .pm-logo-wrap img { width: 100%; height: 100%; object-fit: cover; }
 
             .notif-item {
                 display: flex; align-items: flex-start; gap: 12px;
@@ -2299,17 +2380,37 @@ function includeAppPage(PDO $pdo) {
             .notif-actions-row { display: flex; gap: 8px; margin-bottom: 12px; }
             .notif-actions-row button { flex: 1; justify-content: center; }
 
-            .onboard-card .onboard-top { display: flex; align-items: flex-start; gap: 12px; margin-bottom: 14px; }
+            .onboard-card { position: relative; text-align: center; padding-top: 30px; overflow: visible; }
+            .onboard-dismiss {
+                position: absolute; top: 12px; left: 12px; width: 26px; height: 26px; border-radius: 50%;
+                border: none; background: var(--bg-card); color: var(--text-muted); cursor: pointer;
+                display: flex; align-items: center; justify-content: center; font-size: 11px; transition: var(--transition);
+            }
+            .onboard-dismiss:hover { background: rgba(239,68,68,.12); color: #ef4444; }
             .onboard-card .onboard-icon {
-                width: 42px; height: 42px; border-radius: 50%;
+                width: 56px; height: 56px; margin: 0 auto 14px; border-radius: 50%;
                 background: var(--accent-glow); color: var(--accent);
                 display: flex; align-items: center; justify-content: center;
-                font-size: 18px; flex-shrink: 0;
+                font-size: 24px; flex-shrink: 0;
             }
-            .onboard-card .onboard-title { font-weight: 800; font-size: 14px; color: var(--text-primary); margin-bottom: 3px; }
-            .onboard-card .onboard-sub { font-size: 12px; color: var(--text-muted); line-height: 1.6; }
-            .onboard-card .onboard-actions { display: flex; gap: 8px; }
-            .onboard-card .onboard-actions button { flex: 1; justify-content: center; }
+            .onboard-card .onboard-title { font-weight: 800; font-size: 15px; color: var(--text-primary); margin-bottom: 6px; }
+            .onboard-card .onboard-sub { font-size: 12px; color: var(--text-muted); line-height: 1.7; max-width: 280px; margin: 0 auto 16px; }
+            .onboard-card .onboard-cta { width: 100%; }
+
+            .currency-card { display: flex; align-items: center; gap: 12px; }
+            .currency-card-icon {
+                width: 44px; height: 44px; border-radius: 50%; flex-shrink: 0;
+                background: var(--accent-glow); color: var(--accent);
+                display: flex; align-items: center; justify-content: center; font-size: 18px;
+            }
+            .currency-card-text { flex: 1; min-width: 0; }
+            .currency-card-title { font-weight: 800; font-size: 14px; color: var(--text-primary); margin-bottom: 2px; }
+            .currency-card-sub { font-size: 11px; color: var(--text-muted); line-height: 1.5; }
+            .currency-card-select {
+                flex-shrink: 0; background: var(--bg-card); color: var(--text-primary);
+                border: 1.5px solid var(--border-color); border-radius: var(--radius-sm);
+                padding: 8px 12px; font-size: 12px; font-weight: 700; font-family: inherit; cursor: pointer;
+            }
 
             .pay-option {
                 display: flex;
@@ -2430,7 +2531,9 @@ function includeAppPage(PDO $pdo) {
                 font-size: 16px;
                 color: #fff;
                 flex-shrink: 0;
+                overflow: hidden;
             }
+            .ai-header .ai-avatar img { width: 100%; height: 100%; object-fit: cover; }
             .ai-header h2 { font-size: 16px; font-weight: 800; flex: 1; color: var(--text-primary); }
             .ai-body {
                 flex: 1;
@@ -2491,13 +2594,13 @@ function includeAppPage(PDO $pdo) {
 
             .ai-input-bar {
                 position: fixed;
-                bottom: var(--nav-height);
+                bottom: 0;
                 left: 0;
                 right: 0;
                 display: flex;
                 gap: 8px;
                 align-items: center;
-                padding: 10px 14px;
+                padding: 10px 14px calc(10px + env(safe-area-inset-bottom));
                 background: var(--bg-secondary);
                 border-top: 1px solid var(--border-color);
                 z-index: 301;
@@ -2607,8 +2710,8 @@ function includeAppPage(PDO $pdo) {
         ============================================================ -->
         <header class="header">
             <div class="brand">
-                <div class="logo"><i class="fas fa-server"></i></div>
-                <span>خوادم VPS</span>
+                <div class="logo"><?php echo $siteLogo ? '<img src="' . e($siteLogo) . '" alt="">' : '<i class="fas fa-server"></i>'; ?></div>
+                <span><?php echo e($siteName); ?></span>
             </div>
             <div class="header-actions">
                 <button class="header-theme-toggle" id="headerNotifBtn" onclick="showSection('notifications')">
@@ -2629,31 +2732,19 @@ function includeAppPage(PDO $pdo) {
             ============================================================ -->
             <div id="section-home" class="section-content">
                 <div class="card onboard-card hidden" id="pwaInstallCard">
-                    <div class="onboard-top">
-                        <div class="onboard-icon"><i class="fas fa-mobile-screen-button"></i></div>
-                        <div>
-                            <div class="onboard-title">ثبّت التطبيق على جهازك</div>
-                            <div class="onboard-sub">وصول أسرع، وتجربة أشبه بتطبيق حقيقي، مباشرة من شاشتك الرئيسية.</div>
-                        </div>
-                    </div>
-                    <div class="onboard-actions">
-                        <button class="btn-outline btn-small" onclick="dismissOnboardCard('pwa')">لاحقاً</button>
-                        <button class="btn-gold btn-small" onclick="triggerPwaInstall()"><i class="fas fa-download"></i> تثبيت التطبيق</button>
-                    </div>
+                    <button class="onboard-dismiss" onclick="dismissOnboardCard('pwa')" title="إغلاق"><i class="fas fa-xmark"></i></button>
+                    <div class="onboard-icon"><i class="fas fa-mobile-screen-button"></i></div>
+                    <div class="onboard-title">ثبّت التطبيق على جهازك</div>
+                    <div class="onboard-sub">وصول أسرع، وتجربة أشبه بتطبيق حقيقي، مباشرة من شاشتك الرئيسية.</div>
+                    <button class="btn-gold onboard-cta" onclick="triggerPwaInstall()"><i class="fas fa-download"></i> تثبيت التطبيق</button>
                 </div>
 
                 <div class="card onboard-card hidden" id="notifPermCard">
-                    <div class="onboard-top">
-                        <div class="onboard-icon"><i class="fas fa-bell"></i></div>
-                        <div>
-                            <div class="onboard-title">فعّل إشعارات المتصفح</div>
-                            <div class="onboard-sub">لتصلك فوراً إشعارات شحن الرصيد، والموافقة على الطلبات، وتحديثات النظام.</div>
-                        </div>
-                    </div>
-                    <div class="onboard-actions">
-                        <button class="btn-outline btn-small" onclick="dismissOnboardCard('notif')">لاحقاً</button>
-                        <button class="btn-gold btn-small" onclick="requestNotifPermission()"><i class="fas fa-bell"></i> تفعيل الإشعارات</button>
-                    </div>
+                    <button class="onboard-dismiss" onclick="dismissOnboardCard('notif')" title="إغلاق"><i class="fas fa-xmark"></i></button>
+                    <div class="onboard-icon"><i class="fas fa-bell"></i></div>
+                    <div class="onboard-title">فعّل إشعارات المتصفح</div>
+                    <div class="onboard-sub">لتصلك فوراً إشعارات شحن الرصيد، والموافقة على الطلبات، وتحديثات النظام.</div>
+                    <button class="btn-gold onboard-cta" onclick="requestNotifPermission()"><i class="fas fa-bell"></i> تفعيل الإشعارات</button>
                 </div>
 
                 <div class="card" style="background:linear-gradient(135deg, #ffa64d, #ff7a1a, #f26a00);border:none;color:#ffffff">
@@ -2686,13 +2777,17 @@ function includeAppPage(PDO $pdo) {
                 </div>
 
                 <!-- المساعد الذكي -->
-                <button type="button" class="promo-ai-card" onclick="enterAI()">
-                    <div class="icon">🤖</div>
+                <button type="button" class="promo-ai-card<?php echo $aiHomeBanner ? ' has-banner' : ''; ?>" onclick="enterAI()">
+                    <?php if ($aiHomeBanner): ?>
+                    <img src="<?php echo e($aiHomeBanner); ?>" alt="المساعد الذكي" class="promo-ai-banner-img">
+                    <?php else: ?>
+                    <div class="icon"><?php echo $aiLogo ? '<img src="' . e($aiLogo) . '" alt="">' : '🤖'; ?></div>
                     <div class="text">
                         <h3>مساعدك الذكي</h3>
                         <p>اسأل، اطلب شرح أمر، أو شخّص مشكلة بسيرفرك</p>
                     </div>
                     <i class="fas fa-chevron-left chevron"></i>
+                    <?php endif; ?>
                 </button>
 
                 <!-- قائمة الاستضافات -->
@@ -2896,11 +2991,13 @@ function includeAppPage(PDO $pdo) {
                             <input type="file" name="proof_image" id="proofImageInput" accept="image/png,image/jpeg,image/webp" style="width:100%;padding:10px;border-radius:var(--radius-sm);border:1.5px solid var(--border-color);background:var(--bg-card);color:var(--text-primary);font-size:13px;font-family:inherit;margin-bottom:12px">
                         </div>
 
+                        <div class="form-alert-inline hidden" id="balanceInsufficientWarning"><i class="fas fa-circle-exclamation"></i> رصيدك الحالي غير كافٍ لإتمام هذا الطلب. اختر طريقة دفع أخرى أو اشحن رصيدك أولاً.</div>
+
                         <div class="order-total-row">
                             <span>الإجمالي</span>
                             <span class="amount" id="paymentTotalAmount"></span>
                         </div>
-                        <button type="submit" class="btn-gold" style="margin-top:14px"><i class="fas fa-lock"></i> إرسال الطلب</button>
+                        <button type="submit" class="btn-gold" id="orderSubmitBtn" style="margin-top:14px"><i class="fas fa-lock"></i> إرسال الطلب</button>
                     </form>
                     <div class="text-muted text-center" style="margin-top:10px;font-size:12px">سيتم تجهيز سيرفرك بعد مراجعة طلبك من الإدارة.</div>
                 </div>
@@ -2945,9 +3042,13 @@ function includeAppPage(PDO $pdo) {
                                 data-account="<?php echo e($pm['account_number']); ?>"
                                 data-instructions="<?php echo e($pm['instructions']); ?>"
                                 onclick="showPaymentPage(this.dataset.id, this.dataset.name, this.dataset.account, this.dataset.instructions)">
+                                <?php if (!empty($pm['logo_path'])): ?>
+                                <div class="pm-logo-wrap"><img src="<?php echo e($pm['logo_path']); ?>" alt=""></div>
+                                <?php else: ?>
                                 <div class="icon-wrap <?php echo e($pm['color']); ?>">
                                     <i class="fas <?php echo e($pm['icon']); ?>"></i>
                                 </div>
+                                <?php endif; ?>
                                 <div style="flex:1">
                                     <div class="title"><?php echo e($pm['name']); ?></div>
                                     <div class="sub">تحويل يدوي</div>
@@ -3110,6 +3211,19 @@ function includeAppPage(PDO $pdo) {
                 <?php endif; ?>
             </div>
 
+            <?php if ($isAdmin): ?>
+            <!-- ============================================================
+            القسم: لوحة التحكم (مضمّنة)
+            ============================================================ -->
+            <div id="section-admin" class="section-content hidden">
+                <div class="card-header" style="margin-bottom:14px">
+                    <h3><i class="fas fa-gauge"></i> لوحة التحكم</h3>
+                    <button class="btn-back" onclick="showSection('settings')">رجوع</button>
+                </div>
+                <iframe id="adminEmbedFrame" data-src="admin.php" title="لوحة التحكم" style="width:100%;min-height:calc(100vh - 220px);border:0;border-radius:var(--radius-sm);background:var(--bg-secondary)"></iframe>
+            </div>
+            <?php endif; ?>
+
             <!-- ============================================================
             القسم: إعدادات
             ============================================================ -->
@@ -3124,12 +3238,21 @@ function includeAppPage(PDO $pdo) {
                         </div>
                     </div>
 
+                    <div class="card currency-card">
+                        <div class="currency-card-icon"><i class="fas fa-coins"></i></div>
+                        <div class="currency-card-text">
+                            <div class="currency-card-title">عملة عرض الأسعار</div>
+                            <div class="currency-card-sub">تُطبَّق على كل الأسعار المعروضة لك في التطبيق والموقع</div>
+                        </div>
+                        <select id="currencyPicker" class="currency-card-select" onchange="setDisplayCurrency(this.value)"></select>
+                    </div>
+
                     <?php if ($isAdmin): ?>
                     <div class="settings-group">
                         <div class="group-header">
                             <i class="fas fa-user-shield"></i> الإدارة
                         </div>
-                        <div class="settings-item" onclick="location.href='admin.php'">
+                        <div class="settings-item" onclick="showSection('admin')">
                             <div class="left">
                                 <div class="icon-wrap gold"><i class="fas fa-gauge"></i></div>
                                 <div class="text">
@@ -3192,18 +3315,6 @@ function includeAppPage(PDO $pdo) {
                             </div>
                         </div>
 
-                        <div class="settings-item">
-                            <div class="left">
-                                <div class="icon-wrap gold"><i class="fas fa-coins"></i></div>
-                                <div class="text">
-                                    <div class="title">العملة</div>
-                                    <div class="sub">عملة عرض الأسعار في التطبيق</div>
-                                </div>
-                            </div>
-                            <div class="right">
-                                <select id="currencyPicker" onchange="setDisplayCurrency(this.value)" style="background:var(--bg-card);color:var(--text-primary);border:1px solid var(--border-color);border-radius:var(--radius-sm);padding:6px 10px;font-size:12px;font-family:inherit"></select>
-                            </div>
-                        </div>
                     </div>
 
                     <div class="settings-group">
@@ -3256,7 +3367,7 @@ function includeAppPage(PDO $pdo) {
                             </div>
                         </div>
                         
-                        <div class="settings-item">
+                        <div class="settings-item" onclick="location.href='index.php?page=policies&amp;type=privacy'">
                             <div class="left">
                                 <div class="icon-wrap blue"><i class="fas fa-shield-alt"></i></div>
                                 <div class="text">
@@ -3268,8 +3379,8 @@ function includeAppPage(PDO $pdo) {
                                 <i class="fas fa-chevron-left chevron"></i>
                             </div>
                         </div>
-                        
-                        <div class="settings-item">
+
+                        <div class="settings-item" onclick="location.href='index.php?page=policies&amp;type=terms'">
                             <div class="left">
                                 <div class="icon-wrap purple"><i class="fas fa-file-contract"></i></div>
                                 <div class="text">
@@ -3288,7 +3399,7 @@ function includeAppPage(PDO $pdo) {
                     </button>
                     
                     <div class="text-center text-muted" style="font-size:11px;padding:12px 0">
-                        <i class="fas fa-code"></i> منصة خوادم VPS v2.0 · جميع الحقوق محفوظة
+                        <i class="fas fa-code"></i> منصة <?php echo e($siteName); ?> v2.0 · جميع الحقوق محفوظة
                     </div>
                 </div>
             </div>
@@ -3326,7 +3437,7 @@ function includeAppPage(PDO $pdo) {
         <div class="ai-screen hidden" id="section-ai">
             <div class="ai-header">
                 <button class="back-btn" onclick="exitAI()"><i class="fas fa-arrow-right"></i></button>
-                <div class="ai-avatar"><i class="fas fa-robot"></i></div>
+                <div class="ai-avatar"><?php echo $aiLogo ? '<img src="' . e($aiLogo) . '" alt="">' : '<i class="fas fa-robot"></i>'; ?></div>
                 <h2 id="aiHeaderTitle">المساعد الذكي</h2>
             </div>
 
@@ -3657,6 +3768,10 @@ function includeAppPage(PDO $pdo) {
                     if (searchInput) searchInput.value = '';
                     filterServers();
                 }
+                if (section === 'admin') {
+                    const frame = document.getElementById('adminEmbedFrame');
+                    if (frame && !frame.src) frame.src = frame.dataset.src;
+                }
                 window.scrollTo({ top: 0, behavior: 'smooth' });
             }
 
@@ -3986,6 +4101,7 @@ function includeAppPage(PDO $pdo) {
                     id: String(pm.id),
                     icon: pm.icon,
                     color: pm.color,
+                    logo: pm.logo_path,
                     title: pm.name,
                     sub: 'تحويل يدوي',
                     manual: true,
@@ -3993,7 +4109,7 @@ function includeAppPage(PDO $pdo) {
                     instructions: pm.instructions,
                 }));
                 options.push({
-                    id: 'balance', icon: 'fa-wallet', color: 'green', title: 'رصيد الحساب',
+                    id: 'balance', icon: 'fa-wallet', color: 'green', logo: null, title: 'رصيد الحساب',
                     sub: formatUsd(USER_BALANCE) + ' متاح', manual: false,
                 });
 
@@ -4001,7 +4117,7 @@ function includeAppPage(PDO $pdo) {
 
                 document.getElementById('payOptionsContent').innerHTML = options.map(opt => `
                     <div class="pay-option ${wizardState.paymentMethod === opt.id ? 'selected' : ''}" onclick="wizardSelectPayment('${opt.id}')">
-                        <div class="icon-wrap ${opt.color}"><i class="fas ${opt.icon}"></i></div>
+                        ${opt.logo ? `<div class="pm-logo-wrap"><img src="${opt.logo}" alt=""></div>` : `<div class="icon-wrap ${opt.color}"><i class="fas ${opt.icon}"></i></div>`}
                         <div style="flex:1">
                             <div class="title">${opt.title}</div>
                             <div class="sub">${opt.sub}</div>
@@ -4033,6 +4149,23 @@ function includeAppPage(PDO $pdo) {
             function wizardSelectPayment(id) {
                 wizardState.paymentMethod = id;
                 renderPayOptions();
+                checkBalanceSufficiency();
+            }
+
+            function checkBalanceSufficiency() {
+                const warningEl = document.getElementById('balanceInsufficientWarning');
+                const submitBtn = document.getElementById('orderSubmitBtn');
+                const plan = currentPlan();
+                if (!warningEl || !submitBtn || !plan) return;
+
+                if (wizardState.paymentMethod !== 'balance') {
+                    warningEl.classList.add('hidden');
+                    submitBtn.disabled = false;
+                    return;
+                }
+                const insufficient = USER_BALANCE < planPriceForCycle(plan).price;
+                warningEl.classList.toggle('hidden', !insufficient);
+                submitBtn.disabled = insufficient;
             }
 
             function wizardGoTo(step) {
@@ -4040,7 +4173,9 @@ function includeAppPage(PDO $pdo) {
                 document.getElementById('vpsStep' + step.charAt(0).toUpperCase() + step.slice(1)).classList.remove('hidden');
 
                 if (step === 'plan') {
-                    wizardState = { planId: null, paymentMethod: null };
+                    wizardState = { planId: null, paymentMethod: null, billingCycle: 'monthly' };
+                    document.getElementById('billingTabMonthly')?.classList.add('active');
+                    document.getElementById('billingTabYearly')?.classList.remove('active');
                     renderPlanList();
                     document.getElementById('planContinueBtn').disabled = true;
                 } else if (step === 'details') {
@@ -4050,6 +4185,7 @@ function includeAppPage(PDO $pdo) {
                 } else if (step === 'payment') {
                     renderPayOptions();
                     renderOrderSummary();
+                    checkBalanceSufficiency();
                 }
                 window.scrollTo({ top: 0, behavior: 'smooth' });
             }
