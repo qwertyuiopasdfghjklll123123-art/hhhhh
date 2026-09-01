@@ -89,6 +89,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $currencyCode = trim($_POST['currency_code'] ?? '') ?: 'USD';
         $isActive = isset($_POST['is_active']) ? 1 : 0;
         $sortOrder = (int)($_POST['sort_order'] ?? 0);
+        $methodType = ($_POST['method_type'] ?? 'manual') === 'binance' ? 'binance' : 'manual';
 
         if ($name === '') {
             adminRedirect('payments', null, 'الرجاء إدخال اسم طريقة الدفع.');
@@ -99,17 +100,30 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             adminRedirect('payments', null, $uploadErr);
         }
 
+        $methodExtras = null;
+        $binanceApiKey = trim($_POST['binance_api_key'] ?? '');
+        $binanceApiSecret = trim($_POST['binance_api_secret'] ?? '');
+        if ($methodType === 'binance') {
+            if ($binanceApiKey !== '' || $binanceApiSecret !== '') {
+                $methodExtras = json_encode(['api_key' => $binanceApiKey, 'api_secret' => $binanceApiSecret]);
+            } elseif ($id > 0) {
+                $prevExtrasStmt = $pdo->prepare('SELECT method_extras FROM payment_methods WHERE id = ?');
+                $prevExtrasStmt->execute([$id]);
+                $methodExtras = $prevExtrasStmt->fetchColumn() ?: null;
+            }
+        }
+
         if ($id > 0) {
             if ($logoPath) {
-                $pdo->prepare('UPDATE payment_methods SET name=?, icon=?, account_number=?, instructions=?, currency_code=?, is_active=?, sort_order=?, logo_path=? WHERE id=?')
-                    ->execute([$name, $icon, $account, $instructions, $currencyCode, $isActive, $sortOrder, $logoPath, $id]);
+                $pdo->prepare('UPDATE payment_methods SET name=?, icon=?, account_number=?, instructions=?, currency_code=?, is_active=?, sort_order=?, logo_path=?, method_type=?, method_extras=? WHERE id=?')
+                    ->execute([$name, $icon, $account, $instructions, $currencyCode, $isActive, $sortOrder, $logoPath, $methodType, $methodExtras, $id]);
             } else {
-                $pdo->prepare('UPDATE payment_methods SET name=?, icon=?, account_number=?, instructions=?, currency_code=?, is_active=?, sort_order=? WHERE id=?')
-                    ->execute([$name, $icon, $account, $instructions, $currencyCode, $isActive, $sortOrder, $id]);
+                $pdo->prepare('UPDATE payment_methods SET name=?, icon=?, account_number=?, instructions=?, currency_code=?, is_active=?, sort_order=?, method_type=?, method_extras=? WHERE id=?')
+                    ->execute([$name, $icon, $account, $instructions, $currencyCode, $isActive, $sortOrder, $methodType, $methodExtras, $id]);
             }
         } else {
-            $pdo->prepare('INSERT INTO payment_methods (name, icon, account_number, instructions, currency_code, is_active, sort_order, logo_path) VALUES (?,?,?,?,?,?,?,?)')
-                ->execute([$name, $icon, $account, $instructions, $currencyCode, $isActive, $sortOrder, $logoPath]);
+            $pdo->prepare('INSERT INTO payment_methods (name, icon, account_number, instructions, currency_code, is_active, sort_order, logo_path, method_type, method_extras) VALUES (?,?,?,?,?,?,?,?,?,?)')
+                ->execute([$name, $icon, $account, $instructions, $currencyCode, $isActive, $sortOrder, $logoPath, $methodType, $methodExtras]);
         }
         adminRedirect('payments', 'تم حفظ طريقة الدفع بنجاح.');
     }
@@ -400,6 +414,10 @@ $activeHostingCount = (int)$pdo->query("SELECT COUNT(*) FROM hosting WHERE statu
         function toggleFulfillForm(orderId) {
             const el = document.getElementById('fulfill-' + orderId);
             el.classList.toggle('hidden');
+        }
+        function toggleBinanceFields(select, key) {
+            const el = document.getElementById(key === 'new' ? 'newBinanceFields' : 'binanceFields' + key);
+            if (el) el.classList.toggle('hidden', select.value !== 'binance');
         }
     </script>
 </body>
@@ -724,6 +742,17 @@ function renderAdminPayments(PDO $pdo) {
                         <?php endforeach; ?>
                     </select>
                 </div>
+                <div class="field-row">
+                    <label class="field-label">نوع طريقة الدفع</label>
+                    <select name="method_type" class="text-input" onchange="toggleBinanceFields(this, 'new')">
+                        <option value="manual">تحويل يدوي (مراجعة الإدارة)</option>
+                        <option value="binance">Binance Pay (تحقق تلقائي فوري)</option>
+                    </select>
+                </div>
+            </div>
+            <div class="field-grid-2 hidden" id="newBinanceFields">
+                <div class="field-row"><label class="field-label">Binance API Key</label><input type="text" name="binance_api_key" class="text-input" dir="ltr" placeholder="API Key" autocomplete="off"></div>
+                <div class="field-row"><label class="field-label">Binance API Secret</label><input type="text" name="binance_api_secret" class="text-input" dir="ltr" placeholder="API Secret" autocomplete="off"></div>
             </div>
             <div class="field-row"><label class="field-label">تعليمات الدفع</label><textarea name="instructions" class="text-input" placeholder="حوّل المبلغ إلى الرقم أعلاه ثم ارفع صورة الإيصال."></textarea></div>
             <div class="field-row"><label class="field-label">شعار (صورة، اختياري)</label><input type="file" name="logo" class="text-input" accept="image/png,image/jpeg,image/webp"></div>
@@ -762,6 +791,18 @@ function renderAdminPayments(PDO $pdo) {
                             <?php endforeach; ?>
                         </select>
                     </div>
+                    <div class="field-row">
+                        <label class="field-label">نوع طريقة الدفع</label>
+                        <select name="method_type" class="text-input" onchange="toggleBinanceFields(this, <?php echo (int)$pm['id']; ?>)">
+                            <option value="manual" <?php echo ($pm['method_type'] ?? 'manual') === 'manual' ? 'selected' : ''; ?>>تحويل يدوي (مراجعة الإدارة)</option>
+                            <option value="binance" <?php echo ($pm['method_type'] ?? '') === 'binance' ? 'selected' : ''; ?>>Binance Pay (تحقق تلقائي فوري)</option>
+                        </select>
+                    </div>
+                </div>
+                <?php $pmHasBinanceKeys = !empty(json_decode($pm['method_extras'] ?? '{}', true)['api_key'] ?? ''); ?>
+                <div class="field-grid-2 <?php echo ($pm['method_type'] ?? 'manual') === 'binance' ? '' : 'hidden'; ?>" id="binanceFields<?php echo (int)$pm['id']; ?>">
+                    <div class="field-row"><label class="field-label">Binance API Key</label><input type="text" name="binance_api_key" class="text-input" dir="ltr" placeholder="<?php echo $pmHasBinanceKeys ? '•••• اتركه فارغاً للإبقاء على المفتاح الحالي' : 'API Key'; ?>" autocomplete="off"></div>
+                    <div class="field-row"><label class="field-label">Binance API Secret</label><input type="text" name="binance_api_secret" class="text-input" dir="ltr" placeholder="<?php echo $pmHasBinanceKeys ? '•••• اتركه فارغاً للإبقاء على المفتاح الحالي' : 'API Secret'; ?>" autocomplete="off"></div>
                 </div>
                 <div class="field-row"><label class="field-label">تعليمات الدفع</label><textarea name="instructions" class="text-input"><?php echo e($pm['instructions']); ?></textarea></div>
                 <div class="field-row"><label class="field-label">تغيير الشعار (اختياري)</label><input type="file" name="logo" class="text-input" accept="image/png,image/jpeg,image/webp"></div>

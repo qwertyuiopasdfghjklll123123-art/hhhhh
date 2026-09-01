@@ -4,6 +4,10 @@
 // يُستدعى من index.php و admin.php
 // ============================================================
 
+// الجلسة لا تنتهي تلقائياً؛ الخروج الوحيد يكون بتسجيل خروج يدوي
+$sessionLifetime = 60 * 60 * 24 * 365 * 10;
+ini_set('session.gc_maxlifetime', (string)$sessionLifetime);
+session_set_cookie_params(['lifetime' => $sessionLifetime, 'path' => '/']);
 session_start();
 
 define('BASE_DIR', dirname(__DIR__));
@@ -199,6 +203,7 @@ function initSchema(PDO $pdo, $dbName) {
     $ensureColumn('users', 'auto_renew', 'TINYINT(1) NOT NULL DEFAULT 0');
     $ensureColumn('users', 'onboarding_done', 'TINYINT(1) NOT NULL DEFAULT 0');
     $ensureColumn('orders', 'renewal_hosting_id', 'INT NULL');
+    $ensureColumn('payment_methods', 'method_extras', 'TEXT NULL');
 
     // فهارس التفرّد (يتم إنشاؤها بعد التأكد من وجود الأعمدة أعلاه)
     // ملاحظة: عمود email/phone قابلان لأن يكونا NULL بتكرار (حساب دخول عبر Google
@@ -417,6 +422,89 @@ function handleImageUpload($fileField, $destDir, $publicPrefix) {
         return [null, 'فشل حفظ الملف على السيرفر.'];
     }
     return [$publicPrefix . '/' . $filename, null];
+}
+
+function normCurrencyCode($x) {
+    $x = strtoupper(trim((string)$x));
+    if ($x === '$' || $x === 'US$') return 'USD';
+    $x = preg_replace('/[^A-Z]/', '', $x);
+    if ($x === 'TETHER' || $x === 'TETHERUS') return 'USDT';
+    return $x ?: 'USDT';
+}
+
+// نعتبر USD و USDT متكافئتين (Binance Pay يُسوّى عادة بـ USDT)
+function currencyEquivalent($a, $b) {
+    $A = normCurrencyCode($a);
+    $B = normCurrencyCode($b);
+    if ($A === $B) return true;
+    $usdGroup = ['USD', 'USDT'];
+    return in_array($A, $usdGroup, true) && in_array($B, $usdGroup, true);
+}
+
+// يتحقق من عملية Binance Pay عبر API الحساب التجاري ويقارنها بالمبلغ المتوقع (دولار)
+function verifyBinanceOrder(array $paymentMethod, $binanceOrderId, $expectedAmountUsd) {
+    $extras = json_decode($paymentMethod['method_extras'] ?? '{}', true) ?: [];
+    $apiKey = trim((string)($extras['api_key'] ?? ''));
+    $apiSecret = trim((string)($extras['api_secret'] ?? ''));
+    if ($apiKey === '' || $apiSecret === '') {
+        return [false, 'لم يتم إعداد مفاتيح Binance من الإدارة بعد.'];
+    }
+
+    $binanceOrderId = trim((string)$binanceOrderId);
+    if ($binanceOrderId === '') {
+        return [false, 'الرجاء إدخال رقم عملية Binance (Order ID).'];
+    }
+
+    $endpoint = 'https://api3.binance.com/sapi/v1/pay/transactions';
+    $params = [
+        'timestamp' => (int)(microtime(true) * 1000),
+        'status'    => '1',
+        'startTime' => (int)((time() - 7 * 24 * 60 * 60) * 1000),
+        'endTime'   => (int)(time() * 1000),
+    ];
+    $queryString = str_replace('+', ' ', http_build_query($params));
+    $params['signature'] = hash_hmac('sha256', $queryString, $apiSecret);
+
+    $ch = curl_init();
+    curl_setopt($ch, CURLOPT_URL, $endpoint . '?' . http_build_query($params));
+    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+    curl_setopt($ch, CURLOPT_HTTPHEADER, ['X-MBX-APIKEY: ' . $apiKey]);
+    curl_setopt($ch, CURLOPT_TIMEOUT, 30);
+    $resp = curl_exec($ch);
+    if ($resp === false) {
+        $err = curl_error($ch);
+        curl_close($ch);
+        return [false, 'تعذر الاتصال بـ Binance: ' . $err];
+    }
+    curl_close($ch);
+
+    $json = json_decode($resp, true);
+    if (!is_array($json) || !isset($json['data']) || !is_array($json['data'])) {
+        return [false, 'استجابة غير متوقعة من Binance. تأكد من صحة مفاتيح API.'];
+    }
+
+    $found = null;
+    foreach ($json['data'] as $row) {
+        if (isset($row['orderId']) && (string)$row['orderId'] === $binanceOrderId) {
+            $found = $row;
+            break;
+        }
+    }
+    if (!$found) {
+        return [false, 'لم يتم العثور على عملية دفع بهذا الرقم خلال آخر 7 أيام.'];
+    }
+
+    $binanceCcy = (string)($found['currency'] ?? '');
+    if (!currencyEquivalent('USD', $binanceCcy)) {
+        return [false, 'عملة العملية غير مطابقة (' . strtoupper($binanceCcy) . ').'];
+    }
+
+    $binanceAmount = (float)($found['amount'] ?? 0);
+    if (abs($binanceAmount - $expectedAmountUsd) >= 0.0001) {
+        return [false, 'المبلغ غير مطابق. المتوقع ' . money($expectedAmountUsd) . '$ والمستلم ' . money($binanceAmount) . '$.'];
+    }
+
+    return [true, $found];
 }
 
 function money($amount) {

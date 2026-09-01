@@ -3,6 +3,9 @@
 // توليد صورة كود التحقق (CAPTCHA) لصفحة إنشاء الحساب
 // صورة وليست نصاً، لذا لا يمكن تحديدها أو نسخها كنص
 // ============================================================
+$sessionLifetime = 60 * 60 * 24 * 365 * 10;
+ini_set('session.gc_maxlifetime', (string)$sessionLifetime);
+session_set_cookie_params(['lifetime' => $sessionLifetime, 'path' => '/']);
 session_start();
 
 $chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // بدون رموز متشابهة الشكل: 0/O، 1/I/L

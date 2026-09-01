@@ -442,6 +442,138 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === 'request_renewal' && $_SERVER['REQ
     exit;
 }
 
+if (isset($_GET['ajax']) && $_GET['ajax'] === 'verify_binance_order' && $_SERVER['REQUEST_METHOD'] === 'POST') {
+    header('Content-Type: application/json; charset=utf-8');
+
+    if (!isLoggedIn()) {
+        http_response_code(401);
+        echo json_encode(['error' => 'يجب تسجيل الدخول.']);
+        exit;
+    }
+
+    $body = json_decode((string)file_get_contents('php://input'), true) ?: [];
+    if (!hash_equals($_SESSION['csrf_token'] ?? '', (string)($body['csrf_token'] ?? ''))) {
+        http_response_code(400);
+        echo json_encode(['error' => 'انتهت صلاحية الجلسة، أعد تحميل الصفحة.']);
+        exit;
+    }
+
+    $userId = (int)$_SESSION['user_id'];
+    $planId = (int)($body['plan_id'] ?? 0);
+    $paymentMethodId = (int)($body['payment_method_id'] ?? 0);
+    $binanceOrderId = trim((string)($body['binance_order_id'] ?? ''));
+
+    $planStmt = $pdo->prepare('SELECT * FROM vps_plans WHERE id = ? AND is_active = 1');
+    $planStmt->execute([$planId]);
+    $plan = $planStmt->fetch(PDO::FETCH_ASSOC);
+    if (!$plan) {
+        http_response_code(400);
+        echo json_encode(['error' => 'الباقة المختارة غير متاحة.']);
+        exit;
+    }
+
+    $pmStmt = $pdo->prepare("SELECT * FROM payment_methods WHERE id = ? AND is_active = 1 AND method_type = 'binance'");
+    $pmStmt->execute([$paymentMethodId]);
+    $pm = $pmStmt->fetch(PDO::FETCH_ASSOC);
+    if (!$pm) {
+        http_response_code(400);
+        echo json_encode(['error' => 'طريقة الدفع غير متاحة.']);
+        exit;
+    }
+
+    $user = currentUser($pdo);
+    $referralDiscountPct = 0.0;
+    if (!empty($user['referred_by'])) {
+        $priorOrdersStmt = $pdo->prepare('SELECT COUNT(*) FROM orders WHERE user_id = ?');
+        $priorOrdersStmt->execute([$userId]);
+        if ((int)$priorOrdersStmt->fetchColumn() === 0) {
+            $referralDiscountPct = (float)getSetting($pdo, 'referral_discount_pct', 0);
+        }
+    }
+    $amount = (float)$plan['price'];
+    if ($referralDiscountPct > 0) {
+        $amount = round($amount * (1 - $referralDiscountPct / 100), 2);
+    }
+
+    [$verified, $result] = verifyBinanceOrder($pm, $binanceOrderId, $amount);
+    if (!$verified) {
+        http_response_code(400);
+        echo json_encode(['error' => $result]);
+        exit;
+    }
+
+    $billingCycle = ($plan['billing_cycle'] ?? 'monthly') === 'yearly' ? 'yearly' : 'monthly';
+    $pdo->prepare('INSERT INTO orders (user_id, plan_id, payment_method_id, amount, billing_cycle, status) VALUES (?,?,?,?,?,?)')
+        ->execute([$userId, $planId, $paymentMethodId, $amount, $billingCycle, 'pending']);
+    $orderId = (int)$pdo->lastInsertId();
+
+    $cycleLabel = $billingCycle === 'yearly' ? 'سنوي' : 'شهري';
+    $invDescription = 'اشتراك باقة ' . $plan['name'] . ' (' . $cycleLabel . ') - Binance Pay';
+    $pdo->prepare('INSERT INTO invoices (user_id, order_id, invoice_number, amount, status, description) VALUES (?,?,?,?,?,?)')
+        ->execute([$userId, $orderId, nextInvoiceNumber($pdo), $amount, 'paid', $invDescription]);
+
+    notifyAdmins($pdo, '🆕 طلب اشتراك جديد (Binance)', 'قدّم ' . $user['name'] . ' طلب اشتراك في باقة "' . $plan['name'] . '" بمبلغ $' . money($amount) . ' عبر Binance Pay (تم التحقق تلقائياً). راجع الطلب لتفعيل الاستضافة.', 'system');
+
+    echo json_encode(['ok' => true, 'order_id' => $orderId]);
+    exit;
+}
+
+if (isset($_GET['ajax']) && $_GET['ajax'] === 'verify_binance_topup' && $_SERVER['REQUEST_METHOD'] === 'POST') {
+    header('Content-Type: application/json; charset=utf-8');
+
+    if (!isLoggedIn()) {
+        http_response_code(401);
+        echo json_encode(['error' => 'يجب تسجيل الدخول.']);
+        exit;
+    }
+
+    $body = json_decode((string)file_get_contents('php://input'), true) ?: [];
+    if (!hash_equals($_SESSION['csrf_token'] ?? '', (string)($body['csrf_token'] ?? ''))) {
+        http_response_code(400);
+        echo json_encode(['error' => 'انتهت صلاحية الجلسة، أعد تحميل الصفحة.']);
+        exit;
+    }
+
+    $userId = (int)$_SESSION['user_id'];
+    $paymentMethodId = (int)($body['payment_method_id'] ?? 0);
+    $amount = (float)($body['amount'] ?? 0);
+    $binanceOrderId = trim((string)($body['binance_order_id'] ?? ''));
+
+    if ($amount <= 0) {
+        http_response_code(400);
+        echo json_encode(['error' => 'الرجاء إدخال مبلغ صحيح.']);
+        exit;
+    }
+
+    $pmStmt = $pdo->prepare("SELECT * FROM payment_methods WHERE id = ? AND is_active = 1 AND method_type = 'binance'");
+    $pmStmt->execute([$paymentMethodId]);
+    $pm = $pmStmt->fetch(PDO::FETCH_ASSOC);
+    if (!$pm) {
+        http_response_code(400);
+        echo json_encode(['error' => 'طريقة الدفع غير متاحة.']);
+        exit;
+    }
+
+    [$verified, $result] = verifyBinanceOrder($pm, $binanceOrderId, $amount);
+    if (!$verified) {
+        http_response_code(400);
+        echo json_encode(['error' => $result]);
+        exit;
+    }
+
+    $pdo->beginTransaction();
+    $pdo->prepare('UPDATE users SET balance = balance + ? WHERE id = ?')->execute([$amount, $userId]);
+    $pdo->prepare('INSERT INTO invoices (user_id, invoice_number, amount, status, description) VALUES (?,?,?,?,?)')
+        ->execute([$userId, nextInvoiceNumber($pdo), $amount, 'paid', 'شحن رصيد عبر Binance Pay']);
+    $pdo->commit();
+
+    $user = currentUser($pdo);
+    notifyUser($pdo, $userId, '💰 تم شحن رصيدك', 'تم إضافة $' . money($amount) . ' إلى رصيد حسابك تلقائياً عبر Binance Pay.', 'topup_approved');
+
+    echo json_encode(['ok' => true, 'balance' => (float)$user['balance']]);
+    exit;
+}
+
 // ============================================================
 // تسجيل الخروج
 // ============================================================
@@ -468,17 +600,21 @@ if (!empty($_GET['ref'])) {
 // التوجيه
 // ============================================================
 
-if (isset($_GET['app']) && isLoggedIn()) {
-    includeAppPage($pdo);
-    exit;
-}
-
-if (isLoggedIn() && !isset($_GET['page'])) {
-    header('Location: ' . appUrl());
+if (isset($_GET['app'])) {
+    if (isLoggedIn()) {
+        includeAppPage($pdo);
+        exit;
+    }
+    header('Location: index.php');
     exit;
 }
 
 $page = $_GET['page'] ?? 'landing';
+
+if (isLoggedIn() && in_array($page, ['landing', 'login', 'register'], true)) {
+    header('Location: ' . appUrl());
+    exit;
+}
 
 if ($page === 'buy') {
     $target = appUrl('buy=' . (int)($_GET['plan'] ?? 0));
@@ -1040,7 +1176,7 @@ function includeAppPage(PDO $pdo) {
     $orders = $ordersStmt->fetchAll(PDO::FETCH_ASSOC);
     $referralEligible = $referralDiscountPct > 0 && !empty($user['referred_by']) && count($orders) === 0;
 
-    $payment_methods = $pdo->query('SELECT * FROM payment_methods WHERE is_active = 1 ORDER BY sort_order ASC, id ASC')->fetchAll(PDO::FETCH_ASSOC);
+    $payment_methods = $pdo->query('SELECT id, name, icon, account_number, instructions, currency_code, method_type, logo_path, sort_order FROM payment_methods WHERE is_active = 1 ORDER BY sort_order ASC, id ASC')->fetchAll(PDO::FETCH_ASSOC);
     $pmColors = ['blue', 'purple', 'gold', 'green'];
     foreach ($payment_methods as $i => &$pmRow) {
         $pmRow['color'] = $pmColors[$i % count($pmColors)];
@@ -1444,7 +1580,7 @@ function includeAppPage(PDO $pdo) {
                         <div class="form-alert-inline"><?php echo e($orderErrorMsg); ?></div>
                     <?php endif; ?>
 
-                    <form method="POST" action="index.php" enctype="multipart/form-data" id="orderForm">
+                    <form method="POST" action="index.php" enctype="multipart/form-data" id="orderForm" onsubmit="return handleOrderFormSubmit(event)">
                         <?php echo csrfField(); ?>
                         <input type="hidden" name="action" value="submit_order">
                         <input type="hidden" name="plan_id" id="orderPlanId" value="">
@@ -1457,6 +1593,13 @@ function includeAppPage(PDO $pdo) {
                             <div class="hosting-detail" id="payInstructionsBox" style="margin-bottom:12px"></div>
                             <label class="field-label" style="display:block;text-align:right;font-size:13px;color:var(--text-muted);margin-bottom:6px">صورة إيصال التحويل</label>
                             <input type="file" name="proof_image" id="proofImageInput" accept="image/png,image/jpeg,image/webp" style="width:100%;padding:10px;border-radius:var(--radius-sm);border:1.5px solid var(--border-color);background:var(--bg-card);color:var(--text-primary);font-size:13px;font-family:inherit;margin-bottom:12px">
+                        </div>
+
+                        <div id="binanceOrderIdWrap" class="hidden">
+                            <div class="hosting-detail" style="margin-bottom:12px"><div class="detail-row"><span class="label">الدفع عبر</span><span class="value">Binance Pay</span></div></div>
+                            <label class="field-label" style="display:block;text-align:right;font-size:13px;color:var(--text-muted);margin-bottom:6px">رقم عملية Binance (Order ID)</label>
+                            <input type="text" id="binanceOrderIdInput" placeholder="Order ID" dir="ltr" style="width:100%;padding:12px 14px;border-radius:var(--radius-sm);border:1.5px solid var(--border-color);background:var(--bg-card);color:var(--text-primary);font-size:15px;font-family:inherit;outline:none;margin-bottom:8px">
+                            <div class="form-alert-inline hidden" id="binanceOrderError"></div>
                         </div>
 
                         <div class="form-alert-inline hidden" id="balanceInsufficientWarning"><i class="fas fa-circle-exclamation"></i> رصيدك الحالي غير كافٍ لإتمام هذا الطلب. اختر طريقة دفع أخرى أو اشحن رصيدك أولاً.</div>
@@ -1509,7 +1652,8 @@ function includeAppPage(PDO $pdo) {
                                 data-name="<?php echo e($pm['name']); ?>"
                                 data-account="<?php echo e($pm['account_number']); ?>"
                                 data-instructions="<?php echo e($pm['instructions']); ?>"
-                                onclick="showPaymentPage(this.dataset.id, this.dataset.name, this.dataset.account, this.dataset.instructions)">
+                                data-type="<?php echo e($pm['method_type'] ?? 'manual'); ?>"
+                                onclick="showPaymentPage(this.dataset.id, this.dataset.name, this.dataset.account, this.dataset.instructions, this.dataset.type)">
                                 <?php if (!empty($pm['logo_path'])): ?>
                                 <div class="pm-logo-wrap"><img src="<?php echo e($pm['logo_path']); ?>" alt=""></div>
                                 <?php else: ?>
@@ -1519,7 +1663,7 @@ function includeAppPage(PDO $pdo) {
                                 <?php endif; ?>
                                 <div style="flex:1">
                                     <div class="title"><?php echo e($pm['name']); ?></div>
-                                    <div class="sub">تحويل يدوي</div>
+                                    <div class="sub"><?php echo ($pm['method_type'] ?? 'manual') === 'binance' ? 'تحقق تلقائي فوري' : 'تحويل يدوي'; ?></div>
                                 </div>
                                 <i class="fas fa-chevron-left" style="color:var(--text-muted);font-size:12px"></i>
                             </div>
@@ -1535,7 +1679,7 @@ function includeAppPage(PDO $pdo) {
                             <h3><i class="fas fa-credit-card"></i> <span id="paymentMethodName">الدفع</span></h3>
                             <button class="btn-back" onclick="hidePaymentPage()">رجوع</button>
                         </div>
-                        <form method="POST" action="index.php" enctype="multipart/form-data" onsubmit="syncTopUpAmountUsd()">
+                        <form method="POST" action="index.php" enctype="multipart/form-data" onsubmit="return handleTopUpFormSubmit(event)">
                             <?php echo csrfField(); ?>
                             <input type="hidden" name="action" value="top_up">
                             <input type="hidden" name="payment_method_id" id="topUpPaymentMethodId" value="">
@@ -1549,9 +1693,15 @@ function includeAppPage(PDO $pdo) {
                                 <div class="text-muted" id="topUpUsdHint" style="font-size:11px;margin-top:4px"></div>
                             </div>
 
-                            <div style="margin-bottom:12px">
+                            <div id="topUpProofWrap">
                                 <label style="display:block;font-size:13px;color:var(--text-muted);margin-bottom:4px">صورة إيصال التحويل</label>
-                                <input type="file" name="proof_image" accept="image/png,image/jpeg,image/webp" required style="width:100%;padding:10px;border-radius:var(--radius-sm);border:1.5px solid var(--border-color);background:var(--bg-card);color:var(--text-primary);font-size:13px;font-family:inherit">
+                                <input type="file" name="proof_image" id="topUpProofInput" accept="image/png,image/jpeg,image/webp" style="width:100%;padding:10px;border-radius:var(--radius-sm);border:1.5px solid var(--border-color);background:var(--bg-card);color:var(--text-primary);font-size:13px;font-family:inherit;margin-bottom:12px">
+                            </div>
+
+                            <div id="topUpBinanceWrap" class="hidden">
+                                <label style="display:block;font-size:13px;color:var(--text-muted);margin-bottom:4px">رقم عملية Binance (Order ID)</label>
+                                <input type="text" id="topUpBinanceOrderIdInput" placeholder="Order ID" dir="ltr" style="width:100%;padding:12px 14px;border-radius:var(--radius-sm);border:1.5px solid var(--border-color);background:var(--bg-card);color:var(--text-primary);font-size:15px;font-family:inherit;outline:none;margin-bottom:8px">
+                                <div class="form-alert-inline hidden" id="topUpBinanceError"></div>
                             </div>
 
                             <?php if (!empty($_GET['topup_error'])): ?>
@@ -1562,7 +1712,7 @@ function includeAppPage(PDO $pdo) {
                                 <i class="fas fa-check"></i> إرسال طلب الشحن
                             </button>
                         </form>
-                        <div class="text-muted text-center" style="margin-top:10px;font-size:12px">سيتم إضافة الرصيد بعد مراجعة الإيصال من الإدارة.</div>
+                        <div class="text-muted text-center" style="margin-top:10px;font-size:12px" id="topUpFooterNote">سيتم إضافة الرصيد بعد مراجعة الإيصال من الإدارة.</div>
                     </div>
                 </div>
 

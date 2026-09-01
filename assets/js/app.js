@@ -650,14 +650,15 @@
                     color: pm.color,
                     logo: pm.logo_path,
                     title: pm.name,
-                    sub: 'تحويل يدوي',
-                    manual: true,
+                    sub: pm.method_type === 'binance' ? 'تحقق تلقائي فوري' : 'تحويل يدوي',
+                    manual: pm.method_type !== 'binance',
+                    binance: pm.method_type === 'binance',
                     account_number: pm.account_number,
                     instructions: pm.instructions,
                 }));
                 options.push({
                     id: 'balance', icon: 'fa-wallet', color: 'green', logo: null, title: 'رصيد الحساب',
-                    sub: formatUsd(USER_BALANCE) + ' متاح', manual: false,
+                    sub: formatUsd(USER_BALANCE) + ' متاح', manual: false, binance: false,
                 });
 
                 if (!wizardState.paymentMethod) wizardState.paymentMethod = options[0].id;
@@ -680,6 +681,13 @@
                 const selected = options.find(o => o.id === wizardState.paymentMethod);
                 const uploadWrap = document.getElementById('proofUploadWrap');
                 const proofInput = document.getElementById('proofImageInput');
+                const binanceWrap = document.getElementById('binanceOrderIdWrap');
+                const submitBtnLabel = document.querySelector('#orderSubmitBtn span');
+
+                uploadWrap.classList.add('hidden');
+                proofInput.required = false;
+                binanceWrap.classList.add('hidden');
+
                 if (selected && selected.manual) {
                     uploadWrap.classList.remove('hidden');
                     proofInput.required = true;
@@ -687,9 +695,13 @@
                         <div class="detail-row"><span class="label">حوّل إلى</span><span class="value">${selected.account_number || '-'}</span></div>
                         ${selected.instructions ? `<div class="detail-row"><span class="label">ملاحظة</span><span class="value" style="direction:rtl;text-align:right;font-weight:400;font-size:12px">${selected.instructions}</span></div>` : ''}
                     `;
-                } else {
-                    uploadWrap.classList.add('hidden');
-                    proofInput.required = false;
+                    if (submitBtnLabel) submitBtnLabel.textContent = t('pay_now');
+                } else if (selected && selected.binance) {
+                    binanceWrap.classList.remove('hidden');
+                    document.getElementById('binanceOrderError').classList.add('hidden');
+                    if (submitBtnLabel) submitBtnLabel.textContent = 'تحقق وإرسال الطلب';
+                } else if (submitBtnLabel) {
+                    submitBtnLabel.textContent = t('pay_now');
                 }
             }
 
@@ -697,6 +709,56 @@
                 wizardState.paymentMethod = id;
                 renderPayOptions();
                 checkBalanceSufficiency();
+            }
+
+            function isBinanceMethodSelected() {
+                const pm = PAYMENT_METHODS.find(p => String(p.id) === wizardState.paymentMethod);
+                return !!(pm && pm.method_type === 'binance');
+            }
+
+            function handleOrderFormSubmit(event) {
+                if (!isBinanceMethodSelected()) return true;
+                event.preventDefault();
+                submitBinanceOrder();
+                return false;
+            }
+
+            async function submitBinanceOrder() {
+                const errEl = document.getElementById('binanceOrderError');
+                const submitBtn = document.getElementById('orderSubmitBtn');
+                const binanceOrderId = document.getElementById('binanceOrderIdInput').value.trim();
+                if (!binanceOrderId) {
+                    errEl.textContent = 'الرجاء إدخال رقم عملية Binance.';
+                    errEl.classList.remove('hidden');
+                    return;
+                }
+
+                errEl.classList.add('hidden');
+                submitBtn.disabled = true;
+                try {
+                    const res = await fetch('index.php?ajax=verify_binance_order', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            csrf_token: CSRF_TOKEN,
+                            plan_id: document.getElementById('orderPlanId').value,
+                            payment_method_id: document.getElementById('orderPaymentMethodId').value,
+                            binance_order_id: binanceOrderId,
+                        }),
+                    });
+                    const data = await res.json();
+                    if (!res.ok || data.error) {
+                        errEl.textContent = data.error || 'تعذر التحقق من عملية الدفع.';
+                        errEl.classList.remove('hidden');
+                        submitBtn.disabled = false;
+                        return;
+                    }
+                    location.href = 'index.php?app=1&ordered=1&order_id=' + data.order_id;
+                } catch (err) {
+                    errEl.textContent = 'تعذر الاتصال بالسيرفر. حاول مرة أخرى.';
+                    errEl.classList.remove('hidden');
+                    submitBtn.disabled = false;
+                }
             }
 
             function checkBalanceSufficiency() {
@@ -759,7 +821,7 @@
                 document.getElementById('invoicesList').classList.remove('hidden');
             }
             
-            function showPaymentPage(methodId, methodName, accountNumber, instructions) {
+            function showPaymentPage(methodId, methodName, accountNumber, instructions, methodType) {
                 document.getElementById('paymentMethodName').textContent = 'شحن عبر ' + methodName;
                 document.getElementById('topUpPaymentMethodId').value = methodId;
                 document.getElementById('topUpInstructions').innerHTML = `
@@ -774,11 +836,79 @@
                 document.getElementById('topUpAmountInput').value = '';
                 document.getElementById('topUpAmountUsd').value = '';
                 document.getElementById('topUpUsdHint').textContent = '';
+
+                const isBinance = methodType === 'binance';
+                const proofWrap = document.getElementById('topUpProofWrap');
+                const proofInput = document.getElementById('topUpProofInput');
+                const binanceWrap = document.getElementById('topUpBinanceWrap');
+                proofWrap.classList.toggle('hidden', isBinance);
+                proofInput.required = !isBinance;
+                binanceWrap.classList.toggle('hidden', !isBinance);
+                document.getElementById('topUpInstructions').classList.toggle('hidden', isBinance);
+                document.getElementById('topUpBinanceOrderIdInput').value = '';
+                document.getElementById('topUpBinanceError').classList.add('hidden');
+                document.getElementById('topUpFooterNote').textContent = isBinance
+                    ? 'سيُضاف الرصيد فوراً بعد التحقق التلقائي من عملية Binance.'
+                    : 'سيتم إضافة الرصيد بعد مراجعة الإيصال من الإدارة.';
             }
 
             function hidePaymentPage() {
                 document.getElementById('paymentPage').classList.add('hidden');
                 document.getElementById('addBalanceSection').classList.remove('hidden');
+            }
+
+            function handleTopUpFormSubmit(event) {
+                syncTopUpAmountUsd();
+                const pm = PAYMENT_METHODS.find(p => String(p.id) === document.getElementById('topUpPaymentMethodId').value);
+                if (!pm || pm.method_type !== 'binance') return true;
+                event.preventDefault();
+                submitBinanceTopup();
+                return false;
+            }
+
+            async function submitBinanceTopup() {
+                const errEl = document.getElementById('topUpBinanceError');
+                const submitBtn = document.querySelector('#paymentPage button[type="submit"]');
+                const amount = document.getElementById('topUpAmountUsd').value;
+                const binanceOrderId = document.getElementById('topUpBinanceOrderIdInput').value.trim();
+
+                if (!(parseFloat(amount) > 0)) {
+                    errEl.textContent = 'الرجاء إدخال مبلغ صحيح.';
+                    errEl.classList.remove('hidden');
+                    return;
+                }
+                if (!binanceOrderId) {
+                    errEl.textContent = 'الرجاء إدخال رقم عملية Binance.';
+                    errEl.classList.remove('hidden');
+                    return;
+                }
+
+                errEl.classList.add('hidden');
+                if (submitBtn) submitBtn.disabled = true;
+                try {
+                    const res = await fetch('index.php?ajax=verify_binance_topup', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            csrf_token: CSRF_TOKEN,
+                            payment_method_id: document.getElementById('topUpPaymentMethodId').value,
+                            amount: amount,
+                            binance_order_id: binanceOrderId,
+                        }),
+                    });
+                    const data = await res.json();
+                    if (!res.ok || data.error) {
+                        errEl.textContent = data.error || 'تعذر التحقق من عملية الدفع.';
+                        errEl.classList.remove('hidden');
+                        if (submitBtn) submitBtn.disabled = false;
+                        return;
+                    }
+                    location.href = 'index.php?app=1&topup=1';
+                } catch (err) {
+                    errEl.textContent = 'تعذر الاتصال بالسيرفر. حاول مرة أخرى.';
+                    errEl.classList.remove('hidden');
+                    if (submitBtn) submitBtn.disabled = false;
+                }
             }
 
             function syncTopUpAmountUsd() {
