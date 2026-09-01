@@ -136,7 +136,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
 
         $pdo->prepare('INSERT INTO currencies (code, name, symbol, rate_per_usd, is_active, sort_order) VALUES (?,?,?,?,?,?)
-            ON CONFLICT(code) DO UPDATE SET name = excluded.name, symbol = excluded.symbol, rate_per_usd = excluded.rate_per_usd, is_active = excluded.is_active, sort_order = excluded.sort_order')
+            ON DUPLICATE KEY UPDATE name = VALUES(name), symbol = VALUES(symbol), rate_per_usd = VALUES(rate_per_usd), is_active = VALUES(is_active), sort_order = VALUES(sort_order)')
             ->execute([$code, $name, $symbol, $rate, $isActive, $sortOrder]);
         adminRedirect('settings', 'تم حفظ العملة بنجاح.');
     }
@@ -175,6 +175,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $planStmt->execute([$order['plan_id']]);
         $plan = $planStmt->fetch(PDO::FETCH_ASSOC);
 
+        $vpsId = trim($_POST['vps_id'] ?? '');
         $hostName = trim($_POST['host_name'] ?? '') ?: ('خادم ' . ($plan['name'] ?? ''));
         $ip = trim($_POST['host_ip'] ?? '');
         $username = trim($_POST['host_username'] ?? '');
@@ -182,13 +183,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $expiryInterval = $order['billing_cycle'] === 'yearly' ? '+1 year' : '+1 month';
         $expiry = date('Y-m-d', strtotime($expiryInterval));
 
-        if ($ip === '' || $username === '' || $password === '') {
-            adminRedirect('orders', null, 'الرجاء تعبئة عنوان IP واسم المستخدم وكلمة المرور لتفعيل الاستضافة.');
+        if ($vpsId === '' || $ip === '' || $username === '' || $password === '') {
+            adminRedirect('orders', null, 'الرجاء تعبئة معرّف VPS وعنوان IP واسم المستخدم وكلمة المرور لتفعيل الاستضافة.');
         }
 
         $pdo->beginTransaction();
-        $pdo->prepare('INSERT INTO hosting (user_id, order_id, name, plan, ip, username, password, status, expiry_date) VALUES (?,?,?,?,?,?,?,?,?)')
-            ->execute([$order['user_id'], $orderId, $hostName, $plan['name'] ?? '-', $ip, $username, $password, 'active', $expiry]);
+        $pdo->prepare('INSERT INTO hosting (user_id, order_id, vps_id, name, plan, ip, username, password, status, expiry_date) VALUES (?,?,?,?,?,?,?,?,?,?)')
+            ->execute([$order['user_id'], $orderId, $vpsId, $hostName, $plan['name'] ?? '-', $ip, $username, $password, 'active', $expiry]);
         $pdo->prepare("UPDATE orders SET status = 'approved', decided_at = CURRENT_TIMESTAMP WHERE id = ?")->execute([$orderId]);
         $pdo->prepare("UPDATE invoices SET status = 'paid' WHERE order_id = ?")->execute([$orderId]);
         notifyUser($pdo, $order['user_id'], '✅ تم قبول طلبك', 'تم تفعيل استضافتك (' . $hostName . ') وهي جاهزة الآن ضمن "سيرفراتي".', 'order_approved');
@@ -247,6 +248,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             setSetting($pdo, 'google_client_secret', trim($_POST['google_client_secret']));
         }
         setSetting($pdo, 'app_currency', trim($_POST['app_currency'] ?? ''));
+        $referralPct = (float)($_POST['referral_discount_pct'] ?? 0);
+        if ($referralPct < 0) $referralPct = 0;
+        if ($referralPct > 100) $referralPct = 100;
+        setSetting($pdo, 'referral_discount_pct', (string)$referralPct);
         setSetting($pdo, 'site_terms', trim($_POST['site_terms'] ?? ''));
         setSetting($pdo, 'site_privacy', trim($_POST['site_privacy'] ?? ''));
 
@@ -327,16 +332,11 @@ $activeHostingCount = (int)$pdo->query("SELECT COUNT(*) FROM hosting WHERE statu
 
         .admin-header {
             display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:10px;
-            padding: 16px 24px; background:var(--bg-secondary); border-bottom:1px solid var(--border-color);
-            position:sticky; top:0; z-index:10;
+            padding: 12px 24px; background:var(--bg-secondary); border-bottom:1px solid var(--border-color);
         }
-        .admin-header .brand { display:flex; align-items:center; gap:10px; font-weight:900; font-size:16px; }
-        .admin-header .brand .logo-mark {
-            width:36px; height:36px; border-radius:50%; background:linear-gradient(135deg,var(--accent),var(--accent-dark));
-            color:#fff; display:flex; align-items:center; justify-content:center; font-size:16px;
-        }
+        .admin-header .brand { display:flex; align-items:center; gap:8px; font-weight:800; font-size:14px; color:var(--text-secondary); }
+        .admin-header .brand i { color:var(--accent); }
         .admin-header .right-links { display:flex; align-items:center; gap:14px; font-size:12px; color:var(--text-secondary); }
-        .admin-header .right-links a:hover { color:var(--accent); }
 
         .admin-tabs {
             display:flex; gap:8px; padding: 14px 24px; overflow-x:auto; background:var(--bg-secondary); border-bottom:1px solid var(--border-color);
@@ -423,11 +423,9 @@ $activeHostingCount = (int)$pdo->query("SELECT COUNT(*) FROM hosting WHERE statu
 </head>
 <body>
     <header class="admin-header">
-        <div class="brand"><div class="logo-mark"><i class="fas fa-server"></i></div> لوحة تحكم استضافتي</div>
+        <div class="brand"><i class="fas fa-gauge"></i> لوحة التحكم</div>
         <div class="right-links">
             <span><i class="fas fa-user-shield"></i> <?php echo e($admin['name']); ?></span>
-            <a href="index.php" target="_blank"><i class="fas fa-arrow-up-left-from-circle"></i> عرض الموقع</a>
-            <a href="index.php?logout=1"><i class="fas fa-right-from-bracket"></i> تسجيل الخروج</a>
         </div>
     </header>
 
@@ -492,11 +490,12 @@ function renderAdminOrders(PDO $pdo) {
     $orders = $pdo->query("
         SELECT o.*, u.name AS user_name, u.phone AS user_phone, u.email AS user_email,
                p.name AS plan_name, p.icon AS plan_icon,
-               pm.name AS pm_name
+               pm.name AS pm_name, h.vps_id AS vps_id
         FROM orders o
         JOIN users u ON u.id = o.user_id
         JOIN vps_plans p ON p.id = o.plan_id
         LEFT JOIN payment_methods pm ON pm.id = o.payment_method_id
+        LEFT JOIN hosting h ON h.order_id = o.id
         ORDER BY (o.status = 'pending') DESC, o.created_at DESC
     ")->fetchAll(PDO::FETCH_ASSOC);
     ?>
@@ -526,6 +525,9 @@ function renderAdminOrders(PDO $pdo) {
                 <div><strong><?php echo $o['billing_cycle'] === 'yearly' ? 'سنوي' : 'شهري'; ?></strong><span>مدة الاشتراك</span></div>
                 <div><strong><?php echo e($o['pm_name'] ?: 'رصيد الحساب'); ?></strong><span>طريقة الدفع</span></div>
                 <div><strong><?php echo e(substr($o['created_at'], 0, 16)); ?></strong><span>تاريخ الطلب</span></div>
+                <?php if (!empty($o['vps_id'])): ?>
+                <div><strong dir="ltr"><?php echo e($o['vps_id']); ?></strong><span>معرّف VPS</span></div>
+                <?php endif; ?>
             </div>
 
             <?php if ($o['proof_image']): ?>
@@ -551,6 +553,10 @@ function renderAdminOrders(PDO $pdo) {
                     <input type="hidden" name="action" value="order_fulfill">
                     <input type="hidden" name="order_id" value="<?php echo (int)$o['id']; ?>">
 
+                    <div class="field-row">
+                        <label class="field-label">معرّف VPS (Server ID)</label>
+                        <input type="text" name="vps_id" class="text-input" placeholder="مثال: VPS-1024" required dir="ltr">
+                    </div>
                     <div class="field-row">
                         <label class="field-label">اسم الاستضافة (اختياري)</label>
                         <input type="text" name="host_name" class="text-input" placeholder="خادم <?php echo e($o['plan_name']); ?> - <?php echo e($o['user_name']); ?>">
@@ -836,6 +842,13 @@ function renderAdminSettings(PDO $pdo) {
                     <option value="<?php echo e($c['code']); ?>" <?php echo ($s['app_currency'] ?? '') === $c['code'] ? 'selected' : ''; ?>><?php echo e($c['name']); ?> (<?php echo e($c['symbol']); ?>) - دائماً</option>
                     <?php endforeach; ?>
                 </select>
+            </div>
+
+            <div class="admin-card-header" style="margin-top:20px"><h2><i class="fas fa-share-nodes"></i> رابط المشاركة (الإحالة)</h2></div>
+            <div class="field-row">
+                <label class="field-label">نسبة خصم رابط المشاركة (%)</label>
+                <input type="number" name="referral_discount_pct" class="text-input" min="0" max="100" step="1" value="<?php echo e($s['referral_discount_pct'] ?? '10'); ?>" dir="ltr">
+                <p style="font-size:11px;color:var(--text-muted);margin-top:4px">كل مستخدم لديه رابط دعوة خاص من الرئيسية. من يسجّل عبره يحصل على هذه النسبة كخصم على أول طلب VPS له. ضع 0 لتعطيل الميزة.</p>
             </div>
 
             <div class="admin-card-header" style="margin-top:20px"><h2><i class="fas fa-robot"></i> المساعد الذكي (NVIDIA API)</h2></div>

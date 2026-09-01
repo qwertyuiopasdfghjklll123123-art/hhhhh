@@ -10,6 +10,7 @@ define('BASE_DIR', dirname(__DIR__));
 define('UPLOADS_DIR', BASE_DIR . '/uploads');
 define('PROOFS_DIR', UPLOADS_DIR . '/proofs');
 define('LOGOS_DIR', UPLOADS_DIR . '/logos');
+define('DB_CONFIG_FILE', __DIR__ . '/db_config.php');
 
 foreach ([UPLOADS_DIR, PROOFS_DIR, LOGOS_DIR] as $dir) {
     if (!is_dir($dir)) {
@@ -24,176 +25,186 @@ if (!file_exists($htaccess)) {
     @file_put_contents($htaccess, "php_flag engine off\nOptions -Indexes\n");
 }
 
-$db_file = BASE_DIR . '/vps_platform.db';
+// ============================================================
+// إعدادات الاتصال بقاعدة بيانات MySQL / MariaDB
+// (يكتبها ملف install.php عند التنصيب لأول مرة)
+// ============================================================
 
-try {
-    $pdo = new PDO('sqlite:' . $db_file);
-    $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
-    $pdo->exec('PRAGMA foreign_keys = ON');
+function loadDbConfig() {
+    if (!file_exists(DB_CONFIG_FILE)) return null;
+    $config = require DB_CONFIG_FILE;
+    return is_array($config) ? $config : null;
+}
 
-    $pdo->exec("
-        CREATE TABLE IF NOT EXISTS users (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            name TEXT NOT NULL,
-            email TEXT UNIQUE,
-            phone TEXT UNIQUE,
-            password_hash TEXT,
-            is_admin INTEGER NOT NULL DEFAULT 0,
-            balance REAL NOT NULL DEFAULT 0,
+function connectDb(array $config) {
+    $host = $config['db_host'] ?? 'localhost';
+    $port = $config['db_port'] ?? '3306';
+    $name = $config['db_name'] ?? '';
+    $dsn = "mysql:host={$host};port={$port};dbname={$name};charset=utf8mb4";
+    return new PDO($dsn, $config['db_user'] ?? '', $config['db_pass'] ?? '', [
+        PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
+        PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
+        PDO::ATTR_EMULATE_PREPARES => false,
+    ]);
+}
+
+// ينشئ جداول قاعدة البيانات إن لم تكن موجودة، ويضيف أي أعمدة/فهارس ناقصة من
+// إصدار سابق للتطبيق. آمن لإعادة التشغيل في كل طلب (كل أمر يتحقق أولاً).
+function initSchema(PDO $pdo, $dbName) {
+    $charset = ' ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci';
+
+    $tables = [
+        "CREATE TABLE IF NOT EXISTS users (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            name VARCHAR(255) NOT NULL,
+            email VARCHAR(255) NULL,
+            phone VARCHAR(50) NULL,
+            password_hash VARCHAR(255) NULL,
+            is_admin INT NOT NULL DEFAULT 0,
+            balance DECIMAL(12,2) NOT NULL DEFAULT 0,
             created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-        );
+        )$charset",
 
-        CREATE TABLE IF NOT EXISTS vps_plans (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            name TEXT NOT NULL,
-            icon TEXT NOT NULL DEFAULT '🚀',
-            cpu TEXT NOT NULL,
-            ram TEXT NOT NULL,
-            storage TEXT NOT NULL,
-            bandwidth TEXT NOT NULL,
-            price REAL NOT NULL,
-            badge TEXT,
-            is_active INTEGER NOT NULL DEFAULT 1,
-            sort_order INTEGER NOT NULL DEFAULT 0,
+        "CREATE TABLE IF NOT EXISTS vps_plans (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            name VARCHAR(255) NOT NULL,
+            icon VARCHAR(20) NOT NULL DEFAULT '🚀',
+            cpu VARCHAR(100) NOT NULL,
+            ram VARCHAR(100) NOT NULL,
+            storage VARCHAR(100) NOT NULL,
+            bandwidth VARCHAR(100) NOT NULL,
+            price DECIMAL(12,2) NOT NULL,
+            badge VARCHAR(100) NULL,
+            is_active INT NOT NULL DEFAULT 1,
+            sort_order INT NOT NULL DEFAULT 0,
             created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-        );
+        )$charset",
 
-        CREATE TABLE IF NOT EXISTS payment_methods (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            name TEXT NOT NULL,
-            logo_path TEXT,
-            icon TEXT NOT NULL DEFAULT 'fa-money-bill-wave',
-            account_number TEXT,
-            instructions TEXT,
-            is_active INTEGER NOT NULL DEFAULT 1,
-            sort_order INTEGER NOT NULL DEFAULT 0,
+        "CREATE TABLE IF NOT EXISTS payment_methods (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            name VARCHAR(255) NOT NULL,
+            logo_path VARCHAR(500) NULL,
+            icon VARCHAR(100) NOT NULL DEFAULT 'fa-money-bill-wave',
+            account_number VARCHAR(255) NULL,
+            instructions TEXT NULL,
+            is_active INT NOT NULL DEFAULT 1,
+            sort_order INT NOT NULL DEFAULT 0,
             created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-        );
+        )$charset",
 
-        CREATE TABLE IF NOT EXISTS orders (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            user_id INTEGER NOT NULL,
-            plan_id INTEGER NOT NULL,
-            payment_method_id INTEGER,
-            amount REAL NOT NULL,
-            proof_image TEXT,
-            status TEXT NOT NULL DEFAULT 'pending',
-            admin_note TEXT,
+        "CREATE TABLE IF NOT EXISTS orders (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            user_id INT NOT NULL,
+            plan_id INT NOT NULL,
+            payment_method_id INT NULL,
+            amount DECIMAL(12,2) NOT NULL,
+            proof_image VARCHAR(500) NULL,
+            status VARCHAR(20) NOT NULL DEFAULT 'pending',
+            admin_note TEXT NULL,
             created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-            decided_at DATETIME,
+            decided_at DATETIME NULL,
             FOREIGN KEY (user_id) REFERENCES users(id),
             FOREIGN KEY (plan_id) REFERENCES vps_plans(id)
-        );
+        )$charset",
 
-        CREATE TABLE IF NOT EXISTS hosting (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            user_id INTEGER NOT NULL,
-            order_id INTEGER,
-            name TEXT NOT NULL,
-            plan TEXT NOT NULL,
-            ip TEXT NOT NULL,
-            username TEXT NOT NULL,
-            password TEXT NOT NULL,
-            status TEXT NOT NULL DEFAULT 'active',
-            expiry_date DATE,
+        "CREATE TABLE IF NOT EXISTS hosting (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            user_id INT NOT NULL,
+            order_id INT NULL,
+            name VARCHAR(255) NOT NULL,
+            plan VARCHAR(255) NOT NULL,
+            ip VARCHAR(100) NOT NULL,
+            username VARCHAR(255) NOT NULL,
+            password VARCHAR(255) NOT NULL,
+            status VARCHAR(20) NOT NULL DEFAULT 'active',
+            expiry_date DATE NULL,
             created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY (user_id) REFERENCES users(id),
             FOREIGN KEY (order_id) REFERENCES orders(id)
-        );
+        )$charset",
 
-        CREATE TABLE IF NOT EXISTS invoices (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            user_id INTEGER NOT NULL,
-            order_id INTEGER,
-            invoice_number TEXT NOT NULL,
-            amount REAL NOT NULL,
-            status TEXT NOT NULL DEFAULT 'pending',
-            due_date DATE,
-            description TEXT,
+        "CREATE TABLE IF NOT EXISTS invoices (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            user_id INT NOT NULL,
+            order_id INT NULL,
+            invoice_number VARCHAR(50) NOT NULL,
+            amount DECIMAL(12,2) NOT NULL,
+            status VARCHAR(20) NOT NULL DEFAULT 'pending',
+            due_date DATE NULL,
+            description VARCHAR(500) NULL,
             created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY (user_id) REFERENCES users(id),
             FOREIGN KEY (order_id) REFERENCES orders(id)
-        );
+        )$charset",
 
-        CREATE TABLE IF NOT EXISTS settings (
-            key TEXT PRIMARY KEY,
-            value TEXT
-        );
+        "CREATE TABLE IF NOT EXISTS settings (
+            `key` VARCHAR(191) PRIMARY KEY,
+            value TEXT NULL
+        )$charset",
 
-        CREATE TABLE IF NOT EXISTS notifications (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            user_id INTEGER NOT NULL,
-            title TEXT NOT NULL,
-            body TEXT,
-            type TEXT NOT NULL DEFAULT 'system',
-            is_read INTEGER NOT NULL DEFAULT 0,
+        "CREATE TABLE IF NOT EXISTS notifications (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            user_id INT NOT NULL,
+            title VARCHAR(255) NOT NULL,
+            body TEXT NULL,
+            type VARCHAR(30) NOT NULL DEFAULT 'system',
+            is_read INT NOT NULL DEFAULT 0,
             created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY (user_id) REFERENCES users(id)
-        );
+        )$charset",
 
-        CREATE TABLE IF NOT EXISTS currencies (
-            code TEXT PRIMARY KEY,
-            name TEXT NOT NULL,
-            symbol TEXT NOT NULL,
-            rate_per_usd REAL NOT NULL DEFAULT 1,
-            is_active INTEGER NOT NULL DEFAULT 1,
-            sort_order INTEGER NOT NULL DEFAULT 0
-        );
-    ");
+        "CREATE TABLE IF NOT EXISTS currencies (
+            code VARCHAR(10) PRIMARY KEY,
+            name VARCHAR(100) NOT NULL,
+            symbol VARCHAR(20) NOT NULL,
+            rate_per_usd DECIMAL(14,4) NOT NULL DEFAULT 1,
+            is_active INT NOT NULL DEFAULT 1,
+            sort_order INT NOT NULL DEFAULT 0
+        )$charset",
+    ];
+    foreach ($tables as $sql) {
+        $pdo->exec($sql);
+    }
 
     // ------------------------------------------------------------
-    // ترحيل قواعد بيانات قديمة من نسخة سابقة للتطبيق (تضيف الأعمدة
-    // الناقصة دون فقدان البيانات الموجودة أصلاً)
+    // ترحيل: إضافة أي أعمدة/فهارس ناقصة من إصدار سابق للتطبيق
+    // (دون فقدان البيانات الموجودة أصلاً)
     // ------------------------------------------------------------
-    $ensureColumn = function ($table, $column, $definition) use ($pdo) {
-        $existing = $pdo->query("PRAGMA table_info($table)")->fetchAll(PDO::FETCH_ASSOC);
-        foreach ($existing as $col) {
-            if ($col['name'] === $column) return;
-        }
-        $pdo->exec("ALTER TABLE $table ADD COLUMN $column $definition");
+    $ensureColumn = function ($table, $column, $definition) use ($pdo, $dbName) {
+        $stmt = $pdo->prepare('SELECT COUNT(*) FROM information_schema.columns WHERE table_schema = ? AND table_name = ? AND column_name = ?');
+        $stmt->execute([$dbName, $table, $column]);
+        if ((int)$stmt->fetchColumn() > 0) return;
+        $pdo->exec("ALTER TABLE `$table` ADD COLUMN `$column` $definition");
+    };
+    $ensureIndex = function ($table, $indexName, $columnExpr) use ($pdo, $dbName) {
+        $stmt = $pdo->prepare('SELECT COUNT(*) FROM information_schema.statistics WHERE table_schema = ? AND table_name = ? AND index_name = ?');
+        $stmt->execute([$dbName, $table, $indexName]);
+        if ((int)$stmt->fetchColumn() > 0) return;
+        $pdo->exec("CREATE UNIQUE INDEX `$indexName` ON `$table` ($columnExpr)");
     };
 
-    $usersCols = array_column($pdo->query('PRAGMA table_info(users)')->fetchAll(PDO::FETCH_ASSOC), 'name');
-    if (!in_array('email', $usersCols, true) || !in_array('password_hash', $usersCols, true)) {
-        // النسخة القديمة كانت تفرض phone TEXT UNIQUE NOT NULL، وهذا القيد لا يمكن
-        // إزالته بـ ALTER TABLE في SQLite، لذا نعيد بناء الجدول بالكامل محافظين على البيانات
-        try {
-            $pdo->beginTransaction();
-            $pdo->exec("
-                CREATE TABLE users_migrated (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    name TEXT NOT NULL,
-                    email TEXT,
-                    phone TEXT,
-                    password_hash TEXT,
-                    is_admin INTEGER NOT NULL DEFAULT 0,
-                    balance REAL NOT NULL DEFAULT 0,
-                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-                )
-            ");
-            $pdo->exec('INSERT INTO users_migrated (id, name, phone, is_admin, balance, created_at) SELECT id, name, phone, is_admin, balance, created_at FROM users');
-            $pdo->exec('DROP TABLE users');
-            $pdo->exec('ALTER TABLE users_migrated RENAME TO users');
-            $pdo->commit();
-        } catch (PDOException $e) {
-            $pdo->rollBack();
-            throw $e;
-        }
-    }
-    $pdo->exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_users_email ON users(email)');
-    $pdo->exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_users_phone ON users(phone)');
+    $ensureColumn('hosting', 'order_id', 'INT NULL');
+    $ensureColumn('invoices', 'order_id', 'INT NULL');
+    $ensureColumn('vps_plans', 'original_price', 'DECIMAL(12,2) NULL');
+    $ensureColumn('vps_plans', 'price_yearly', 'DECIMAL(12,2) NULL');
+    $ensureColumn('users', 'google_id', 'VARCHAR(255) NULL');
+    $ensureColumn('orders', 'billing_cycle', "VARCHAR(10) NOT NULL DEFAULT 'monthly'");
+    $ensureColumn('payment_methods', 'method_type', "VARCHAR(20) NOT NULL DEFAULT 'manual'");
+    $ensureColumn('payment_methods', 'currency_code', "VARCHAR(10) NOT NULL DEFAULT 'USD'");
+    $ensureColumn('hosting', 'vps_id', 'VARCHAR(100) NULL');
+    $ensureColumn('users', 'referral_code', 'VARCHAR(32) NULL');
+    $ensureColumn('users', 'referred_by', 'INT NULL');
 
-    $ensureColumn('hosting', 'order_id', 'INTEGER');
-    $ensureColumn('invoices', 'order_id', 'INTEGER');
-    $ensureColumn('vps_plans', 'original_price', 'REAL');
-    $ensureColumn('vps_plans', 'price_yearly', 'REAL');
-    $ensureColumn('users', 'google_id', 'TEXT');
-    $ensureColumn('orders', 'billing_cycle', "TEXT NOT NULL DEFAULT 'monthly'");
-    $ensureColumn('payment_methods', 'method_type', "TEXT NOT NULL DEFAULT 'manual'");
-    $ensureColumn('payment_methods', 'currency_code', "TEXT NOT NULL DEFAULT 'USD'");
+    // فهارس التفرّد (يتم إنشاؤها بعد التأكد من وجود الأعمدة أعلاه)
+    // ملاحظة: عمود email/phone قابلان لأن يكونا NULL بتكرار (حساب دخول عبر Google
+    // فقط بدون بريد، مثلاً)؛ فهرس UNIQUE في MySQL/InnoDB يسمح بعدة قيم NULL فلا مشكلة.
+    $ensureIndex('users', 'idx_users_email', 'email');
+    $ensureIndex('users', 'idx_users_phone', 'phone');
+    $ensureIndex('users', 'idx_users_referral_code', 'referral_code');
 
     // ------------------------------------------------------------
     // بيانات ابتدائية (تُدرج مرة واحدة فقط إذا كانت الجداول فارغة)
+    // ملاحظة: حساب الأدمن الأول يُنشأ من خلال install.php وليس هنا
     // ------------------------------------------------------------
     if ((int)$pdo->query('SELECT COUNT(*) FROM vps_plans')->fetchColumn() === 0) {
         $seed = $pdo->prepare('INSERT INTO vps_plans (name, icon, cpu, ram, storage, bandwidth, price, badge, sort_order) VALUES (?,?,?,?,?,?,?,?,?)');
@@ -216,13 +227,8 @@ try {
         $seed->execute(['IQD', 'دينار عراقي', 'د.ع', 1310, 2]);
     }
 
-    if ((int)$pdo->query('SELECT COUNT(*) FROM users WHERE is_admin = 1')->fetchColumn() === 0) {
-        $pdo->prepare('INSERT INTO users (name, email, password_hash, is_admin, balance) VALUES (?,?,?,1,0)')
-            ->execute(['مدير النظام', 'admin@istidafati.local', password_hash('Admin@12345', PASSWORD_DEFAULT)]);
-    }
-
     if ((int)$pdo->query('SELECT COUNT(*) FROM settings')->fetchColumn() === 0) {
-        $seed = $pdo->prepare('INSERT INTO settings (key, value) VALUES (?, ?)');
+        $seed = $pdo->prepare('INSERT INTO settings (`key`, value) VALUES (?, ?)');
         $seed->execute(['site_name', 'استضافتي']);
         $seed->execute(['site_tagline', 'استضافة سريعة وآمنة']);
         $seed->execute(['site_logo', '']);
@@ -233,6 +239,7 @@ try {
         $seed->execute(['app_currency', '']);
         $seed->execute(['ai_logo', '']);
         $seed->execute(['ai_home_banner', '']);
+        $seed->execute(['referral_discount_pct', '10']);
         $seed->execute(['site_terms',
             "1. باستخدامك لهذه المنصة فإنك توافق على هذه الشروط والأحكام.\n" .
             "2. يُمنع استخدام الخوادم في أي نشاط غير قانوني أو ضار (احتيال، اختراق، إرسال رسائل مزعجة، توزيع محتوى مخالف).\n" .
@@ -246,9 +253,24 @@ try {
             "3. تُخزَّن كلمات المرور بشكل مشفّر ولا يمكن لأي أحد الاطلاع عليها كنص صريح.\n" .
             "4. يمكنك التواصل مع الدعم الفني في أي وقت لطلب حذف بياناتك أو الاستفسار عنها."]);
     }
-} catch (PDOException $e) {
-    http_response_code(500);
-    die('تعذر الاتصال بقاعدة البيانات. تأكد من أن مجلد الموقع قابل للكتابة (permissions). التفاصيل: ' . htmlspecialchars($e->getMessage()));
+}
+
+// ============================================================
+// تشغيل الاتصال الفعلي لهذا الطلب (يُتخطى عند التحميل من install.php)
+// ============================================================
+if (!defined('ISTIDAFATI_INSTALLER')) {
+    $dbConfig = loadDbConfig();
+    if (!$dbConfig) {
+        header('Location: install.php');
+        exit;
+    }
+    try {
+        $pdo = connectDb($dbConfig);
+        initSchema($pdo, $dbConfig['db_name']);
+    } catch (PDOException $e) {
+        http_response_code(500);
+        die('تعذر الاتصال بقاعدة البيانات. تحقق من صحة الإعدادات في includes/db_config.php ومن أن خادم MySQL يعمل. التفاصيل: ' . htmlspecialchars($e->getMessage()));
+    }
 }
 
 // ============================================================
@@ -448,13 +470,28 @@ function e($str) {
 }
 
 // ============================================================
+// رابط المشاركة (الإحالة)
+// ============================================================
+
+function generateReferralCode() {
+    return strtoupper(bin2hex(random_bytes(4)));
+}
+
+function getOrCreateReferralCode(PDO $pdo, $user) {
+    if (!empty($user['referral_code'])) return $user['referral_code'];
+    $code = generateReferralCode();
+    $pdo->prepare('UPDATE users SET referral_code = ? WHERE id = ?')->execute([$code, (int)$user['id']]);
+    return $code;
+}
+
+// ============================================================
 // الإعدادات (اسم الموقع، الشعار، مفاتيح API) - يديرها الأدمن
 // ============================================================
 
 function getAllSettings(PDO $pdo) {
     static $cache = null;
     if ($cache !== null) return $cache;
-    $rows = $pdo->query('SELECT key, value FROM settings')->fetchAll(PDO::FETCH_KEY_PAIR);
+    $rows = $pdo->query('SELECT `key`, value FROM settings')->fetchAll(PDO::FETCH_KEY_PAIR);
     $cache = $rows;
     return $cache;
 }
@@ -465,7 +502,7 @@ function getSetting(PDO $pdo, $key, $default = '') {
 }
 
 function setSetting(PDO $pdo, $key, $value) {
-    $pdo->prepare('INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value')
+    $pdo->prepare('INSERT INTO settings (`key`, value) VALUES (?, ?) ON DUPLICATE KEY UPDATE value = VALUES(value)')
         ->execute([$key, $value]);
 }
 

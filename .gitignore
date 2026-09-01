@@ -1,4 +1,5 @@
 /vps_platform.db
+/includes/db_config.php
 /uploads/proofs/*
 /uploads/logos/*
 !/uploads/proofs/.gitkeep

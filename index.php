@@ -22,6 +22,7 @@ function handleRegister(PDO $pdo) {
     $name = trim($_POST['name'] ?? '');
     $email = strtolower(trim($_POST['email'] ?? ''));
     $password = (string)($_POST['password'] ?? '');
+    $refCode = trim($_POST['ref'] ?? '') ?: trim($_COOKIE['ref_code'] ?? '');
 
     if ($name === '') {
         return 'الرجاء إدخال الاسم الكامل.';
@@ -37,8 +38,17 @@ function handleRegister(PDO $pdo) {
     if ($exists->fetch()) {
         return 'هذا البريد الإلكتروني مسجل مسبقاً.';
     }
-    $pdo->prepare('INSERT INTO users (name, email, password_hash) VALUES (?,?,?)')
-        ->execute([$name, $email, password_hash($password, PASSWORD_DEFAULT)]);
+
+    $referredBy = null;
+    if ($refCode !== '') {
+        $refStmt = $pdo->prepare('SELECT id FROM users WHERE referral_code = ?');
+        $refStmt->execute([$refCode]);
+        $refUser = $refStmt->fetch(PDO::FETCH_ASSOC);
+        if ($refUser) $referredBy = (int)$refUser['id'];
+    }
+
+    $pdo->prepare('INSERT INTO users (name, email, password_hash, referral_code, referred_by) VALUES (?,?,?,?,?)')
+        ->execute([$name, $email, password_hash($password, PASSWORD_DEFAULT), generateReferralCode(), $referredBy]);
 
     $_SESSION['user_id'] = (int)$pdo->lastInsertId();
     return null;
@@ -348,6 +358,18 @@ if (isset($_GET['logout'])) {
     session_destroy();
     header('Location: index.php');
     exit;
+}
+
+// ============================================================
+// التقاط رمز رابط المشاركة (إحالة صديق)
+// ============================================================
+
+if (!empty($_GET['ref'])) {
+    $refCandidate = preg_replace('/[^A-Za-z0-9]/', '', (string)$_GET['ref']);
+    if ($refCandidate !== '') {
+        setcookie('ref_code', $refCandidate, time() + 60 * 60 * 24 * 30, '/');
+        $_COOKIE['ref_code'] = $refCandidate;
+    }
 }
 
 // ============================================================
@@ -696,7 +718,7 @@ function includeLandingPage(PDO $pdo) {
 
             <div class="cta-row">
                 <a href="index.php?page=plans" class="btn-primary-lg"><i class="fas fa-arrow-left"></i> تصفح الخطط والأسعار</a>
-                <a href="index.php?page=register" class="btn-outline-lg">إنشاء حساب</a>
+                <a href="index.php?page=register" class="btn-outline-lg">ابدأ الآن</a>
             </div>
 
             <div class="trust-row">
@@ -909,6 +931,8 @@ function includeLoginPage(PDO $pdo, $error) {
 
 function includeRegisterPage(PDO $pdo, $error) {
     $next = $_GET['next'] ?? '';
+    $ref = trim($_GET['ref'] ?? '') ?: trim($_COOKIE['ref_code'] ?? '');
+    $referralPct = (float)getSetting($pdo, 'referral_discount_pct', 0);
     $siteName = getSetting($pdo, 'site_name', 'استضافتي');
     $googleEnabled = getSetting($pdo, 'google_client_id', '') !== '';
     $googleUrl = 'index.php?action=google_login' . ($next ? '&next=' . urlencode($next) : '');
@@ -937,6 +961,8 @@ function includeRegisterPage(PDO $pdo, $error) {
 
                 <?php if ($error): ?><div class="form-alert"><?php echo e($error); ?></div><?php endif; ?>
 
+                <?php if ($ref && $referralPct > 0): ?><div class="form-alert" style="background:rgba(16,185,129,.1);color:#059669"><i class="fas fa-gift"></i> ستحصل على خصم <?php echo (int)$referralPct; ?>% على أول طلب لك عبر دعوة صديق!</div><?php endif; ?>
+
                 <?php if ($googleEnabled): ?>
                 <a href="<?php echo e($googleUrl); ?>" class="btn-google"><i class="fab fa-google"></i> إنشاء حساب عبر Google</a>
                 <div class="auth-divider"><span>أو عبر البريد الإلكتروني</span></div>
@@ -946,6 +972,7 @@ function includeRegisterPage(PDO $pdo, $error) {
                     <?php echo csrfField(); ?>
                     <input type="hidden" name="action" value="register">
                     <input type="hidden" name="next" value="<?php echo e($next); ?>">
+                    <input type="hidden" name="ref" value="<?php echo e($ref); ?>">
 
                     <label class="field-label">الاسم الكامل</label>
                     <input type="text" name="name" class="text-input" required>
@@ -995,11 +1022,23 @@ function handleSubmitOrder(PDO $pdo) {
 
     $amount = ($billingCycle === 'yearly' && !empty($plan['price_yearly'])) ? (float)$plan['price_yearly'] : (float)$plan['price'];
 
+    $user = currentUser($pdo);
+    $referralDiscountPct = 0.0;
+    if (!empty($user['referred_by'])) {
+        $priorOrdersStmt = $pdo->prepare('SELECT COUNT(*) FROM orders WHERE user_id = ?');
+        $priorOrdersStmt->execute([$userId]);
+        if ((int)$priorOrdersStmt->fetchColumn() === 0) {
+            $referralDiscountPct = (float)getSetting($pdo, 'referral_discount_pct', 0);
+        }
+    }
+    if ($referralDiscountPct > 0) {
+        $amount = round($amount * (1 - $referralDiscountPct / 100), 2);
+    }
+
     $paymentMethodId = null;
     $proofPath = null;
 
     if ($paymentChoice === 'balance') {
-        $user = currentUser($pdo);
         if ((float)$user['balance'] < $amount) {
             return [null, 'رصيدك الحالي غير كافٍ لإتمام هذا الطلب.'];
         }
@@ -1025,8 +1064,12 @@ function handleSubmitOrder(PDO $pdo) {
     $orderId = (int)$pdo->lastInsertId();
 
     $cycleLabel = $billingCycle === 'yearly' ? 'سنوي' : 'شهري';
+    $invDescription = 'اشتراك باقة ' . $plan['name'] . ' (' . $cycleLabel . ')';
+    if ($referralDiscountPct > 0) {
+        $invDescription .= ' - يشمل خصم دعوة ' . (int)$referralDiscountPct . '%';
+    }
     $pdo->prepare('INSERT INTO invoices (user_id, order_id, invoice_number, amount, status, description) VALUES (?,?,?,?,?,?)')
-        ->execute([$userId, $orderId, nextInvoiceNumber($pdo), $amount, $paymentChoice === 'balance' ? 'paid' : 'pending', 'اشتراك باقة ' . $plan['name'] . ' (' . $cycleLabel . ')']);
+        ->execute([$userId, $orderId, nextInvoiceNumber($pdo), $amount, $paymentChoice === 'balance' ? 'paid' : 'pending', $invDescription]);
 
     return [$orderId, null];
 }
@@ -1073,6 +1116,10 @@ function includeAppPage(PDO $pdo) {
     $siteLogo = getSetting($pdo, 'site_logo', '');
     $aiLogo = getSetting($pdo, 'ai_logo', '');
     $aiHomeBanner = getSetting($pdo, 'ai_home_banner', '');
+    $referralDiscountPct = (float)getSetting($pdo, 'referral_discount_pct', 0);
+    $myReferralCode = getOrCreateReferralCode($pdo, $user);
+    $referralScheme = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http';
+    $referralLink = $referralScheme . '://' . $_SERVER['HTTP_HOST'] . '/index.php?ref=' . $myReferralCode;
 
     $notifStmt = $pdo->prepare('SELECT * FROM notifications WHERE user_id = ? ORDER BY created_at DESC LIMIT 50');
     $notifStmt->execute([$userId]);
@@ -1097,6 +1144,7 @@ function includeAppPage(PDO $pdo) {
     ");
     $ordersStmt->execute([$userId]);
     $orders = $ordersStmt->fetchAll(PDO::FETCH_ASSOC);
+    $referralEligible = $referralDiscountPct > 0 && !empty($user['referred_by']) && count($orders) === 0;
 
     $payment_methods = $pdo->query('SELECT * FROM payment_methods WHERE is_active = 1 ORDER BY sort_order ASC, id ASC')->fetchAll(PDO::FETCH_ASSOC);
     $pmColors = ['blue', 'purple', 'gold', 'green'];
@@ -2159,33 +2207,31 @@ function includeAppPage(PDO $pdo) {
             .promo-ai-banner-img { width: 100%; height: auto; max-height: 140px; object-fit: cover; display: block; border-radius: var(--radius); }
 
             /* ============================================================
+            بطاقة رابط المشاركة (الإحالة)
+            ============================================================ */
+            .referral-share-head { display: flex; align-items: center; gap: 12px; }
+            .referral-share-icon {
+                width: 44px; height: 44px; border-radius: 50%; flex-shrink: 0;
+                background: var(--accent-glow); color: var(--accent);
+                display: flex; align-items: center; justify-content: center; font-size: 19px;
+            }
+            .referral-share-head h3 { font-size: 14px; font-weight: 800; }
+            .referral-share-head p { font-size: 11.5px; color: var(--text-muted); margin-top: 2px; line-height: 1.5; }
+            .referral-link-row { display: flex; gap: 8px; margin-top: 12px; }
+            .referral-link-input {
+                flex: 1; min-width: 0; padding: 10px 12px; border-radius: var(--radius-sm);
+                border: 1.5px solid var(--border-color); background: var(--bg-secondary); color: var(--text-secondary);
+                font-size: 12px; font-family: inherit; outline: none; text-overflow: ellipsis;
+            }
+            .referral-copy-btn {
+                width: 40px; flex-shrink: 0; border-radius: var(--radius-sm); border: 1.5px solid var(--border-color);
+                background: var(--bg-secondary); color: var(--accent); font-size: 14px; cursor: pointer; transition: var(--transition);
+            }
+            .referral-copy-btn:hover { border-color: var(--border-active); }
+
+            /* ============================================================
                صف أزرار سريعة دائرية (تفاصيل السيرفر)
                ============================================================ */
-            .icon-actions-row {
-                display: grid;
-                grid-template-columns: repeat(4, 1fr);
-                gap: 8px;
-                margin-bottom: 14px;
-            }
-            .icon-action {
-                background: var(--bg-secondary);
-                border: 1px solid var(--border-color);
-                border-radius: var(--radius-sm);
-                padding: 12px 4px;
-                text-align: center;
-                cursor: pointer;
-                transition: var(--transition);
-                font-family: inherit;
-                color: var(--text-secondary);
-            }
-            .icon-action:hover {
-                border-color: var(--border-active);
-                transform: translateY(-2px);
-                box-shadow: var(--shadow-sm);
-            }
-            .icon-action i { font-size: 17px; color: var(--accent); display: block; margin-bottom: 4px; }
-            .icon-action span { font-size: 9px; font-weight: 700; }
-            .icon-action.danger i { color: #f87171; }
 
             /* ============================================================
                تبويبات
@@ -2790,6 +2836,24 @@ function includeAppPage(PDO $pdo) {
                     <?php endif; ?>
                 </button>
 
+                <!-- شارك واحصل أصدقاؤك على خصم -->
+                <?php if ($referralDiscountPct > 0): ?>
+                <div class="card referral-share-card">
+                    <div class="referral-share-head">
+                        <div class="referral-share-icon"><i class="fas fa-gift"></i></div>
+                        <div>
+                            <h3>شارك واحصل أصدقاؤك على خصم</h3>
+                            <p>كل صديق يسجّل عبر رابطك يحصل على خصم <?php echo (int)$referralDiscountPct; ?>% على أول طلب VPS له.</p>
+                        </div>
+                    </div>
+                    <div class="referral-link-row">
+                        <input type="text" id="referralLinkInput" class="referral-link-input" readonly value="<?php echo e($referralLink); ?>" dir="ltr" onclick="this.select()">
+                        <button type="button" id="referralCopyBtn" class="referral-copy-btn" onclick="copyReferralLink()" title="نسخ"><i class="fas fa-copy"></i></button>
+                    </div>
+                    <button type="button" class="btn-gold" style="width:100%;margin-top:10px" onclick="shareReferralLink()"><i class="fas fa-share-nodes"></i> مشاركة الرابط</button>
+                </div>
+                <?php endif; ?>
+
                 <!-- قائمة الاستضافات -->
                 <div class="card">
                     <div class="card-header">
@@ -2862,7 +2926,7 @@ function includeAppPage(PDO $pdo) {
                         <?php foreach ($hosting as $h): ?>
                         <div class="hosting-item server-list-item" data-name="<?php echo htmlspecialchars(mb_strtolower($h['name'])); ?>" onclick="showHostingDetail(<?php echo $h['id']; ?>)">
                             <div class="info">
-                                <div class="name"><?php echo $h['name']; ?> <span style="color:var(--text-muted);font-weight:600;font-size:11px">#<?php echo (int)$h['id']; ?></span></div>
+                                <div class="name"><?php echo $h['name']; ?> <span style="color:var(--text-muted);font-weight:600;font-size:11px">#<?php echo e($h['vps_id'] ?: $h['id']); ?></span></div>
                                 <div class="sub"><?php echo $h['plan']; ?> · <?php echo $h['ip']; ?></div>
                             </div>
                             <div class="status-badge">
@@ -2887,13 +2951,6 @@ function includeAppPage(PDO $pdo) {
                 <div class="card-header" style="margin-bottom:14px">
                     <h3><i class="fas fa-server"></i> تفاصيل السيرفر</h3>
                     <button class="btn-back" onclick="hideHostingDetail()">رجوع</button>
-                </div>
-
-                <div class="icon-actions-row">
-                    <button class="icon-action" onclick="alert('💾 جاري إنشاء نسخة احتياطية...')"><i class="fas fa-clock-rotate-left"></i><span>نسخ احتياطي</span></button>
-                    <button class="icon-action" onclick="alert('🔄 جاري إعادة تشغيل السيرفر...')"><i class="fas fa-power-off"></i><span>إعادة تشغيل</span></button>
-                    <button class="icon-action danger" onclick="if(confirm('هل أنت متأكد من حذف هذا السيرفر؟')) alert('🗑️ تم إرسال طلب الحذف')"><i class="fas fa-trash"></i><span>حذف</span></button>
-                    <button class="icon-action" onclick="alert('⚙️ المزيد من الخيارات قريباً')"><i class="fas fa-ellipsis"></i><span>مزيد</span></button>
                 </div>
 
                 <div class="tab-strip">
@@ -3623,6 +3680,8 @@ function includeAppPage(PDO $pdo) {
             const HOSTING = <?php echo json_encode($hosting); ?>;
             const INVOICES = <?php echo json_encode($invoices); ?>;
             const USER_BALANCE = <?php echo (float)$balance; ?>;
+            const REFERRAL_ELIGIBLE = <?php echo $referralEligible ? 'true' : 'false'; ?>;
+            const REFERRAL_DISCOUNT_PCT = <?php echo (float)$referralDiscountPct; ?>;
             const VPS_PLANS = <?php echo json_encode($vps_plans); ?>;
             const PAYMENT_METHODS = <?php echo json_encode($payment_methods); ?>;
             const AI_CONVERSATIONS = <?php echo json_encode($ai_conversations); ?>;
@@ -3884,7 +3943,7 @@ function includeAppPage(PDO $pdo) {
                 document.getElementById('hostingDetailContent').innerHTML = `
                     <div class="detail-row">
                         <span class="label">معرّف السيرفر</span>
-                        <span class="value" style="direction:ltr">#${hosting.id}</span>
+                        <span class="value" style="direction:ltr">#${hosting.vps_id || hosting.id}</span>
                     </div>
                     <div class="detail-row">
                         <span class="label">اسم الاستضافة</span>
@@ -3974,7 +4033,32 @@ function includeAppPage(PDO $pdo) {
                     alert('✅ تم نسخ النص!');
                 });
             }
-            
+
+            function copyReferralLink() {
+                const input = document.getElementById('referralLinkInput');
+                const btn = document.getElementById('referralCopyBtn');
+                const finish = () => {
+                    const original = btn.innerHTML;
+                    btn.innerHTML = '<i class="fas fa-check" style="color:#34d399"></i>';
+                    setTimeout(function() { btn.innerHTML = original; }, 1500);
+                };
+                navigator.clipboard.writeText(input.value).then(finish).catch(function() {
+                    input.select();
+                    document.execCommand('copy');
+                    finish();
+                });
+            }
+
+            function shareReferralLink() {
+                const link = document.getElementById('referralLinkInput').value;
+                const text = 'سجّل عبر رابطي في استضافتي واحصل على خصم على أول طلب VPS!';
+                if (navigator.share) {
+                    navigator.share({ title: 'استضافتي', text: text, url: link }).catch(function() {});
+                } else {
+                    copyReferralLink();
+                }
+            }
+
             function renewHosting(id) {
                 if (confirm('هل تريد تجديد هذه الاستضافة؟')) {
                     alert('✅ تم تجديد الاستضافة بنجاح!\nتم إضافة شهر جديد إلى تاريخ الانتهاء.');
@@ -4015,10 +4099,18 @@ function includeAppPage(PDO $pdo) {
             }
 
             function planPriceForCycle(plan) {
+                let result;
                 if (wizardState.billingCycle === 'yearly' && plan.price_yearly) {
-                    return { price: Number(plan.price_yearly), suffix: '/سنة', discountPct: null, original: null };
+                    result = { price: Number(plan.price_yearly), suffix: '/سنة', discountPct: null, original: null };
+                } else {
+                    result = { price: Number(plan.price), suffix: '/شهر', discountPct: planDiscountPct(plan), original: Number(plan.original_price) || null };
                 }
-                return { price: Number(plan.price), suffix: '/شهر', discountPct: planDiscountPct(plan), original: Number(plan.original_price) || null };
+                result.referralApplied = false;
+                if (REFERRAL_ELIGIBLE && REFERRAL_DISCOUNT_PCT > 0) {
+                    result.price = Math.round(result.price * (1 - REFERRAL_DISCOUNT_PCT / 100) * 100) / 100;
+                    result.referralApplied = true;
+                }
+                return result;
             }
 
             function wizardSetBillingCycle(cycle) {
@@ -4066,7 +4158,7 @@ function includeAppPage(PDO $pdo) {
                 document.getElementById('planDetailsIcon').textContent = plan.icon;
                 document.getElementById('planDetailsName').textContent = plan.name;
                 const p = planPriceForCycle(plan);
-                document.getElementById('planDetailsPrice').innerHTML = `${p.discountPct ? `<s style="font-size:16px;color:var(--text-muted);margin-left:6px" data-usd="${p.original}">${p.original}$</s>` : ''}<span data-usd="${p.price}">${p.price}$</span> <small style="font-size:13px;color:var(--text-muted)">${p.suffix}</small>`;
+                document.getElementById('planDetailsPrice').innerHTML = `${p.discountPct ? `<s style="font-size:16px;color:var(--text-muted);margin-left:6px" data-usd="${p.original}">${p.original}$</s>` : ''}<span data-usd="${p.price}">${p.price}$</span> <small style="font-size:13px;color:var(--text-muted)">${p.suffix}</small>${p.referralApplied ? `<div style="font-size:11px;font-weight:700;color:#059669;margin-top:4px"><i class="fas fa-gift"></i> يشمل خصم دعوة ${REFERRAL_DISCOUNT_PCT}%</div>` : ''}`;
                 document.getElementById('planDetailsSpecs').innerHTML = `
                     <div class="detail-row"><span class="label">المعالج</span><span class="value">${plan.cpu}</span></div>
                     <div class="detail-row"><span class="label">الذاكرة (RAM)</span><span class="value">${plan.ram}</span></div>
@@ -4088,6 +4180,7 @@ function includeAppPage(PDO $pdo) {
                     <div class="detail-row"><span class="label">موقع السيرفر</span><span class="value">Frankfurt, Germany</span></div>
                     <div class="detail-row"><span class="label">نظام التشغيل</span><span class="value">Ubuntu 22.04</span></div>
                     <div class="detail-row"><span class="label">مدة الاشتراك</span><span class="value">${cycleLabel}</span></div>
+                    ${p.referralApplied ? `<div class="detail-row"><span class="label"><i class="fas fa-gift"></i> خصم دعوة صديق</span><span class="value" style="color:#059669">${REFERRAL_DISCOUNT_PCT}%</span></div>` : ''}
                     <div class="detail-row"><span class="label">السعر</span><span class="value" data-usd="${p.price}">${p.price}$${p.suffix}</span></div>
                 `;
                 document.getElementById('paymentTotalAmount').setAttribute('data-usd', p.price);
