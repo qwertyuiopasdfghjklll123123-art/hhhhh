@@ -1,0 +1,3 @@
+# رابط نظيف للتطبيق بعد تسجيل الدخول: /app بدل /index.php?app=1
+RewriteEngine On
+RewriteRule ^app/?$ index.php?app=1 [L,QSA]

@@ -35,11 +35,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $ram = trim($_POST['ram'] ?? '');
         $storage = trim($_POST['storage'] ?? '');
         $bandwidth = trim($_POST['bandwidth'] ?? '');
+        $billingCycle = ($_POST['billing_cycle'] ?? '') === 'yearly' ? 'yearly' : 'monthly';
         $price = (float)($_POST['price'] ?? 0);
         $originalPriceRaw = trim($_POST['original_price'] ?? '');
         $originalPrice = $originalPriceRaw === '' ? null : (float)$originalPriceRaw;
-        $yearlyPriceRaw = trim($_POST['price_yearly'] ?? '');
-        $yearlyPrice = $yearlyPriceRaw === '' ? null : (float)$yearlyPriceRaw;
         $badge = trim($_POST['badge'] ?? '') ?: null;
         $isActive = isset($_POST['is_active']) ? 1 : 0;
         $sortOrder = (int)($_POST['sort_order'] ?? 0);
@@ -50,9 +49,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if ($originalPrice !== null && $originalPrice <= $price) {
             $originalPrice = null;
         }
-        if ($yearlyPrice !== null && $yearlyPrice <= 0) {
-            $yearlyPrice = null;
-        }
 
         $previousOriginalPrice = null;
         if ($id > 0) {
@@ -61,11 +57,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $previousOriginalPrice = $prevStmt->fetchColumn();
             $previousOriginalPrice = $previousOriginalPrice !== false && $previousOriginalPrice !== null ? (float)$previousOriginalPrice : null;
 
-            $pdo->prepare('UPDATE vps_plans SET name=?, icon=?, cpu=?, ram=?, storage=?, bandwidth=?, price=?, original_price=?, price_yearly=?, badge=?, is_active=?, sort_order=? WHERE id=?')
-                ->execute([$name, $icon, $cpu, $ram, $storage, $bandwidth, $price, $originalPrice, $yearlyPrice, $badge, $isActive, $sortOrder, $id]);
+            $pdo->prepare('UPDATE vps_plans SET name=?, icon=?, cpu=?, ram=?, storage=?, bandwidth=?, price=?, original_price=?, billing_cycle=?, badge=?, is_active=?, sort_order=? WHERE id=?')
+                ->execute([$name, $icon, $cpu, $ram, $storage, $bandwidth, $price, $originalPrice, $billingCycle, $badge, $isActive, $sortOrder, $id]);
         } else {
-            $pdo->prepare('INSERT INTO vps_plans (name, icon, cpu, ram, storage, bandwidth, price, original_price, price_yearly, badge, is_active, sort_order) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)')
-                ->execute([$name, $icon, $cpu, $ram, $storage, $bandwidth, $price, $originalPrice, $yearlyPrice, $badge, $isActive, $sortOrder]);
+            $pdo->prepare('INSERT INTO vps_plans (name, icon, cpu, ram, storage, bandwidth, price, original_price, billing_cycle, badge, is_active, sort_order) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)')
+                ->execute([$name, $icon, $cpu, $ram, $storage, $bandwidth, $price, $originalPrice, $billingCycle, $badge, $isActive, $sortOrder]);
         }
 
         if ($isActive && $originalPrice !== null && $originalPrice !== $previousOriginalPrice) {
@@ -304,122 +300,7 @@ $activeHostingCount = (int)$pdo->query("SELECT COUNT(*) FROM hosting WHERE statu
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
-    <style>
-        :root {
-            --bg-primary: #f7f4f0;
-            --bg-secondary: #ffffff;
-            --bg-card: #fbf7f3;
-            --bg-card-hover: #fdeee0;
-            --text-primary: #221a12;
-            --text-secondary: #6b5d50;
-            --text-muted: #998a7c;
-            --accent: #ff7a1a;
-            --accent-dark: #ee6a05;
-            --accent-light: #ffa64d;
-            --accent-glow: rgba(255,122,26,.12);
-            --border-color: #f0e6da;
-            --border-active: rgba(255,122,26,.3);
-            --shadow: 0 10px 40px rgba(34,26,18,.08);
-            --shadow-sm: 0 6px 20px rgba(34,26,18,.05);
-            --radius: 18px;
-            --radius-sm: 12px;
-            --transition: .2s ease;
-        }
-        * { margin:0; padding:0; box-sizing:border-box; }
-        body { font-family:'IBM Plex Sans Arabic','Tajawal',system-ui,sans-serif; background:var(--bg-primary); color:var(--text-primary); padding-bottom:60px; }
-        a { color:inherit; text-decoration:none; }
-        .hidden { display:none !important; }
-
-        .admin-header {
-            display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:10px;
-            padding: 12px 24px; background:var(--bg-secondary); border-bottom:1px solid var(--border-color);
-        }
-        .admin-header .brand { display:flex; align-items:center; gap:8px; font-weight:800; font-size:14px; color:var(--text-secondary); }
-        .admin-header .brand i { color:var(--accent); }
-        .admin-header .right-links { display:flex; align-items:center; gap:14px; font-size:12px; color:var(--text-secondary); }
-
-        .admin-tabs {
-            display:flex; gap:8px; padding: 14px 24px; overflow-x:auto; background:var(--bg-secondary); border-bottom:1px solid var(--border-color);
-        }
-        .admin-tab {
-            display:flex; align-items:center; gap:6px; padding:9px 16px; border-radius:999px; font-size:13px; font-weight:700;
-            background:var(--bg-card); color:var(--text-secondary); white-space:nowrap; position:relative;
-        }
-        .admin-tab.active { background:linear-gradient(135deg,var(--accent),var(--accent-dark)); color:#fff; }
-        .admin-tab .tab-badge {
-            background:#dc2626; color:#fff; border-radius:999px; font-size:10px; padding:1px 6px; margin-inline-start:4px;
-        }
-
-        .admin-container { max-width: 980px; margin:0 auto; padding: 20px; }
-
-        .stats-row { display:grid; grid-template-columns:repeat(4,1fr); gap:10px; margin-bottom:20px; }
-        .stat-tile { background:var(--bg-secondary); border:1px solid var(--border-color); border-radius:var(--radius-sm); padding:14px 10px; text-align:center; }
-        .stat-tile .num { font-size:20px; font-weight:900; color:var(--accent); }
-        .stat-tile .label { font-size:10px; color:var(--text-muted); margin-top:2px; }
-
-        .flash-msg { background:rgba(34,197,94,.12); color:#16a34a; border:1px solid rgba(34,197,94,.3); border-radius:var(--radius-sm); padding:12px 16px; font-size:13px; margin-bottom:16px; }
-        .flash-err { background:rgba(239,68,68,.1); color:#dc2626; border:1px solid rgba(239,68,68,.25); border-radius:var(--radius-sm); padding:12px 16px; font-size:13px; margin-bottom:16px; }
-
-        .admin-card { background:var(--bg-secondary); border:1px solid var(--border-color); border-radius:var(--radius); padding:20px; margin-bottom:16px; }
-        .admin-card-header { display:flex; align-items:center; justify-content:space-between; margin-bottom:14px; flex-wrap:wrap; gap:8px; }
-        .admin-card-header h2 { font-size:15px; font-weight:800; display:flex; align-items:center; gap:8px; }
-        .admin-card-header h2 i { color:var(--accent); }
-
-        .btn { display:inline-flex; align-items:center; gap:6px; padding:9px 16px; border-radius:var(--radius-sm); border:none; font-family:inherit; font-size:12px; font-weight:700; cursor:pointer; transition:var(--transition); }
-        .btn-accent { background:linear-gradient(135deg,var(--accent),var(--accent-dark)); color:#fff; }
-        .btn-accent:hover { transform:translateY(-1px); }
-        .btn-outline { background:var(--bg-card); color:var(--text-secondary); border:1px solid var(--border-color); }
-        .btn-outline:hover { border-color:var(--accent); color:var(--accent); }
-        .btn-danger { background:rgba(239,68,68,.1); color:#dc2626; border:1px solid rgba(239,68,68,.25); }
-        .btn-danger:hover { background:rgba(239,68,68,.18); }
-        .btn-sm { padding:7px 12px; font-size:11px; }
-        .btn-block { width:100%; justify-content:center; }
-
-        .field-label { display:block; font-size:12px; font-weight:700; color:var(--text-secondary); margin-bottom:6px; }
-        .field-row { margin-bottom:14px; }
-        .field-grid-2 { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
-        .text-input {
-            width:100%; padding:11px 12px; border-radius:var(--radius-sm); border:1.5px solid var(--border-color);
-            background:var(--bg-card); color:var(--text-primary); font-size:13px; font-family:inherit; outline:none; transition:var(--transition);
-        }
-        .text-input:focus { border-color:var(--accent); }
-        textarea.text-input { resize:vertical; min-height:70px; }
-        .checkbox-row { display:flex; align-items:center; gap:8px; font-size:12px; color:var(--text-secondary); margin-bottom:14px; }
-
-        table.admin-table { width:100%; border-collapse:collapse; font-size:13px; }
-        table.admin-table th { text-align:right; padding:10px 8px; color:var(--text-muted); font-size:11px; border-bottom:1px solid var(--border-color); white-space:nowrap; }
-        table.admin-table td { padding:12px 8px; border-bottom:1px solid var(--border-color); vertical-align:middle; }
-        table.admin-table tr:last-child td { border-bottom:none; }
-        .table-scroll { overflow-x:auto; }
-
-        .pill { padding:2px 10px; border-radius:999px; font-size:10px; font-weight:700; display:inline-block; white-space:nowrap; }
-        .pill-green { background:rgba(16,185,129,.12); color:#059669; }
-        .pill-amber { background:rgba(251,191,36,.15); color:#b45309; }
-        .pill-red { background:rgba(239,68,68,.12); color:#dc2626; }
-        .pill-gray { background:rgba(107,93,80,.12); color:var(--text-secondary); }
-
-        .order-card { border:1.5px solid var(--border-color); border-radius:var(--radius); padding:16px; margin-bottom:12px; }
-        .order-card.pending { border-color: rgba(251,191,36,.5); background: rgba(251,191,36,.04); }
-        .order-card-top { display:flex; justify-content:space-between; align-items:flex-start; gap:10px; margin-bottom:10px; flex-wrap:wrap; }
-        .order-card-top .who { font-weight:800; font-size:14px; }
-        .order-card-top .who span { display:block; font-weight:400; font-size:11px; color:var(--text-muted); margin-top:2px; }
-        .order-meta { display:grid; grid-template-columns:repeat(auto-fit,minmax(120px,1fr)); gap:8px; margin-bottom:12px; font-size:12px; }
-        .order-meta div strong { display:block; font-size:13px; color:var(--text-primary); }
-        .order-meta div span { color:var(--text-muted); font-size:11px; }
-        .proof-thumb { width:70px; height:70px; object-fit:cover; border-radius:var(--radius-sm); border:1px solid var(--border-color); }
-        .order-actions { display:flex; gap:8px; flex-wrap:wrap; }
-        .fulfill-form { margin-top:14px; padding-top:14px; border-top:1.5px dashed var(--border-color); }
-
-        .pm-logo-preview, .plan-icon-preview { font-size:28px; }
-        .pm-row-icon { width:40px; height:40px; border-radius:50%; background:var(--accent-glow); color:var(--accent); display:flex; align-items:center; justify-content:center; font-size:16px; overflow:hidden; }
-        .pm-row-icon img { width:100%; height:100%; object-fit:cover; }
-
-        @media (max-width: 640px) {
-            .stats-row { grid-template-columns:repeat(2,1fr); }
-            .field-grid-2 { grid-template-columns:1fr; }
-            .admin-container { padding:14px; }
-        }
-    </style>
+    <link rel="stylesheet" href="assets/css/admin.css">
 </head>
 <body>
     <header class="admin-header">
@@ -531,9 +412,12 @@ function renderAdminOrders(PDO $pdo) {
             </div>
 
             <?php if ($o['proof_image']): ?>
-                <a href="<?php echo e($o['proof_image']); ?>" target="_blank" title="عرض إيصال التحويل">
-                    <img src="<?php echo e($o['proof_image']); ?>" class="proof-thumb" alt="إيصال التحويل">
-                </a>
+                <div style="display:flex;align-items:center;gap:12px;margin-bottom:4px">
+                    <a href="<?php echo e($o['proof_image']); ?>" target="_blank" title="عرض إيصال التحويل">
+                        <img src="<?php echo e($o['proof_image']); ?>" class="proof-thumb" alt="إيصال التحويل">
+                    </a>
+                    <a href="<?php echo e($o['proof_image']); ?>" target="_blank" class="btn btn-accent btn-sm"><i class="fas fa-receipt"></i> عرض وصل الدفع</a>
+                </div>
             <?php endif; ?>
 
             <?php if ($o['status'] === 'pending'): ?>
@@ -625,6 +509,14 @@ function renderAdminTopups(PDO $pdo) {
                 <div><strong><?php echo e($inv['invoice_number']); ?></strong><span>رقم الفاتورة</span></div>
                 <div><strong><?php echo e(substr($inv['created_at'], 0, 16)); ?></strong><span>تاريخ الطلب</span></div>
             </div>
+            <?php if (!empty($inv['proof_image'])): ?>
+                <div style="display:flex;align-items:center;gap:12px;margin-bottom:4px">
+                    <a href="<?php echo e($inv['proof_image']); ?>" target="_blank" title="عرض إيصال التحويل">
+                        <img src="<?php echo e($inv['proof_image']); ?>" class="proof-thumb" alt="إيصال التحويل">
+                    </a>
+                    <a href="<?php echo e($inv['proof_image']); ?>" target="_blank" class="btn btn-accent btn-sm"><i class="fas fa-receipt"></i> عرض وصل الدفع</a>
+                </div>
+            <?php endif; ?>
             <?php if ($inv['status'] === 'pending'): ?>
             <div class="order-actions" style="margin-top:12px">
                 <form method="POST" action="admin.php?section=topups" style="display:inline">
@@ -666,9 +558,16 @@ function renderAdminPlans(PDO $pdo) {
                 <div class="field-row"><label class="field-label">الذاكرة (RAM)</label><input type="text" name="ram" class="text-input" placeholder="4 GB" required></div>
                 <div class="field-row"><label class="field-label">التخزين</label><input type="text" name="storage" class="text-input" placeholder="100 GB SSD" required></div>
                 <div class="field-row"><label class="field-label">الباندويث</label><input type="text" name="bandwidth" class="text-input" placeholder="2 TB" required></div>
-                <div class="field-row"><label class="field-label">السعر الشهري ($)</label><input type="number" step="0.01" min="0.01" name="price" class="text-input" required></div>
+                <div class="field-row">
+                    <label class="field-label">نوع الاشتراك</label>
+                    <select name="billing_cycle" class="text-input" required>
+                        <option value="monthly">شهري</option>
+                        <option value="yearly">سنوي</option>
+                    </select>
+                    <p style="font-size:11px;color:var(--text-muted);margin-top:4px">تحدّد في أي تبويب (شهري/سنوي) تظهر هذه الباقة للمستخدم.</p>
+                </div>
+                <div class="field-row"><label class="field-label">السعر ($)</label><input type="number" step="0.01" min="0.01" name="price" class="text-input" required></div>
                 <div class="field-row"><label class="field-label">السعر قبل الخصم (اختياري)</label><input type="number" step="0.01" min="0.01" name="original_price" class="text-input" placeholder="اتركه فارغاً بدون خصم"></div>
-                <div class="field-row"><label class="field-label">السعر السنوي (اختياري)</label><input type="number" step="0.01" min="0.01" name="price_yearly" class="text-input" placeholder="اتركه فارغاً لإخفاء خيار الاشتراك السنوي"></div>
                 <div class="field-row"><label class="field-label">شارة (اختياري)</label><input type="text" name="badge" class="text-input" placeholder="🔥 الأكثر طلباً"></div>
                 <div class="field-row"><label class="field-label">ترتيب العرض</label><input type="number" name="sort_order" class="text-input" value="0"></div>
             </div>
@@ -687,8 +586,9 @@ function renderAdminPlans(PDO $pdo) {
                     <?php if (!empty($plan['original_price'])): ?>
                         <s class="text-muted">$<?php echo money($plan['original_price']); ?></s>
                     <?php endif; ?>
-                    $<?php echo money($plan['price']); ?>/شهر
+                    $<?php echo money($plan['price']); ?>/<?php echo ($plan['billing_cycle'] ?? 'monthly') === 'yearly' ? 'سنة' : 'شهر'; ?>
                 </span>
+                <span class="pill <?php echo ($plan['billing_cycle'] ?? 'monthly') === 'yearly' ? 'pill-amber' : 'pill-green'; ?>" style="margin-inline-end:6px"><?php echo ($plan['billing_cycle'] ?? 'monthly') === 'yearly' ? 'سنوي' : 'شهري'; ?></span>
                 <span class="pill <?php echo $plan['is_active'] ? 'pill-green' : 'pill-gray'; ?>"><?php echo $plan['is_active'] ? 'مفعّلة' : 'موقوفة'; ?></span>
             </summary>
             <form method="POST" action="admin.php?section=plans" style="margin-top:14px">
@@ -702,9 +602,15 @@ function renderAdminPlans(PDO $pdo) {
                     <div class="field-row"><label class="field-label">الذاكرة (RAM)</label><input type="text" name="ram" class="text-input" value="<?php echo e($plan['ram']); ?>" required></div>
                     <div class="field-row"><label class="field-label">التخزين</label><input type="text" name="storage" class="text-input" value="<?php echo e($plan['storage']); ?>" required></div>
                     <div class="field-row"><label class="field-label">الباندويث</label><input type="text" name="bandwidth" class="text-input" value="<?php echo e($plan['bandwidth']); ?>" required></div>
-                    <div class="field-row"><label class="field-label">السعر الشهري ($)</label><input type="number" step="0.01" min="0.01" name="price" class="text-input" value="<?php echo e($plan['price']); ?>" required></div>
+                    <div class="field-row">
+                        <label class="field-label">نوع الاشتراك</label>
+                        <select name="billing_cycle" class="text-input" required>
+                            <option value="monthly" <?php echo ($plan['billing_cycle'] ?? 'monthly') === 'monthly' ? 'selected' : ''; ?>>شهري</option>
+                            <option value="yearly" <?php echo ($plan['billing_cycle'] ?? 'monthly') === 'yearly' ? 'selected' : ''; ?>>سنوي</option>
+                        </select>
+                    </div>
+                    <div class="field-row"><label class="field-label">السعر ($)</label><input type="number" step="0.01" min="0.01" name="price" class="text-input" value="<?php echo e($plan['price']); ?>" required></div>
                     <div class="field-row"><label class="field-label">السعر قبل الخصم (اختياري)</label><input type="number" step="0.01" min="0.01" name="original_price" class="text-input" value="<?php echo e($plan['original_price'] ?? ''); ?>" placeholder="اتركه فارغاً بدون خصم"></div>
-                    <div class="field-row"><label class="field-label">السعر السنوي (اختياري)</label><input type="number" step="0.01" min="0.01" name="price_yearly" class="text-input" value="<?php echo e($plan['price_yearly'] ?? ''); ?>" placeholder="اتركه فارغاً لإخفاء خيار الاشتراك السنوي"></div>
                     <div class="field-row"><label class="field-label">شارة (اختياري)</label><input type="text" name="badge" class="text-input" value="<?php echo e($plan['badge']); ?>"></div>
                     <div class="field-row"><label class="field-label">ترتيب العرض</label><input type="number" name="sort_order" class="text-input" value="<?php echo (int)$plan['sort_order']; ?>"></div>
                 </div>

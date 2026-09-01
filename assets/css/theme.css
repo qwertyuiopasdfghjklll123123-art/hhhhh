@@ -1,0 +1,27 @@
+        :root {
+            --bg-primary: #f7f4f0;
+            --bg-secondary: #ffffff;
+            --bg-card: #fbf7f3;
+            --bg-card-hover: #fdeee0;
+            --text-primary: #221a12;
+            --text-secondary: #6b5d50;
+            --text-muted: #998a7c;
+            --accent: #ff7a1a;
+            --accent-dark: #ee6a05;
+            --accent-light: #ffa64d;
+            --accent-glow: rgba(255,122,26,.12);
+            --border-color: #f0e6da;
+            --border-active: rgba(255,122,26,.3);
+            --shadow: 0 10px 40px rgba(34,26,18,.08);
+            --shadow-sm: 0 6px 20px rgba(34,26,18,.05);
+            --radius: 22px;
+            --radius-sm: 14px;
+            --transition: .3s cubic-bezier(.4,0,.2,1);
+        }
+        * { margin:0; padding:0; box-sizing:border-box; }
+        body { font-family:'IBM Plex Sans Arabic','Tajawal',system-ui,sans-serif; background:var(--bg-primary); color:var(--text-primary); }
+        .hidden { display:none !important; }
+        a { text-decoration:none; color:inherit; }
+        ul { list-style:none; }
+        .text-center { text-align:center; }
+        .text-muted { color:var(--text-muted); }

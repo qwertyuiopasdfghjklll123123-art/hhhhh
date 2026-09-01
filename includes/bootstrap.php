@@ -187,6 +187,7 @@ function initSchema(PDO $pdo, $dbName) {
     $ensureColumn('invoices', 'order_id', 'INT NULL');
     $ensureColumn('vps_plans', 'original_price', 'DECIMAL(12,2) NULL');
     $ensureColumn('vps_plans', 'price_yearly', 'DECIMAL(12,2) NULL');
+    $ensureColumn('vps_plans', 'billing_cycle', "VARCHAR(10) NOT NULL DEFAULT 'monthly'");
     $ensureColumn('users', 'google_id', 'VARCHAR(255) NULL');
     $ensureColumn('orders', 'billing_cycle', "VARCHAR(10) NOT NULL DEFAULT 'monthly'");
     $ensureColumn('payment_methods', 'method_type', "VARCHAR(20) NOT NULL DEFAULT 'manual'");
@@ -194,6 +195,7 @@ function initSchema(PDO $pdo, $dbName) {
     $ensureColumn('hosting', 'vps_id', 'VARCHAR(100) NULL');
     $ensureColumn('users', 'referral_code', 'VARCHAR(32) NULL');
     $ensureColumn('users', 'referred_by', 'INT NULL');
+    $ensureColumn('invoices', 'proof_image', 'VARCHAR(500) NULL');
 
     // فهارس التفرّد (يتم إنشاؤها بعد التأكد من وجود الأعمدة أعلاه)
     // ملاحظة: عمود email/phone قابلان لأن يكونا NULL بتكرار (حساب دخول عبر Google
@@ -204,27 +206,65 @@ function initSchema(PDO $pdo, $dbName) {
 
     // ------------------------------------------------------------
     // بيانات ابتدائية (تُدرج مرة واحدة فقط إذا كانت الجداول فارغة)
-    // ملاحظة: حساب الأدمن الأول يُنشأ من خلال install.php وليس هنا
+    // ملاحظة: حساب الأدمن الأول يُنشأ من خلال install.php وليس هنا. لا تُزرع
+    // باقات VPS أو طرق دفع تجريبية؛ الأدمن يُنشئ كل شيء بنفسه من لوحة التحكم.
     // ------------------------------------------------------------
-    if ((int)$pdo->query('SELECT COUNT(*) FROM vps_plans')->fetchColumn() === 0) {
-        $seed = $pdo->prepare('INSERT INTO vps_plans (name, icon, cpu, ram, storage, bandwidth, price, badge, sort_order) VALUES (?,?,?,?,?,?,?,?,?)');
-        $seed->execute(['أساسي', '🚀', '1 Core', '2 GB', '50 GB SSD', '1 TB', 25, '🔥 الأكثر طلباً', 1]);
-        $seed->execute(['متقدم', '⚡', '2 Core', '4 GB', '100 GB SSD', '2 TB', 45, null, 2]);
-        $seed->execute(['احترافي', '🔥', '4 Core', '8 GB', '200 GB SSD', '3 TB', 75, null, 3]);
-        $seed->execute(['مخصص', '👑', '8 Core', '16 GB', '500 GB SSD', '5 TB', 120, null, 4]);
-    }
-
-    if ((int)$pdo->query('SELECT COUNT(*) FROM payment_methods')->fetchColumn() === 0) {
-        $seed = $pdo->prepare('INSERT INTO payment_methods (name, icon, account_number, instructions, sort_order) VALUES (?,?,?,?,?)');
-        $seed->execute(['زين كاش', 'fa-mobile-screen', '07801234567', 'حوّل المبلغ إلى الرقم أعلاه عبر تطبيق زين كاش، ثم ارفع صورة إيصال التحويل هنا.', 1]);
-        $seed->execute(['آسيا سيل كاش', 'fa-sim-card', '07901234567', 'حوّل المبلغ إلى الرقم أعلاه عبر آسيا سيل كاش، ثم ارفع صورة إيصال التحويل هنا.', 2]);
-        $seed->execute(['تحويل بنكي', 'fa-building-columns', 'IQ00 BANK 0000 0000 0000 000', 'حوّل المبلغ إلى رقم الحساب البنكي أعلاه، ثم ارفع صورة إيصال التحويل هنا.', 3]);
-    }
 
     if ((int)$pdo->query('SELECT COUNT(*) FROM currencies')->fetchColumn() === 0) {
         $seed = $pdo->prepare('INSERT INTO currencies (code, name, symbol, rate_per_usd, sort_order) VALUES (?,?,?,?,?)');
-        $seed->execute(['USD', 'دولار أمريكي', '$', 1, 1]);
-        $seed->execute(['IQD', 'دينار عراقي', 'د.ع', 1310, 2]);
+        $worldCurrencies = [
+            ['USD', 'دولار أمريكي', '$', 1],
+            ['IQD', 'دينار عراقي', 'د.ع', 1310],
+            ['SAR', 'ريال سعودي', 'ر.س', 3.75],
+            ['AED', 'درهم إماراتي', 'د.إ', 3.67],
+            ['KWD', 'دينار كويتي', 'د.ك', 0.307],
+            ['QAR', 'ريال قطري', 'ر.ق', 3.64],
+            ['BHD', 'دينار بحريني', 'د.ب', 0.376],
+            ['OMR', 'ريال عماني', 'ر.ع', 0.385],
+            ['JOD', 'دينار أردني', 'د.أ', 0.709],
+            ['EGP', 'جنيه مصري', 'ج.م', 49],
+            ['LBP', 'ليرة لبنانية', 'ل.ل', 89500],
+            ['SYP', 'ليرة سورية', 'ل.س', 13000],
+            ['YER', 'ريال يمني', 'ر.ي', 250],
+            ['LYD', 'دينار ليبي', 'د.ل', 4.85],
+            ['MAD', 'درهم مغربي', 'د.م', 9.9],
+            ['TND', 'دينار تونسي', 'د.ت', 3.1],
+            ['DZD', 'دينار جزائري', 'د.ج', 134],
+            ['SDG', 'جنيه سوداني', 'ج.س', 600],
+            ['MRU', 'أوقية موريتانية', 'أ.م', 39.5],
+            ['EUR', 'يورو', '€', 0.92],
+            ['GBP', 'جنيه إسترليني', '£', 0.79],
+            ['TRY', 'ليرة تركية', '₺', 34],
+            ['INR', 'روبية هندية', '₹', 83.5],
+            ['PKR', 'روبية باكستانية', '₨', 278],
+            ['CNY', 'يوان صيني', '¥', 7.24],
+            ['JPY', 'ين ياباني', '¥', 151],
+            ['KRW', 'وون كوري جنوبي', '₩', 1340],
+            ['RUB', 'روبل روسي', '₽', 92],
+            ['CAD', 'دولار كندي', '$', 1.36],
+            ['AUD', 'دولار أسترالي', '$', 1.52],
+            ['CHF', 'فرنك سويسري', 'Fr', 0.88],
+            ['SEK', 'كرونة سويدية', 'kr', 10.4],
+            ['NOK', 'كرونة نرويجية', 'kr', 10.6],
+            ['PLN', 'زلوتي بولندي', 'zł', 3.95],
+            ['ZAR', 'راند جنوب أفريقي', 'R', 18.3],
+            ['NGN', 'نايرا نيجيرية', '₦', 1550],
+            ['KES', 'شلن كيني', 'KSh', 129],
+            ['BRL', 'ريال برازيلي', 'R$', 5.1],
+            ['MXN', 'بيزو مكسيكي', '$', 17],
+            ['IDR', 'روبية إندونيسية', 'Rp', 15750],
+            ['MYR', 'رينغيت ماليزي', 'RM', 4.7],
+            ['PHP', 'بيزو فلبيني', '₱', 56.8],
+            ['THB', 'بات تايلاندي', '฿', 36.3],
+            ['VND', 'دونغ فيتنامي', '₫', 24700],
+            ['SGD', 'دولار سنغافوري', '$', 1.34],
+            ['HKD', 'دولار هونغ كونغي', '$', 7.82],
+            ['NZD', 'دولار نيوزيلندي', '$', 1.64],
+            ['AFN', 'أفغاني', '؋', 71],
+        ];
+        foreach ($worldCurrencies as $i => $c) {
+            $seed->execute([$c[0], $c[1], $c[2], $c[3], $i + 1]);
+        }
     }
 
     if ((int)$pdo->query('SELECT COUNT(*) FROM settings')->fetchColumn() === 0) {
@@ -426,7 +466,15 @@ function currencyJsSnippet(PDO $pdo) {
     <script>
         const CURRENCIES = {$currenciesJson};
         const APP_CURRENCY_FORCED = {$forcedJson};
-        const REGION_CURRENCY_MAP = { IQ:'IQD', SA:'SAR', AE:'AED', KW:'KWD', QA:'QAR', BH:'BHD', OM:'OMR', JO:'JOD', EG:'EGP', US:'USD', GB:'GBP' };
+        const REGION_CURRENCY_MAP = {
+            IQ:'IQD', SA:'SAR', AE:'AED', KW:'KWD', QA:'QAR', BH:'BHD', OM:'OMR', JO:'JOD', EG:'EGP',
+            LB:'LBP', SY:'SYP', YE:'YER', LY:'LYD', MA:'MAD', TN:'TND', DZ:'DZD', SD:'SDG', MR:'MRU',
+            US:'USD', GB:'GBP', TR:'TRY', IN:'INR', PK:'PKR', CN:'CNY', JP:'JPY', KR:'KRW', RU:'RUB',
+            CA:'CAD', AU:'AUD', CH:'CHF', SE:'SEK', NO:'NOK', PL:'PLN', ZA:'ZAR', NG:'NGN', KE:'KES',
+            BR:'BRL', MX:'MXN', ID:'IDR', MY:'MYR', PH:'PHP', TH:'THB', VN:'VND', SG:'SGD', HK:'HKD',
+            NZ:'NZD', AF:'AFN',
+            DE:'EUR', FR:'EUR', IT:'EUR', ES:'EUR', NL:'EUR', BE:'EUR', AT:'EUR', PT:'EUR', IE:'EUR', FI:'EUR', GR:'EUR', LU:'EUR',
+        };
 
         function detectCurrencyCode() {
             try {
@@ -513,6 +561,13 @@ function setSetting(PDO $pdo, $key, $value) {
 function notifyUser(PDO $pdo, $userId, $title, $body, $type = 'system') {
     $pdo->prepare('INSERT INTO notifications (user_id, title, body, type) VALUES (?,?,?,?)')
         ->execute([$userId, $title, $body, $type]);
+}
+
+function notifyAdmins(PDO $pdo, $title, $body, $type = 'system') {
+    $adminIds = $pdo->query('SELECT id FROM users WHERE is_admin = 1')->fetchAll(PDO::FETCH_COLUMN);
+    foreach ($adminIds as $adminId) {
+        notifyUser($pdo, (int)$adminId, $title, $body, $type);
+    }
 }
 
 // ============================================================
