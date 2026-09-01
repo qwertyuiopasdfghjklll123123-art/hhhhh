@@ -360,7 +360,7 @@
             }
 
             function showHostingDetail(id) {
-                const hosting = HOSTING.find(h => h.id === id);
+                const hosting = HOSTING.find(h => Number(h.id) === Number(id));
                 if (!hosting) return;
 
                 detailReturnSection = document.getElementById('section-servers').classList.contains('hidden') ? 'home' : 'servers';
@@ -573,8 +573,8 @@
                 document.getElementById('planListContent').innerHTML = filtered.map(plan => {
                     const p = planPriceForCycle(plan);
                     return `
-                    <div class="plan-select-item ${wizardState.planId === plan.id ? 'selected' : ''}" onclick="wizardSelectPlan(${plan.id})">
-                        <div class="radio-circle ${wizardState.planId === plan.id ? 'checked' : ''}"><i class="fas fa-check"></i></div>
+                    <div class="plan-select-item ${wizardState.planId === Number(plan.id) ? 'selected' : ''}" onclick="wizardSelectPlan(${plan.id})">
+                        <div class="radio-circle ${wizardState.planId === Number(plan.id) ? 'checked' : ''}"><i class="fas fa-check"></i></div>
                         <div class="info">
                             <div class="top-row">
                                 <span class="plan-title">${plan.icon} ${plan.name}</span>
@@ -603,7 +603,7 @@
             }
 
             function currentPlan() {
-                return VPS_PLANS.find(p => p.id === wizardState.planId);
+                return VPS_PLANS.find(p => Number(p.id) === wizardState.planId);
             }
 
             function renderPlanDetails() {
@@ -794,7 +794,7 @@
             }
 
             function showInvoiceDetail(id) {
-                const invoice = INVOICES.find(inv => inv.id === id);
+                const invoice = INVOICES.find(inv => Number(inv.id) === Number(id));
                 if (!invoice) return;
 
                 const statusMap = {
@@ -836,7 +836,7 @@
             }
 
             function showOrderDetail(id) {
-                const order = ORDERS.find(o => o.id === id);
+                const order = ORDERS.find(o => Number(o.id) === Number(id));
                 if (!order) return;
 
                 const statusMap = {
