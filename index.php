@@ -363,6 +363,85 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === 'delete_all_notifications' && $_SE
     exit;
 }
 
+if (isset($_GET['ajax']) && $_GET['ajax'] === 'update_auto_renew' && $_SERVER['REQUEST_METHOD'] === 'POST') {
+    header('Content-Type: application/json; charset=utf-8');
+
+    if (!isLoggedIn()) {
+        http_response_code(401);
+        echo json_encode(['error' => 'يجب تسجيل الدخول.']);
+        exit;
+    }
+
+    $body = json_decode((string)file_get_contents('php://input'), true) ?: [];
+    if (!hash_equals($_SESSION['csrf_token'] ?? '', (string)($body['csrf_token'] ?? ''))) {
+        http_response_code(400);
+        echo json_encode(['error' => 'انتهت صلاحية الجلسة، أعد تحميل الصفحة.']);
+        exit;
+    }
+
+    $enabled = !empty($body['enabled']) ? 1 : 0;
+    $pdo->prepare('UPDATE users SET auto_renew = ? WHERE id = ?')->execute([$enabled, (int)$_SESSION['user_id']]);
+    echo json_encode(['ok' => true, 'enabled' => (bool)$enabled]);
+    exit;
+}
+
+if (isset($_GET['ajax']) && $_GET['ajax'] === 'complete_onboarding' && $_SERVER['REQUEST_METHOD'] === 'POST') {
+    header('Content-Type: application/json; charset=utf-8');
+
+    if (!isLoggedIn()) {
+        http_response_code(401);
+        echo json_encode(['error' => 'يجب تسجيل الدخول.']);
+        exit;
+    }
+
+    $body = json_decode((string)file_get_contents('php://input'), true) ?: [];
+    if (!hash_equals($_SESSION['csrf_token'] ?? '', (string)($body['csrf_token'] ?? ''))) {
+        http_response_code(400);
+        echo json_encode(['error' => 'انتهت صلاحية الجلسة، أعد تحميل الصفحة.']);
+        exit;
+    }
+
+    $enabled = !empty($body['auto_renew']) ? 1 : 0;
+    $pdo->prepare('UPDATE users SET auto_renew = ?, onboarding_done = 1 WHERE id = ?')->execute([$enabled, (int)$_SESSION['user_id']]);
+    echo json_encode(['ok' => true]);
+    exit;
+}
+
+if (isset($_GET['ajax']) && $_GET['ajax'] === 'request_renewal' && $_SERVER['REQUEST_METHOD'] === 'POST') {
+    header('Content-Type: application/json; charset=utf-8');
+
+    if (!isLoggedIn()) {
+        http_response_code(401);
+        echo json_encode(['error' => 'يجب تسجيل الدخول.']);
+        exit;
+    }
+
+    $body = json_decode((string)file_get_contents('php://input'), true) ?: [];
+    if (!hash_equals($_SESSION['csrf_token'] ?? '', (string)($body['csrf_token'] ?? ''))) {
+        http_response_code(400);
+        echo json_encode(['error' => 'انتهت صلاحية الجلسة، أعد تحميل الصفحة.']);
+        exit;
+    }
+
+    $hostingStmt = $pdo->prepare('SELECT * FROM hosting WHERE id = ? AND user_id = ?');
+    $hostingStmt->execute([(int)($body['hosting_id'] ?? 0), (int)$_SESSION['user_id']]);
+    $hosting = $hostingStmt->fetch(PDO::FETCH_ASSOC);
+    if (!$hosting) {
+        http_response_code(404);
+        echo json_encode(['error' => 'الاستضافة غير موجودة.']);
+        exit;
+    }
+
+    [$ok, $msg] = createRenewalRequest($pdo, $hosting);
+    if (!$ok) {
+        http_response_code(400);
+        echo json_encode(['error' => $msg]);
+        exit;
+    }
+    echo json_encode(['ok' => true, 'message' => $msg]);
+    exit;
+}
+
 // ============================================================
 // تسجيل الخروج
 // ============================================================
@@ -512,6 +591,7 @@ function includeLandingPage(PDO $pdo) {
 
             <div class="cta-row">
                 <a href="index.php?page=login" class="btn-primary-lg"><i class="fas fa-arrow-left"></i> <span data-i18n="start_now">ابدأ الآن</span></a>
+                <a href="index.php?page=plans" class="btn-outline-lg"><i class="fas fa-list"></i> <span data-i18n="browse_plans">تصفح الخطط والأسعار</span></a>
             </div>
 
             <div class="trust-row">
@@ -939,7 +1019,11 @@ function includeAppPage(PDO $pdo) {
         if (!(int)$n['is_read']) $unreadNotifCount++;
     }
 
-    $hostingStmt = $pdo->prepare('SELECT * FROM hosting WHERE user_id = ? ORDER BY created_at DESC');
+    $hostingStmt = $pdo->prepare("
+        SELECT h.*,
+               EXISTS(SELECT 1 FROM orders ro WHERE ro.renewal_hosting_id = h.id AND ro.status = 'pending') AS pending_renewal
+        FROM hosting h WHERE h.user_id = ? ORDER BY h.created_at DESC
+    ");
     $hostingStmt->execute([$userId]);
     $hosting = $hostingStmt->fetchAll(PDO::FETCH_ASSOC);
 
@@ -1081,6 +1165,28 @@ function includeAppPage(PDO $pdo) {
             القسم: الرئيسية - استضافاتي النشطة
             ============================================================ -->
             <div id="section-home" class="section-content">
+                <div class="card onboard-card hidden" id="onboardCurrencyCard">
+                    <div class="onboard-icon"><i class="fas fa-coins"></i></div>
+                    <div class="onboard-title" data-i18n="onboarding_welcome_title">أهلاً بك 👋</div>
+                    <div class="onboard-sub" data-i18n="choose_display_currency">اختر عملة العرض</div>
+                    <div class="onboard-currency-row" onclick="openCurrencyPicker()" style="display:flex;align-items:center;justify-content:space-between;gap:10px;background:var(--bg-body);border:1.5px solid var(--border-color);border-radius:var(--radius-sm);padding:12px 14px;margin-top:10px;cursor:pointer">
+                        <span id="onboardCurrencyValue" style="font-weight:700;font-size:14px"></span>
+                        <i class="fas fa-chevron-left" style="color:var(--text-muted);font-size:12px"></i>
+                    </div>
+                    <div class="text-muted" style="font-size:11px;margin-top:8px" data-i18n="onboarding_currency_hint">يمكنك تغييرها لاحقاً من الإعدادات</div>
+                </div>
+
+                <div class="card onboard-card hidden" id="onboardAutoRenewCard">
+                    <div class="onboard-icon"><i class="fas fa-sync"></i></div>
+                    <div class="onboard-title" data-i18n="auto_renew">التجديد التلقائي</div>
+                    <div class="onboard-sub" data-i18n="auto_renew_sub">تجديد استضافاتك تلقائياً من رصيدك عند الانتهاء</div>
+                    <label class="toggle-switch" style="margin:14px auto">
+                        <input type="checkbox" id="onboardAutoRenewToggle">
+                        <span class="slider"></span>
+                    </label>
+                    <button class="btn-gold onboard-cta" onclick="completeOnboarding()" data-i18n="onboarding_continue">متابعة</button>
+                </div>
+
                 <div class="card onboard-card hidden" id="pwaInstallCard">
                     <button class="onboard-dismiss" onclick="dismissOnboardCard('pwa')" title="إغلاق"><i class="fas fa-xmark"></i></button>
                     <div class="onboard-icon"><i class="fas fa-mobile-screen-button"></i></div>
@@ -1293,6 +1399,7 @@ function includeAppPage(PDO $pdo) {
                         <h3 style="font-size:20px;font-weight:900">🚀 اختر الباقة المناسبة</h3>
                         <div style="font-size:13px;opacity:.8;margin-top:4px">اختر الباقة التي تناسب احتياجاتك</div>
                     </div>
+                    <div class="form-alert-inline hidden" id="planUnavailableAlert" data-i18n="plan_unavailable_msg">الباقة التي اخترتها لم تعد متاحة، الرجاء اختيار باقة أخرى.</div>
                     <div class="tab-strip" style="margin-bottom:12px">
                         <button class="tab-btn active" id="billingTabMonthly" onclick="wizardSetBillingCycle('monthly')" data-i18n="monthly">شهري</button>
                         <button class="tab-btn" id="billingTabYearly" onclick="wizardSetBillingCycle('yearly')" data-i18n="yearly">سنوي</button>
@@ -1428,7 +1535,7 @@ function includeAppPage(PDO $pdo) {
                             <h3><i class="fas fa-credit-card"></i> <span id="paymentMethodName">الدفع</span></h3>
                             <button class="btn-back" onclick="hidePaymentPage()">رجوع</button>
                         </div>
-                        <form method="POST" action="index.php" enctype="multipart/form-data">
+                        <form method="POST" action="index.php" enctype="multipart/form-data" onsubmit="syncTopUpAmountUsd()">
                             <?php echo csrfField(); ?>
                             <input type="hidden" name="action" value="top_up">
                             <input type="hidden" name="payment_method_id" id="topUpPaymentMethodId" value="">
@@ -1436,8 +1543,10 @@ function includeAppPage(PDO $pdo) {
                             <div id="topUpInstructions" class="hosting-detail" style="margin-bottom:12px"></div>
 
                             <div class="input-group" style="margin-bottom:12px">
-                                <label style="display:block;font-size:13px;color:var(--text-muted);margin-bottom:4px">المبلغ ($)</label>
-                                <input type="number" name="amount" min="1" step="0.01" placeholder="أدخل المبلغ" required style="width:100%;padding:12px 14px;border-radius:var(--radius-sm);border:1.5px solid var(--border-color);background:var(--bg-card);color:var(--text-primary);font-size:15px;font-family:inherit;outline:none">
+                                <label style="display:block;font-size:13px;color:var(--text-muted);margin-bottom:4px"><span data-i18n="amount_label">المبلغ</span> (<span id="topUpCurrencyLabel">$</span>)</label>
+                                <input type="number" id="topUpAmountInput" min="0.01" step="0.01" placeholder="أدخل المبلغ" required oninput="syncTopUpAmountUsd()" style="width:100%;padding:12px 14px;border-radius:var(--radius-sm);border:1.5px solid var(--border-color);background:var(--bg-card);color:var(--text-primary);font-size:15px;font-family:inherit;outline:none">
+                                <input type="hidden" name="amount" id="topUpAmountUsd" value="">
+                                <div class="text-muted" id="topUpUsdHint" style="font-size:11px;margin-top:4px"></div>
                             </div>
 
                             <div style="margin-bottom:12px">
@@ -1500,39 +1609,49 @@ function includeAppPage(PDO $pdo) {
             القسم: طلباتي
             ============================================================ -->
             <div id="section-orders" class="section-content hidden">
-                <div class="card" style="background:linear-gradient(135deg, #ffa64d, #ff7a1a, #f26a00);border:none;color:#ffffff;text-align:center">
-                    <h3 style="font-size:18px;font-weight:900">📋 طلباتي</h3>
-                    <div style="font-size:13px;opacity:.8">إجمالي الطلبات: <?php echo count($orders); ?></div>
+                <div id="ordersListCard">
+                    <div class="card" style="background:linear-gradient(135deg, #ffa64d, #ff7a1a, #f26a00);border:none;color:#ffffff;text-align:center">
+                        <h3 style="font-size:18px;font-weight:900">📋 طلباتي</h3>
+                        <div style="font-size:13px;opacity:.8">إجمالي الطلبات: <?php echo count($orders); ?></div>
+                    </div>
+
+                    <div class="card">
+                        <div class="card-header">
+                            <h3><i class="fas fa-list"></i> جميع الطلبات</h3>
+                            <button class="btn-outline btn-small" onclick="showSection('vps')"><i class="fas fa-plus"></i> طلب جديد</button>
+                        </div>
+                        <?php if (!$orders): ?>
+                        <div class="text-muted text-center" style="padding:30px 0">
+                            📭 ما عندك طلبات VPS بعد<br>
+                            <span style="color:var(--accent);cursor:pointer" onclick="showSection('vps')">اطلب خادمك الآن</span>
+                        </div>
+                        <?php else: foreach ($orders as $o):
+                            $statusLabel = ['pending' => '⏳ قيد المراجعة', 'approved' => '✅ مقبول', 'rejected' => '❌ مرفوض'][$o['status']] ?? $o['status'];
+                            $statusPill = ['pending' => 'pill-amber', 'approved' => 'pill-green', 'rejected' => 'pill-red'][$o['status']] ?? 'pill-amber';
+                        ?>
+                        <div class="invoice-item" onclick="showOrderDetail(<?php echo (int)$o['id']; ?>)">
+                            <div class="info">
+                                <div class="number"><?php echo $o['plan_icon']; ?> خادم <?php echo e($o['plan_name']); ?></div>
+                                <div class="date">تاريخ الطلب: <?php echo e(substr($o['created_at'], 0, 10)); ?></div>
+                            </div>
+                            <div style="text-align:left">
+                                <div class="amount" data-usd="<?php echo (float)$o['amount']; ?>">$<?php echo money($o['amount']); ?></div>
+                                <span class="pill <?php echo $statusPill; ?>"><?php echo $statusLabel; ?></span>
+                            </div>
+                        </div>
+                        <?php endforeach; endif; ?>
+                    </div>
                 </div>
 
-                <div class="card">
-                    <div class="card-header">
-                        <h3><i class="fas fa-list"></i> جميع الطلبات</h3>
-                        <button class="btn-outline btn-small" onclick="showSection('vps')"><i class="fas fa-plus"></i> طلب جديد</button>
+                <div id="orderDetail" class="hidden">
+                    <div class="card-header" style="margin-bottom:14px">
+                        <h3><i class="fas fa-clipboard-list"></i> <span data-i18n="order_details">تفاصيل الطلب</span></h3>
+                        <button class="btn-back" onclick="hideOrderDetail()" data-i18n="back">رجوع</button>
                     </div>
-                    <?php if (!$orders): ?>
-                    <div class="text-muted text-center" style="padding:30px 0">
-                        📭 ما عندك طلبات VPS بعد<br>
-                        <span style="color:var(--accent);cursor:pointer" onclick="showSection('vps')">اطلب خادمك الآن</span>
-                    </div>
-                    <?php else: foreach ($orders as $o):
-                        $statusLabel = ['pending' => '⏳ قيد المراجعة', 'approved' => '✅ مقبول', 'rejected' => '❌ مرفوض'][$o['status']] ?? $o['status'];
-                        $statusPill = ['pending' => 'pill-amber', 'approved' => 'pill-green', 'rejected' => 'pill-red'][$o['status']] ?? 'pill-amber';
-                    ?>
-                    <div class="invoice-item">
-                        <div class="info">
-                            <div class="number"><?php echo $o['plan_icon']; ?> خادم <?php echo e($o['plan_name']); ?></div>
-                            <div class="date">تاريخ الطلب: <?php echo e(substr($o['created_at'], 0, 10)); ?></div>
-                        </div>
-                        <div style="text-align:left">
-                            <div class="amount" data-usd="<?php echo (float)$o['amount']; ?>">$<?php echo money($o['amount']); ?></div>
-                            <span class="pill <?php echo $statusPill; ?>"><?php echo $statusLabel; ?></span>
-                        </div>
-                    </div>
-                    <?php endforeach; endif; ?>
+                    <div class="invoice-detail" id="orderDetailContent"></div>
                 </div>
             </div>
-            
+
             <!-- ============================================================
             القسم: الإشعارات
             ============================================================ -->
@@ -1655,6 +1774,22 @@ function includeAppPage(PDO $pdo) {
                             <div class="right">
                                 <label class="toggle-switch">
                                     <input type="checkbox" id="darkModeToggle" checked onchange="toggleTheme()">
+                                    <span class="slider"></span>
+                                </label>
+                            </div>
+                        </div>
+
+                        <div class="settings-item">
+                            <div class="left">
+                                <div class="icon-wrap gold"><i class="fas fa-sync"></i></div>
+                                <div class="text">
+                                    <div class="title" data-i18n="auto_renew">التجديد التلقائي</div>
+                                    <div class="sub" data-i18n="auto_renew_sub">تجديد استضافاتك تلقائياً من رصيدك عند الانتهاء</div>
+                                </div>
+                            </div>
+                            <div class="right">
+                                <label class="toggle-switch">
+                                    <input type="checkbox" id="autoRenewToggle" <?php echo !empty($user['auto_renew']) ? 'checked' : ''; ?> onchange="toggleAutoRenewSetting()">
                                     <span class="slider"></span>
                                 </label>
                             </div>
@@ -1994,6 +2129,7 @@ function includeAppPage(PDO $pdo) {
             // ============================================================
             const HOSTING = <?php echo json_encode($hosting); ?>;
             const INVOICES = <?php echo json_encode($invoices); ?>;
+            const ORDERS = <?php echo json_encode($orders); ?>;
             const USER_BALANCE = <?php echo (float)$balance; ?>;
             const REFERRAL_ELIGIBLE = <?php echo $referralEligible ? 'true' : 'false'; ?>;
             const REFERRAL_DISCOUNT_PCT = <?php echo (float)$referralDiscountPct; ?>;
@@ -2002,6 +2138,7 @@ function includeAppPage(PDO $pdo) {
             const AI_CONVERSATIONS = <?php echo json_encode($ai_conversations); ?>;
             const USER_NAME = <?php echo json_encode($user_name); ?>;
             const CSRF_TOKEN = <?php echo json_encode(csrfToken()); ?>;
+            let NEEDS_ONBOARDING = <?php echo empty($user['onboarding_done']) ? 'true' : 'false'; ?>;
             const ROUTE_HINT = {
                 buyPlanId: <?php echo (int)$buyPlanId; ?>,
                 ordered: <?php echo $orderedFlag ? 'true' : 'false'; ?>,

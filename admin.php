@@ -194,15 +194,57 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         adminRedirect('orders', 'تم قبول الطلب وتفعيل الاستضافة للمستخدم.');
     }
 
+    if ($action === 'order_fulfill_renewal') {
+        $orderId = (int)($_POST['order_id'] ?? 0);
+        $stmt = $pdo->prepare("SELECT * FROM orders WHERE id = ? AND status = 'pending' AND renewal_hosting_id IS NOT NULL");
+        $stmt->execute([$orderId]);
+        $order = $stmt->fetch(PDO::FETCH_ASSOC);
+        if (!$order) {
+            adminRedirect('orders', null, 'طلب التجديد غير موجود أو تمت معالجته مسبقاً.');
+        }
+        $hostingStmt = $pdo->prepare('SELECT * FROM hosting WHERE id = ?');
+        $hostingStmt->execute([$order['renewal_hosting_id']]);
+        $hosting = $hostingStmt->fetch(PDO::FETCH_ASSOC);
+        if (!$hosting) {
+            adminRedirect('orders', null, 'الاستضافة المرتبطة بطلب التجديد غير موجودة.');
+        }
+
+        $expiryInterval = $order['billing_cycle'] === 'yearly' ? '+1 year' : '+1 month';
+        $baseDate = max($hosting['expiry_date'] ?: date('Y-m-d'), date('Y-m-d'));
+        $newExpiry = date('Y-m-d', strtotime($baseDate . ' ' . $expiryInterval));
+
+        $pdo->beginTransaction();
+        $pdo->prepare("UPDATE hosting SET status = 'active', expiry_date = ? WHERE id = ?")->execute([$newExpiry, $hosting['id']]);
+        $pdo->prepare("UPDATE orders SET status = 'approved', decided_at = CURRENT_TIMESTAMP WHERE id = ?")->execute([$orderId]);
+        $pdo->prepare("UPDATE invoices SET status = 'paid' WHERE order_id = ?")->execute([$orderId]);
+        notifyUser($pdo, $order['user_id'], '✅ تم تجديد الاستضافة', 'تم تجديد استضافتك (' . $hosting['name'] . ') بنجاح حتى ' . $newExpiry . '.', 'order_approved');
+        $pdo->commit();
+
+        adminRedirect('orders', 'تم تجديد الاستضافة بنجاح.');
+    }
+
     if ($action === 'order_reject') {
         $orderId = (int)($_POST['order_id'] ?? 0);
         $stmt = $pdo->prepare("SELECT * FROM orders WHERE id = ? AND status = 'pending'");
         $stmt->execute([$orderId]);
         $order = $stmt->fetch(PDO::FETCH_ASSOC);
         if ($order) {
+            $pdo->beginTransaction();
             $pdo->prepare("UPDATE orders SET status = 'rejected', decided_at = CURRENT_TIMESTAMP WHERE id = ?")->execute([$orderId]);
             $pdo->prepare("UPDATE invoices SET status = 'rejected' WHERE order_id = ?")->execute([$orderId]);
-            notifyUser($pdo, $order['user_id'], '❌ تم رفض طلبك', 'تم رفض طلب الاشتراك. تواصل مع الدعم الفني لمعرفة السبب.', 'order_rejected');
+            $refunded = false;
+            if (empty($order['payment_method_id'])) {
+                $pdo->prepare('UPDATE users SET balance = balance + ? WHERE id = ?')->execute([(float)$order['amount'], $order['user_id']]);
+                $refunded = true;
+            }
+            if (!empty($order['renewal_hosting_id'])) {
+                $pdo->prepare("UPDATE hosting SET status = 'expired' WHERE id = ?")->execute([$order['renewal_hosting_id']]);
+            }
+            $pdo->commit();
+            $rejectMsg = $refunded
+                ? 'تم رفض طلب الاشتراك وإعادة المبلغ إلى رصيد حسابك. تواصل مع الدعم الفني لمعرفة السبب.'
+                : 'تم رفض طلب الاشتراك. تواصل مع الدعم الفني لمعرفة السبب.';
+            notifyUser($pdo, $order['user_id'], '❌ تم رفض طلبك', $rejectMsg, 'order_rejected');
         }
         adminRedirect('orders', 'تم رفض الطلب.');
     }
@@ -371,12 +413,14 @@ function renderAdminOrders(PDO $pdo) {
     $orders = $pdo->query("
         SELECT o.*, u.name AS user_name, u.phone AS user_phone, u.email AS user_email,
                p.name AS plan_name, p.icon AS plan_icon,
-               pm.name AS pm_name, h.vps_id AS vps_id
+               pm.name AS pm_name, h.vps_id AS vps_id,
+               rh.name AS renewal_hosting_name, rh.vps_id AS renewal_vps_id, rh.expiry_date AS renewal_current_expiry
         FROM orders o
         JOIN users u ON u.id = o.user_id
         JOIN vps_plans p ON p.id = o.plan_id
         LEFT JOIN payment_methods pm ON pm.id = o.payment_method_id
         LEFT JOIN hosting h ON h.order_id = o.id
+        LEFT JOIN hosting rh ON rh.id = o.renewal_hosting_id
         ORDER BY (o.status = 'pending') DESC, o.created_at DESC
     ")->fetchAll(PDO::FETCH_ASSOC);
     ?>
@@ -420,7 +464,30 @@ function renderAdminOrders(PDO $pdo) {
                 </div>
             <?php endif; ?>
 
-            <?php if ($o['status'] === 'pending'): ?>
+            <?php if ($o['status'] === 'pending' && !empty($o['renewal_hosting_id'])): ?>
+            <div class="order-meta" style="margin-top:4px">
+                <div><strong><?php echo e($o['renewal_vps_id'] ?: $o['renewal_hosting_name'] ?: ('#' . (int)$o['renewal_hosting_id'])); ?></strong><span>تجديد للاستضافة</span></div>
+                <div><strong><?php echo e($o['renewal_current_expiry'] ?: '-'); ?></strong><span>تاريخ الانتهاء الحالي</span></div>
+            </div>
+            <p style="font-size:12px;color:var(--text-muted);margin:6px 0 10px">
+                <i class="fas fa-circle-info"></i>
+                هذا طلب تجديد تلقائي — تم خصم المبلغ من رصيد المستخدم مسبقاً. الموافقة تُمدّد صلاحية نفس الاستضافة دون الحاجة لإدخال أي بيانات جديدة.
+            </p>
+            <div class="order-actions" style="margin-top:4px">
+                <form method="POST" action="admin.php?section=orders" style="display:inline" onsubmit="return confirmAndSubmit(this, 'تأكيد الموافقة على تجديد هذه الاستضافة؟')">
+                    <?php echo csrfField(); ?>
+                    <input type="hidden" name="action" value="order_fulfill_renewal">
+                    <input type="hidden" name="order_id" value="<?php echo (int)$o['id']; ?>">
+                    <button type="submit" class="btn btn-accent btn-sm"><i class="fas fa-check"></i> الموافقة على التجديد</button>
+                </form>
+                <form method="POST" action="admin.php?section=orders" style="display:inline" onsubmit="return confirmAndSubmit(this, 'هل أنت متأكد من رفض طلب التجديد؟ سيتم إعادة المبلغ إلى رصيد المستخدم.')">
+                    <?php echo csrfField(); ?>
+                    <input type="hidden" name="action" value="order_reject">
+                    <input type="hidden" name="order_id" value="<?php echo (int)$o['id']; ?>">
+                    <button type="submit" class="btn btn-danger btn-sm"><i class="fas fa-xmark"></i> رفض</button>
+                </form>
+            </div>
+            <?php elseif ($o['status'] === 'pending'): ?>
             <div class="order-actions" style="margin-top:12px">
                 <button type="button" class="btn btn-accent btn-sm" onclick="toggleFulfillForm(<?php echo (int)$o['id']; ?>)"><i class="fas fa-check"></i> قبول وتفعيل الاستضافة</button>
                 <form method="POST" action="admin.php?section=orders" style="display:inline" onsubmit="return confirmAndSubmit(this, 'هل أنت متأكد من رفض هذا الطلب؟')">

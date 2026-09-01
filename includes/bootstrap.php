@@ -196,6 +196,9 @@ function initSchema(PDO $pdo, $dbName) {
     $ensureColumn('users', 'referral_code', 'VARCHAR(32) NULL');
     $ensureColumn('users', 'referred_by', 'INT NULL');
     $ensureColumn('invoices', 'proof_image', 'VARCHAR(500) NULL');
+    $ensureColumn('users', 'auto_renew', 'TINYINT(1) NOT NULL DEFAULT 0');
+    $ensureColumn('users', 'onboarding_done', 'TINYINT(1) NOT NULL DEFAULT 0');
+    $ensureColumn('orders', 'renewal_hosting_id', 'INT NULL');
 
     // فهارس التفرّد (يتم إنشاؤها بعد التأكد من وجود الأعمدة أعلاه)
     // ملاحظة: عمود email/phone قابلان لأن يكونا NULL بتكرار (حساب دخول عبر Google
@@ -418,6 +421,52 @@ function handleImageUpload($fileField, $destDir, $publicPrefix) {
 
 function money($amount) {
     return number_format((float)$amount, 2);
+}
+
+// يخصم سعر الباقة الأصلية فوراً وينشئ طلب تجديد معلّقاً بانتظار موافقة الإدارة؛ يرجع [نجاح؟, رسالة]
+function createRenewalRequest(PDO $pdo, array $hosting) {
+    if (empty($hosting['order_id'])) {
+        return [false, 'تعذر تحديد بيانات الباقة الأصلية لهذه الاستضافة.'];
+    }
+
+    $userStmt = $pdo->prepare('SELECT * FROM users WHERE id = ?');
+    $userStmt->execute([$hosting['user_id']]);
+    $user = $userStmt->fetch(PDO::FETCH_ASSOC);
+    if (!$user) {
+        return [false, 'المستخدم غير موجود.'];
+    }
+
+    $dupStmt = $pdo->prepare("SELECT id FROM orders WHERE renewal_hosting_id = ? AND status = 'pending'");
+    $dupStmt->execute([$hosting['id']]);
+    if ($dupStmt->fetch()) {
+        return [false, 'يوجد بالفعل طلب تجديد قيد المراجعة لهذه الاستضافة.'];
+    }
+
+    $origOrderStmt = $pdo->prepare('SELECT plan_id, amount, billing_cycle FROM orders WHERE id = ?');
+    $origOrderStmt->execute([$hosting['order_id']]);
+    $origOrder = $origOrderStmt->fetch(PDO::FETCH_ASSOC);
+    if (!$origOrder) {
+        return [false, 'تعذر تحديد بيانات الباقة الأصلية لهذه الاستضافة.'];
+    }
+
+    $amount = (float)$origOrder['amount'];
+    if ((float)$user['balance'] < $amount) {
+        return [false, 'رصيدك الحالي غير كافٍ لتجديد هذه الاستضافة. الرجاء شحن رصيدك أولاً.'];
+    }
+
+    $pdo->beginTransaction();
+    $pdo->prepare('UPDATE users SET balance = balance - ? WHERE id = ?')->execute([$amount, $user['id']]);
+    $pdo->prepare('INSERT INTO orders (user_id, plan_id, payment_method_id, amount, billing_cycle, status, renewal_hosting_id) VALUES (?,?,NULL,?,?,?,?)')
+        ->execute([$user['id'], $origOrder['plan_id'], $amount, $origOrder['billing_cycle'], 'pending', $hosting['id']]);
+    $newOrderId = (int)$pdo->lastInsertId();
+    $pdo->prepare('INSERT INTO invoices (user_id, order_id, invoice_number, amount, status, description) VALUES (?,?,?,?,?,?)')
+        ->execute([$user['id'], $newOrderId, nextInvoiceNumber($pdo), $amount, 'paid', 'طلب تجديد - ' . $hosting['name']]);
+    $pdo->prepare("UPDATE hosting SET status = 'expired' WHERE id = ?")->execute([$hosting['id']]);
+    $pdo->commit();
+
+    notifyAdmins($pdo, '🔄 طلب تجديد استضافة جديد', 'أرسل ' . $user['name'] . ' طلب تجديد لاستضافة "' . $hosting['name'] . '". راجع الطلب من لوحة التحكم.', 'system');
+
+    return [true, 'تم إرسال طلب التجديد وخصم ' . money($amount) . '$ من رصيدك. بانتظار موافقة الإدارة.'];
 }
 
 function planDiscountPct($plan) {

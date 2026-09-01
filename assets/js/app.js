@@ -46,13 +46,64 @@
             function maybeShowOnboardCards() {
                 const pwaCard = document.getElementById('pwaInstallCard');
                 const notifCard = document.getElementById('notifPermCard');
+                const currencyCard = document.getElementById('onboardCurrencyCard');
+                const autoRenewCard = document.getElementById('onboardAutoRenewCard');
+
+                if (currencyCard && autoRenewCard) {
+                    currencyCard.classList.toggle('hidden', !NEEDS_ONBOARDING);
+                    autoRenewCard.classList.toggle('hidden', !NEEDS_ONBOARDING);
+                    if (NEEDS_ONBOARDING) updateOnboardCurrencyValue();
+                }
+
                 if (!pwaCard || !notifCard) return;
 
-                const canShowPwa = !!deferredInstallPrompt && !isStandalonePwa() && localStorage.getItem('pwaInstallDismissed') !== '1';
-                const canShowNotif = 'Notification' in window && Notification.permission === 'default' && localStorage.getItem('notifPermDismissed') !== '1';
+                const canShowPwa = !NEEDS_ONBOARDING && !!deferredInstallPrompt && !isStandalonePwa() && localStorage.getItem('pwaInstallDismissed') !== '1';
+                const canShowNotif = !NEEDS_ONBOARDING && 'Notification' in window && Notification.permission === 'default' && localStorage.getItem('notifPermDismissed') !== '1';
 
                 pwaCard.classList.toggle('hidden', !canShowPwa);
                 notifCard.classList.toggle('hidden', !canShowNotif);
+            }
+
+            function updateOnboardCurrencyValue() {
+                const el = document.getElementById('onboardCurrencyValue');
+                if (!el) return;
+                const code = detectCurrencyCode();
+                const cur = CURRENCIES[code];
+                el.textContent = cur ? (cur.symbol + ' ' + cur.name + ' (' + code + ')') : code;
+            }
+
+            async function toggleAutoRenewSetting() {
+                const toggle = document.getElementById('autoRenewToggle');
+                const enabled = toggle.checked ? 1 : 0;
+                try {
+                    const res = await fetch('index.php?ajax=update_auto_renew', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ csrf_token: CSRF_TOKEN, enabled }),
+                    });
+                    if (!res.ok) throw new Error('failed');
+                } catch (err) {
+                    toggle.checked = !toggle.checked;
+                }
+            }
+
+            async function completeOnboarding() {
+                const enabled = document.getElementById('onboardAutoRenewToggle')?.checked ? 1 : 0;
+                document.getElementById('onboardCurrencyCard')?.classList.add('hidden');
+                document.getElementById('onboardAutoRenewCard')?.classList.add('hidden');
+                NEEDS_ONBOARDING = false;
+                const autoRenewSettingsToggle = document.getElementById('autoRenewToggle');
+                if (autoRenewSettingsToggle) autoRenewSettingsToggle.checked = !!enabled;
+                maybeShowOnboardCards();
+                try {
+                    await fetch('index.php?ajax=complete_onboarding', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ csrf_token: CSRF_TOKEN, auto_renew: enabled }),
+                    });
+                } catch (err) {
+                    // تجاهل أخطاء الشبكة، الإعداد محفوظ محلياً وسيُعاد تحميله لاحقاً
+                }
             }
 
             window.addEventListener('beforeinstallprompt', (e) => {
@@ -136,6 +187,7 @@
             function chooseCurrency(code) {
                 setDisplayCurrency(code);
                 updateCurrencyCardValue();
+                updateOnboardCurrencyValue();
                 closeCurrencyPicker();
             }
 
@@ -362,7 +414,10 @@
                         <span class="label">${t('expiry_date')}</span>
                         <span class="value">${hosting.expiry_date}</span>
                     </div>
-                    ${isExpired ? `
+                    ${isExpired && hosting.pending_renewal ? `
+                    <div class="form-alert-inline" style="text-align:center"><i class="fas fa-clock"></i> ${t('renewal_pending_msg')}</div>
+                    ` : ''}
+                    ${isExpired && !hosting.pending_renewal ? `
                     <button class="btn-renew" onclick="renewHosting(${hosting.id})">
                         <i class="fas fa-sync"></i> ${t('renew_hosting')}
                     </button>
@@ -439,15 +494,23 @@
                 }
             }
 
-            function renewHosting(id) {
-                if (confirm('هل تريد تجديد هذه الاستضافة؟')) {
-                    alert('✅ تم تجديد الاستضافة بنجاح!\nتم إضافة شهر جديد إلى تاريخ الانتهاء.');
-                    // في تطبيق حقيقي، يتم إرسال طلب تجديد
-                    setTimeout(function() {
-                        hideHostingDetail();
-                        // تحديث الصفحة لإظهار التغييرات
-                        location.reload();
-                    }, 1000);
+            async function renewHosting(id) {
+                if (!confirm('سيتم خصم قيمة الباقة من رصيدك وإرسال طلب تجديد بانتظار موافقة الإدارة. هل تريد المتابعة؟')) return;
+                try {
+                    const res = await fetch('index.php?ajax=request_renewal', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ csrf_token: CSRF_TOKEN, hosting_id: id }),
+                    });
+                    const data = await res.json();
+                    if (!res.ok || data.error) {
+                        alert('❌ ' + (data.error || 'تعذر إرسال طلب التجديد.'));
+                        return;
+                    }
+                    alert('✅ ' + data.message);
+                    location.reload();
+                } catch (err) {
+                    alert('❌ تعذر الاتصال بالسيرفر. حاول مرة أخرى.');
                 }
             }
             
@@ -653,6 +716,12 @@
             }
 
             function wizardGoTo(step) {
+                let bounced = false;
+                if ((step === 'details' || step === 'summary' || step === 'payment') && !currentPlan()) {
+                    step = 'plan';
+                    bounced = true;
+                }
+
                 document.querySelectorAll('#section-vps .wizard-step').forEach(el => el.classList.add('hidden'));
                 document.getElementById('vpsStep' + step.charAt(0).toUpperCase() + step.slice(1)).classList.remove('hidden');
 
@@ -662,6 +731,7 @@
                     document.getElementById('billingTabYearly')?.classList.remove('active');
                     renderPlanList();
                     document.getElementById('planContinueBtn').disabled = true;
+                    document.getElementById('planUnavailableAlert')?.classList.toggle('hidden', !bounced);
                 } else if (step === 'details') {
                     renderPlanDetails();
                 } else if (step === 'summary') {
@@ -697,11 +767,30 @@
                 ` + (instructions ? `<div class="detail-row"><span class="label">ملاحظة</span><span class="value" style="direction:rtl;text-align:right;font-weight:400;font-size:12px">${instructions}</span></div>` : '');
                 document.getElementById('paymentPage').classList.remove('hidden');
                 document.getElementById('addBalanceSection').classList.add('hidden');
+
+                const code = detectCurrencyCode();
+                const cur = CURRENCIES[code];
+                document.getElementById('topUpCurrencyLabel').textContent = cur ? (code + ' ' + cur.symbol) : '$';
+                document.getElementById('topUpAmountInput').value = '';
+                document.getElementById('topUpAmountUsd').value = '';
+                document.getElementById('topUpUsdHint').textContent = '';
             }
 
             function hidePaymentPage() {
                 document.getElementById('paymentPage').classList.add('hidden');
                 document.getElementById('addBalanceSection').classList.remove('hidden');
+            }
+
+            function syncTopUpAmountUsd() {
+                const input = document.getElementById('topUpAmountInput');
+                const hidden = document.getElementById('topUpAmountUsd');
+                const hint = document.getElementById('topUpUsdHint');
+                const code = detectCurrencyCode();
+                const cur = CURRENCIES[code] || { rate: 1 };
+                const entered = parseFloat(input.value) || 0;
+                const usd = cur.rate ? (entered / cur.rate) : entered;
+                hidden.value = usd.toFixed(2);
+                hint.textContent = (entered > 0 && code !== 'USD') ? ('≈ ' + usd.toFixed(2) + ' $') : '';
             }
 
             function showInvoiceDetail(id) {
@@ -744,6 +833,38 @@
             function hideInvoiceDetail() {
                 document.getElementById('invoiceDetail').classList.add('hidden');
                 document.getElementById('invoicesList').classList.remove('hidden');
+            }
+
+            function showOrderDetail(id) {
+                const order = ORDERS.find(o => o.id === id);
+                if (!order) return;
+
+                const statusMap = {
+                    approved: [t('order_status_completed'), 'pill-green'],
+                    pending: [t('order_status_in_progress'), 'pill-amber'],
+                    rejected: [t('order_status_cancelled'), 'pill-red'],
+                };
+                const [statusText, statusClass] = statusMap[order.status] || [order.status, 'pill-amber'];
+                const cycleLabel = order.billing_cycle === 'yearly' ? t('yearly') : t('monthly');
+
+                document.getElementById('orderDetailContent').innerHTML = `
+                    <div class="detail-row"><span class="label">${t('plan_label')}</span><span class="value">${order.plan_icon || ''} ${order.plan_name}</span></div>
+                    <div class="detail-row"><span class="label">${t('price')}</span><span class="value" data-usd="${order.amount}">$${Number(order.amount).toFixed(2)}</span></div>
+                    <div class="detail-row"><span class="label">${t('subscription_duration')}</span><span class="value">${cycleLabel}</span></div>
+                    <div class="detail-row"><span class="label">${t('status')}</span><span class="value"><span class="pill ${statusClass}">${statusText}</span></span></div>
+                    <div class="detail-row"><span class="label">${t('order_date')}</span><span class="value">${(order.created_at || '').substring(0, 10)}</span></div>
+                    ${order.renewal_hosting_id ? `<div class="detail-row"><span class="label">${t('order_type')}</span><span class="value">${t('renewal_order')}</span></div>` : ''}
+                    ${order.status === 'rejected' && order.admin_note ? `<div class="detail-row"><span class="label">${t('admin_note')}</span><span class="value" style="direction:rtl;text-align:right;font-weight:400;font-size:12px">${order.admin_note}</span></div>` : ''}
+                `;
+                applyCurrencyDisplay(document.getElementById('orderDetailContent'));
+
+                document.getElementById('ordersListCard').classList.add('hidden');
+                document.getElementById('orderDetail').classList.remove('hidden');
+            }
+
+            function hideOrderDetail() {
+                document.getElementById('orderDetail').classList.add('hidden');
+                document.getElementById('ordersListCard').classList.remove('hidden');
             }
             
             // ============================================================
