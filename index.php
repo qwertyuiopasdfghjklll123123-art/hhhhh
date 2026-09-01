@@ -1499,29 +1499,8 @@ function includeAppPage(PDO $pdo) {
                     <button class="btn-back" onclick="hideHostingDetail()">رجوع</button>
                 </div>
 
-                <div class="tab-strip">
-                    <button class="tab-btn active" id="tabBtnUsage" onclick="switchDetailTab('usage')">الاستخدام</button>
-                    <button class="tab-btn" id="tabBtnInfo" onclick="switchDetailTab('info')">معلومات السيرفر</button>
-                </div>
-
-                <div class="tab-panel" id="tabPanelUsage">
-                    <div class="usage-gauges" id="usageGaugesContent"></div>
-                    <div class="card">
-                        <div class="usage-bar-block">
-                            <div class="usage-bar-head"><span>الباندويث المستخدم</span><strong id="usageBandwidthLabel"></strong></div>
-                            <div class="usage-bar-track"><div class="usage-bar-fill" id="usageBandwidthFill"></div></div>
-                        </div>
-                        <div class="usage-bar-block">
-                            <div class="usage-bar-head"><span>التخزين المستخدم</span><strong id="usageStorageLabel"></strong></div>
-                            <div class="usage-bar-track"><div class="usage-bar-fill" id="usageStorageFill"></div></div>
-                        </div>
-                    </div>
-                </div>
-
-                <div class="tab-panel hidden" id="tabPanelInfo">
-                    <div class="hosting-detail" id="hostingDetailContent">
-                        <!-- يتم تعبئتها بواسطة JavaScript -->
-                    </div>
+                <div class="hosting-detail" id="hostingDetailContent">
+                    <!-- يتم تعبئتها بواسطة JavaScript -->
                 </div>
             </div>
             
@@ -2296,6 +2275,13 @@ function includeAppPage(PDO $pdo) {
                 hasOrderError: <?php echo !empty($orderErrorMsg) ? 'true' : 'false'; ?>,
             };
 
+            // إبقاء الرابط الظاهر دوماً domain/app دون أي معاملات إضافية
+            if (window.location.search) {
+                const cleanPath = window.location.pathname.endsWith('/app')
+                    ? window.location.pathname
+                    : window.location.pathname.replace(/index\.php$/, 'app');
+                history.replaceState(null, '', cleanPath);
+            }
         </script>
         <script src="assets/js/app.js"></script>
     </body>

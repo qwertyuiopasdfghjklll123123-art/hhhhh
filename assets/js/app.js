@@ -300,7 +300,6 @@
             }
 
             async function deleteAllNotifications() {
-                if (!confirm('هل تريد حذف جميع الإشعارات نهائياً؟')) return;
                 document.querySelectorAll('#section-notifications .notif-item').forEach(el => el.remove());
                 document.querySelector('.notif-actions-row')?.remove();
                 document.querySelector('#headerNotifBtn .notif-badge')?.remove();
@@ -327,38 +326,6 @@
             // ============================================================
             // تفاصيل الاستضافة
             // ============================================================
-            function renderUsageTab(hosting) {
-                // أرقام استخدام تجريبية ثابتة لكل سيرفر (مبنية على رقم السيرفر)
-                const cpuPct = 15 + (hosting.id * 17) % 70;
-                const ramPct = 20 + (hosting.id * 29) % 65;
-                const bandwidthUsed = (0.2 + ((hosting.id * 0.37) % 0.7)).toFixed(2);
-                const storageUsedPct = 25 + (hosting.id * 19) % 60;
-                const storageTotal = parseInt(hosting.plan === 'أساسي' ? 50 : hosting.plan === 'متقدم' ? 100 : hosting.plan === 'احترافي' ? 200 : 40);
-                const storageUsed = Math.round(storageTotal * storageUsedPct / 100);
-
-                document.getElementById('usageGaugesContent').innerHTML = `
-                    <div class="gauge-card">
-                        <div class="gauge" style="--pct:${cpuPct}"><span class="gauge-value">${cpuPct}%</span></div>
-                        <div class="gauge-label">CPU</div>
-                    </div>
-                    <div class="gauge-card">
-                        <div class="gauge" style="--pct:${ramPct}"><span class="gauge-value">${ramPct}%</span></div>
-                        <div class="gauge-label">RAM</div>
-                    </div>
-                `;
-                document.getElementById('usageBandwidthLabel').textContent = bandwidthUsed + ' TB / 1 TB';
-                document.getElementById('usageBandwidthFill').style.width = (bandwidthUsed * 100) + '%';
-                document.getElementById('usageStorageLabel').textContent = storageUsed + ' GB / ' + storageTotal + ' GB';
-                document.getElementById('usageStorageFill').style.width = storageUsedPct + '%';
-            }
-
-            function switchDetailTab(tab) {
-                document.getElementById('tabBtnUsage').classList.toggle('active', tab === 'usage');
-                document.getElementById('tabBtnInfo').classList.toggle('active', tab === 'info');
-                document.getElementById('tabPanelUsage').classList.toggle('hidden', tab !== 'usage');
-                document.getElementById('tabPanelInfo').classList.toggle('hidden', tab !== 'info');
-            }
-
             function showHostingDetail(id) {
                 const hosting = HOSTING.find(h => Number(h.id) === Number(id));
                 if (!hosting) return;
@@ -368,9 +335,6 @@
                 const statusText = (hosting.status === 'active' ? t('active') : t('expired')) + (hosting.status === 'active' ? ' ✅' : ' ❌');
                 const statusClass = hosting.status === 'active' ? 'pill-green' : 'pill-red';
                 const isExpired = hosting.status === 'expired';
-
-                renderUsageTab(hosting);
-                switchDetailTab('usage');
 
                 document.getElementById('hostingDetailContent').innerHTML = `
                     <div class="detail-row">

@@ -381,12 +381,14 @@ $activeHostingCount = (int)$pdo->query("SELECT COUNT(*) FROM hosting WHERE statu
     </nav>
 
     <div class="admin-container">
+        <?php if (in_array($section, ['orders', 'topups'], true)): ?>
         <div class="stats-row">
             <div class="stat-tile"><div class="num"><?php echo $pendingOrdersCount; ?></div><div class="label">طلبات قيد المراجعة</div></div>
             <div class="stat-tile"><div class="num"><?php echo $pendingTopupsCount; ?></div><div class="label">طلبات شحن معلقة</div></div>
             <div class="stat-tile"><div class="num"><?php echo $usersCount; ?></div><div class="label">إجمالي المستخدمين</div></div>
             <div class="stat-tile"><div class="num"><?php echo $activeHostingCount; ?></div><div class="label">استضافات نشطة</div></div>
         </div>
+        <?php endif; ?>
 
         <?php if (!empty($_GET['msg'])): ?><div class="flash-msg"><i class="fas fa-circle-check"></i> <?php echo e($_GET['msg']); ?></div><?php endif; ?>
         <?php if (!empty($_GET['err'])): ?><div class="flash-err"><i class="fas fa-triangle-exclamation"></i> <?php echo e($_GET['err']); ?></div><?php endif; ?>
@@ -418,6 +420,11 @@ $activeHostingCount = (int)$pdo->query("SELECT COUNT(*) FROM hosting WHERE statu
         function toggleBinanceFields(select, key) {
             const el = document.getElementById(key === 'new' ? 'newBinanceFields' : 'binanceFields' + key);
             if (el) el.classList.toggle('hidden', select.value !== 'binance');
+        }
+        function showSettingsPanel(btn, key) {
+            document.querySelectorAll('.settings-subtabs .subtab-btn').forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+            document.querySelectorAll('.settings-panel').forEach(p => p.classList.toggle('hidden', p.dataset.panel !== key));
         }
     </script>
 </body>
@@ -832,137 +839,170 @@ function renderAdminSettings(PDO $pdo) {
     $redirectUri = $scheme . '://' . $_SERVER['HTTP_HOST'] . '/index.php?action=google_callback';
     $currencies = getAllCurrencies($pdo);
     ?>
-    <div class="admin-card">
-        <div class="admin-card-header"><h2><i class="fas fa-shop"></i> اسم الموقع والشعار</h2></div>
-        <form method="POST" action="admin.php?section=settings" enctype="multipart/form-data">
-            <?php echo csrfField(); ?>
-            <input type="hidden" name="action" value="settings_save">
-            <div class="field-grid-2">
-                <div class="field-row"><label class="field-label">اسم الموقع</label><input type="text" name="site_name" class="text-input" value="<?php echo e($s['site_name'] ?? ''); ?>" required></div>
-                <div class="field-row"><label class="field-label">الشعار النصي (Tagline)</label><input type="text" name="site_tagline" class="text-input" value="<?php echo e($s['site_tagline'] ?? ''); ?>"></div>
-            </div>
-            <div class="field-row">
-                <label class="field-label">شعار الموقع (صورة)</label>
-                <?php if (!empty($s['site_logo'])): ?>
-                    <div style="margin-bottom:8px"><img src="<?php echo e($s['site_logo']); ?>" alt="" style="width:56px;height:56px;border-radius:14px;object-fit:cover;border:1px solid var(--border-color)"></div>
-                <?php endif; ?>
-                <input type="file" name="site_logo" class="text-input" accept="image/png,image/jpeg,image/webp">
-            </div>
-            <div class="field-row">
-                <label class="field-label">عملة عرض الأسعار</label>
-                <select name="app_currency" class="text-input">
-                    <option value="">تلقائي حسب بلد الزائر</option>
-                    <?php foreach ($currencies as $c): ?>
-                    <option value="<?php echo e($c['code']); ?>" <?php echo ($s['app_currency'] ?? '') === $c['code'] ? 'selected' : ''; ?>><?php echo e($c['name']); ?> (<?php echo e($c['symbol']); ?>) - دائماً</option>
-                    <?php endforeach; ?>
-                </select>
-            </div>
-
-            <div class="admin-card-header" style="margin-top:20px"><h2><i class="fas fa-share-nodes"></i> رابط المشاركة (الإحالة)</h2></div>
-            <div class="field-row">
-                <label class="field-label">نسبة خصم رابط المشاركة (%)</label>
-                <input type="number" name="referral_discount_pct" class="text-input" min="0" max="100" step="1" value="<?php echo e($s['referral_discount_pct'] ?? '10'); ?>" dir="ltr">
-                <p style="font-size:11px;color:var(--text-muted);margin-top:4px">كل مستخدم لديه رابط دعوة خاص من الرئيسية. من يسجّل عبره يحصل على هذه النسبة كخصم على أول طلب VPS له. ضع 0 لتعطيل الميزة.</p>
-            </div>
-
-            <div class="admin-card-header" style="margin-top:20px"><h2><i class="fas fa-robot"></i> المساعد الذكي (NVIDIA API)</h2></div>
-            <div class="field-row"><label class="field-label">مفتاح API</label><input type="text" name="nvidia_api_key" class="text-input" value="<?php echo e($s['nvidia_api_key'] ?? ''); ?>" dir="ltr" placeholder="nvapi-..."></div>
-            <div class="field-row"><label class="field-label">اسم النموذج (Model)</label><input type="text" name="nvidia_model" class="text-input" value="<?php echo e($s['nvidia_model'] ?? ''); ?>" dir="ltr"></div>
-            <div class="field-grid-2">
-                <div class="field-row">
-                    <label class="field-label">شعار المساعد الذكي (اختياري)</label>
-                    <?php if (!empty($s['ai_logo'])): ?>
-                        <div style="margin-bottom:8px"><img src="<?php echo e($s['ai_logo']); ?>" alt="" style="width:48px;height:48px;border-radius:50%;object-fit:cover;border:1px solid var(--border-color)"></div>
-                    <?php endif; ?>
-                    <input type="file" name="ai_logo" class="text-input" accept="image/png,image/jpeg,image/webp">
-                </div>
-                <div class="field-row">
-                    <label class="field-label">صورة بطاقة المساعد الذكي بالرئيسية (اختياري)</label>
-                    <?php if (!empty($s['ai_home_banner'])): ?>
-                        <div style="margin-bottom:8px"><img src="<?php echo e($s['ai_home_banner']); ?>" alt="" style="width:100%;max-width:220px;border-radius:10px;object-fit:cover;border:1px solid var(--border-color)"></div>
-                    <?php endif; ?>
-                    <input type="file" name="ai_home_banner" class="text-input" accept="image/png,image/jpeg,image/webp">
-                </div>
-            </div>
-
-            <div class="admin-card-header" style="margin-top:20px"><h2><i class="fab fa-google"></i> تسجيل الدخول عبر Google</h2></div>
-            <p style="font-size:12px;color:var(--text-muted);margin-bottom:12px;line-height:1.8">
-                أنشئ OAuth Client ID من
-                <a href="https://console.cloud.google.com/apis/credentials" target="_blank" style="color:var(--accent);font-weight:700">Google Cloud Console</a>
-                من نوع "Web application"، وأضف رابط إعادة التوجيه التالي بالضبط ضمن Authorized redirect URIs:
-            </p>
-            <div class="text-input" style="direction:ltr;text-align:left;font-family:monospace;font-size:12px;margin-bottom:14px;user-select:all"><?php echo e($redirectUri); ?></div>
-            <div class="field-grid-2">
-                <div class="field-row"><label class="field-label">Google Client ID</label><input type="text" name="google_client_id" class="text-input" value="<?php echo e($s['google_client_id'] ?? ''); ?>" dir="ltr"></div>
-                <div class="field-row"><label class="field-label">Google Client Secret</label><input type="text" name="google_client_secret" class="text-input" placeholder="<?php echo !empty($s['google_client_secret']) ? '•••••••• (محفوظ - اتركه فارغاً للإبقاء عليه)' : ''; ?>" dir="ltr"></div>
-            </div>
-
-            <div class="admin-card-header" style="margin-top:20px"><h2><i class="fas fa-file-contract"></i> الشروط والسياسات</h2></div>
-            <p style="font-size:12px;color:var(--text-muted);margin-bottom:12px">تظهر هذه النصوص للمستخدمين من قسم الإعدادات، وعند إنشاء حساب جديد.</p>
-            <div class="field-row"><label class="field-label">الشروط والأحكام</label><textarea name="site_terms" class="text-input" rows="6"><?php echo e($s['site_terms'] ?? ''); ?></textarea></div>
-            <div class="field-row"><label class="field-label">سياسة الخصوصية</label><textarea name="site_privacy" class="text-input" rows="6"><?php echo e($s['site_privacy'] ?? ''); ?></textarea></div>
-
-            <button type="submit" class="btn btn-accent" style="margin-top:8px"><i class="fas fa-floppy-disk"></i> حفظ الإعدادات</button>
-        </form>
+    <div class="settings-subtabs">
+        <button type="button" class="subtab-btn active" onclick="showSettingsPanel(this, 'site')"><i class="fas fa-shop"></i> الموقع</button>
+        <button type="button" class="subtab-btn" onclick="showSettingsPanel(this, 'referral')"><i class="fas fa-share-nodes"></i> الدعوات</button>
+        <button type="button" class="subtab-btn" onclick="showSettingsPanel(this, 'ai')"><i class="fas fa-robot"></i> الذكاء الاصطناعي</button>
+        <button type="button" class="subtab-btn" onclick="showSettingsPanel(this, 'google')"><i class="fab fa-google"></i> Google</button>
+        <button type="button" class="subtab-btn" onclick="showSettingsPanel(this, 'policies')"><i class="fas fa-file-contract"></i> السياسات</button>
+        <button type="button" class="subtab-btn" onclick="showSettingsPanel(this, 'currencies')"><i class="fas fa-coins"></i> العملات</button>
+        <button type="button" class="subtab-btn" onclick="showSettingsPanel(this, 'notify')"><i class="fas fa-bullhorn"></i> إشعار جماعي</button>
     </div>
 
-    <div class="admin-card">
-        <div class="admin-card-header"><h2><i class="fas fa-coins"></i> العملات وأسعار الصرف</h2></div>
-        <p style="font-size:12px;color:var(--text-muted);margin-bottom:14px;line-height:1.8">
-            كل الأسعار في النظام مخزّنة بالدولار الأمريكي كعملة أساس. أضف هنا أي عملة أخرى وسعر صرفها مقابل الدولار،
-            لتُستخدم في عرض الأسعار للزوار وفي طرق الدفع.
-        </p>
-        <form method="POST" action="admin.php?section=settings">
-            <?php echo csrfField(); ?>
-            <input type="hidden" name="action" value="currency_save">
-            <div class="field-grid-2">
-                <div class="field-row"><label class="field-label">رمز العملة (3 أحرف)</label><input type="text" name="code" class="text-input" placeholder="SAR" maxlength="3" dir="ltr" style="text-transform:uppercase" required></div>
-                <div class="field-row"><label class="field-label">اسم العملة</label><input type="text" name="name" class="text-input" placeholder="ريال سعودي" required></div>
-                <div class="field-row"><label class="field-label">رمز مختصر</label><input type="text" name="symbol" class="text-input" placeholder="ر.س" required></div>
-                <div class="field-row"><label class="field-label">سعر الصرف مقابل 1 دولار</label><input type="number" step="0.0001" min="0.0001" name="rate_per_usd" class="text-input" placeholder="3.75" required></div>
-            </div>
-            <div class="checkbox-row"><input type="checkbox" name="is_active" id="newCurrencyActive" checked><label for="newCurrencyActive">مفعّلة</label></div>
-            <button type="submit" class="btn btn-accent btn-sm"><i class="fas fa-plus"></i> إضافة / تحديث العملة</button>
-        </form>
+    <form method="POST" action="admin.php?section=settings" enctype="multipart/form-data">
+        <?php echo csrfField(); ?>
+        <input type="hidden" name="action" value="settings_save">
 
-        <?php foreach ($currencies as $c): ?>
-        <div class="settings-item" style="margin-top:14px;padding-top:14px;border-top:1px solid var(--border-color)">
-            <form method="POST" action="admin.php?section=settings" style="width:100%">
+        <div class="settings-panel" data-panel="site">
+            <div class="admin-card">
+                <div class="admin-card-header"><h2><i class="fas fa-shop"></i> اسم الموقع والشعار</h2></div>
+                <div class="field-grid-2">
+                    <div class="field-row"><label class="field-label">اسم الموقع</label><input type="text" name="site_name" class="text-input" value="<?php echo e($s['site_name'] ?? ''); ?>" required></div>
+                    <div class="field-row"><label class="field-label">الشعار النصي (Tagline)</label><input type="text" name="site_tagline" class="text-input" value="<?php echo e($s['site_tagline'] ?? ''); ?>"></div>
+                </div>
+                <div class="field-row">
+                    <label class="field-label">شعار الموقع (صورة)</label>
+                    <?php if (!empty($s['site_logo'])): ?>
+                        <div style="margin-bottom:8px"><img src="<?php echo e($s['site_logo']); ?>" alt="" style="width:56px;height:56px;border-radius:14px;object-fit:cover;border:1px solid var(--border-color)"></div>
+                    <?php endif; ?>
+                    <input type="file" name="site_logo" class="text-input" accept="image/png,image/jpeg,image/webp">
+                </div>
+                <div class="field-row">
+                    <label class="field-label">عملة عرض الأسعار</label>
+                    <select name="app_currency" class="text-input">
+                        <option value="">تلقائي حسب بلد الزائر</option>
+                        <?php foreach ($currencies as $c): ?>
+                        <option value="<?php echo e($c['code']); ?>" <?php echo ($s['app_currency'] ?? '') === $c['code'] ? 'selected' : ''; ?>><?php echo e($c['name']); ?> (<?php echo e($c['symbol']); ?>) - دائماً</option>
+                        <?php endforeach; ?>
+                    </select>
+                </div>
+            </div>
+        </div>
+
+        <div class="settings-panel hidden" data-panel="referral">
+            <div class="admin-card">
+                <div class="admin-card-header"><h2><i class="fas fa-share-nodes"></i> رابط المشاركة (الإحالة)</h2></div>
+                <div class="field-row">
+                    <label class="field-label">نسبة خصم رابط المشاركة (%)</label>
+                    <input type="number" name="referral_discount_pct" class="text-input" min="0" max="100" step="1" value="<?php echo e($s['referral_discount_pct'] ?? '10'); ?>" dir="ltr">
+                    <p style="font-size:11px;color:var(--text-muted);margin-top:4px">كل مستخدم لديه رابط دعوة خاص من الرئيسية. من يسجّل عبره يحصل على هذه النسبة كخصم على أول طلب VPS له. ضع 0 لتعطيل الميزة.</p>
+                </div>
+            </div>
+        </div>
+
+        <div class="settings-panel hidden" data-panel="ai">
+            <div class="admin-card">
+                <div class="admin-card-header"><h2><i class="fas fa-robot"></i> المساعد الذكي (NVIDIA API)</h2></div>
+                <div class="field-row"><label class="field-label">مفتاح API</label><input type="text" name="nvidia_api_key" class="text-input" value="<?php echo e($s['nvidia_api_key'] ?? ''); ?>" dir="ltr" placeholder="nvapi-..."></div>
+                <div class="field-row"><label class="field-label">اسم النموذج (Model)</label><input type="text" name="nvidia_model" class="text-input" value="<?php echo e($s['nvidia_model'] ?? ''); ?>" dir="ltr"></div>
+                <div class="field-grid-2">
+                    <div class="field-row">
+                        <label class="field-label">شعار المساعد الذكي (اختياري)</label>
+                        <?php if (!empty($s['ai_logo'])): ?>
+                            <div style="margin-bottom:8px"><img src="<?php echo e($s['ai_logo']); ?>" alt="" style="width:48px;height:48px;border-radius:50%;object-fit:cover;border:1px solid var(--border-color)"></div>
+                        <?php endif; ?>
+                        <input type="file" name="ai_logo" class="text-input" accept="image/png,image/jpeg,image/webp">
+                    </div>
+                    <div class="field-row">
+                        <label class="field-label">صورة بطاقة المساعد الذكي بالرئيسية (اختياري)</label>
+                        <?php if (!empty($s['ai_home_banner'])): ?>
+                            <div style="margin-bottom:8px"><img src="<?php echo e($s['ai_home_banner']); ?>" alt="" style="width:100%;max-width:220px;border-radius:10px;object-fit:cover;border:1px solid var(--border-color)"></div>
+                        <?php endif; ?>
+                        <input type="file" name="ai_home_banner" class="text-input" accept="image/png,image/jpeg,image/webp">
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="settings-panel hidden" data-panel="google">
+            <div class="admin-card">
+                <div class="admin-card-header"><h2><i class="fab fa-google"></i> تسجيل الدخول عبر Google</h2></div>
+                <p style="font-size:12px;color:var(--text-muted);margin-bottom:12px;line-height:1.8">
+                    أنشئ OAuth Client ID من
+                    <a href="https://console.cloud.google.com/apis/credentials" target="_blank" style="color:var(--accent);font-weight:700">Google Cloud Console</a>
+                    من نوع "Web application"، وأضف رابط إعادة التوجيه التالي بالضبط ضمن Authorized redirect URIs:
+                </p>
+                <div class="text-input" style="direction:ltr;text-align:left;font-family:monospace;font-size:12px;margin-bottom:14px;user-select:all"><?php echo e($redirectUri); ?></div>
+                <div class="field-grid-2">
+                    <div class="field-row"><label class="field-label">Google Client ID</label><input type="text" name="google_client_id" class="text-input" value="<?php echo e($s['google_client_id'] ?? ''); ?>" dir="ltr"></div>
+                    <div class="field-row"><label class="field-label">Google Client Secret</label><input type="text" name="google_client_secret" class="text-input" placeholder="<?php echo !empty($s['google_client_secret']) ? '•••••••• (محفوظ - اتركه فارغاً للإبقاء عليه)' : ''; ?>" dir="ltr"></div>
+                </div>
+            </div>
+        </div>
+
+        <div class="settings-panel hidden" data-panel="policies">
+            <div class="admin-card">
+                <div class="admin-card-header"><h2><i class="fas fa-file-contract"></i> الشروط والسياسات</h2></div>
+                <p style="font-size:12px;color:var(--text-muted);margin-bottom:12px">تظهر هذه النصوص للمستخدمين من قسم الإعدادات، وعند إنشاء حساب جديد.</p>
+                <div class="field-row"><label class="field-label">الشروط والأحكام</label><textarea name="site_terms" class="text-input" rows="6"><?php echo e($s['site_terms'] ?? ''); ?></textarea></div>
+                <div class="field-row"><label class="field-label">سياسة الخصوصية</label><textarea name="site_privacy" class="text-input" rows="6"><?php echo e($s['site_privacy'] ?? ''); ?></textarea></div>
+            </div>
+        </div>
+
+        <button type="submit" class="btn btn-accent btn-block"><i class="fas fa-floppy-disk"></i> حفظ الإعدادات</button>
+    </form>
+
+    <div class="settings-panel hidden" data-panel="currencies">
+        <div class="admin-card">
+            <div class="admin-card-header"><h2><i class="fas fa-coins"></i> العملات وأسعار الصرف</h2></div>
+            <p style="font-size:12px;color:var(--text-muted);margin-bottom:14px;line-height:1.8">
+                كل الأسعار في النظام مخزّنة بالدولار الأمريكي كعملة أساس. أضف هنا أي عملة أخرى وسعر صرفها مقابل الدولار،
+                لتُستخدم في عرض الأسعار للزوار وفي طرق الدفع.
+            </p>
+            <form method="POST" action="admin.php?section=settings">
                 <?php echo csrfField(); ?>
                 <input type="hidden" name="action" value="currency_save">
-                <input type="hidden" name="code" value="<?php echo e($c['code']); ?>">
                 <div class="field-grid-2">
-                    <div class="field-row"><label class="field-label">الرمز</label><input type="text" class="text-input" value="<?php echo e($c['code']); ?>" disabled dir="ltr"></div>
-                    <div class="field-row"><label class="field-label">اسم العملة</label><input type="text" name="name" class="text-input" value="<?php echo e($c['name']); ?>" required></div>
-                    <div class="field-row"><label class="field-label">رمز مختصر</label><input type="text" name="symbol" class="text-input" value="<?php echo e($c['symbol']); ?>" required></div>
-                    <div class="field-row"><label class="field-label">سعر الصرف مقابل 1 دولار</label><input type="number" step="0.0001" min="0.0001" name="rate_per_usd" class="text-input" value="<?php echo e($c['rate_per_usd']); ?>" required></div>
+                    <div class="field-row"><label class="field-label">رمز العملة (3 أحرف)</label><input type="text" name="code" class="text-input" placeholder="SAR" maxlength="3" dir="ltr" style="text-transform:uppercase" required></div>
+                    <div class="field-row"><label class="field-label">اسم العملة</label><input type="text" name="name" class="text-input" placeholder="ريال سعودي" required></div>
+                    <div class="field-row"><label class="field-label">رمز مختصر</label><input type="text" name="symbol" class="text-input" placeholder="ر.س" required></div>
+                    <div class="field-row"><label class="field-label">سعر الصرف مقابل 1 دولار</label><input type="number" step="0.0001" min="0.0001" name="rate_per_usd" class="text-input" placeholder="3.75" required></div>
                 </div>
-                <div class="checkbox-row"><input type="checkbox" name="is_active" id="currencyActive<?php echo e($c['code']); ?>" <?php echo $c['is_active'] ? 'checked' : ''; ?>><label for="currencyActive<?php echo e($c['code']); ?>">مفعّلة</label></div>
-                <div class="order-actions">
-                    <button type="submit" class="btn btn-accent btn-sm"><i class="fas fa-floppy-disk"></i> حفظ</button>
-                </div>
+                <div class="checkbox-row"><input type="checkbox" name="is_active" id="newCurrencyActive" checked><label for="newCurrencyActive">مفعّلة</label></div>
+                <button type="submit" class="btn btn-accent btn-sm"><i class="fas fa-plus"></i> إضافة / تحديث العملة</button>
             </form>
-            <?php if ($c['code'] !== 'USD'): ?>
-            <form method="POST" action="admin.php?section=settings" style="margin-top:8px" onsubmit="return confirmAndSubmit(this, 'حذف هذه العملة؟')">
-                <?php echo csrfField(); ?>
-                <input type="hidden" name="action" value="currency_delete">
-                <input type="hidden" name="code" value="<?php echo e($c['code']); ?>">
-                <button type="submit" class="btn btn-danger btn-sm"><i class="fas fa-trash"></i> حذف العملة</button>
-            </form>
-            <?php endif; ?>
+
+            <?php foreach ($currencies as $c): ?>
+            <div class="settings-item" style="margin-top:14px;padding-top:14px;border-top:1px solid var(--border-color)">
+                <form method="POST" action="admin.php?section=settings" style="width:100%">
+                    <?php echo csrfField(); ?>
+                    <input type="hidden" name="action" value="currency_save">
+                    <input type="hidden" name="code" value="<?php echo e($c['code']); ?>">
+                    <div class="field-grid-2">
+                        <div class="field-row"><label class="field-label">الرمز</label><input type="text" class="text-input" value="<?php echo e($c['code']); ?>" disabled dir="ltr"></div>
+                        <div class="field-row"><label class="field-label">اسم العملة</label><input type="text" name="name" class="text-input" value="<?php echo e($c['name']); ?>" required></div>
+                        <div class="field-row"><label class="field-label">رمز مختصر</label><input type="text" name="symbol" class="text-input" value="<?php echo e($c['symbol']); ?>" required></div>
+                        <div class="field-row"><label class="field-label">سعر الصرف مقابل 1 دولار</label><input type="number" step="0.0001" min="0.0001" name="rate_per_usd" class="text-input" value="<?php echo e($c['rate_per_usd']); ?>" required></div>
+                    </div>
+                    <div class="checkbox-row"><input type="checkbox" name="is_active" id="currencyActive<?php echo e($c['code']); ?>" <?php echo $c['is_active'] ? 'checked' : ''; ?>><label for="currencyActive<?php echo e($c['code']); ?>">مفعّلة</label></div>
+                    <div class="order-actions">
+                        <button type="submit" class="btn btn-accent btn-sm"><i class="fas fa-floppy-disk"></i> حفظ</button>
+                    </div>
+                </form>
+                <?php if ($c['code'] !== 'USD'): ?>
+                <form method="POST" action="admin.php?section=settings" style="margin-top:8px" onsubmit="return confirmAndSubmit(this, 'حذف هذه العملة؟')">
+                    <?php echo csrfField(); ?>
+                    <input type="hidden" name="action" value="currency_delete">
+                    <input type="hidden" name="code" value="<?php echo e($c['code']); ?>">
+                    <button type="submit" class="btn btn-danger btn-sm"><i class="fas fa-trash"></i> حذف العملة</button>
+                </form>
+                <?php endif; ?>
+            </div>
+            <?php endforeach; ?>
         </div>
-        <?php endforeach; ?>
     </div>
 
-    <div class="admin-card">
-        <div class="admin-card-header"><h2><i class="fas fa-bullhorn"></i> إرسال إشعار لجميع المستخدمين</h2></div>
-        <form method="POST" action="admin.php?section=settings" onsubmit="return confirmAndSubmit(this, 'إرسال هذا الإشعار لجميع المستخدمين؟')">
-            <?php echo csrfField(); ?>
-            <input type="hidden" name="action" value="broadcast_notification">
-            <div class="field-row"><label class="field-label">عنوان الإشعار</label><input type="text" name="title" class="text-input" placeholder="📢 تحديث جديد" required></div>
-            <div class="field-row"><label class="field-label">نص الإشعار (اختياري)</label><textarea name="body" class="text-input" placeholder="تفاصيل الإشعار..."></textarea></div>
-            <button type="submit" class="btn btn-accent"><i class="fas fa-paper-plane"></i> إرسال للجميع</button>
-        </form>
+    <div class="settings-panel hidden" data-panel="notify">
+        <div class="admin-card">
+            <div class="admin-card-header"><h2><i class="fas fa-bullhorn"></i> إرسال إشعار لجميع المستخدمين</h2></div>
+            <form method="POST" action="admin.php?section=settings" onsubmit="return confirmAndSubmit(this, 'إرسال هذا الإشعار لجميع المستخدمين؟')">
+                <?php echo csrfField(); ?>
+                <input type="hidden" name="action" value="broadcast_notification">
+                <div class="field-row"><label class="field-label">عنوان الإشعار</label><input type="text" name="title" class="text-input" placeholder="📢 تحديث جديد" required></div>
+                <div class="field-row"><label class="field-label">نص الإشعار (اختياري)</label><textarea name="body" class="text-input" placeholder="تفاصيل الإشعار..."></textarea></div>
+                <button type="submit" class="btn btn-accent"><i class="fas fa-paper-plane"></i> إرسال للجميع</button>
+            </form>
+        </div>
     </div>
     <?php
 }

@@ -45,6 +45,14 @@
 
         .admin-container { max-width: 980px; margin:0 auto; padding: 20px; }
 
+        .settings-subtabs { display:flex; gap:6px; overflow-x:auto; padding-bottom:6px; margin-bottom:16px; -webkit-overflow-scrolling:touch; }
+        .subtab-btn {
+            display:flex; align-items:center; gap:6px; padding:8px 14px; border-radius:999px; font-size:12px; font-weight:700;
+            background:var(--bg-card); color:var(--text-secondary); border:1px solid var(--border-color); white-space:nowrap;
+            cursor:pointer; font-family:inherit;
+        }
+        .subtab-btn.active { background:var(--accent-glow); color:var(--accent); border-color:var(--border-active); }
+
         .stats-row { display:grid; grid-template-columns:repeat(4,1fr); gap:10px; margin-bottom:20px; }
         .stat-tile { background:var(--bg-secondary); border:1px solid var(--border-color); border-radius:var(--radius-sm); padding:14px 10px; text-align:center; }
         .stat-tile .num { font-size:20px; font-weight:900; color:var(--accent); }
