@@ -151,6 +151,56 @@
             maybeShowOnboardCards();
 
             // ============================================================
+            // بانر عملية آسياسيل غير مكتملة (تم تحويل جزء من المبلغ فعلياً)
+            // ============================================================
+            function showAsiacellPendingBanner() {
+                const banner = document.getElementById('asiacellPendingBanner');
+                if (!banner || !ASIACELL_PENDING) return;
+                document.getElementById('asiacellPendingText').textContent =
+                    'تم تحويل ' + Number(ASIACELL_PENDING.paid).toLocaleString() + ' د.ع من إجمالي ' + Number(ASIACELL_PENDING.total).toLocaleString() + ' د.ع (المتبقي ' + Number(ASIACELL_PENDING.remaining).toLocaleString() + ' د.ع).';
+                banner.classList.remove('hidden');
+            }
+            showAsiacellPendingBanner();
+
+            function resumeAsiacellPending() {
+                if (!ASIACELL_PENDING) return;
+                document.getElementById('asiacellPendingBanner').classList.add('hidden');
+                if (ASIACELL_PENDING.context === 'order') {
+                    showSection('vps');
+                    wizardState.planId = ASIACELL_PENDING.plan_id;
+                    wizardState.paymentMethod = String(ASIACELL_PENDING.payment_method_id);
+                    wizardGoTo('payment');
+                    binanceShowStep('order', 'info');
+                    asiacellShowStep('order', 'sms2');
+                    document.getElementById('asiacellPayInfo').innerHTML = `<div class="hosting-detail"><div class="detail-row"><span class="label">تم تحويل</span><span class="value" style="direction:ltr">${Number(ASIACELL_PENDING.paid).toLocaleString()} د.ع</span></div><div class="detail-row"><span class="label">المتبقي</span><span class="value" style="direction:ltr">${Number(ASIACELL_PENDING.remaining).toLocaleString()} د.ع</span></div></div>`;
+                } else {
+                    showSection('invoices');
+                    showAddBalance();
+                    const pm = PAYMENT_METHODS.find(p => String(p.id) === String(ASIACELL_PENDING.payment_method_id));
+                    if (pm) showPaymentPage(pm.id, pm.name, pm.account_number, pm.instructions, pm.method_type, pm.binance_id, pm.qr_code, pm.exchange_rate);
+                    asiacellShowStep('topup', 'sms2');
+                    document.getElementById('topUpAsiacellPayInfo').innerHTML = `<div class="hosting-detail"><div class="detail-row"><span class="label">تم تحويل</span><span class="value" style="direction:ltr">${Number(ASIACELL_PENDING.paid).toLocaleString()} د.ع</span></div><div class="detail-row"><span class="label">المتبقي</span><span class="value" style="direction:ltr">${Number(ASIACELL_PENDING.remaining).toLocaleString()} د.ع</span></div></div>`;
+                }
+            }
+
+            async function cancelAsiacellPending() {
+                try {
+                    const res = await fetch('index.php?ajax=asiacell_cancel', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ csrf_token: CSRF_TOKEN }),
+                    });
+                    const data = await res.json();
+                    document.getElementById('asiacellPendingBanner').classList.add('hidden');
+                    if (data.credited_usd > 0) {
+                        location.href = 'index.php?app=1&topup=1';
+                    }
+                } catch (err) {
+                    document.getElementById('asiacellPendingBanner').classList.add('hidden');
+                }
+            }
+
+            // ============================================================
             // اختيار العملة (بطاقة منبثقة قابلة للبحث)
             // ============================================================
             function updateCurrencyCardValue() {
@@ -839,6 +889,8 @@
                 document.getElementById('invoicesList').classList.remove('hidden');
             }
             
+            let topUpManualExchangeRate = 0;
+
             function showPaymentPage(methodId, methodName, accountNumber, instructions, methodType, binanceId, qrCode, exchangeRate) {
                 document.getElementById('paymentMethodName').textContent = 'شحن عبر ' + methodName;
                 document.getElementById('topUpPaymentMethodId').value = methodId;
@@ -854,6 +906,8 @@
                 document.getElementById('topUpAmountInput').value = '';
                 document.getElementById('topUpAmountUsd').value = '';
                 document.getElementById('topUpUsdHint').textContent = '';
+                topUpManualExchangeRate = methodType === 'manual' ? (parseFloat(exchangeRate) || 0) : 0;
+                document.getElementById('topUpManualIqdHint').textContent = '';
 
                 const isBinance = methodType === 'binance';
                 const isAsiacell = methodType === 'asiacell';
@@ -1106,6 +1160,10 @@
                         btn.disabled = false;
                         return;
                     }
+                    const payInfoEl = document.getElementById(ids.payInfo);
+                    if (payInfoEl && data.total) {
+                        payInfoEl.innerHTML += `<div class="hosting-detail" style="margin-top:8px"><div class="detail-row"><span class="label">سيتم تحويل الآن</span><span class="value" style="direction:ltr">${Number(data.chunk_amount).toLocaleString()} د.ع</span></div>${data.total > data.chunk_amount ? `<div class="detail-row"><span class="label">من إجمالي</span><span class="value" style="direction:ltr">${Number(data.total).toLocaleString()} د.ع</span></div>` : ''}</div>`;
+                    }
                     asiacellShowStep(ctx, 'sms2');
                 } catch (err) {
                     errEl.textContent = 'تعذر الاتصال بالسيرفر. حاول مرة أخرى.';
@@ -1134,8 +1192,25 @@
                     });
                     const data = await res.json();
                     if (!res.ok || data.error) {
+                        if (data.partial_stopped) {
+                            errEl.textContent = data.error;
+                            errEl.classList.remove('hidden');
+                            document.getElementById(ids.sms2Input).value = '';
+                            asiacellShowStep(ctx, 'phone');
+                            btn.disabled = false;
+                            return;
+                        }
                         errEl.textContent = data.error || 'تعذر تأكيد التحويل.';
                         errEl.classList.remove('hidden');
+                        btn.disabled = false;
+                        return;
+                    }
+                    if (!data.done) {
+                        document.getElementById(ids.sms2Input).value = '';
+                        const payInfoEl = document.getElementById(ids.payInfo);
+                        if (payInfoEl) {
+                            payInfoEl.innerHTML = `<div class="hosting-detail"><div class="detail-row"><span class="label">تم تحويل</span><span class="value" style="direction:ltr">${Number(data.paid).toLocaleString()} د.ع</span></div><div class="detail-row"><span class="label">من إجمالي</span><span class="value" style="direction:ltr">${Number(data.total).toLocaleString()} د.ع</span></div><div class="detail-row"><span class="label">سيصلك رمز جديد للجزء التالي</span><span class="value" style="direction:ltr">${Number(data.next_chunk).toLocaleString()} د.ع</span></div></div>`;
+                        }
                         btn.disabled = false;
                         return;
                     }
@@ -1161,6 +1236,13 @@
                 const usd = cur.rate ? (entered / cur.rate) : entered;
                 hidden.value = usd.toFixed(2);
                 hint.textContent = (entered > 0 && code !== 'USD') ? ('≈ ' + usd.toFixed(2) + ' $') : '';
+
+                const manualHint = document.getElementById('topUpManualIqdHint');
+                if (manualHint) {
+                    manualHint.textContent = (usd > 0 && topUpManualExchangeRate > 0)
+                        ? ('المبلغ بالدينار العراقي: ' + Math.round(usd * topUpManualExchangeRate).toLocaleString() + ' د.ع')
+                        : '';
+                }
 
                 const pm = PAYMENT_METHODS.find(p => String(p.id) === document.getElementById('topUpPaymentMethodId').value);
                 if (pm && pm.method_type === 'binance' && !document.getElementById('topUpBinanceWrap').classList.contains('hidden')) {

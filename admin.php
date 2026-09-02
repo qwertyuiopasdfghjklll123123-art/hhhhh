@@ -101,6 +101,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $currencyCode = trim($_POST['currency_code'] ?? '') ?: 'USD';
         $isActive = isset($_POST['is_active']) ? 1 : 0;
         $sortOrder = (int)($_POST['sort_order'] ?? 0);
+        $exchangeRate = (float)($_POST['exchange_rate'] ?? 0);
 
         if ($name === '') {
             adminRedirect('payments', null, 'الرجاء إدخال اسم طريقة الدفع.');
@@ -111,6 +112,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             adminRedirect('payments', null, $uploadErr);
         }
 
+        $methodExtras = json_encode(['exchange_rate' => $exchangeRate > 0 ? $exchangeRate : null]);
+
         if ($id > 0) {
             $typeStmt = $pdo->prepare('SELECT method_type FROM payment_methods WHERE id = ?');
             $typeStmt->execute([$id]);
@@ -118,15 +121,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 adminRedirect('payments', null, 'لا يمكن تعديل هذه الطريقة من هذا النموذج.');
             }
             if ($logoPath) {
-                $pdo->prepare('UPDATE payment_methods SET name=?, icon=?, account_number=?, instructions=?, currency_code=?, is_active=?, sort_order=?, logo_path=? WHERE id=?')
-                    ->execute([$name, $icon, $account, $instructions, $currencyCode, $isActive, $sortOrder, $logoPath, $id]);
+                $pdo->prepare('UPDATE payment_methods SET name=?, icon=?, account_number=?, instructions=?, currency_code=?, is_active=?, sort_order=?, logo_path=?, method_extras=? WHERE id=?')
+                    ->execute([$name, $icon, $account, $instructions, $currencyCode, $isActive, $sortOrder, $logoPath, $methodExtras, $id]);
             } else {
-                $pdo->prepare('UPDATE payment_methods SET name=?, icon=?, account_number=?, instructions=?, currency_code=?, is_active=?, sort_order=? WHERE id=?')
-                    ->execute([$name, $icon, $account, $instructions, $currencyCode, $isActive, $sortOrder, $id]);
+                $pdo->prepare('UPDATE payment_methods SET name=?, icon=?, account_number=?, instructions=?, currency_code=?, is_active=?, sort_order=?, method_extras=? WHERE id=?')
+                    ->execute([$name, $icon, $account, $instructions, $currencyCode, $isActive, $sortOrder, $methodExtras, $id]);
             }
         } else {
-            $pdo->prepare("INSERT INTO payment_methods (name, icon, account_number, instructions, currency_code, is_active, sort_order, logo_path, method_type) VALUES (?,?,?,?,?,?,?,?,'manual')")
-                ->execute([$name, $icon, $account, $instructions, $currencyCode, $isActive, $sortOrder, $logoPath]);
+            $pdo->prepare("INSERT INTO payment_methods (name, icon, account_number, instructions, currency_code, is_active, sort_order, logo_path, method_type, method_extras) VALUES (?,?,?,?,?,?,?,?,'manual',?)")
+                ->execute([$name, $icon, $account, $instructions, $currencyCode, $isActive, $sortOrder, $logoPath, $methodExtras]);
         }
         adminRedirect('payments', 'تم حفظ طريقة الدفع بنجاح.');
     }
@@ -167,6 +170,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $isActive = isset($_POST['is_active']) ? 1 : 0;
         $receiverMsisdn = trim($_POST['asiacell_receiver'] ?? '');
         $exchangeRate = (float)($_POST['asiacell_exchange_rate'] ?? 0);
+        $maxTransfer = (int)($_POST['asiacell_max_transfer'] ?? 0);
         $instructions = trim($_POST['instructions'] ?? '');
 
         if ($receiverMsisdn !== '' && !preg_match('/^(077|078|079)\d{8}$/', $receiverMsisdn)) {
@@ -181,6 +185,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $methodExtras = json_encode([
             'receiver_msisdn' => $receiverMsisdn !== '' ? $receiverMsisdn : ($existingExtras['receiver_msisdn'] ?? ''),
             'exchange_rate' => $exchangeRate > 0 ? $exchangeRate : ($existingExtras['exchange_rate'] ?? 1000),
+            'max_transfer' => $maxTransfer > 0 ? $maxTransfer : ($existingExtras['max_transfer'] ?? 10000),
         ]);
 
         if ($logoPath) {
@@ -854,8 +859,9 @@ function renderAdminPayments(PDO $pdo) {
             <?php echo csrfField(); ?>
             <input type="hidden" name="action" value="pm_save_asiacell">
             <div class="field-grid-2">
-                <div class="field-row"><label class="field-label">رقم آسياسيل المستقبل للتحويلات</label><input type="text" name="asiacell_receiver" class="text-input" dir="ltr" value="<?php echo e($asiacellExtras['receiver_msisdn'] ?? ''); ?>" placeholder="07xxxxxxxxx"></div>
+                <div class="field-row"><label class="field-label">رقم آسياسيل المستقبل للتحويلات (رقمك الحقيقي الفعّال، وليس مثالاً)</label><input type="text" name="asiacell_receiver" class="text-input" dir="ltr" value="<?php echo e($asiacellExtras['receiver_msisdn'] ?? ''); ?>" placeholder="07xxxxxxxxx"></div>
                 <div class="field-row"><label class="field-label">سعر الصرف (دينار عراقي مقابل 1 دولار)</label><input type="number" name="asiacell_exchange_rate" class="text-input" dir="ltr" value="<?php echo e($asiacellExtras['exchange_rate'] ?? ''); ?>" placeholder="1000" step="0.01"></div>
+                <div class="field-row"><label class="field-label">الحد الأقصى لكل عملية تحويل (دينار عراقي)</label><input type="number" name="asiacell_max_transfer" class="text-input" dir="ltr" value="<?php echo e($asiacellExtras['max_transfer'] ?? '10000'); ?>" placeholder="10000" step="1000"></div>
                 <div class="field-row">
                     <label class="field-label">الشعار (صورة، اختياري)</label>
                     <?php if (!empty($asiacell['logo_path'])): ?>
@@ -864,6 +870,7 @@ function renderAdminPayments(PDO $pdo) {
                     <input type="file" name="logo" class="text-input" accept="image/png,image/jpeg,image/webp">
                 </div>
             </div>
+            <div class="text-muted" style="font-size:11px;margin-bottom:10px">آسياسيل تحوّل فقط بمبالغ مضاعفة الألف (1000، 2000...)؛ إن تجاوز المبلغ المطلوب الحد الأقصى أعلاه يقسّمه الموقع تلقائياً على أكثر من عملية تحويل متتالية.</div>
             <div class="field-row"><label class="field-label">الوصف (يظهر للمستخدم)</label><textarea name="instructions" class="text-input" placeholder="تحويل رصيد آسياسيل مباشر وتلقائي"><?php echo e($asiacell['instructions']); ?></textarea></div>
             <div class="checkbox-row"><input type="checkbox" name="is_active" id="asiacellActive" <?php echo $asiacell['is_active'] ? 'checked' : ''; ?>><label for="asiacellActive">مفعّلة وتظهر للمستخدمين</label></div>
             <button type="submit" class="btn btn-accent btn-sm"><i class="fas fa-floppy-disk"></i> حفظ إعدادات آسياسيل</button>
@@ -905,6 +912,7 @@ function renderAdminPayments(PDO $pdo) {
                         <?php endforeach; ?>
                     </select>
                 </div>
+                <div class="field-row"><label class="field-label">سعر الصرف بالدينار العراقي (اختياري، لعرض المبلغ بالدينار للعميل)</label><input type="number" name="exchange_rate" class="text-input" dir="ltr" placeholder="1450" step="0.01"></div>
             </div>
             <div class="field-row"><label class="field-label">تعليمات الدفع</label><textarea name="instructions" class="text-input" placeholder="حوّل المبلغ إلى الرقم أعلاه ثم ارفع صورة الإيصال."></textarea></div>
             <div class="field-row"><label class="field-label">شعار (صورة، اختياري)</label><input type="file" name="logo" class="text-input" accept="image/png,image/jpeg,image/webp"></div>
@@ -946,6 +954,8 @@ function renderAdminPayments(PDO $pdo) {
                             <?php endforeach; ?>
                         </select>
                     </div>
+                    <?php $pmExtras = json_decode($pm['method_extras'] ?? '{}', true) ?: []; ?>
+                    <div class="field-row"><label class="field-label">سعر الصرف بالدينار العراقي (اختياري)</label><input type="number" name="exchange_rate" class="text-input" dir="ltr" value="<?php echo e($pmExtras['exchange_rate'] ?? ''); ?>" placeholder="1450" step="0.01"></div>
                 </div>
                 <div class="field-row"><label class="field-label">تعليمات الدفع</label><textarea name="instructions" class="text-input"><?php echo e($pm['instructions']); ?></textarea></div>
                 <div class="field-row"><label class="field-label">تغيير الشعار (اختياري)</label><input type="file" name="logo" class="text-input" accept="image/png,image/jpeg,image/webp"></div>

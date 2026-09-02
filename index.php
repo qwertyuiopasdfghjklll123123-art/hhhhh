@@ -600,6 +600,14 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === 'asiacell_start' && $_SERVER['REQU
     $paymentMethodId = (int)($body['payment_method_id'] ?? 0);
     $phone = trim((string)($body['phone'] ?? ''));
 
+    // يمنع فتح عملية جديدة إن كان هناك مبلغ سبق تحويله فعلياً ولم يُستكمل أو يُلغَ بعد (المال لا يُترك بلا حساب)
+    $existingFlow = $_SESSION['asiacell_flow'] ?? null;
+    if ($existingFlow && (float)($existingFlow['amount_iqd_paid'] ?? 0) > 0) {
+        http_response_code(400);
+        echo json_encode(['error' => 'لديك عملية دفع آسياسيل غير مكتملة، أكملها أو ألغِها أولاً.', 'has_pending' => true]);
+        exit;
+    }
+
     if (!preg_match('/^(077|078|079)\d{8}$/', $phone)) {
         http_response_code(400);
         echo json_encode(['error' => 'رقم هاتف آسياسيل غير صحيح، يجب أن يكون بصيغة 07xxxxxxxxx.']);
@@ -617,6 +625,8 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === 'asiacell_start' && $_SERVER['REQU
     $extras = json_decode($pm['method_extras'] ?? '{}', true) ?: [];
     $receiverMsisdn = trim((string)($extras['receiver_msisdn'] ?? ''));
     $exchangeRate = (float)($extras['exchange_rate'] ?? 0);
+    $maxTransfer = (int)($extras['max_transfer'] ?? 10000);
+    if ($maxTransfer < 1000) $maxTransfer = 10000;
     if ($receiverMsisdn === '' || $exchangeRate <= 0) {
         http_response_code(400);
         echo json_encode(['error' => 'لم يتم إعداد آسياسيل من الإدارة بعد.']);
@@ -658,7 +668,11 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === 'asiacell_start' && $_SERVER['REQU
         }
     }
 
-    $amountIqd = (int)round($amountUsd * $exchangeRate);
+    // آسياسيل يحوّل فقط بمضاعفات الألف دينار (1000، 2000...)؛ الفرق الناتج عن التقريب للأعلى يُضاف كرصيد إضافي للحساب
+    // نقرّب أولاً لمنزلتين عشريتين لإزالة شوائب الفاصلة العائمة (مثال: 2000.0000000002 يجب ألا تصبح 3000)
+    $amountIqdExact = round($amountUsd * $exchangeRate, 2);
+    $amountIqdTotal = (int)(ceil($amountIqdExact / 1000) * 1000);
+    $overpayUsd = $exchangeRate > 0 ? round(($amountIqdTotal - $amountIqdExact) / $exchangeRate, 2) : 0;
 
     $api = new AsiaCellAPI();
     [$success, $result] = $api->login($phone);
@@ -677,12 +691,17 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === 'asiacell_start' && $_SERVER['REQU
         'payment_method_id' => $paymentMethodId,
         'billing_cycle' => $billingCycle,
         'amount_usd' => $amountUsd,
-        'amount_iqd' => $amountIqd,
+        'overpay_usd' => $overpayUsd,
+        'exchange_rate' => $exchangeRate,
+        'amount_iqd_total' => $amountIqdTotal,
+        'amount_iqd_paid' => 0,
+        'current_chunk' => 0,
+        'max_transfer' => $maxTransfer,
         'receiver_msisdn' => $receiverMsisdn,
         'step' => 'sms',
     ];
 
-    echo json_encode(['ok' => true, 'amount_iqd' => $amountIqd]);
+    echo json_encode(['ok' => true, 'amount_iqd_total' => $amountIqdTotal]);
     exit;
 }
 
@@ -725,7 +744,8 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === 'asiacell_verify_sms' && $_SERVER[
         exit;
     }
 
-    [$success2, $result2] = $api->startTransfer($flow['amount_iqd'], $flow['receiver_msisdn']);
+    $chunk = min($flow['max_transfer'], $flow['amount_iqd_total'] - $flow['amount_iqd_paid']);
+    [$success2, $result2] = $api->startTransfer($chunk, $flow['receiver_msisdn']);
     if (!$success2) {
         logAsiacellDebug($pdo, 'startTransfer', $api);
         http_response_code(400);
@@ -734,10 +754,16 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === 'asiacell_verify_sms' && $_SERVER[
     }
 
     $flow['api'] = $api->getState();
+    $flow['current_chunk'] = $chunk;
     $flow['step'] = 'confirm';
     $_SESSION['asiacell_flow'] = $flow;
 
-    echo json_encode(['ok' => true]);
+    echo json_encode([
+        'ok' => true,
+        'chunk_amount' => $chunk,
+        'total' => $flow['amount_iqd_total'],
+        'remaining_after' => $flow['amount_iqd_total'] - $flow['amount_iqd_paid'] - $chunk,
+    ]);
     exit;
 }
 
@@ -781,7 +807,46 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === 'asiacell_confirm_transfer' && $_S
     }
 
     $userId = (int)$_SESSION['user_id'];
+    $flow['amount_iqd_paid'] = (int)$flow['amount_iqd_paid'] + (int)$flow['current_chunk'];
+    $fullyPaid = $flow['amount_iqd_paid'] >= $flow['amount_iqd_total'];
+
+    if (!$fullyPaid) {
+        // بقي جزء آخر - نبدأ فوراً تحويل الجزء التالي (التوكن ما زال صالحاً، لا حاجة لتسجيل دخول جديد)
+        $nextChunk = min($flow['max_transfer'], $flow['amount_iqd_total'] - $flow['amount_iqd_paid']);
+        [$success2, $result2] = $api->startTransfer($nextChunk, $flow['receiver_msisdn']);
+        if (!$success2) {
+            // فشل بدء الجزء التالي رغم أن الجزء السابق تحوّل فعلاً؛ نضيف ما تم دفعه كرصيد بدل أن يضيع
+            logAsiacellDebug($pdo, 'startTransfer_chunk', $api);
+            $creditedUsd = $flow['exchange_rate'] > 0 ? round($flow['amount_iqd_paid'] / $flow['exchange_rate'], 2) : 0;
+            if ($creditedUsd > 0) {
+                $pdo->prepare('UPDATE users SET balance = balance + ? WHERE id = ?')->execute([$creditedUsd, $userId]);
+                $pdo->prepare('INSERT INTO invoices (user_id, invoice_number, amount, status, description) VALUES (?,?,?,?,?)')
+                    ->execute([$userId, nextInvoiceNumber($pdo), $creditedUsd, 'paid', 'رصيد مسترد من تحويل آسياسيل غير مكتمل']);
+                notifyUser($pdo, $userId, '⚠️ توقف تحويل آسياسيل جزئياً', 'تم تحويل ' . number_format($flow['amount_iqd_paid']) . ' د.ع بنجاح، لكن تعذر إكمال المبلغ المتبقي. أضفنا $' . money($creditedUsd) . ' كرصيد إلى حسابك.', 'system');
+            }
+            unset($_SESSION['asiacell_flow']);
+            http_response_code(400);
+            echo json_encode(['error' => 'تم تحويل جزء من المبلغ لكن تعذر إكمال الباقي: ' . $result2, 'partial_stopped' => true, 'credited_usd' => $creditedUsd]);
+            exit;
+        }
+
+        $flow['api'] = $api->getState();
+        $flow['current_chunk'] = $nextChunk;
+        $_SESSION['asiacell_flow'] = $flow;
+
+        echo json_encode([
+            'ok' => true,
+            'done' => false,
+            'paid' => $flow['amount_iqd_paid'],
+            'total' => $flow['amount_iqd_total'],
+            'next_chunk' => $nextChunk,
+        ]);
+        exit;
+    }
+
+    // اكتمل الدفع بالكامل - يُنجز الطلب/الشحن بالمبلغ الأصلي بالدولار، وفرق التقريب (إن وُجد) يُضاف كرصيد
     $amountUsd = (float)$flow['amount_usd'];
+    $overpayUsd = round((float)($flow['overpay_usd'] ?? 0), 2);
 
     if ($flow['context'] === 'order') {
         $pdo->prepare('INSERT INTO orders (user_id, plan_id, payment_method_id, amount, billing_cycle, status) VALUES (?,?,?,?,?,?)')
@@ -797,25 +862,35 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === 'asiacell_confirm_transfer' && $_S
         $pdo->prepare('INSERT INTO invoices (user_id, order_id, invoice_number, amount, status, description) VALUES (?,?,?,?,?,?)')
             ->execute([$userId, $orderId, nextInvoiceNumber($pdo), $amountUsd, 'paid', $invDescription]);
 
+        if ($overpayUsd > 0.01) {
+            $pdo->prepare('UPDATE users SET balance = balance + ? WHERE id = ?')->execute([$overpayUsd, $userId]);
+            $pdo->prepare('INSERT INTO invoices (user_id, invoice_number, amount, status, description) VALUES (?,?,?,?,?)')
+                ->execute([$userId, nextInvoiceNumber($pdo), $overpayUsd, 'paid', 'فرق تقريب تحويل آسياسيل (للمضاعف الأقرب)']);
+        }
+
         $user = currentUser($pdo);
         notifyAdmins($pdo, '🆕 طلب اشتراك جديد (آسياسيل)', 'قدّم ' . $user['name'] . ' طلب اشتراك في باقة "' . $planName . '" بمبلغ $' . money($amountUsd) . ' عبر آسياسيل (تم التحقق تلقائياً). راجع الطلب لتفعيل الاستضافة.', 'system');
 
         unset($_SESSION['asiacell_flow']);
-        echo json_encode(['ok' => true, 'order_id' => $orderId]);
+        echo json_encode(['ok' => true, 'done' => true, 'order_id' => $orderId, 'overpay_credited' => $overpayUsd]);
         exit;
     }
 
     $pdo->beginTransaction();
-    $pdo->prepare('UPDATE users SET balance = balance + ? WHERE id = ?')->execute([$amountUsd, $userId]);
+    $pdo->prepare('UPDATE users SET balance = balance + ? WHERE id = ?')->execute([$amountUsd + $overpayUsd, $userId]);
     $pdo->prepare('INSERT INTO invoices (user_id, invoice_number, amount, status, description) VALUES (?,?,?,?,?)')
         ->execute([$userId, nextInvoiceNumber($pdo), $amountUsd, 'paid', 'شحن رصيد عبر آسياسيل']);
+    if ($overpayUsd > 0.01) {
+        $pdo->prepare('INSERT INTO invoices (user_id, invoice_number, amount, status, description) VALUES (?,?,?,?,?)')
+            ->execute([$userId, nextInvoiceNumber($pdo), $overpayUsd, 'paid', 'فرق تقريب تحويل آسياسيل (للمضاعف الأقرب)']);
+    }
     $pdo->commit();
 
-    notifyUser($pdo, $userId, '💰 تم شحن رصيدك', 'تم إضافة $' . money($amountUsd) . ' إلى رصيد حسابك تلقائياً عبر آسياسيل.', 'topup_approved');
+    notifyUser($pdo, $userId, '💰 تم شحن رصيدك', 'تم إضافة $' . money($amountUsd + $overpayUsd) . ' إلى رصيد حسابك تلقائياً عبر آسياسيل.', 'topup_approved');
 
     unset($_SESSION['asiacell_flow']);
     $user = currentUser($pdo);
-    echo json_encode(['ok' => true, 'balance' => (float)$user['balance']]);
+    echo json_encode(['ok' => true, 'done' => true, 'balance' => (float)$user['balance'], 'overpay_credited' => $overpayUsd]);
     exit;
 }
 
@@ -832,8 +907,18 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === 'asiacell_cancel' && $_SERVER['REQ
         echo json_encode(['error' => 'انتهت صلاحية الجلسة.']);
         exit;
     }
+    $flow = $_SESSION['asiacell_flow'] ?? null;
+    $creditedUsd = 0;
+    if ($flow && (float)($flow['amount_iqd_paid'] ?? 0) > 0 && (float)($flow['exchange_rate'] ?? 0) > 0) {
+        $userId = (int)$_SESSION['user_id'];
+        $creditedUsd = round($flow['amount_iqd_paid'] / $flow['exchange_rate'], 2);
+        $pdo->prepare('UPDATE users SET balance = balance + ? WHERE id = ?')->execute([$creditedUsd, $userId]);
+        $pdo->prepare('INSERT INTO invoices (user_id, invoice_number, amount, status, description) VALUES (?,?,?,?,?)')
+            ->execute([$userId, nextInvoiceNumber($pdo), $creditedUsd, 'paid', 'رصيد مسترد من تحويل آسياسيل تم إلغاؤه بعد دفع جزئي']);
+        notifyUser($pdo, $userId, '💰 تم استرداد رصيدك', 'تم إلغاء عملية آسياسيل بعد تحويل ' . number_format($flow['amount_iqd_paid']) . ' د.ع، وأضفنا $' . money($creditedUsd) . ' كرصيد إلى حسابك.', 'system');
+    }
     unset($_SESSION['asiacell_flow']);
-    echo json_encode(['ok' => true]);
+    echo json_encode(['ok' => true, 'credited_usd' => $creditedUsd]);
     exit;
 }
 
@@ -1409,6 +1494,21 @@ function includeAppPage(PDO $pdo) {
     $referralScheme = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http';
     $referralLink = $referralScheme . '://' . $_SERVER['HTTP_HOST'] . '/index.php?ref=' . $myReferralCode;
 
+    // عملية آسياسيل غير مكتملة (تم تحويل جزء منها فعلياً) تبقى في الجلسة حتى يُكملها العميل أو يُلغيها صراحةً
+    $asiacellPending = null;
+    if (!empty($_SESSION['asiacell_flow']) && (float)($_SESSION['asiacell_flow']['amount_iqd_paid'] ?? 0) > 0) {
+        $af = $_SESSION['asiacell_flow'];
+        $asiacellPending = [
+            'context' => $af['context'],
+            'plan_id' => (int)($af['plan_id'] ?? 0),
+            'payment_method_id' => (int)($af['payment_method_id'] ?? 0),
+            'amount_usd' => (float)($af['amount_usd'] ?? 0),
+            'paid' => (int)$af['amount_iqd_paid'],
+            'total' => (int)$af['amount_iqd_total'],
+            'remaining' => (int)$af['amount_iqd_total'] - (int)$af['amount_iqd_paid'],
+        ];
+    }
+
     $notifStmt = $pdo->prepare('SELECT * FROM notifications WHERE user_id = ? ORDER BY created_at DESC LIMIT 50');
     $notifStmt->execute([$userId]);
     $notifications = $notifStmt->fetchAll(PDO::FETCH_ASSOC);
@@ -1447,7 +1547,7 @@ function includeAppPage(PDO $pdo) {
         $pmRow['binance_id'] = $extras['binance_id'] ?? '';
         $pmRow['qr_code'] = $extras['qr_code'] ?? '';
         // سعر الصرف فقط (غير حساس، يُستخدم لعرض المكافئ بالدينار)؛ رقم آسياسيل المستقبل يبقى في الخادم فقط
-        $pmRow['exchange_rate'] = ($pmRow['method_type'] ?? '') === 'asiacell' ? (float)($extras['exchange_rate'] ?? 0) : 0;
+        $pmRow['exchange_rate'] = (float)($extras['exchange_rate'] ?? 0);
         unset($pmRow['method_extras']);
     }
     unset($pmRow);
@@ -1561,7 +1661,17 @@ function includeAppPage(PDO $pdo) {
                 </button>
             </div>
         </header>
-        
+
+        <!-- بانر عملية آسياسيل غير مكتملة (تم تحويل جزء منها فعلياً) -->
+        <div id="asiacellPendingBanner" class="hidden" style="margin:12px 16px 0;padding:14px 16px;border-radius:var(--radius-sm);background:rgba(251,191,36,.12);border:1.5px solid rgba(251,191,36,.4)">
+            <div style="display:flex;align-items:center;gap:8px;font-weight:800;font-size:13px;margin-bottom:4px"><i class="fas fa-triangle-exclamation" style="color:#b45309"></i> لديك عملية دفع آسياسيل غير مكتملة</div>
+            <div id="asiacellPendingText" style="font-size:12px;color:var(--text-muted);margin-bottom:10px"></div>
+            <div style="display:flex;gap:8px">
+                <button class="btn-gold" style="padding:8px 14px;font-size:12px;width:auto" onclick="resumeAsiacellPending()"><i class="fas fa-play"></i> متابعة الدفع</button>
+                <button class="btn-back" style="font-size:12px" onclick="cancelAsiacellPending()">إلغاء واسترداد كرصيد</button>
+            </div>
+        </div>
+
         <!-- ============================================================
         المحتوى
         ============================================================ -->
@@ -1964,6 +2074,7 @@ function includeAppPage(PDO $pdo) {
                                 <input type="number" id="topUpAmountInput" min="0.01" step="0.01" placeholder="أدخل المبلغ" required oninput="syncTopUpAmountUsd()" style="width:100%;padding:12px 14px;border-radius:var(--radius-sm);border:1.5px solid var(--border-color);background:var(--bg-card);color:var(--text-primary);font-size:15px;font-family:inherit;outline:none">
                                 <input type="hidden" name="amount" id="topUpAmountUsd" value="">
                                 <div class="text-muted" id="topUpUsdHint" style="font-size:11px;margin-top:4px"></div>
+                                <div class="text-muted" id="topUpManualIqdHint" style="font-size:11px;margin-top:4px;font-weight:700"></div>
                             </div>
 
                             <div id="topUpProofWrap">
@@ -2591,6 +2702,7 @@ function includeAppPage(PDO $pdo) {
             const REFERRAL_DISCOUNT_PCT = <?php echo (float)$referralDiscountPct; ?>;
             const VPS_PLANS = <?php echo json_encode($vps_plans); ?>;
             const PAYMENT_METHODS = <?php echo json_encode($payment_methods); ?>;
+            const ASIACELL_PENDING = <?php echo json_encode($asiacellPending); ?>;
             const AI_CONVERSATIONS = <?php echo json_encode($ai_conversations); ?>;
             const USER_NAME = <?php echo json_encode($user_name); ?>;
             const CSRF_TOKEN = <?php echo json_encode(csrfToken()); ?>;
