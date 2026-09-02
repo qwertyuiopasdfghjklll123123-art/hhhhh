@@ -545,6 +545,8 @@ class AsiaCellAPI {
     private $pid;
     private $transferPid;
     private $headers;
+    private $lastUrl;
+    private $lastRaw;
 
     public function __construct(array $state = []) {
         $this->deviceId = $state['deviceId'] ?? $this->generateUuid();
@@ -581,6 +583,19 @@ class AsiaCellAPI {
             'pid' => $this->pid,
             'transferPid' => $this->transferPid,
         ];
+    }
+
+    // آخر استدعاء (رابط + رد خام) لأغراض التشخيص فقط - يُعرض للأدمن عند فشل التحقق ليتضح سبب الرفض الفعلي من آسياسيل
+    public function getLastCall() {
+        return ['url' => $this->lastUrl, 'raw' => $this->lastRaw];
+    }
+
+    // يبحث عن أول مفتاح موجود من عدة احتمالات (اختلاف تسمية الحقول بين إصدارات API آسياسيل)
+    private static function pick(array $data, array $keys) {
+        foreach ($keys as $k) {
+            if (!empty($data[$k])) return $data[$k];
+        }
+        return null;
     }
 
     private function generateUuid() {
@@ -621,9 +636,12 @@ class AsiaCellAPI {
         $response = curl_exec($ch);
         $error = curl_error($ch);
         curl_close($ch);
+        $this->lastUrl = $url;
         if ($error || $response === false) {
+            $this->lastRaw = 'cURL error: ' . $error;
             return null;
         }
+        $this->lastRaw = $response;
         $decoded = json_decode($response, true);
         return is_array($decoded) ? $decoded : null;
     }
@@ -637,13 +655,17 @@ class AsiaCellAPI {
         if (!$data) {
             return [false, 'لا يوجد رد من خادم آسياسيل، حاول لاحقاً.'];
         }
-        if (empty($data['success'])) {
-            return [false, $data['message'] ?? 'فشل إرسال رمز التحقق إلى هذا الرقم.'];
+        if (isset($data['success']) && !$data['success']) {
+            return [false, self::pick($data, ['message', 'error', 'errorMessage', 'desc']) ?? 'فشل إرسال رمز التحقق إلى هذا الرقم.'];
         }
-        if (empty($data['nextUrl']) || !preg_match('/PID=([a-f0-9\-]+)/', $data['nextUrl'], $m)) {
-            return [false, 'تعذر بدء عملية تسجيل الدخول.'];
+        $pid = self::pick($data, ['PID', 'pid']);
+        if (!$pid && !empty($data['nextUrl']) && preg_match('/PID=([a-zA-Z0-9\-]+)/', $data['nextUrl'], $m)) {
+            $pid = $m[1];
         }
-        $this->pid = $m[1];
+        if (!$pid) {
+            return [false, self::pick($data, ['message', 'error']) ?? 'تعذر بدء عملية تسجيل الدخول.'];
+        }
+        $this->pid = $pid;
         return [true, $this->pid];
     }
 
@@ -657,10 +679,11 @@ class AsiaCellAPI {
         if (!$data) {
             return [false, 'لا يوجد رد من خادم آسياسيل، حاول لاحقاً.'];
         }
-        if (empty($data['success']) || empty($data['access_token'])) {
-            return [false, $data['message'] ?? 'رمز التحقق غير صحيح.'];
+        $token = self::pick($data, ['access_token', 'accessToken', 'token']);
+        if ((isset($data['success']) && !$data['success']) || !$token) {
+            return [false, self::pick($data, ['message', 'error', 'errorMessage', 'desc']) ?? 'رمز التحقق غير صحيح.'];
         }
-        $this->accessToken = $data['access_token'];
+        $this->accessToken = $token;
         $this->headers[] = 'Authorization: Bearer ' . $this->accessToken;
         return [true, $this->accessToken];
     }
@@ -674,12 +697,12 @@ class AsiaCellAPI {
         if (!$data) {
             return [false, 'لا يوجد رد من خادم آسياسيل، حاول لاحقاً.'];
         }
-        $pid = $data['PID'] ?? $data['pid'] ?? null;
-        if (!$pid && !empty($data['nextUrl']) && preg_match('/PID=([a-f0-9\-]+)/', $data['nextUrl'], $m)) {
+        $pid = self::pick($data, ['PID', 'pid']);
+        if (!$pid && !empty($data['nextUrl']) && preg_match('/PID=([a-zA-Z0-9\-]+)/', $data['nextUrl'], $m)) {
             $pid = $m[1];
         }
         if (!$pid) {
-            return [false, $data['message'] ?? 'تعذر بدء عملية التحويل.'];
+            return [false, self::pick($data, ['message', 'error', 'errorMessage', 'desc']) ?? 'تعذر بدء عملية التحويل.'];
         }
         $this->transferPid = $pid;
         return [true, $pid];
@@ -697,8 +720,19 @@ class AsiaCellAPI {
         if (!empty($data['success'])) {
             return [true, $data];
         }
-        return [false, $data['message'] ?? 'فشل تأكيد التحويل.'];
+        return [false, self::pick($data, ['message', 'error', 'errorMessage', 'desc']) ?? 'فشل تأكيد التحويل.'];
     }
+}
+
+// يحفظ آخر رد خام من آسياسيل عند فشل أي خطوة، ليظهر للأدمن في لوحة التحكم (لا يحتوي رقم هاتف العميل ولا أي بيانات دخول)
+function logAsiacellDebug(PDO $pdo, $step, AsiaCellAPI $api) {
+    $call = $api->getLastCall();
+    setSetting($pdo, 'asiacell_last_debug', json_encode([
+        'step' => $step,
+        'url' => $call['url'],
+        'raw' => mb_substr((string)$call['raw'], 0, 1500),
+        'time' => date('Y-m-d H:i:s'),
+    ], JSON_UNESCAPED_UNICODE));
 }
 
 function money($amount) {

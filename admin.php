@@ -871,6 +871,20 @@ function renderAdminPayments(PDO $pdo) {
         <?php endif; ?>
     </div>
 
+    <?php
+    $asiacellDebug = json_decode(getSetting($pdo, 'asiacell_last_debug', ''), true);
+    if ($asiacellDebug):
+    ?>
+    <div class="admin-card">
+        <div class="admin-card-header"><h2><i class="fas fa-bug"></i> آخر خطأ من آسياسيل (تشخيص)</h2></div>
+        <div class="text-muted" style="font-size:12px;margin-bottom:10px">
+            يظهر هنا آخر رد فعلي من خادم آسياسيل عند فشل أي محاولة تحويل من أحد العملاء، ليساعد على معرفة سبب الرفض بالضبط.
+            الخطوة: <strong><?php echo e($asiacellDebug['step'] ?? ''); ?></strong> - الوقت: <?php echo e($asiacellDebug['time'] ?? ''); ?>
+        </div>
+        <div style="font-size:11px;font-family:monospace;direction:ltr;text-align:left;background:var(--bg-card);padding:10px;border-radius:8px;max-height:220px;overflow:auto;word-break:break-all;border:1px solid var(--border-color)"><?php echo e($asiacellDebug['raw'] ?? ''); ?></div>
+    </div>
+    <?php endif; ?>
+
     <div class="admin-card">
         <div class="admin-card-header"><h2><i class="fas fa-plus"></i> إضافة طريقة دفع يدوية جديدة</h2></div>
         <div class="text-muted" style="font-size:12px;margin-bottom:14px">لطرق التحويل التي تُراجعها الإدارة يدوياً (زين كاش، تحويل بنكي...). تظهر فقط في قسم الفواتير لشحن الرصيد.</div>

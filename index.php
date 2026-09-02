@@ -663,6 +663,7 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === 'asiacell_start' && $_SERVER['REQU
     $api = new AsiaCellAPI();
     [$success, $result] = $api->login($phone);
     if (!$success) {
+        logAsiacellDebug($pdo, 'login', $api);
         http_response_code(400);
         echo json_encode(['error' => $result]);
         exit;
@@ -718,6 +719,7 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === 'asiacell_verify_sms' && $_SERVER[
     $api = new AsiaCellAPI($flow['api']);
     [$success, $result] = $api->verifySms($code);
     if (!$success) {
+        logAsiacellDebug($pdo, 'verifySms', $api);
         http_response_code(400);
         echo json_encode(['error' => $result]);
         exit;
@@ -725,6 +727,7 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === 'asiacell_verify_sms' && $_SERVER[
 
     [$success2, $result2] = $api->startTransfer($flow['amount_iqd'], $flow['receiver_msisdn']);
     if (!$success2) {
+        logAsiacellDebug($pdo, 'startTransfer', $api);
         http_response_code(400);
         echo json_encode(['error' => $result2]);
         exit;
@@ -771,6 +774,7 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === 'asiacell_confirm_transfer' && $_S
     $api = new AsiaCellAPI($flow['api']);
     [$success, $result] = $api->confirmTransfer($code);
     if (!$success) {
+        logAsiacellDebug($pdo, 'confirmTransfer', $api);
         http_response_code(400);
         echo json_encode(['error' => $result]);
         exit;
