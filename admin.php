@@ -91,6 +91,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 
     if ($action === 'pm_save') {
+        // هذا النموذج لطرق الدفع اليدوية فقط؛ Binance وآسياسيل ثابتتان وتُعدَّلان عبر
+        // pm_save_binance / pm_save_asiacell أدناه (لا يمكن إنشاؤهما أو حذفهما).
         $id = (int)($_POST['id'] ?? 0);
         $name = trim($_POST['name'] ?? '');
         $icon = trim($_POST['icon'] ?? '') ?: 'fa-money-bill-wave';
@@ -99,7 +101,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $currencyCode = trim($_POST['currency_code'] ?? '') ?: 'USD';
         $isActive = isset($_POST['is_active']) ? 1 : 0;
         $sortOrder = (int)($_POST['sort_order'] ?? 0);
-        $methodType = in_array($_POST['method_type'] ?? '', ['binance', 'asiacell'], true) ? $_POST['method_type'] : 'manual';
 
         if ($name === '') {
             adminRedirect('payments', null, 'الرجاء إدخال اسم طريقة الدفع.');
@@ -110,64 +111,96 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             adminRedirect('payments', null, $uploadErr);
         }
 
-        $methodExtras = null;
-        if ($methodType === 'binance') {
-            $existingExtras = [];
-            if ($id > 0) {
-                $prevExtrasStmt = $pdo->prepare('SELECT method_extras FROM payment_methods WHERE id = ?');
-                $prevExtrasStmt->execute([$id]);
-                $existingExtras = json_decode($prevExtrasStmt->fetchColumn() ?: '{}', true) ?: [];
-            }
-            $binanceApiKey = trim($_POST['binance_api_key'] ?? '');
-            $binanceApiSecret = trim($_POST['binance_api_secret'] ?? '');
-            $binanceId = trim($_POST['binance_id'] ?? '');
-
-            [$qrCodePath, $qrCodeErr] = handleImageUpload('binance_qr_code', LOGOS_DIR, 'uploads/logos');
-            if ($qrCodeErr) {
-                adminRedirect('payments', null, $qrCodeErr);
-            }
-
-            $methodExtras = json_encode([
-                'api_key' => $binanceApiKey !== '' ? $binanceApiKey : ($existingExtras['api_key'] ?? ''),
-                'api_secret' => $binanceApiSecret !== '' ? $binanceApiSecret : ($existingExtras['api_secret'] ?? ''),
-                'binance_id' => $binanceId,
-                'qr_code' => $qrCodePath ?: ($existingExtras['qr_code'] ?? ''),
-            ]);
-        } elseif ($methodType === 'asiacell') {
-            $existingExtras = [];
-            if ($id > 0) {
-                $prevExtrasStmt = $pdo->prepare('SELECT method_extras FROM payment_methods WHERE id = ?');
-                $prevExtrasStmt->execute([$id]);
-                $existingExtras = json_decode($prevExtrasStmt->fetchColumn() ?: '{}', true) ?: [];
-            }
-            $receiverMsisdn = trim($_POST['asiacell_receiver'] ?? '');
-            $exchangeRate = (float)($_POST['asiacell_exchange_rate'] ?? 0);
-            if ($receiverMsisdn !== '' && !preg_match('/^(077|078|079)\d{8}$/', $receiverMsisdn)) {
-                adminRedirect('payments', null, 'رقم آسياسيل المستقبل غير صحيح، يجب أن يكون بصيغة 07xxxxxxxxx.');
-            }
-            $methodExtras = json_encode([
-                'receiver_msisdn' => $receiverMsisdn !== '' ? $receiverMsisdn : ($existingExtras['receiver_msisdn'] ?? ''),
-                'exchange_rate' => $exchangeRate > 0 ? $exchangeRate : ($existingExtras['exchange_rate'] ?? 1000),
-            ]);
-        }
-
         if ($id > 0) {
+            $typeStmt = $pdo->prepare('SELECT method_type FROM payment_methods WHERE id = ?');
+            $typeStmt->execute([$id]);
+            if ($typeStmt->fetchColumn() !== 'manual') {
+                adminRedirect('payments', null, 'لا يمكن تعديل هذه الطريقة من هذا النموذج.');
+            }
             if ($logoPath) {
-                $pdo->prepare('UPDATE payment_methods SET name=?, icon=?, account_number=?, instructions=?, currency_code=?, is_active=?, sort_order=?, logo_path=?, method_type=?, method_extras=? WHERE id=?')
-                    ->execute([$name, $icon, $account, $instructions, $currencyCode, $isActive, $sortOrder, $logoPath, $methodType, $methodExtras, $id]);
+                $pdo->prepare('UPDATE payment_methods SET name=?, icon=?, account_number=?, instructions=?, currency_code=?, is_active=?, sort_order=?, logo_path=? WHERE id=?')
+                    ->execute([$name, $icon, $account, $instructions, $currencyCode, $isActive, $sortOrder, $logoPath, $id]);
             } else {
-                $pdo->prepare('UPDATE payment_methods SET name=?, icon=?, account_number=?, instructions=?, currency_code=?, is_active=?, sort_order=?, method_type=?, method_extras=? WHERE id=?')
-                    ->execute([$name, $icon, $account, $instructions, $currencyCode, $isActive, $sortOrder, $methodType, $methodExtras, $id]);
+                $pdo->prepare('UPDATE payment_methods SET name=?, icon=?, account_number=?, instructions=?, currency_code=?, is_active=?, sort_order=? WHERE id=?')
+                    ->execute([$name, $icon, $account, $instructions, $currencyCode, $isActive, $sortOrder, $id]);
             }
         } else {
-            $pdo->prepare('INSERT INTO payment_methods (name, icon, account_number, instructions, currency_code, is_active, sort_order, logo_path, method_type, method_extras) VALUES (?,?,?,?,?,?,?,?,?,?)')
-                ->execute([$name, $icon, $account, $instructions, $currencyCode, $isActive, $sortOrder, $logoPath, $methodType, $methodExtras]);
+            $pdo->prepare("INSERT INTO payment_methods (name, icon, account_number, instructions, currency_code, is_active, sort_order, logo_path, method_type) VALUES (?,?,?,?,?,?,?,?,'manual')")
+                ->execute([$name, $icon, $account, $instructions, $currencyCode, $isActive, $sortOrder, $logoPath]);
         }
         adminRedirect('payments', 'تم حفظ طريقة الدفع بنجاح.');
     }
 
+    if ($action === 'pm_save_binance') {
+        $row = $pdo->query("SELECT id, method_extras FROM payment_methods WHERE method_type = 'binance' LIMIT 1")->fetch(PDO::FETCH_ASSOC);
+        if (!$row) {
+            adminRedirect('payments', null, 'تعذر العثور على طريقة Binance Pay.');
+        }
+        $existingExtras = json_decode($row['method_extras'] ?? '{}', true) ?: [];
+        $isActive = isset($_POST['is_active']) ? 1 : 0;
+        $binanceApiKey = trim($_POST['binance_api_key'] ?? '');
+        $binanceApiSecret = trim($_POST['binance_api_secret'] ?? '');
+        $binanceId = trim($_POST['binance_id'] ?? '');
+
+        [$qrCodePath, $qrCodeErr] = handleImageUpload('binance_qr_code', LOGOS_DIR, 'uploads/logos');
+        if ($qrCodeErr) {
+            adminRedirect('payments', null, $qrCodeErr);
+        }
+
+        $methodExtras = json_encode([
+            'api_key' => $binanceApiKey !== '' ? $binanceApiKey : ($existingExtras['api_key'] ?? ''),
+            'api_secret' => $binanceApiSecret !== '' ? $binanceApiSecret : ($existingExtras['api_secret'] ?? ''),
+            'binance_id' => $binanceId,
+            'qr_code' => $qrCodePath ?: ($existingExtras['qr_code'] ?? ''),
+        ]);
+        $pdo->prepare('UPDATE payment_methods SET is_active = ?, method_extras = ? WHERE id = ?')
+            ->execute([$isActive, $methodExtras, $row['id']]);
+        adminRedirect('payments', 'تم حفظ إعدادات Binance Pay بنجاح.');
+    }
+
+    if ($action === 'pm_save_asiacell') {
+        $row = $pdo->query("SELECT id, method_extras FROM payment_methods WHERE method_type = 'asiacell' LIMIT 1")->fetch(PDO::FETCH_ASSOC);
+        if (!$row) {
+            adminRedirect('payments', null, 'تعذر العثور على طريقة آسياسيل.');
+        }
+        $existingExtras = json_decode($row['method_extras'] ?? '{}', true) ?: [];
+        $isActive = isset($_POST['is_active']) ? 1 : 0;
+        $receiverMsisdn = trim($_POST['asiacell_receiver'] ?? '');
+        $exchangeRate = (float)($_POST['asiacell_exchange_rate'] ?? 0);
+        $instructions = trim($_POST['instructions'] ?? '');
+
+        if ($receiverMsisdn !== '' && !preg_match('/^(077|078|079)\d{8}$/', $receiverMsisdn)) {
+            adminRedirect('payments', null, 'رقم آسياسيل المستقبل غير صحيح، يجب أن يكون بصيغة 07xxxxxxxxx.');
+        }
+
+        [$logoPath, $logoErr] = handleImageUpload('logo', LOGOS_DIR, 'uploads/logos');
+        if ($logoErr) {
+            adminRedirect('payments', null, $logoErr);
+        }
+
+        $methodExtras = json_encode([
+            'receiver_msisdn' => $receiverMsisdn !== '' ? $receiverMsisdn : ($existingExtras['receiver_msisdn'] ?? ''),
+            'exchange_rate' => $exchangeRate > 0 ? $exchangeRate : ($existingExtras['exchange_rate'] ?? 1000),
+        ]);
+
+        if ($logoPath) {
+            $pdo->prepare('UPDATE payment_methods SET is_active=?, instructions=?, logo_path=?, method_extras=? WHERE id=?')
+                ->execute([$isActive, $instructions, $logoPath, $methodExtras, $row['id']]);
+        } else {
+            $pdo->prepare('UPDATE payment_methods SET is_active=?, instructions=?, method_extras=? WHERE id=?')
+                ->execute([$isActive, $instructions, $methodExtras, $row['id']]);
+        }
+        adminRedirect('payments', 'تم حفظ إعدادات آسياسيل بنجاح.');
+    }
+
     if ($action === 'pm_delete') {
-        $pdo->prepare('DELETE FROM payment_methods WHERE id = ?')->execute([(int)($_POST['id'] ?? 0)]);
+        $id = (int)($_POST['id'] ?? 0);
+        $typeStmt = $pdo->prepare('SELECT method_type FROM payment_methods WHERE id = ?');
+        $typeStmt->execute([$id]);
+        if ($typeStmt->fetchColumn() !== 'manual') {
+            adminRedirect('payments', null, 'لا يمكن حذف Binance Pay أو آسياسيل، فقط تعطيلهما من إعداداتهما.');
+        }
+        $pdo->prepare('DELETE FROM payment_methods WHERE id = ?')->execute([$id]);
         adminRedirect('payments', 'تم حذف طريقة الدفع.');
     }
 
@@ -459,12 +492,6 @@ $activeHostingCount = (int)$pdo->query("SELECT COUNT(*) FROM hosting WHERE statu
         function toggleFulfillForm(orderId) {
             const el = document.getElementById('fulfill-' + orderId);
             el.classList.toggle('hidden');
-        }
-        function togglePmFields(select, key) {
-            const bEl = document.getElementById(key === 'new' ? 'newBinanceFields' : 'binanceFields' + key);
-            const aEl = document.getElementById(key === 'new' ? 'newAsiacellFields' : 'asiacellFields' + key);
-            if (bEl) bEl.classList.toggle('hidden', select.value !== 'binance');
-            if (aEl) aEl.classList.toggle('hidden', select.value !== 'asiacell');
         }
         function showSettingsPanel(btn, key) {
             document.querySelectorAll('.settings-subtabs .subtab-btn').forEach(b => b.classList.remove('active'));
@@ -780,11 +807,73 @@ function renderAdminPlans(PDO $pdo) {
 // قسم: طرق الدفع
 // ============================================================
 function renderAdminPayments(PDO $pdo) {
-    $methods = $pdo->query('SELECT * FROM payment_methods ORDER BY sort_order ASC, id ASC')->fetchAll(PDO::FETCH_ASSOC);
+    $binance = $pdo->query("SELECT * FROM payment_methods WHERE method_type = 'binance' LIMIT 1")->fetch(PDO::FETCH_ASSOC);
+    $asiacell = $pdo->query("SELECT * FROM payment_methods WHERE method_type = 'asiacell' LIMIT 1")->fetch(PDO::FETCH_ASSOC);
+    $manualMethods = $pdo->query("SELECT * FROM payment_methods WHERE method_type = 'manual' ORDER BY sort_order ASC, id ASC")->fetchAll(PDO::FETCH_ASSOC);
     $currencies = getAllCurrencies($pdo);
+    $binanceExtras = $binance ? (json_decode($binance['method_extras'] ?? '{}', true) ?: []) : [];
+    $asiacellExtras = $asiacell ? (json_decode($asiacell['method_extras'] ?? '{}', true) ?: []) : [];
+    $binanceHasKeys = !empty($binanceExtras['api_key'] ?? '');
     ?>
     <div class="admin-card">
-        <div class="admin-card-header"><h2><i class="fas fa-plus"></i> إضافة طريقة دفع جديدة</h2></div>
+        <div class="admin-card-header">
+            <h2><i class="fas fa-coins"></i> Binance Pay</h2>
+            <span class="pill <?php echo ($binance && $binance['is_active']) ? 'pill-green' : 'pill-gray'; ?>"><?php echo ($binance && $binance['is_active']) ? 'مفعّلة' : 'موقوفة'; ?></span>
+        </div>
+        <div class="text-muted" style="font-size:12px;margin-bottom:14px">طريقة دفع تلقائي ثابتة في النظام - عبّئ الإعدادات أدناه ثم فعّلها. تحقق فوري من عملية الدفع دون مراجعة يدوية.</div>
+        <?php if ($binance): ?>
+        <form method="POST" action="admin.php?section=payments" enctype="multipart/form-data">
+            <?php echo csrfField(); ?>
+            <input type="hidden" name="action" value="pm_save_binance">
+            <div class="field-grid-2">
+                <div class="field-row"><label class="field-label">Binance API Key</label><input type="text" name="binance_api_key" class="text-input" dir="ltr" placeholder="<?php echo $binanceHasKeys ? '•••• اتركه فارغاً للإبقاء على المفتاح الحالي' : 'API Key'; ?>" autocomplete="off"></div>
+                <div class="field-row"><label class="field-label">Binance API Secret</label><input type="text" name="binance_api_secret" class="text-input" dir="ltr" placeholder="<?php echo $binanceHasKeys ? '•••• اتركه فارغاً للإبقاء على المفتاح الحالي' : 'API Secret'; ?>" autocomplete="off"></div>
+                <div class="field-row"><label class="field-label">Binance Pay ID (يظهر للمستخدم)</label><input type="text" name="binance_id" class="text-input" dir="ltr" value="<?php echo e($binanceExtras['binance_id'] ?? ''); ?>" placeholder="123456789"></div>
+                <div class="field-row">
+                    <label class="field-label">رمز QR للدفع (اختياري)</label>
+                    <?php if (!empty($binanceExtras['qr_code'])): ?>
+                    <div style="margin-bottom:6px"><img src="<?php echo e($binanceExtras['qr_code']); ?>" alt="" style="width:64px;height:64px;object-fit:cover;border-radius:8px;border:1px solid var(--border-color)"></div>
+                    <?php endif; ?>
+                    <input type="file" name="binance_qr_code" class="text-input" accept="image/png,image/jpeg,image/webp">
+                </div>
+            </div>
+            <div class="checkbox-row"><input type="checkbox" name="is_active" id="binanceActive" <?php echo $binance['is_active'] ? 'checked' : ''; ?>><label for="binanceActive">مفعّلة وتظهر للمستخدمين</label></div>
+            <button type="submit" class="btn btn-accent btn-sm"><i class="fas fa-floppy-disk"></i> حفظ إعدادات Binance</button>
+        </form>
+        <?php endif; ?>
+    </div>
+
+    <div class="admin-card">
+        <div class="admin-card-header">
+            <h2><i class="fas fa-mobile-screen"></i> آسياسيل - تحويل رصيد تلقائي</h2>
+            <span class="pill <?php echo ($asiacell && $asiacell['is_active']) ? 'pill-green' : 'pill-gray'; ?>"><?php echo ($asiacell && $asiacell['is_active']) ? 'مفعّلة' : 'موقوفة'; ?></span>
+        </div>
+        <div class="text-muted" style="font-size:12px;margin-bottom:14px">طريقة دفع تلقائي ثابتة في النظام - عبّئ الإعدادات أدناه ثم فعّلها. العميل يحوّل الرصيد مباشرة من رقمه عبر رمزَي تحقق SMS.</div>
+        <?php if ($asiacell): ?>
+        <form method="POST" action="admin.php?section=payments" enctype="multipart/form-data">
+            <?php echo csrfField(); ?>
+            <input type="hidden" name="action" value="pm_save_asiacell">
+            <div class="field-grid-2">
+                <div class="field-row"><label class="field-label">رقم آسياسيل المستقبل للتحويلات</label><input type="text" name="asiacell_receiver" class="text-input" dir="ltr" value="<?php echo e($asiacellExtras['receiver_msisdn'] ?? ''); ?>" placeholder="07xxxxxxxxx"></div>
+                <div class="field-row"><label class="field-label">سعر الصرف (دينار عراقي مقابل 1 دولار)</label><input type="number" name="asiacell_exchange_rate" class="text-input" dir="ltr" value="<?php echo e($asiacellExtras['exchange_rate'] ?? ''); ?>" placeholder="1000" step="0.01"></div>
+                <div class="field-row">
+                    <label class="field-label">الشعار (صورة، اختياري)</label>
+                    <?php if (!empty($asiacell['logo_path'])): ?>
+                    <div style="margin-bottom:6px"><img src="<?php echo e($asiacell['logo_path']); ?>" alt="" style="width:64px;height:64px;object-fit:cover;border-radius:8px;border:1px solid var(--border-color)"></div>
+                    <?php endif; ?>
+                    <input type="file" name="logo" class="text-input" accept="image/png,image/jpeg,image/webp">
+                </div>
+            </div>
+            <div class="field-row"><label class="field-label">الوصف (يظهر للمستخدم)</label><textarea name="instructions" class="text-input" placeholder="تحويل رصيد آسياسيل مباشر وتلقائي"><?php echo e($asiacell['instructions']); ?></textarea></div>
+            <div class="checkbox-row"><input type="checkbox" name="is_active" id="asiacellActive" <?php echo $asiacell['is_active'] ? 'checked' : ''; ?>><label for="asiacellActive">مفعّلة وتظهر للمستخدمين</label></div>
+            <button type="submit" class="btn btn-accent btn-sm"><i class="fas fa-floppy-disk"></i> حفظ إعدادات آسياسيل</button>
+        </form>
+        <?php endif; ?>
+    </div>
+
+    <div class="admin-card">
+        <div class="admin-card-header"><h2><i class="fas fa-plus"></i> إضافة طريقة دفع يدوية جديدة</h2></div>
+        <div class="text-muted" style="font-size:12px;margin-bottom:14px">لطرق التحويل التي تُراجعها الإدارة يدوياً (زين كاش، تحويل بنكي...). تظهر فقط في قسم الفواتير لشحن الرصيد.</div>
         <form method="POST" action="admin.php?section=payments" enctype="multipart/form-data">
             <?php echo csrfField(); ?>
             <input type="hidden" name="action" value="pm_save">
@@ -802,24 +891,6 @@ function renderAdminPayments(PDO $pdo) {
                         <?php endforeach; ?>
                     </select>
                 </div>
-                <div class="field-row">
-                    <label class="field-label">نوع طريقة الدفع</label>
-                    <select name="method_type" class="text-input" onchange="togglePmFields(this, 'new')">
-                        <option value="manual">تحويل يدوي (مراجعة الإدارة)</option>
-                        <option value="binance">Binance Pay (تحقق تلقائي فوري)</option>
-                        <option value="asiacell">آسياسيل (تحويل رصيد تلقائي)</option>
-                    </select>
-                </div>
-            </div>
-            <div class="field-grid-2 hidden" id="newBinanceFields">
-                <div class="field-row"><label class="field-label">Binance API Key</label><input type="text" name="binance_api_key" class="text-input" dir="ltr" placeholder="API Key" autocomplete="off"></div>
-                <div class="field-row"><label class="field-label">Binance API Secret</label><input type="text" name="binance_api_secret" class="text-input" dir="ltr" placeholder="API Secret" autocomplete="off"></div>
-                <div class="field-row"><label class="field-label">Binance Pay ID (يظهر للمستخدم)</label><input type="text" name="binance_id" class="text-input" dir="ltr" placeholder="123456789"></div>
-                <div class="field-row"><label class="field-label">رمز QR للدفع (اختياري)</label><input type="file" name="binance_qr_code" class="text-input" accept="image/png,image/jpeg,image/webp"></div>
-            </div>
-            <div class="field-grid-2 hidden" id="newAsiacellFields">
-                <div class="field-row"><label class="field-label">رقم آسياسيل المستقبل للتحويلات</label><input type="text" name="asiacell_receiver" class="text-input" dir="ltr" placeholder="07xxxxxxxxx"></div>
-                <div class="field-row"><label class="field-label">سعر الصرف (دينار مقابل 1 دولار)</label><input type="number" name="asiacell_exchange_rate" class="text-input" dir="ltr" placeholder="1000" step="0.01"></div>
             </div>
             <div class="field-row"><label class="field-label">تعليمات الدفع</label><textarea name="instructions" class="text-input" placeholder="حوّل المبلغ إلى الرقم أعلاه ثم ارفع صورة الإيصال."></textarea></div>
             <div class="field-row"><label class="field-label">شعار (صورة، اختياري)</label><input type="file" name="logo" class="text-input" accept="image/png,image/jpeg,image/webp"></div>
@@ -829,8 +900,11 @@ function renderAdminPayments(PDO $pdo) {
     </div>
 
     <div class="admin-card">
-        <div class="admin-card-header"><h2><i class="fas fa-credit-card"></i> طرق الدفع الحالية (<?php echo count($methods); ?>)</h2></div>
-        <?php foreach ($methods as $pm): ?>
+        <div class="admin-card-header"><h2><i class="fas fa-credit-card"></i> طرق الدفع اليدوية (<?php echo count($manualMethods); ?>)</h2></div>
+        <?php if (!$manualMethods): ?>
+        <div class="text-muted text-center" style="padding:20px 0">لا توجد طرق دفع يدوية بعد</div>
+        <?php endif; ?>
+        <?php foreach ($manualMethods as $pm): ?>
         <details style="border-bottom:1px solid var(--border-color);padding:10px 0">
             <summary style="cursor:pointer;display:flex;align-items:center;justify-content:space-between;list-style:none;gap:10px">
                 <span style="display:flex;align-items:center;gap:10px">
@@ -858,34 +932,6 @@ function renderAdminPayments(PDO $pdo) {
                             <?php endforeach; ?>
                         </select>
                     </div>
-                    <div class="field-row">
-                        <label class="field-label">نوع طريقة الدفع</label>
-                        <select name="method_type" class="text-input" onchange="togglePmFields(this, <?php echo (int)$pm['id']; ?>)">
-                            <option value="manual" <?php echo ($pm['method_type'] ?? 'manual') === 'manual' ? 'selected' : ''; ?>>تحويل يدوي (مراجعة الإدارة)</option>
-                            <option value="binance" <?php echo ($pm['method_type'] ?? '') === 'binance' ? 'selected' : ''; ?>>Binance Pay (تحقق تلقائي فوري)</option>
-                            <option value="asiacell" <?php echo ($pm['method_type'] ?? '') === 'asiacell' ? 'selected' : ''; ?>>آسياسيل (تحويل رصيد تلقائي)</option>
-                        </select>
-                    </div>
-                </div>
-                <?php
-                $pmExtras = json_decode($pm['method_extras'] ?? '{}', true) ?: [];
-                $pmHasBinanceKeys = !empty($pmExtras['api_key'] ?? '');
-                ?>
-                <div class="field-grid-2 <?php echo ($pm['method_type'] ?? 'manual') === 'binance' ? '' : 'hidden'; ?>" id="binanceFields<?php echo (int)$pm['id']; ?>">
-                    <div class="field-row"><label class="field-label">Binance API Key</label><input type="text" name="binance_api_key" class="text-input" dir="ltr" placeholder="<?php echo $pmHasBinanceKeys ? '•••• اتركه فارغاً للإبقاء على المفتاح الحالي' : 'API Key'; ?>" autocomplete="off"></div>
-                    <div class="field-row"><label class="field-label">Binance API Secret</label><input type="text" name="binance_api_secret" class="text-input" dir="ltr" placeholder="<?php echo $pmHasBinanceKeys ? '•••• اتركه فارغاً للإبقاء على المفتاح الحالي' : 'API Secret'; ?>" autocomplete="off"></div>
-                    <div class="field-row"><label class="field-label">Binance Pay ID (يظهر للمستخدم)</label><input type="text" name="binance_id" class="text-input" dir="ltr" value="<?php echo e($pmExtras['binance_id'] ?? ''); ?>" placeholder="123456789"></div>
-                    <div class="field-row">
-                        <label class="field-label">رمز QR للدفع (اختياري)</label>
-                        <?php if (!empty($pmExtras['qr_code'])): ?>
-                        <div style="margin-bottom:6px"><img src="<?php echo e($pmExtras['qr_code']); ?>" alt="" style="width:64px;height:64px;object-fit:cover;border-radius:8px;border:1px solid var(--border-color)"></div>
-                        <?php endif; ?>
-                        <input type="file" name="binance_qr_code" class="text-input" accept="image/png,image/jpeg,image/webp">
-                    </div>
-                </div>
-                <div class="field-grid-2 <?php echo ($pm['method_type'] ?? 'manual') === 'asiacell' ? '' : 'hidden'; ?>" id="asiacellFields<?php echo (int)$pm['id']; ?>">
-                    <div class="field-row"><label class="field-label">رقم آسياسيل المستقبل للتحويلات</label><input type="text" name="asiacell_receiver" class="text-input" dir="ltr" value="<?php echo e($pmExtras['receiver_msisdn'] ?? ''); ?>" placeholder="07xxxxxxxxx"></div>
-                    <div class="field-row"><label class="field-label">سعر الصرف (دينار مقابل 1 دولار)</label><input type="number" name="asiacell_exchange_rate" class="text-input" dir="ltr" value="<?php echo e($pmExtras['exchange_rate'] ?? ''); ?>" placeholder="1000" step="0.01"></div>
                 </div>
                 <div class="field-row"><label class="field-label">تعليمات الدفع</label><textarea name="instructions" class="text-input"><?php echo e($pm['instructions']); ?></textarea></div>
                 <div class="field-row"><label class="field-label">تغيير الشعار (اختياري)</label><input type="file" name="logo" class="text-input" accept="image/png,image/jpeg,image/webp"></div>

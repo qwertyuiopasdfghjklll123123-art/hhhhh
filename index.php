@@ -1831,10 +1831,17 @@ function includeAppPage(PDO $pdo) {
                         </div>
 
                         <div id="binanceOrderIdWrap" class="hidden">
-                            <div id="binancePayInfo" style="margin-bottom:12px"></div>
-                            <label class="field-label" style="display:block;text-align:right;font-size:13px;color:var(--text-muted);margin-bottom:6px">رقم عملية Binance (Order ID)</label>
-                            <input type="text" id="binanceOrderIdInput" placeholder="Order ID" dir="ltr" style="width:100%;padding:12px 14px;border-radius:var(--radius-sm);border:1.5px solid var(--border-color);background:var(--bg-card);color:var(--text-primary);font-size:15px;font-family:inherit;outline:none;margin-bottom:8px">
-                            <div class="form-alert-inline hidden" id="binanceOrderError"></div>
+                            <div id="binanceStepInfo">
+                                <div id="binancePayInfo" style="margin-bottom:12px"></div>
+                                <button type="button" class="btn-gold" onclick="binanceShowStep('order','confirm')"><i class="fas fa-check"></i> لقد أرسلت الدفعة، متابعة</button>
+                            </div>
+                            <div id="binanceStepConfirm" class="hidden">
+                                <label class="field-label" style="display:block;text-align:right;font-size:13px;color:var(--text-muted);margin-bottom:6px">رقم عملية Binance (Order ID)</label>
+                                <input type="text" id="binanceOrderIdInput" placeholder="Order ID" dir="ltr" style="width:100%;padding:12px 14px;border-radius:var(--radius-sm);border:1.5px solid var(--border-color);background:var(--bg-card);color:var(--text-primary);font-size:15px;font-family:inherit;outline:none;margin-bottom:8px">
+                                <div class="form-alert-inline hidden" id="binanceOrderError"></div>
+                                <button type="button" class="btn-gold" id="binanceOrderSubmitBtn" onclick="submitBinanceOrder()" style="margin-top:6px"><i class="fas fa-lock"></i> تحقق وإرسال الطلب</button>
+                                <button type="button" class="btn-back" onclick="binanceShowStep('order','info')" style="margin-top:6px">رجوع</button>
+                            </div>
                         </div>
 
                         <div id="asiacellWrap" class="hidden">
@@ -1961,10 +1968,18 @@ function includeAppPage(PDO $pdo) {
                             </div>
 
                             <div id="topUpBinanceWrap" class="hidden">
-                                <div id="topUpBinancePayInfo" style="margin-bottom:12px"></div>
-                                <label style="display:block;font-size:13px;color:var(--text-muted);margin-bottom:4px">رقم عملية Binance (Order ID)</label>
-                                <input type="text" id="topUpBinanceOrderIdInput" placeholder="Order ID" dir="ltr" style="width:100%;padding:12px 14px;border-radius:var(--radius-sm);border:1.5px solid var(--border-color);background:var(--bg-card);color:var(--text-primary);font-size:15px;font-family:inherit;outline:none;margin-bottom:8px">
-                                <div class="form-alert-inline hidden" id="topUpBinanceError"></div>
+                                <div id="topUpBinanceStepInfo">
+                                    <div id="topUpBinancePayInfo" style="margin-bottom:12px"></div>
+                                    <div class="form-alert-inline hidden" id="topUpBinanceAmountError"></div>
+                                    <button type="button" class="btn-gold" onclick="binanceGoToConfirm('topup')"><i class="fas fa-check"></i> لقد أرسلت الدفعة، متابعة</button>
+                                </div>
+                                <div id="topUpBinanceStepConfirm" class="hidden">
+                                    <label style="display:block;font-size:13px;color:var(--text-muted);margin-bottom:4px">رقم عملية Binance (Order ID)</label>
+                                    <input type="text" id="topUpBinanceOrderIdInput" placeholder="Order ID" dir="ltr" style="width:100%;padding:12px 14px;border-radius:var(--radius-sm);border:1.5px solid var(--border-color);background:var(--bg-card);color:var(--text-primary);font-size:15px;font-family:inherit;outline:none;margin-bottom:8px">
+                                    <div class="form-alert-inline hidden" id="topUpBinanceError"></div>
+                                    <button type="button" class="btn-gold" id="topUpBinanceSubmitBtn" onclick="submitBinanceTopup()" style="margin-top:6px"><i class="fas fa-lock"></i> تحقق وشحن الرصيد</button>
+                                    <button type="button" class="btn-back" onclick="binanceShowStep('topup','info')" style="margin-top:6px">رجوع</button>
+                                </div>
                             </div>
 
                             <div id="topUpAsiacellWrap" class="hidden">

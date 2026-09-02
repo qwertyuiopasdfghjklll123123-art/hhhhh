@@ -679,16 +679,21 @@
                     `;
                     if (submitBtnLabel) submitBtnLabel.textContent = t('pay_now');
                 } else if (selected && selected.binance) {
+                    const wasHidden = binanceWrap.classList.contains('hidden');
                     binanceWrap.classList.remove('hidden');
+                    submitBtn.classList.add('hidden');
+                    if (wasHidden) binanceShowStep('order', 'info');
                     document.getElementById('binanceOrderError').classList.add('hidden');
+                    const plan = currentPlan();
+                    const amountUsd = plan ? planPriceForCycle(plan).price : 0;
                     document.getElementById('binancePayInfo').innerHTML = `
                         <div class="hosting-detail">
+                            <div class="detail-row"><span class="label">المبلغ المطلوب</span><span class="value">${formatUsd(amountUsd)}</span></div>
                             <div class="detail-row"><span class="label">الدفع عبر</span><span class="value">Binance Pay</span></div>
                             ${selected.binanceId ? `<div class="detail-row"><span class="label">Binance Pay ID</span><span class="value" style="direction:ltr">${selected.binanceId}</span></div>` : ''}
                         </div>
                         ${selected.qrCode ? `<div style="text-align:center;margin-top:10px"><img src="${selected.qrCode}" alt="QR" style="width:150px;height:150px;object-fit:contain;border-radius:var(--radius-sm);border:1px solid var(--border-color)"></div>` : ''}
                     `;
-                    if (submitBtnLabel) submitBtnLabel.textContent = 'تحقق وإرسال الطلب';
                 } else if (selected && selected.asiacell) {
                     const wasHidden = asiacellWrap.classList.contains('hidden');
                     asiacellWrap.classList.remove('hidden');
@@ -736,8 +741,9 @@
             }
 
             async function submitBinanceOrder() {
+                binanceShowStep('order', 'confirm');
                 const errEl = document.getElementById('binanceOrderError');
-                const submitBtn = document.getElementById('orderSubmitBtn');
+                const submitBtn = document.getElementById('binanceOrderSubmitBtn');
                 const binanceOrderId = document.getElementById('binanceOrderIdInput').value.trim();
                 if (!binanceOrderId) {
                     errEl.textContent = 'الرجاء إدخال رقم عملية Binance.';
@@ -860,14 +866,16 @@
                 proofInput.required = !isBinance && !isAsiacell;
                 binanceWrap.classList.toggle('hidden', !isBinance);
                 asiacellWrap.classList.toggle('hidden', !isAsiacell);
-                if (submitBtn) submitBtn.classList.toggle('hidden', isAsiacell);
+                if (submitBtn) submitBtn.classList.toggle('hidden', isAsiacell || isBinance);
                 document.getElementById('topUpInstructions').classList.toggle('hidden', isBinance || isAsiacell);
                 document.getElementById('topUpBinanceOrderIdInput').value = '';
                 document.getElementById('topUpBinanceError').classList.add('hidden');
-                document.getElementById('topUpBinancePayInfo').innerHTML = isBinance ? `
-                    ${binanceId ? `<div class="hosting-detail"><div class="detail-row"><span class="label">Binance Pay ID</span><span class="value" style="direction:ltr">${binanceId}</span></div></div>` : ''}
-                    ${qrCode ? `<div style="text-align:center;margin-top:10px"><img src="${qrCode}" alt="QR" style="width:150px;height:150px;object-fit:contain;border-radius:var(--radius-sm);border:1px solid var(--border-color)"></div>` : ''}
-                ` : '';
+                document.getElementById('topUpBinanceAmountError').classList.add('hidden');
+                if (isBinance) {
+                    topUpBinanceState = { binanceId: binanceId, qrCode: qrCode };
+                    binanceShowStep('topup', 'info');
+                    updateTopUpBinancePayInfo();
+                }
                 if (isAsiacell) {
                     asiacellShowStep('topup', 'phone');
                     document.getElementById('topUpAsiacellPhoneInput').value = '';
@@ -900,8 +908,13 @@
             }
 
             async function submitBinanceTopup() {
+                if (!(parseFloat(document.getElementById('topUpAmountUsd').value) > 0)) {
+                    binanceGoToConfirm('topup');
+                    return;
+                }
+                binanceShowStep('topup', 'confirm');
                 const errEl = document.getElementById('topUpBinanceError');
-                const submitBtn = document.querySelector('#paymentPage button[type="submit"]');
+                const submitBtn = document.getElementById('topUpBinanceSubmitBtn');
                 const amount = document.getElementById('topUpAmountUsd').value;
                 const binanceOrderId = document.getElementById('topUpBinanceOrderIdInput').value.trim();
 
@@ -942,6 +955,49 @@
                     errEl.classList.remove('hidden');
                     if (submitBtn) submitBtn.disabled = false;
                 }
+            }
+
+            // ============================================================
+            // Binance Pay - تدفق خطوتين: معلومات الدفع (المبلغ+الباركود+الآيدي) -> إدخال معرف العملية للتأكيد
+            // ============================================================
+            let topUpBinanceState = { binanceId: '', qrCode: '' };
+
+            const BINANCE_IDS = {
+                order: { stepInfo: 'binanceStepInfo', stepConfirm: 'binanceStepConfirm' },
+                topup: { stepInfo: 'topUpBinanceStepInfo', stepConfirm: 'topUpBinanceStepConfirm' },
+            };
+
+            function binanceShowStep(ctx, step) {
+                const ids = BINANCE_IDS[ctx];
+                document.getElementById(ids.stepInfo).classList.toggle('hidden', step !== 'info');
+                document.getElementById(ids.stepConfirm).classList.toggle('hidden', step !== 'confirm');
+            }
+
+            function updateTopUpBinancePayInfo() {
+                const amountUsd = parseFloat(document.getElementById('topUpAmountUsd').value) || 0;
+                const { binanceId, qrCode } = topUpBinanceState;
+                document.getElementById('topUpBinancePayInfo').innerHTML = `
+                    <div class="hosting-detail">
+                        <div class="detail-row"><span class="label">المبلغ المطلوب</span><span class="value">${formatUsd(amountUsd)}</span></div>
+                        <div class="detail-row"><span class="label">الدفع عبر</span><span class="value">Binance Pay</span></div>
+                        ${binanceId ? `<div class="detail-row"><span class="label">Binance Pay ID</span><span class="value" style="direction:ltr">${binanceId}</span></div>` : ''}
+                    </div>
+                    ${qrCode ? `<div style="text-align:center;margin-top:10px"><img src="${qrCode}" alt="QR" style="width:150px;height:150px;object-fit:contain;border-radius:var(--radius-sm);border:1px solid var(--border-color)"></div>` : ''}
+                `;
+            }
+
+            function binanceGoToConfirm(ctx) {
+                if (ctx === 'topup') {
+                    const amount = parseFloat(document.getElementById('topUpAmountUsd').value) || 0;
+                    const errEl = document.getElementById('topUpBinanceAmountError');
+                    if (!(amount > 0)) {
+                        errEl.textContent = 'الرجاء إدخال مبلغ صحيح قبل المتابعة.';
+                        errEl.classList.remove('hidden');
+                        return;
+                    }
+                    errEl.classList.add('hidden');
+                }
+                binanceShowStep(ctx, 'confirm');
             }
 
             // ============================================================
@@ -1105,6 +1161,11 @@
                 const usd = cur.rate ? (entered / cur.rate) : entered;
                 hidden.value = usd.toFixed(2);
                 hint.textContent = (entered > 0 && code !== 'USD') ? ('≈ ' + usd.toFixed(2) + ' $') : '';
+
+                const pm = PAYMENT_METHODS.find(p => String(p.id) === document.getElementById('topUpPaymentMethodId').value);
+                if (pm && pm.method_type === 'binance' && !document.getElementById('topUpBinanceWrap').classList.contains('hidden')) {
+                    updateTopUpBinancePayInfo();
+                }
             }
 
             function showInvoiceDetail(id) {

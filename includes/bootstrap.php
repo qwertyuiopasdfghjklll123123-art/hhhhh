@@ -58,7 +58,7 @@ function initSchema(PDO $pdo, $dbName) {
     // رقم إصدار المخطط: يُزاد فقط عند إضافة جدول/عمود/فهرس جديد أدناه.
     // بهذا يتم تخطي كل فحوصات information_schema (البطيئة) في كل طلب بعد أول مرة،
     // بدل تكرارها عشرات المرات على كل تحميل صفحة (وهذا كان السبب الرئيسي لبطء لوحة التحكم).
-    $schemaVersion = '2';
+    $schemaVersion = '3';
     try {
         $stmt = $pdo->query("SELECT value FROM settings WHERE `key` = 'schema_version' LIMIT 1");
         if ($stmt && $stmt->fetchColumn() === $schemaVersion) {
@@ -229,7 +229,10 @@ function initSchema(PDO $pdo, $dbName) {
     // ------------------------------------------------------------
     // بيانات ابتدائية (تُدرج مرة واحدة فقط إذا كانت الجداول فارغة)
     // ملاحظة: حساب الأدمن الأول يُنشأ من خلال install.php وليس هنا. لا تُزرع
-    // باقات VPS أو طرق دفع تجريبية؛ الأدمن يُنشئ كل شيء بنفسه من لوحة التحكم.
+    // باقات VPS أو طرق دفع يدوية تجريبية؛ الأدمن يُنشئ تلك بنفسه من لوحة التحكم.
+    // في المقابل، طريقتا الدفع التلقائي (Binance وآسياسيل) ثابتتان دائماً في
+    // النظام - تُزرعان مرة واحدة (معطّلتين) ولا يمكن للأدمن إنشاؤهما أو حذفهما،
+    // فقط تعبئة إعداداتهما وتفعيلهما.
     // ------------------------------------------------------------
 
     if ((int)$pdo->query('SELECT COUNT(*) FROM currencies')->fetchColumn() === 0) {
@@ -287,6 +290,15 @@ function initSchema(PDO $pdo, $dbName) {
         foreach ($worldCurrencies as $i => $c) {
             $seed->execute([$c[0], $c[1], $c[2], $c[3], $i + 1]);
         }
+    }
+
+    if ((int)$pdo->query("SELECT COUNT(*) FROM payment_methods WHERE method_type = 'binance'")->fetchColumn() === 0) {
+        $pdo->prepare('INSERT INTO payment_methods (name, icon, is_active, sort_order, method_type, method_extras) VALUES (?,?,?,?,?,?)')
+            ->execute(['Binance Pay', 'fa-coins', 0, 1, 'binance', json_encode(['api_key' => '', 'api_secret' => '', 'binance_id' => '', 'qr_code' => ''])]);
+    }
+    if ((int)$pdo->query("SELECT COUNT(*) FROM payment_methods WHERE method_type = 'asiacell'")->fetchColumn() === 0) {
+        $pdo->prepare('INSERT INTO payment_methods (name, icon, is_active, sort_order, method_type, method_extras) VALUES (?,?,?,?,?,?)')
+            ->execute(['آسياسيل', 'fa-mobile-screen', 0, 2, 'asiacell', json_encode(['receiver_msisdn' => '', 'exchange_rate' => 1000])]);
     }
 
     if ((int)$pdo->query('SELECT COUNT(*) FROM settings')->fetchColumn() === 0) {
@@ -599,6 +611,12 @@ class AsiaCellAPI {
             CURLOPT_POSTFIELDS => json_encode($payload),
             CURLOPT_HTTPHEADER => $this->headers,
             CURLOPT_TIMEOUT => 30,
+            // فك الضغط تلقائياً (الترويسة أعلاه تعلن دعم gzip فيرسل خادم آسياسيل أحياناً رداً مضغوطاً)
+            CURLOPT_ENCODING => '',
+            // واجهة آسياسيل هذه غير رسمية (لتطبيق الجوال فقط) وشهادتها قد لا تُقبل من حزمة CA الافتراضية
+            // على بعض الاستضافات المشتركة؛ نفس الإعداد المستخدم في تطبيق الجوال/المرجع الأصلي الذي يعمل معها فعلياً
+            CURLOPT_SSL_VERIFYPEER => false,
+            CURLOPT_SSL_VERIFYHOST => false,
         ]);
         $response = curl_exec($ch);
         $error = curl_error($ch);
