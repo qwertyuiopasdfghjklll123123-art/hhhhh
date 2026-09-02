@@ -1646,7 +1646,7 @@ function includeAppPage(PDO $pdo) {
         <title><?php echo e(getSetting($pdo, 'site_name', 'استضافتي')); ?> - لوحة التحكم</title>
         <link rel="manifest" href="manifest.php">
         <meta name="theme-color" content="#ff7a1a">
-        <link rel="apple-touch-icon" href="assets/icons/icon-192.png">
+        <link rel="apple-touch-icon" href="<?php echo e($siteLogo !== '' ? $siteLogo : 'assets/icons/icon-192.png'); ?>">
         <link rel="preconnect" href="https://fonts.googleapis.com">
         <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
         <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
@@ -1798,11 +1798,35 @@ function includeAppPage(PDO $pdo) {
                 </div>
                 
                 <!-- إحصائيات جديدة -->
-                <div class="hosting-stats-grid">
-                    <div class="stat-box"><div class="num"><?php echo count($hosting); ?></div><div class="label">استضافات نشطة</div></div>
-                    <div class="stat-box"><div class="num"><?php echo count(array_filter($hosting, function($h) { return $h['status'] === 'active'; })); ?></div><div class="label">مفعلة</div></div>
-                    <div class="stat-box"><div class="num"><?php echo count(array_filter($hosting, function($h) { return $h['status'] === 'expired'; })); ?></div><div class="label">منتهية</div></div>
-                    <div class="stat-box"><div class="num"><?php echo count($invoices); ?></div><div class="label">فواتير</div></div>
+                <div class="stats-card">
+                    <div class="stats-cell">
+                        <div class="stats-cell-top">
+                            <div class="stats-icon"><i class="fas fa-cube"></i></div>
+                            <div class="num"><?php echo count(array_filter($hosting, function($h) { return $h['status'] === 'active'; })); ?></div>
+                        </div>
+                        <div class="label">مفعلة</div>
+                    </div>
+                    <div class="stats-cell">
+                        <div class="stats-cell-top">
+                            <div class="stats-icon"><i class="fas fa-server"></i></div>
+                            <div class="num"><?php echo count($hosting); ?></div>
+                        </div>
+                        <div class="label">استضافات نشطة</div>
+                    </div>
+                    <div class="stats-cell">
+                        <div class="stats-cell-top">
+                            <div class="stats-icon"><i class="fas fa-file-invoice-dollar"></i></div>
+                            <div class="num"><?php echo count($invoices); ?></div>
+                        </div>
+                        <div class="label">فواتير</div>
+                    </div>
+                    <div class="stats-cell">
+                        <div class="stats-cell-top">
+                            <div class="stats-icon"><i class="fas fa-clock"></i></div>
+                            <div class="num"><?php echo count(array_filter($hosting, function($h) { return $h['status'] === 'expired'; })); ?></div>
+                        </div>
+                        <div class="label">منتهية</div>
+                    </div>
                 </div>
                 
                 <div class="quick-grid">

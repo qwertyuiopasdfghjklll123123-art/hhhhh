@@ -176,36 +176,54 @@
             .card-header h3 i { color: var(--accent); }
             
             /* ============================================================
-               إحصائيات جديدة - استضافات نشطة
+               إحصائيات جديدة - استضافات نشطة (بطاقة واحدة، أعمدة متساوية)
                ============================================================ */
-            .hosting-stats-grid {
-                display: grid;
-                grid-template-columns: repeat(4, 1fr);
-                gap: 8px;
-                margin-bottom: 16px;
-            }
-            .stat-box {
+            .stats-card {
+                display: flex;
+                align-items: stretch;
                 background: var(--bg-card);
                 border: 1px solid var(--border-color);
                 border-radius: var(--radius-sm);
                 padding: 14px 4px;
+                margin-bottom: 16px;
+            }
+            .stats-cell {
+                flex: 1;
+                min-width: 0;
+                display: flex;
+                flex-direction: column;
+                align-items: center;
+                gap: 6px;
                 text-align: center;
-                transition: var(--transition);
+                padding: 0 4px;
+                border-inline-start: 1px solid var(--border-color);
             }
-            .stat-box:hover {
-                border-color: var(--border-active);
-                background: var(--bg-card-hover);
-                transform: translateY(-2px);
+            .stats-cell:first-child { border-inline-start: none; }
+            .stats-cell-top {
+                display: flex;
+                align-items: center;
+                gap: 6px;
             }
-            .stat-box .num {
-                font-size: 22px;
+            .stats-icon {
+                width: 26px;
+                height: 26px;
+                border-radius: 8px;
+                background: var(--accent-glow);
+                color: var(--accent);
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                font-size: 11px;
+                flex-shrink: 0;
+            }
+            .stats-cell .num {
+                font-size: 20px;
                 font-weight: 900;
                 color: var(--accent);
             }
-            .stat-box .label {
+            .stats-cell .label {
                 font-size: 9px;
                 color: var(--text-muted);
-                margin-top: 3px;
                 transition: color var(--transition);
             }
             
@@ -1564,7 +1582,6 @@
             #aiBottomNav { z-index: 301; }
 
             @media (max-width: 480px) {
-                .hosting-stats-grid { grid-template-columns: repeat(2, 1fr); }
                 .quick-grid { grid-template-columns: repeat(2, 1fr); }
                 .vps-grid { grid-template-columns: 1fr; }
                 .container { padding: 12px 14px; }
