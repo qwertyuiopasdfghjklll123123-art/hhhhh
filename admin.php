@@ -50,6 +50,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $originalPrice = null;
         }
 
+        [$iconImagePath, $iconImageErr] = handleImageUpload('icon_image', LOGOS_DIR, 'uploads/logos');
+        if ($iconImageErr) {
+            adminRedirect('plans', null, $iconImageErr);
+        }
+
         $previousOriginalPrice = null;
         if ($id > 0) {
             $prevStmt = $pdo->prepare('SELECT original_price FROM vps_plans WHERE id = ?');
@@ -57,11 +62,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $previousOriginalPrice = $prevStmt->fetchColumn();
             $previousOriginalPrice = $previousOriginalPrice !== false && $previousOriginalPrice !== null ? (float)$previousOriginalPrice : null;
 
-            $pdo->prepare('UPDATE vps_plans SET name=?, icon=?, cpu=?, ram=?, storage=?, bandwidth=?, price=?, original_price=?, billing_cycle=?, badge=?, is_active=?, sort_order=? WHERE id=?')
-                ->execute([$name, $icon, $cpu, $ram, $storage, $bandwidth, $price, $originalPrice, $billingCycle, $badge, $isActive, $sortOrder, $id]);
+            if ($iconImagePath) {
+                $pdo->prepare('UPDATE vps_plans SET name=?, icon=?, icon_image=?, cpu=?, ram=?, storage=?, bandwidth=?, price=?, original_price=?, billing_cycle=?, badge=?, is_active=?, sort_order=? WHERE id=?')
+                    ->execute([$name, $icon, $iconImagePath, $cpu, $ram, $storage, $bandwidth, $price, $originalPrice, $billingCycle, $badge, $isActive, $sortOrder, $id]);
+            } else {
+                $pdo->prepare('UPDATE vps_plans SET name=?, icon=?, cpu=?, ram=?, storage=?, bandwidth=?, price=?, original_price=?, billing_cycle=?, badge=?, is_active=?, sort_order=? WHERE id=?')
+                    ->execute([$name, $icon, $cpu, $ram, $storage, $bandwidth, $price, $originalPrice, $billingCycle, $badge, $isActive, $sortOrder, $id]);
+            }
         } else {
-            $pdo->prepare('INSERT INTO vps_plans (name, icon, cpu, ram, storage, bandwidth, price, original_price, billing_cycle, badge, is_active, sort_order) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)')
-                ->execute([$name, $icon, $cpu, $ram, $storage, $bandwidth, $price, $originalPrice, $billingCycle, $badge, $isActive, $sortOrder]);
+            $pdo->prepare('INSERT INTO vps_plans (name, icon, icon_image, cpu, ram, storage, bandwidth, price, original_price, billing_cycle, badge, is_active, sort_order) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)')
+                ->execute([$name, $icon, $iconImagePath, $cpu, $ram, $storage, $bandwidth, $price, $originalPrice, $billingCycle, $badge, $isActive, $sortOrder]);
         }
 
         if ($isActive && $originalPrice !== null && $originalPrice !== $previousOriginalPrice) {
@@ -89,7 +99,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $currencyCode = trim($_POST['currency_code'] ?? '') ?: 'USD';
         $isActive = isset($_POST['is_active']) ? 1 : 0;
         $sortOrder = (int)($_POST['sort_order'] ?? 0);
-        $methodType = ($_POST['method_type'] ?? 'manual') === 'binance' ? 'binance' : 'manual';
+        $methodType = in_array($_POST['method_type'] ?? '', ['binance', 'asiacell'], true) ? $_POST['method_type'] : 'manual';
 
         if ($name === '') {
             adminRedirect('payments', null, 'الرجاء إدخال اسم طريقة الدفع.');
@@ -101,16 +111,44 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
 
         $methodExtras = null;
-        $binanceApiKey = trim($_POST['binance_api_key'] ?? '');
-        $binanceApiSecret = trim($_POST['binance_api_secret'] ?? '');
         if ($methodType === 'binance') {
-            if ($binanceApiKey !== '' || $binanceApiSecret !== '') {
-                $methodExtras = json_encode(['api_key' => $binanceApiKey, 'api_secret' => $binanceApiSecret]);
-            } elseif ($id > 0) {
+            $existingExtras = [];
+            if ($id > 0) {
                 $prevExtrasStmt = $pdo->prepare('SELECT method_extras FROM payment_methods WHERE id = ?');
                 $prevExtrasStmt->execute([$id]);
-                $methodExtras = $prevExtrasStmt->fetchColumn() ?: null;
+                $existingExtras = json_decode($prevExtrasStmt->fetchColumn() ?: '{}', true) ?: [];
             }
+            $binanceApiKey = trim($_POST['binance_api_key'] ?? '');
+            $binanceApiSecret = trim($_POST['binance_api_secret'] ?? '');
+            $binanceId = trim($_POST['binance_id'] ?? '');
+
+            [$qrCodePath, $qrCodeErr] = handleImageUpload('binance_qr_code', LOGOS_DIR, 'uploads/logos');
+            if ($qrCodeErr) {
+                adminRedirect('payments', null, $qrCodeErr);
+            }
+
+            $methodExtras = json_encode([
+                'api_key' => $binanceApiKey !== '' ? $binanceApiKey : ($existingExtras['api_key'] ?? ''),
+                'api_secret' => $binanceApiSecret !== '' ? $binanceApiSecret : ($existingExtras['api_secret'] ?? ''),
+                'binance_id' => $binanceId,
+                'qr_code' => $qrCodePath ?: ($existingExtras['qr_code'] ?? ''),
+            ]);
+        } elseif ($methodType === 'asiacell') {
+            $existingExtras = [];
+            if ($id > 0) {
+                $prevExtrasStmt = $pdo->prepare('SELECT method_extras FROM payment_methods WHERE id = ?');
+                $prevExtrasStmt->execute([$id]);
+                $existingExtras = json_decode($prevExtrasStmt->fetchColumn() ?: '{}', true) ?: [];
+            }
+            $receiverMsisdn = trim($_POST['asiacell_receiver'] ?? '');
+            $exchangeRate = (float)($_POST['asiacell_exchange_rate'] ?? 0);
+            if ($receiverMsisdn !== '' && !preg_match('/^(077|078|079)\d{8}$/', $receiverMsisdn)) {
+                adminRedirect('payments', null, 'رقم آسياسيل المستقبل غير صحيح، يجب أن يكون بصيغة 07xxxxxxxxx.');
+            }
+            $methodExtras = json_encode([
+                'receiver_msisdn' => $receiverMsisdn !== '' ? $receiverMsisdn : ($existingExtras['receiver_msisdn'] ?? ''),
+                'exchange_rate' => $exchangeRate > 0 ? $exchangeRate : ($existingExtras['exchange_rate'] ?? 1000),
+            ]);
         }
 
         if ($id > 0) {
@@ -323,14 +361,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             setSetting($pdo, 'ai_logo', $aiLogoPath);
         }
 
-        [$aiBannerPath, $aiBannerErr] = handleImageUpload('ai_home_banner', LOGOS_DIR, 'uploads/logos');
-        if ($aiBannerErr) {
-            adminRedirect('settings', null, $aiBannerErr);
-        }
-        if ($aiBannerPath) {
-            setSetting($pdo, 'ai_home_banner', $aiBannerPath);
-        }
-
         adminRedirect('settings', 'تم حفظ الإعدادات بنجاح.');
     }
 
@@ -381,6 +411,19 @@ $activeHostingCount = (int)$pdo->query("SELECT COUNT(*) FROM hosting WHERE statu
     </nav>
 
     <div class="admin-container">
+        <?php if ($section === 'orders'): ?>
+        <div class="admin-hero">
+            <div class="admin-hero-top">
+                <div class="admin-hero-icon"><i class="fas fa-gauge-high"></i></div>
+                <div>
+                    <h3>مرحباً، <?php echo e($admin['name']); ?> 👋</h3>
+                    <div class="admin-hero-sub">إليك ملخص نشاط المنصة اليوم</div>
+                </div>
+            </div>
+            <div class="admin-hero-date"><i class="fas fa-calendar-alt"></i> <?php echo date('l, d F Y'); ?></div>
+        </div>
+        <?php endif; ?>
+
         <?php if (in_array($section, ['orders', 'topups'], true)): ?>
         <div class="stats-row">
             <div class="stat-tile"><div class="num"><?php echo $pendingOrdersCount; ?></div><div class="label">طلبات قيد المراجعة</div></div>
@@ -417,9 +460,11 @@ $activeHostingCount = (int)$pdo->query("SELECT COUNT(*) FROM hosting WHERE statu
             const el = document.getElementById('fulfill-' + orderId);
             el.classList.toggle('hidden');
         }
-        function toggleBinanceFields(select, key) {
-            const el = document.getElementById(key === 'new' ? 'newBinanceFields' : 'binanceFields' + key);
-            if (el) el.classList.toggle('hidden', select.value !== 'binance');
+        function togglePmFields(select, key) {
+            const bEl = document.getElementById(key === 'new' ? 'newBinanceFields' : 'binanceFields' + key);
+            const aEl = document.getElementById(key === 'new' ? 'newAsiacellFields' : 'asiacellFields' + key);
+            if (bEl) bEl.classList.toggle('hidden', select.value !== 'binance');
+            if (aEl) aEl.classList.toggle('hidden', select.value !== 'asiacell');
         }
         function showSettingsPanel(btn, key) {
             document.querySelectorAll('.settings-subtabs .subtab-btn').forEach(b => b.classList.remove('active'));
@@ -437,7 +482,7 @@ $activeHostingCount = (int)$pdo->query("SELECT COUNT(*) FROM hosting WHERE statu
 function renderAdminOrders(PDO $pdo) {
     $orders = $pdo->query("
         SELECT o.*, u.name AS user_name, u.phone AS user_phone, u.email AS user_email,
-               p.name AS plan_name, p.icon AS plan_icon,
+               p.name AS plan_name, p.icon AS plan_icon, p.icon_image AS plan_icon_image,
                pm.name AS pm_name, h.vps_id AS vps_id,
                rh.name AS renewal_hosting_name, rh.vps_id AS renewal_vps_id, rh.expiry_date AS renewal_current_expiry
         FROM orders o
@@ -470,7 +515,7 @@ function renderAdminOrders(PDO $pdo) {
             </div>
 
             <div class="order-meta">
-                <div><strong><?php echo $o['plan_icon']; ?> <?php echo e($o['plan_name']); ?></strong><span>الباقة</span></div>
+                <div><strong><?php echo planIconHtml($o['plan_icon'], $o['plan_icon_image'] ?? null, 18); ?> <?php echo e($o['plan_name']); ?></strong><span>الباقة</span></div>
                 <div><strong>$<?php echo money($o['amount']); ?></strong><span>المبلغ</span></div>
                 <div><strong><?php echo $o['billing_cycle'] === 'yearly' ? 'سنوي' : 'شهري'; ?></strong><span>مدة الاشتراك</span></div>
                 <div><strong><?php echo e($o['pm_name'] ?: 'رصيد الحساب'); ?></strong><span>طريقة الدفع</span></div>
@@ -639,13 +684,14 @@ function renderAdminPlans(PDO $pdo) {
     ?>
     <div class="admin-card">
         <div class="admin-card-header"><h2><i class="fas fa-plus"></i> إضافة باقة جديدة</h2></div>
-        <form method="POST" action="admin.php?section=plans">
+        <form method="POST" action="admin.php?section=plans" enctype="multipart/form-data">
             <?php echo csrfField(); ?>
             <input type="hidden" name="action" value="plan_save">
             <input type="hidden" name="id" value="0">
             <div class="field-grid-2">
                 <div class="field-row"><label class="field-label">اسم الباقة</label><input type="text" name="name" class="text-input" required></div>
                 <div class="field-row"><label class="field-label">أيقونة (إيموجي)</label><input type="text" name="icon" class="text-input" value="🚀"></div>
+                <div class="field-row"><label class="field-label">أو أيقونة كصورة (اختياري، تُغني عن الإيموجي)</label><input type="file" name="icon_image" class="text-input" accept="image/png,image/jpeg,image/webp"></div>
                 <div class="field-row"><label class="field-label">المعالج (CPU)</label><input type="text" name="cpu" class="text-input" placeholder="2 Core" required></div>
                 <div class="field-row"><label class="field-label">الذاكرة (RAM)</label><input type="text" name="ram" class="text-input" placeholder="4 GB" required></div>
                 <div class="field-row"><label class="field-label">التخزين</label><input type="text" name="storage" class="text-input" placeholder="100 GB SSD" required></div>
@@ -674,7 +720,7 @@ function renderAdminPlans(PDO $pdo) {
         <details style="border-bottom:1px solid var(--border-color);padding:10px 0">
             <summary style="cursor:pointer;display:flex;align-items:center;justify-content:space-between;list-style:none">
                 <span>
-                    <span class="plan-icon-preview"><?php echo $plan['icon']; ?></span> <strong><?php echo e($plan['name']); ?></strong> —
+                    <span class="plan-icon-preview"><?php echo planIconHtml($plan['icon'], $plan['icon_image'] ?? null, 22); ?></span> <strong><?php echo e($plan['name']); ?></strong> —
                     <?php if (!empty($plan['original_price'])): ?>
                         <s class="text-muted">$<?php echo money($plan['original_price']); ?></s>
                     <?php endif; ?>
@@ -683,13 +729,20 @@ function renderAdminPlans(PDO $pdo) {
                 <span class="pill <?php echo ($plan['billing_cycle'] ?? 'monthly') === 'yearly' ? 'pill-amber' : 'pill-green'; ?>" style="margin-inline-end:6px"><?php echo ($plan['billing_cycle'] ?? 'monthly') === 'yearly' ? 'سنوي' : 'شهري'; ?></span>
                 <span class="pill <?php echo $plan['is_active'] ? 'pill-green' : 'pill-gray'; ?>"><?php echo $plan['is_active'] ? 'مفعّلة' : 'موقوفة'; ?></span>
             </summary>
-            <form method="POST" action="admin.php?section=plans" style="margin-top:14px">
+            <form method="POST" action="admin.php?section=plans" enctype="multipart/form-data" style="margin-top:14px">
                 <?php echo csrfField(); ?>
                 <input type="hidden" name="action" value="plan_save">
                 <input type="hidden" name="id" value="<?php echo (int)$plan['id']; ?>">
                 <div class="field-grid-2">
                     <div class="field-row"><label class="field-label">اسم الباقة</label><input type="text" name="name" class="text-input" value="<?php echo e($plan['name']); ?>" required></div>
                     <div class="field-row"><label class="field-label">أيقونة (إيموجي)</label><input type="text" name="icon" class="text-input" value="<?php echo e($plan['icon']); ?>"></div>
+                    <div class="field-row">
+                        <label class="field-label">أو أيقونة كصورة (اختياري)</label>
+                        <?php if (!empty($plan['icon_image'])): ?>
+                        <div style="margin-bottom:6px"><img src="<?php echo e($plan['icon_image']); ?>" alt="" style="width:32px;height:32px;object-fit:cover;border-radius:8px;border:1px solid var(--border-color)"></div>
+                        <?php endif; ?>
+                        <input type="file" name="icon_image" class="text-input" accept="image/png,image/jpeg,image/webp">
+                    </div>
                     <div class="field-row"><label class="field-label">المعالج (CPU)</label><input type="text" name="cpu" class="text-input" value="<?php echo e($plan['cpu']); ?>" required></div>
                     <div class="field-row"><label class="field-label">الذاكرة (RAM)</label><input type="text" name="ram" class="text-input" value="<?php echo e($plan['ram']); ?>" required></div>
                     <div class="field-row"><label class="field-label">التخزين</label><input type="text" name="storage" class="text-input" value="<?php echo e($plan['storage']); ?>" required></div>
@@ -751,15 +804,22 @@ function renderAdminPayments(PDO $pdo) {
                 </div>
                 <div class="field-row">
                     <label class="field-label">نوع طريقة الدفع</label>
-                    <select name="method_type" class="text-input" onchange="toggleBinanceFields(this, 'new')">
+                    <select name="method_type" class="text-input" onchange="togglePmFields(this, 'new')">
                         <option value="manual">تحويل يدوي (مراجعة الإدارة)</option>
                         <option value="binance">Binance Pay (تحقق تلقائي فوري)</option>
+                        <option value="asiacell">آسياسيل (تحويل رصيد تلقائي)</option>
                     </select>
                 </div>
             </div>
             <div class="field-grid-2 hidden" id="newBinanceFields">
                 <div class="field-row"><label class="field-label">Binance API Key</label><input type="text" name="binance_api_key" class="text-input" dir="ltr" placeholder="API Key" autocomplete="off"></div>
                 <div class="field-row"><label class="field-label">Binance API Secret</label><input type="text" name="binance_api_secret" class="text-input" dir="ltr" placeholder="API Secret" autocomplete="off"></div>
+                <div class="field-row"><label class="field-label">Binance Pay ID (يظهر للمستخدم)</label><input type="text" name="binance_id" class="text-input" dir="ltr" placeholder="123456789"></div>
+                <div class="field-row"><label class="field-label">رمز QR للدفع (اختياري)</label><input type="file" name="binance_qr_code" class="text-input" accept="image/png,image/jpeg,image/webp"></div>
+            </div>
+            <div class="field-grid-2 hidden" id="newAsiacellFields">
+                <div class="field-row"><label class="field-label">رقم آسياسيل المستقبل للتحويلات</label><input type="text" name="asiacell_receiver" class="text-input" dir="ltr" placeholder="07xxxxxxxxx"></div>
+                <div class="field-row"><label class="field-label">سعر الصرف (دينار مقابل 1 دولار)</label><input type="number" name="asiacell_exchange_rate" class="text-input" dir="ltr" placeholder="1000" step="0.01"></div>
             </div>
             <div class="field-row"><label class="field-label">تعليمات الدفع</label><textarea name="instructions" class="text-input" placeholder="حوّل المبلغ إلى الرقم أعلاه ثم ارفع صورة الإيصال."></textarea></div>
             <div class="field-row"><label class="field-label">شعار (صورة، اختياري)</label><input type="file" name="logo" class="text-input" accept="image/png,image/jpeg,image/webp"></div>
@@ -800,16 +860,32 @@ function renderAdminPayments(PDO $pdo) {
                     </div>
                     <div class="field-row">
                         <label class="field-label">نوع طريقة الدفع</label>
-                        <select name="method_type" class="text-input" onchange="toggleBinanceFields(this, <?php echo (int)$pm['id']; ?>)">
+                        <select name="method_type" class="text-input" onchange="togglePmFields(this, <?php echo (int)$pm['id']; ?>)">
                             <option value="manual" <?php echo ($pm['method_type'] ?? 'manual') === 'manual' ? 'selected' : ''; ?>>تحويل يدوي (مراجعة الإدارة)</option>
                             <option value="binance" <?php echo ($pm['method_type'] ?? '') === 'binance' ? 'selected' : ''; ?>>Binance Pay (تحقق تلقائي فوري)</option>
+                            <option value="asiacell" <?php echo ($pm['method_type'] ?? '') === 'asiacell' ? 'selected' : ''; ?>>آسياسيل (تحويل رصيد تلقائي)</option>
                         </select>
                     </div>
                 </div>
-                <?php $pmHasBinanceKeys = !empty(json_decode($pm['method_extras'] ?? '{}', true)['api_key'] ?? ''); ?>
+                <?php
+                $pmExtras = json_decode($pm['method_extras'] ?? '{}', true) ?: [];
+                $pmHasBinanceKeys = !empty($pmExtras['api_key'] ?? '');
+                ?>
                 <div class="field-grid-2 <?php echo ($pm['method_type'] ?? 'manual') === 'binance' ? '' : 'hidden'; ?>" id="binanceFields<?php echo (int)$pm['id']; ?>">
                     <div class="field-row"><label class="field-label">Binance API Key</label><input type="text" name="binance_api_key" class="text-input" dir="ltr" placeholder="<?php echo $pmHasBinanceKeys ? '•••• اتركه فارغاً للإبقاء على المفتاح الحالي' : 'API Key'; ?>" autocomplete="off"></div>
                     <div class="field-row"><label class="field-label">Binance API Secret</label><input type="text" name="binance_api_secret" class="text-input" dir="ltr" placeholder="<?php echo $pmHasBinanceKeys ? '•••• اتركه فارغاً للإبقاء على المفتاح الحالي' : 'API Secret'; ?>" autocomplete="off"></div>
+                    <div class="field-row"><label class="field-label">Binance Pay ID (يظهر للمستخدم)</label><input type="text" name="binance_id" class="text-input" dir="ltr" value="<?php echo e($pmExtras['binance_id'] ?? ''); ?>" placeholder="123456789"></div>
+                    <div class="field-row">
+                        <label class="field-label">رمز QR للدفع (اختياري)</label>
+                        <?php if (!empty($pmExtras['qr_code'])): ?>
+                        <div style="margin-bottom:6px"><img src="<?php echo e($pmExtras['qr_code']); ?>" alt="" style="width:64px;height:64px;object-fit:cover;border-radius:8px;border:1px solid var(--border-color)"></div>
+                        <?php endif; ?>
+                        <input type="file" name="binance_qr_code" class="text-input" accept="image/png,image/jpeg,image/webp">
+                    </div>
+                </div>
+                <div class="field-grid-2 <?php echo ($pm['method_type'] ?? 'manual') === 'asiacell' ? '' : 'hidden'; ?>" id="asiacellFields<?php echo (int)$pm['id']; ?>">
+                    <div class="field-row"><label class="field-label">رقم آسياسيل المستقبل للتحويلات</label><input type="text" name="asiacell_receiver" class="text-input" dir="ltr" value="<?php echo e($pmExtras['receiver_msisdn'] ?? ''); ?>" placeholder="07xxxxxxxxx"></div>
+                    <div class="field-row"><label class="field-label">سعر الصرف (دينار مقابل 1 دولار)</label><input type="number" name="asiacell_exchange_rate" class="text-input" dir="ltr" value="<?php echo e($pmExtras['exchange_rate'] ?? ''); ?>" placeholder="1000" step="0.01"></div>
                 </div>
                 <div class="field-row"><label class="field-label">تعليمات الدفع</label><textarea name="instructions" class="text-input"><?php echo e($pm['instructions']); ?></textarea></div>
                 <div class="field-row"><label class="field-label">تغيير الشعار (اختياري)</label><input type="file" name="logo" class="text-input" accept="image/png,image/jpeg,image/webp"></div>
@@ -895,21 +971,12 @@ function renderAdminSettings(PDO $pdo) {
                 <div class="admin-card-header"><h2><i class="fas fa-robot"></i> المساعد الذكي (NVIDIA API)</h2></div>
                 <div class="field-row"><label class="field-label">مفتاح API</label><input type="text" name="nvidia_api_key" class="text-input" value="<?php echo e($s['nvidia_api_key'] ?? ''); ?>" dir="ltr" placeholder="nvapi-..."></div>
                 <div class="field-row"><label class="field-label">اسم النموذج (Model)</label><input type="text" name="nvidia_model" class="text-input" value="<?php echo e($s['nvidia_model'] ?? ''); ?>" dir="ltr"></div>
-                <div class="field-grid-2">
-                    <div class="field-row">
-                        <label class="field-label">شعار المساعد الذكي (اختياري)</label>
-                        <?php if (!empty($s['ai_logo'])): ?>
-                            <div style="margin-bottom:8px"><img src="<?php echo e($s['ai_logo']); ?>" alt="" style="width:48px;height:48px;border-radius:50%;object-fit:cover;border:1px solid var(--border-color)"></div>
-                        <?php endif; ?>
-                        <input type="file" name="ai_logo" class="text-input" accept="image/png,image/jpeg,image/webp">
-                    </div>
-                    <div class="field-row">
-                        <label class="field-label">صورة بطاقة المساعد الذكي بالرئيسية (اختياري)</label>
-                        <?php if (!empty($s['ai_home_banner'])): ?>
-                            <div style="margin-bottom:8px"><img src="<?php echo e($s['ai_home_banner']); ?>" alt="" style="width:100%;max-width:220px;border-radius:10px;object-fit:cover;border:1px solid var(--border-color)"></div>
-                        <?php endif; ?>
-                        <input type="file" name="ai_home_banner" class="text-input" accept="image/png,image/jpeg,image/webp">
-                    </div>
+                <div class="field-row">
+                    <label class="field-label">شعار المساعد الذكي (اختياري)</label>
+                    <?php if (!empty($s['ai_logo'])): ?>
+                        <div style="margin-bottom:8px"><img src="<?php echo e($s['ai_logo']); ?>" alt="" style="width:48px;height:48px;border-radius:50%;object-fit:cover;border:1px solid var(--border-color)"></div>
+                    <?php endif; ?>
+                    <input type="file" name="ai_logo" class="text-input" accept="image/png,image/jpeg,image/webp">
                 </div>
             </div>
         </div>

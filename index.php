@@ -575,6 +575,265 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === 'verify_binance_topup' && $_SERVER
 }
 
 // ============================================================
+// آسياسيل - تحويل رصيد تلقائي (تدفق ثلاث خطوات عبر AJAX)
+// الحالة العابرة لعملية آسياسيل تُخزَّن في $_SESSION['asiacell_flow'] فقط (ليست في قاعدة البيانات ولا في ملفات)
+// ============================================================
+
+if (isset($_GET['ajax']) && $_GET['ajax'] === 'asiacell_start' && $_SERVER['REQUEST_METHOD'] === 'POST') {
+    header('Content-Type: application/json; charset=utf-8');
+
+    if (!isLoggedIn()) {
+        http_response_code(401);
+        echo json_encode(['error' => 'يجب تسجيل الدخول.']);
+        exit;
+    }
+
+    $body = json_decode((string)file_get_contents('php://input'), true) ?: [];
+    if (!hash_equals($_SESSION['csrf_token'] ?? '', (string)($body['csrf_token'] ?? ''))) {
+        http_response_code(400);
+        echo json_encode(['error' => 'انتهت صلاحية الجلسة، أعد تحميل الصفحة.']);
+        exit;
+    }
+
+    $userId = (int)$_SESSION['user_id'];
+    $context = ($body['context'] ?? '') === 'topup' ? 'topup' : 'order';
+    $paymentMethodId = (int)($body['payment_method_id'] ?? 0);
+    $phone = trim((string)($body['phone'] ?? ''));
+
+    if (!preg_match('/^(077|078|079)\d{8}$/', $phone)) {
+        http_response_code(400);
+        echo json_encode(['error' => 'رقم هاتف آسياسيل غير صحيح، يجب أن يكون بصيغة 07xxxxxxxxx.']);
+        exit;
+    }
+
+    $pmStmt = $pdo->prepare("SELECT * FROM payment_methods WHERE id = ? AND is_active = 1 AND method_type = 'asiacell'");
+    $pmStmt->execute([$paymentMethodId]);
+    $pm = $pmStmt->fetch(PDO::FETCH_ASSOC);
+    if (!$pm) {
+        http_response_code(400);
+        echo json_encode(['error' => 'طريقة الدفع غير متاحة.']);
+        exit;
+    }
+    $extras = json_decode($pm['method_extras'] ?? '{}', true) ?: [];
+    $receiverMsisdn = trim((string)($extras['receiver_msisdn'] ?? ''));
+    $exchangeRate = (float)($extras['exchange_rate'] ?? 0);
+    if ($receiverMsisdn === '' || $exchangeRate <= 0) {
+        http_response_code(400);
+        echo json_encode(['error' => 'لم يتم إعداد آسياسيل من الإدارة بعد.']);
+        exit;
+    }
+
+    $planId = 0;
+    $billingCycle = 'monthly';
+    if ($context === 'order') {
+        $planId = (int)($body['plan_id'] ?? 0);
+        $planStmt = $pdo->prepare('SELECT * FROM vps_plans WHERE id = ? AND is_active = 1');
+        $planStmt->execute([$planId]);
+        $plan = $planStmt->fetch(PDO::FETCH_ASSOC);
+        if (!$plan) {
+            http_response_code(400);
+            echo json_encode(['error' => 'الباقة المختارة غير متاحة.']);
+            exit;
+        }
+        $user = currentUser($pdo);
+        $referralDiscountPct = 0.0;
+        if (!empty($user['referred_by'])) {
+            $priorOrdersStmt = $pdo->prepare('SELECT COUNT(*) FROM orders WHERE user_id = ?');
+            $priorOrdersStmt->execute([$userId]);
+            if ((int)$priorOrdersStmt->fetchColumn() === 0) {
+                $referralDiscountPct = (float)getSetting($pdo, 'referral_discount_pct', 0);
+            }
+        }
+        $amountUsd = (float)$plan['price'];
+        if ($referralDiscountPct > 0) {
+            $amountUsd = round($amountUsd * (1 - $referralDiscountPct / 100), 2);
+        }
+        $billingCycle = ($plan['billing_cycle'] ?? 'monthly') === 'yearly' ? 'yearly' : 'monthly';
+    } else {
+        $amountUsd = (float)($body['amount'] ?? 0);
+        if ($amountUsd <= 0) {
+            http_response_code(400);
+            echo json_encode(['error' => 'الرجاء إدخال مبلغ صحيح.']);
+            exit;
+        }
+    }
+
+    $amountIqd = (int)round($amountUsd * $exchangeRate);
+
+    $api = new AsiaCellAPI();
+    [$success, $result] = $api->login($phone);
+    if (!$success) {
+        http_response_code(400);
+        echo json_encode(['error' => $result]);
+        exit;
+    }
+
+    $_SESSION['asiacell_flow'] = [
+        'api' => $api->getState(),
+        'phone' => $phone,
+        'context' => $context,
+        'plan_id' => $planId,
+        'payment_method_id' => $paymentMethodId,
+        'billing_cycle' => $billingCycle,
+        'amount_usd' => $amountUsd,
+        'amount_iqd' => $amountIqd,
+        'receiver_msisdn' => $receiverMsisdn,
+        'step' => 'sms',
+    ];
+
+    echo json_encode(['ok' => true, 'amount_iqd' => $amountIqd]);
+    exit;
+}
+
+if (isset($_GET['ajax']) && $_GET['ajax'] === 'asiacell_verify_sms' && $_SERVER['REQUEST_METHOD'] === 'POST') {
+    header('Content-Type: application/json; charset=utf-8');
+
+    if (!isLoggedIn()) {
+        http_response_code(401);
+        echo json_encode(['error' => 'يجب تسجيل الدخول.']);
+        exit;
+    }
+
+    $body = json_decode((string)file_get_contents('php://input'), true) ?: [];
+    if (!hash_equals($_SESSION['csrf_token'] ?? '', (string)($body['csrf_token'] ?? ''))) {
+        http_response_code(400);
+        echo json_encode(['error' => 'انتهت صلاحية الجلسة، أعد تحميل الصفحة.']);
+        exit;
+    }
+
+    $flow = $_SESSION['asiacell_flow'] ?? null;
+    if (!$flow || ($flow['step'] ?? '') !== 'sms') {
+        http_response_code(400);
+        echo json_encode(['error' => 'انتهت صلاحية العملية، ابدأ من جديد.']);
+        exit;
+    }
+
+    $code = trim((string)($body['code'] ?? ''));
+    if (!preg_match('/^\d{4,6}$/', $code)) {
+        http_response_code(400);
+        echo json_encode(['error' => 'رمز التحقق يجب أن يكون من 4 إلى 6 أرقام.']);
+        exit;
+    }
+
+    $api = new AsiaCellAPI($flow['api']);
+    [$success, $result] = $api->verifySms($code);
+    if (!$success) {
+        http_response_code(400);
+        echo json_encode(['error' => $result]);
+        exit;
+    }
+
+    [$success2, $result2] = $api->startTransfer($flow['amount_iqd'], $flow['receiver_msisdn']);
+    if (!$success2) {
+        http_response_code(400);
+        echo json_encode(['error' => $result2]);
+        exit;
+    }
+
+    $flow['api'] = $api->getState();
+    $flow['step'] = 'confirm';
+    $_SESSION['asiacell_flow'] = $flow;
+
+    echo json_encode(['ok' => true]);
+    exit;
+}
+
+if (isset($_GET['ajax']) && $_GET['ajax'] === 'asiacell_confirm_transfer' && $_SERVER['REQUEST_METHOD'] === 'POST') {
+    header('Content-Type: application/json; charset=utf-8');
+
+    if (!isLoggedIn()) {
+        http_response_code(401);
+        echo json_encode(['error' => 'يجب تسجيل الدخول.']);
+        exit;
+    }
+
+    $body = json_decode((string)file_get_contents('php://input'), true) ?: [];
+    if (!hash_equals($_SESSION['csrf_token'] ?? '', (string)($body['csrf_token'] ?? ''))) {
+        http_response_code(400);
+        echo json_encode(['error' => 'انتهت صلاحية الجلسة، أعد تحميل الصفحة.']);
+        exit;
+    }
+
+    $flow = $_SESSION['asiacell_flow'] ?? null;
+    if (!$flow || ($flow['step'] ?? '') !== 'confirm') {
+        http_response_code(400);
+        echo json_encode(['error' => 'انتهت صلاحية العملية، ابدأ من جديد.']);
+        exit;
+    }
+
+    $code = trim((string)($body['code'] ?? ''));
+    if (!preg_match('/^\d{4,6}$/', $code)) {
+        http_response_code(400);
+        echo json_encode(['error' => 'رمز التأكيد يجب أن يكون من 4 إلى 6 أرقام.']);
+        exit;
+    }
+
+    $api = new AsiaCellAPI($flow['api']);
+    [$success, $result] = $api->confirmTransfer($code);
+    if (!$success) {
+        http_response_code(400);
+        echo json_encode(['error' => $result]);
+        exit;
+    }
+
+    $userId = (int)$_SESSION['user_id'];
+    $amountUsd = (float)$flow['amount_usd'];
+
+    if ($flow['context'] === 'order') {
+        $pdo->prepare('INSERT INTO orders (user_id, plan_id, payment_method_id, amount, billing_cycle, status) VALUES (?,?,?,?,?,?)')
+            ->execute([$userId, $flow['plan_id'], $flow['payment_method_id'], $amountUsd, $flow['billing_cycle'], 'pending']);
+        $orderId = (int)$pdo->lastInsertId();
+
+        $planStmt = $pdo->prepare('SELECT name FROM vps_plans WHERE id = ?');
+        $planStmt->execute([$flow['plan_id']]);
+        $planName = $planStmt->fetchColumn() ?: '-';
+
+        $cycleLabel = $flow['billing_cycle'] === 'yearly' ? 'سنوي' : 'شهري';
+        $invDescription = 'اشتراك باقة ' . $planName . ' (' . $cycleLabel . ') - آسياسيل';
+        $pdo->prepare('INSERT INTO invoices (user_id, order_id, invoice_number, amount, status, description) VALUES (?,?,?,?,?,?)')
+            ->execute([$userId, $orderId, nextInvoiceNumber($pdo), $amountUsd, 'paid', $invDescription]);
+
+        $user = currentUser($pdo);
+        notifyAdmins($pdo, '🆕 طلب اشتراك جديد (آسياسيل)', 'قدّم ' . $user['name'] . ' طلب اشتراك في باقة "' . $planName . '" بمبلغ $' . money($amountUsd) . ' عبر آسياسيل (تم التحقق تلقائياً). راجع الطلب لتفعيل الاستضافة.', 'system');
+
+        unset($_SESSION['asiacell_flow']);
+        echo json_encode(['ok' => true, 'order_id' => $orderId]);
+        exit;
+    }
+
+    $pdo->beginTransaction();
+    $pdo->prepare('UPDATE users SET balance = balance + ? WHERE id = ?')->execute([$amountUsd, $userId]);
+    $pdo->prepare('INSERT INTO invoices (user_id, invoice_number, amount, status, description) VALUES (?,?,?,?,?)')
+        ->execute([$userId, nextInvoiceNumber($pdo), $amountUsd, 'paid', 'شحن رصيد عبر آسياسيل']);
+    $pdo->commit();
+
+    notifyUser($pdo, $userId, '💰 تم شحن رصيدك', 'تم إضافة $' . money($amountUsd) . ' إلى رصيد حسابك تلقائياً عبر آسياسيل.', 'topup_approved');
+
+    unset($_SESSION['asiacell_flow']);
+    $user = currentUser($pdo);
+    echo json_encode(['ok' => true, 'balance' => (float)$user['balance']]);
+    exit;
+}
+
+if (isset($_GET['ajax']) && $_GET['ajax'] === 'asiacell_cancel' && $_SERVER['REQUEST_METHOD'] === 'POST') {
+    header('Content-Type: application/json; charset=utf-8');
+    if (!isLoggedIn()) {
+        http_response_code(401);
+        echo json_encode(['error' => 'يجب تسجيل الدخول.']);
+        exit;
+    }
+    $body = json_decode((string)file_get_contents('php://input'), true) ?: [];
+    if (!hash_equals($_SESSION['csrf_token'] ?? '', (string)($body['csrf_token'] ?? ''))) {
+        http_response_code(400);
+        echo json_encode(['error' => 'انتهت صلاحية الجلسة.']);
+        exit;
+    }
+    unset($_SESSION['asiacell_flow']);
+    echo json_encode(['ok' => true]);
+    exit;
+}
+
+// ============================================================
 // تسجيل الخروج
 // ============================================================
 
@@ -791,7 +1050,7 @@ function includePlansPage(PDO $pdo) {
             <?php foreach ($plans as $plan): $discountPct = planDiscountPct($plan); ?>
             <div class="plan-public-card">
                 <?php if ($discountPct): ?><span class="discount-ribbon">خصم <?php echo $discountPct; ?>%</span><?php endif; ?>
-                <div class="plan-public-icon"><?php echo $plan['icon']; ?></div>
+                <div class="plan-public-icon"><?php echo planIconHtml($plan['icon'], $plan['icon_image'] ?? null, 40); ?></div>
                 <h3><?php echo e($plan['name']); ?></h3>
                 <?php if (!empty($plan['badge'])): ?><span class="pill pill-gold"><?php echo e($plan['badge']); ?></span><?php endif; ?>
                 <div class="plan-public-price">
@@ -1141,7 +1400,6 @@ function includeAppPage(PDO $pdo) {
     $siteName = getSetting($pdo, 'site_name', 'استضافتي');
     $siteLogo = getSetting($pdo, 'site_logo', '');
     $aiLogo = getSetting($pdo, 'ai_logo', '');
-    $aiHomeBanner = getSetting($pdo, 'ai_home_banner', '');
     $referralDiscountPct = (float)getSetting($pdo, 'referral_discount_pct', 0);
     $myReferralCode = getOrCreateReferralCode($pdo, $user);
     $referralScheme = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http';
@@ -1168,7 +1426,7 @@ function includeAppPage(PDO $pdo) {
     $invoices = $invoicesStmt->fetchAll(PDO::FETCH_ASSOC);
 
     $ordersStmt = $pdo->prepare("
-        SELECT o.*, p.name AS plan_name, p.icon AS plan_icon
+        SELECT o.*, p.name AS plan_name, p.icon AS plan_icon, p.icon_image AS plan_icon_image
         FROM orders o JOIN vps_plans p ON p.id = o.plan_id
         WHERE o.user_id = ? ORDER BY o.created_at DESC
     ");
@@ -1176,10 +1434,17 @@ function includeAppPage(PDO $pdo) {
     $orders = $ordersStmt->fetchAll(PDO::FETCH_ASSOC);
     $referralEligible = $referralDiscountPct > 0 && !empty($user['referred_by']) && count($orders) === 0;
 
-    $payment_methods = $pdo->query('SELECT id, name, icon, account_number, instructions, currency_code, method_type, logo_path, sort_order FROM payment_methods WHERE is_active = 1 ORDER BY sort_order ASC, id ASC')->fetchAll(PDO::FETCH_ASSOC);
+    $payment_methods = $pdo->query('SELECT id, name, icon, account_number, instructions, currency_code, method_type, logo_path, sort_order, method_extras FROM payment_methods WHERE is_active = 1 ORDER BY sort_order ASC, id ASC')->fetchAll(PDO::FETCH_ASSOC);
     $pmColors = ['blue', 'purple', 'gold', 'green'];
     foreach ($payment_methods as $i => &$pmRow) {
         $pmRow['color'] = $pmColors[$i % count($pmColors)];
+        // فقط الحقول غير الحساسة تصل للمتصفح؛ لا يُرسل مطلقاً api_key أو api_secret
+        $extras = json_decode($pmRow['method_extras'] ?? '{}', true) ?: [];
+        $pmRow['binance_id'] = $extras['binance_id'] ?? '';
+        $pmRow['qr_code'] = $extras['qr_code'] ?? '';
+        // سعر الصرف فقط (غير حساس، يُستخدم لعرض المكافئ بالدينار)؛ رقم آسياسيل المستقبل يبقى في الخادم فقط
+        $pmRow['exchange_rate'] = ($pmRow['method_type'] ?? '') === 'asiacell' ? (float)($extras['exchange_rate'] ?? 0) : 0;
+        unset($pmRow['method_extras']);
     }
     unset($pmRow);
 
@@ -1369,17 +1634,8 @@ function includeAppPage(PDO $pdo) {
                 </div>
 
                 <!-- المساعد الذكي -->
-                <button type="button" class="promo-ai-card<?php echo $aiHomeBanner ? ' has-banner' : ''; ?>" onclick="enterAI()">
-                    <?php if ($aiHomeBanner): ?>
-                    <img src="<?php echo e($aiHomeBanner); ?>" alt="المساعد الذكي" class="promo-ai-banner-img">
-                    <?php else: ?>
-                    <div class="icon"><?php echo $aiLogo ? '<img src="' . e($aiLogo) . '" alt="">' : '🤖'; ?></div>
-                    <div class="text">
-                        <h3>مساعدك الذكي</h3>
-                        <p>اسأل، اطلب شرح أمر، أو شخّص مشكلة بسيرفرك</p>
-                    </div>
-                    <i class="fas fa-chevron-left chevron"></i>
-                    <?php endif; ?>
+                <button type="button" class="promo-ai-card has-banner" onclick="enterAI()">
+                    <img src="assets/images/ai-assistant-banner.webp" alt="المساعد الذكي" class="promo-ai-banner-img">
                 </button>
 
                 <!-- شارك واحصل أصدقاؤك على خصم -->
@@ -1575,10 +1831,34 @@ function includeAppPage(PDO $pdo) {
                         </div>
 
                         <div id="binanceOrderIdWrap" class="hidden">
-                            <div class="hosting-detail" style="margin-bottom:12px"><div class="detail-row"><span class="label">الدفع عبر</span><span class="value">Binance Pay</span></div></div>
+                            <div id="binancePayInfo" style="margin-bottom:12px"></div>
                             <label class="field-label" style="display:block;text-align:right;font-size:13px;color:var(--text-muted);margin-bottom:6px">رقم عملية Binance (Order ID)</label>
                             <input type="text" id="binanceOrderIdInput" placeholder="Order ID" dir="ltr" style="width:100%;padding:12px 14px;border-radius:var(--radius-sm);border:1.5px solid var(--border-color);background:var(--bg-card);color:var(--text-primary);font-size:15px;font-family:inherit;outline:none;margin-bottom:8px">
                             <div class="form-alert-inline hidden" id="binanceOrderError"></div>
+                        </div>
+
+                        <div id="asiacellWrap" class="hidden">
+                            <div id="asiacellPayInfo" style="margin-bottom:12px"></div>
+                            <div id="asiacellStepPhone">
+                                <label class="field-label" style="display:block;text-align:right;font-size:13px;color:var(--text-muted);margin-bottom:6px">رقم هاتفك في آسياسيل</label>
+                                <input type="text" id="asiacellPhoneInput" placeholder="07xxxxxxxxx" dir="ltr" inputmode="numeric" style="width:100%;padding:12px 14px;border-radius:var(--radius-sm);border:1.5px solid var(--border-color);background:var(--bg-card);color:var(--text-primary);font-size:15px;font-family:inherit;outline:none;margin-bottom:8px">
+                                <div class="form-alert-inline hidden" id="asiacellPhoneError"></div>
+                                <button type="button" class="btn-gold" id="asiacellSendCodeBtn" onclick="asiacellSendCode('order')" style="margin-top:6px"><i class="fas fa-paper-plane"></i> إرسال رمز التحقق</button>
+                            </div>
+                            <div id="asiacellStepSms1" class="hidden">
+                                <label class="field-label" style="display:block;text-align:right;font-size:13px;color:var(--text-muted);margin-bottom:6px">رمز التحقق المُرسل إلى هاتفك (SMS)</label>
+                                <input type="text" id="asiacellSms1Input" placeholder="12345" dir="ltr" inputmode="numeric" style="width:100%;padding:12px 14px;border-radius:var(--radius-sm);border:1.5px solid var(--border-color);background:var(--bg-card);color:var(--text-primary);font-size:15px;font-family:inherit;outline:none;margin-bottom:8px">
+                                <div class="form-alert-inline hidden" id="asiacellSms1Error"></div>
+                                <button type="button" class="btn-gold" id="asiacellVerifySmsBtn" onclick="asiacellVerifySms('order')" style="margin-top:6px"><i class="fas fa-check"></i> تحقق وابدأ التحويل</button>
+                                <button type="button" class="btn-back" onclick="asiacellReset('order')" style="margin-top:6px">إلغاء والبدء من جديد</button>
+                            </div>
+                            <div id="asiacellStepSms2" class="hidden">
+                                <label class="field-label" style="display:block;text-align:right;font-size:13px;color:var(--text-muted);margin-bottom:6px">رمز تأكيد التحويل (SMS ثانٍ)</label>
+                                <input type="text" id="asiacellSms2Input" placeholder="12345" dir="ltr" inputmode="numeric" style="width:100%;padding:12px 14px;border-radius:var(--radius-sm);border:1.5px solid var(--border-color);background:var(--bg-card);color:var(--text-primary);font-size:15px;font-family:inherit;outline:none;margin-bottom:8px">
+                                <div class="form-alert-inline hidden" id="asiacellSms2Error"></div>
+                                <button type="button" class="btn-gold" id="asiacellConfirmBtn" onclick="asiacellConfirmTransfer('order')" style="margin-top:6px"><i class="fas fa-lock"></i> تأكيد التحويل وإرسال الطلب</button>
+                                <button type="button" class="btn-back" onclick="asiacellReset('order')" style="margin-top:6px">إلغاء والبدء من جديد</button>
+                            </div>
                         </div>
 
                         <div class="form-alert-inline hidden" id="balanceInsufficientWarning"><i class="fas fa-circle-exclamation"></i> رصيدك الحالي غير كافٍ لإتمام هذا الطلب. اختر طريقة دفع أخرى أو اشحن رصيدك أولاً.</div>
@@ -1632,7 +1912,10 @@ function includeAppPage(PDO $pdo) {
                                 data-account="<?php echo e($pm['account_number']); ?>"
                                 data-instructions="<?php echo e($pm['instructions']); ?>"
                                 data-type="<?php echo e($pm['method_type'] ?? 'manual'); ?>"
-                                onclick="showPaymentPage(this.dataset.id, this.dataset.name, this.dataset.account, this.dataset.instructions, this.dataset.type)">
+                                data-binance-id="<?php echo e($pm['binance_id'] ?? ''); ?>"
+                                data-qr-code="<?php echo e($pm['qr_code'] ?? ''); ?>"
+                                data-exchange-rate="<?php echo e($pm['exchange_rate'] ?? ''); ?>"
+                                onclick="showPaymentPage(this.dataset.id, this.dataset.name, this.dataset.account, this.dataset.instructions, this.dataset.type, this.dataset.binanceId, this.dataset.qrCode, this.dataset.exchangeRate)">
                                 <?php if (!empty($pm['logo_path'])): ?>
                                 <div class="pm-logo-wrap"><img src="<?php echo e($pm['logo_path']); ?>" alt=""></div>
                                 <?php else: ?>
@@ -1642,7 +1925,7 @@ function includeAppPage(PDO $pdo) {
                                 <?php endif; ?>
                                 <div style="flex:1">
                                     <div class="title"><?php echo e($pm['name']); ?></div>
-                                    <div class="sub"><?php echo ($pm['method_type'] ?? 'manual') === 'binance' ? 'تحقق تلقائي فوري' : 'تحويل يدوي'; ?></div>
+                                    <div class="sub"><?php echo in_array($pm['method_type'] ?? 'manual', ['binance', 'asiacell'], true) ? 'تحقق تلقائي فوري' : 'تحويل يدوي'; ?></div>
                                 </div>
                                 <i class="fas fa-chevron-left" style="color:var(--text-muted);font-size:12px"></i>
                             </div>
@@ -1678,9 +1961,34 @@ function includeAppPage(PDO $pdo) {
                             </div>
 
                             <div id="topUpBinanceWrap" class="hidden">
+                                <div id="topUpBinancePayInfo" style="margin-bottom:12px"></div>
                                 <label style="display:block;font-size:13px;color:var(--text-muted);margin-bottom:4px">رقم عملية Binance (Order ID)</label>
                                 <input type="text" id="topUpBinanceOrderIdInput" placeholder="Order ID" dir="ltr" style="width:100%;padding:12px 14px;border-radius:var(--radius-sm);border:1.5px solid var(--border-color);background:var(--bg-card);color:var(--text-primary);font-size:15px;font-family:inherit;outline:none;margin-bottom:8px">
                                 <div class="form-alert-inline hidden" id="topUpBinanceError"></div>
+                            </div>
+
+                            <div id="topUpAsiacellWrap" class="hidden">
+                                <div id="topUpAsiacellPayInfo" style="margin-bottom:12px"></div>
+                                <div id="topUpAsiacellStepPhone">
+                                    <label style="display:block;font-size:13px;color:var(--text-muted);margin-bottom:4px">رقم هاتفك في آسياسيل</label>
+                                    <input type="text" id="topUpAsiacellPhoneInput" placeholder="07xxxxxxxxx" dir="ltr" inputmode="numeric" style="width:100%;padding:12px 14px;border-radius:var(--radius-sm);border:1.5px solid var(--border-color);background:var(--bg-card);color:var(--text-primary);font-size:15px;font-family:inherit;outline:none;margin-bottom:8px">
+                                    <div class="form-alert-inline hidden" id="topUpAsiacellPhoneError"></div>
+                                    <button type="button" class="btn-gold" id="topUpAsiacellSendCodeBtn" onclick="asiacellSendCode('topup')" style="margin-top:6px"><i class="fas fa-paper-plane"></i> إرسال رمز التحقق</button>
+                                </div>
+                                <div id="topUpAsiacellStepSms1" class="hidden">
+                                    <label style="display:block;font-size:13px;color:var(--text-muted);margin-bottom:4px">رمز التحقق المُرسل إلى هاتفك (SMS)</label>
+                                    <input type="text" id="topUpAsiacellSms1Input" placeholder="12345" dir="ltr" inputmode="numeric" style="width:100%;padding:12px 14px;border-radius:var(--radius-sm);border:1.5px solid var(--border-color);background:var(--bg-card);color:var(--text-primary);font-size:15px;font-family:inherit;outline:none;margin-bottom:8px">
+                                    <div class="form-alert-inline hidden" id="topUpAsiacellSms1Error"></div>
+                                    <button type="button" class="btn-gold" id="topUpAsiacellVerifySmsBtn" onclick="asiacellVerifySms('topup')" style="margin-top:6px"><i class="fas fa-check"></i> تحقق وابدأ التحويل</button>
+                                    <button type="button" class="btn-back" onclick="asiacellReset('topup')" style="margin-top:6px">إلغاء والبدء من جديد</button>
+                                </div>
+                                <div id="topUpAsiacellStepSms2" class="hidden">
+                                    <label style="display:block;font-size:13px;color:var(--text-muted);margin-bottom:4px">رمز تأكيد التحويل (SMS ثانٍ)</label>
+                                    <input type="text" id="topUpAsiacellSms2Input" placeholder="12345" dir="ltr" inputmode="numeric" style="width:100%;padding:12px 14px;border-radius:var(--radius-sm);border:1.5px solid var(--border-color);background:var(--bg-card);color:var(--text-primary);font-size:15px;font-family:inherit;outline:none;margin-bottom:8px">
+                                    <div class="form-alert-inline hidden" id="topUpAsiacellSms2Error"></div>
+                                    <button type="button" class="btn-gold" id="topUpAsiacellConfirmBtn" onclick="asiacellConfirmTransfer('topup')" style="margin-top:6px"><i class="fas fa-lock"></i> تأكيد التحويل وشحن الرصيد</button>
+                                    <button type="button" class="btn-back" onclick="asiacellReset('topup')" style="margin-top:6px">إلغاء والبدء من جديد</button>
+                                </div>
                             </div>
 
                             <?php if (!empty($_GET['topup_error'])): ?>
@@ -1760,7 +2068,7 @@ function includeAppPage(PDO $pdo) {
                         ?>
                         <div class="invoice-item" onclick="showOrderDetail(<?php echo (int)$o['id']; ?>)">
                             <div class="info">
-                                <div class="number"><?php echo $o['plan_icon']; ?> خادم <?php echo e($o['plan_name']); ?></div>
+                                <div class="number"><?php echo planIconHtml($o['plan_icon'], $o['plan_icon_image'] ?? null, 18); ?> خادم <?php echo e($o['plan_name']); ?></div>
                                 <div class="date">تاريخ الطلب: <?php echo e(substr($o['created_at'], 0, 10)); ?></div>
                             </div>
                             <div style="text-align:left">

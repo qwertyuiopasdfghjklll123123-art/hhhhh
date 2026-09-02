@@ -55,6 +55,19 @@ function connectDb(array $config) {
 // ينشئ جداول قاعدة البيانات إن لم تكن موجودة، ويضيف أي أعمدة/فهارس ناقصة من
 // إصدار سابق للتطبيق. آمن لإعادة التشغيل في كل طلب (كل أمر يتحقق أولاً).
 function initSchema(PDO $pdo, $dbName) {
+    // رقم إصدار المخطط: يُزاد فقط عند إضافة جدول/عمود/فهرس جديد أدناه.
+    // بهذا يتم تخطي كل فحوصات information_schema (البطيئة) في كل طلب بعد أول مرة،
+    // بدل تكرارها عشرات المرات على كل تحميل صفحة (وهذا كان السبب الرئيسي لبطء لوحة التحكم).
+    $schemaVersion = '2';
+    try {
+        $stmt = $pdo->query("SELECT value FROM settings WHERE `key` = 'schema_version' LIMIT 1");
+        if ($stmt && $stmt->fetchColumn() === $schemaVersion) {
+            return;
+        }
+    } catch (Throwable $e) {
+        // جدول settings غير موجود بعد (أول تشغيل) - نكمل لإنشاء كل شيء أدناه
+    }
+
     $charset = ' ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci';
 
     $tables = [
@@ -204,6 +217,7 @@ function initSchema(PDO $pdo, $dbName) {
     $ensureColumn('users', 'onboarding_done', 'TINYINT(1) NOT NULL DEFAULT 0');
     $ensureColumn('orders', 'renewal_hosting_id', 'INT NULL');
     $ensureColumn('payment_methods', 'method_extras', 'TEXT NULL');
+    $ensureColumn('vps_plans', 'icon_image', 'VARCHAR(500) NULL');
 
     // فهارس التفرّد (يتم إنشاؤها بعد التأكد من وجود الأعمدة أعلاه)
     // ملاحظة: عمود email/phone قابلان لأن يكونا NULL بتكرار (حساب دخول عبر Google
@@ -301,6 +315,9 @@ function initSchema(PDO $pdo, $dbName) {
             "3. تُخزَّن كلمات المرور بشكل مشفّر ولا يمكن لأي أحد الاطلاع عليها كنص صريح.\n" .
             "4. يمكنك التواصل مع الدعم الفني في أي وقت لطلب حذف بياناتك أو الاستفسار عنها."]);
     }
+
+    $pdo->prepare('INSERT INTO settings (`key`, value) VALUES (\'schema_version\', ?) ON DUPLICATE KEY UPDATE value = VALUES(value)')
+        ->execute([$schemaVersion]);
 }
 
 // ============================================================
@@ -507,6 +524,165 @@ function verifyBinanceOrder(array $paymentMethod, $binanceOrderId, $expectedAmou
     return [true, $found];
 }
 
+// عميل API آسياسيل لتحويل الرصيد (مقتبس من تطبيق آسياسيل الرسمي، بدون أي علاقة ببوت تيليجرام)
+// الحالة (deviceId/apiKey/pid/accessToken) عابرة بالكامل: تُبنى من مصفوفة وتُعاد كمصفوفة لتُخزَّن في $_SESSION فقط، ولا تُحفظ أبداً في قاعدة البيانات أو ملفات.
+class AsiaCellAPI {
+    private $deviceId;
+    private $apiKey;
+    private $accessToken;
+    private $pid;
+    private $transferPid;
+    private $headers;
+
+    public function __construct(array $state = []) {
+        $this->deviceId = $state['deviceId'] ?? $this->generateUuid();
+        $this->apiKey = $state['apiKey'] ?? $this->generateApiKey();
+        $this->accessToken = $state['accessToken'] ?? null;
+        $this->pid = $state['pid'] ?? null;
+        $this->transferPid = $state['transferPid'] ?? null;
+
+        $this->headers = [
+            'User-Agent: okhttp/5.0.0-alpha.2',
+            'Connection: Keep-Alive',
+            'Accept-Encoding: gzip',
+            'Cache-Control: no-cache',
+            'X-OS-Version: 11',
+            'X-Device-Type: [Android][realme][RMX3834 11][TIRAMISU][HMS][4.3.7:90000325]',
+            'X-ODP-APP-VERSION: 4.3.7',
+            'X-FROM-APP: odp',
+            'X-ODP-CHANNEL: mobile',
+            'X-SCREEN-TYPE: false',
+            'Content-Type: application/json; charset=UTF-8',
+            'X-ODP-API-KEY: ' . $this->apiKey,
+            'DeviceID: ' . $this->deviceId,
+        ];
+        if ($this->accessToken) {
+            $this->headers[] = 'Authorization: Bearer ' . $this->accessToken;
+        }
+    }
+
+    public function getState() {
+        return [
+            'deviceId' => $this->deviceId,
+            'apiKey' => $this->apiKey,
+            'accessToken' => $this->accessToken,
+            'pid' => $this->pid,
+            'transferPid' => $this->transferPid,
+        ];
+    }
+
+    private function generateUuid() {
+        return sprintf('%04x%04x-%04x-%04x-%04x-%04x%04x%04x',
+            mt_rand(0, 0xffff), mt_rand(0, 0xffff),
+            mt_rand(0, 0xffff),
+            mt_rand(0, 0x0fff) | 0x4000,
+            mt_rand(0, 0x3fff) | 0x8000,
+            mt_rand(0, 0xffff), mt_rand(0, 0xffff), mt_rand(0, 0xffff)
+        );
+    }
+
+    private function generateApiKey($length = 32) {
+        $characters = '0123456789abcdef';
+        $apiKey = '';
+        for ($i = 0; $i < $length; $i++) {
+            $apiKey .= $characters[mt_rand(0, strlen($characters) - 1)];
+        }
+        return $apiKey;
+    }
+
+    private function postJson($url, $payload) {
+        $ch = curl_init();
+        curl_setopt_array($ch, [
+            CURLOPT_URL => $url,
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_POST => true,
+            CURLOPT_POSTFIELDS => json_encode($payload),
+            CURLOPT_HTTPHEADER => $this->headers,
+            CURLOPT_TIMEOUT => 30,
+        ]);
+        $response = curl_exec($ch);
+        $error = curl_error($ch);
+        curl_close($ch);
+        if ($error || $response === false) {
+            return null;
+        }
+        $decoded = json_decode($response, true);
+        return is_array($decoded) ? $decoded : null;
+    }
+
+    // الخطوة 1: تسجيل الدخول برقم الهاتف وإرسال رمز SMS
+    public function login($phoneNumber) {
+        $data = $this->postJson('https://odpapp.asiacell.com/api/v1/login?lang=en', [
+            'captchaCode' => '',
+            'username' => $phoneNumber,
+        ]);
+        if (!$data) {
+            return [false, 'لا يوجد رد من خادم آسياسيل، حاول لاحقاً.'];
+        }
+        if (empty($data['success'])) {
+            return [false, $data['message'] ?? 'فشل إرسال رمز التحقق إلى هذا الرقم.'];
+        }
+        if (empty($data['nextUrl']) || !preg_match('/PID=([a-f0-9\-]+)/', $data['nextUrl'], $m)) {
+            return [false, 'تعذر بدء عملية تسجيل الدخول.'];
+        }
+        $this->pid = $m[1];
+        return [true, $this->pid];
+    }
+
+    // الخطوة 2: التحقق من رمز SMS الأول (تأكيد رقم الهاتف)
+    public function verifySms($passcode) {
+        $data = $this->postJson('https://odpapp.asiacell.com/api/v1/smsvalidation?lang=en', [
+            'PID' => $this->pid,
+            'passcode' => $passcode,
+            'token' => '',
+        ]);
+        if (!$data) {
+            return [false, 'لا يوجد رد من خادم آسياسيل، حاول لاحقاً.'];
+        }
+        if (empty($data['success']) || empty($data['access_token'])) {
+            return [false, $data['message'] ?? 'رمز التحقق غير صحيح.'];
+        }
+        $this->accessToken = $data['access_token'];
+        $this->headers[] = 'Authorization: Bearer ' . $this->accessToken;
+        return [true, $this->accessToken];
+    }
+
+    // الخطوة 3: بدء تحويل الرصيد (يُرسل رمز SMS ثانٍ للتأكيد)
+    public function startTransfer($amountIqd, $receiverMsisdn) {
+        $data = $this->postJson('https://odpapp.asiacell.com/api/v1/credit-transfer/start?lang=ar', [
+            'amount' => (int)$amountIqd,
+            'receiverMsisdn' => $receiverMsisdn,
+        ]);
+        if (!$data) {
+            return [false, 'لا يوجد رد من خادم آسياسيل، حاول لاحقاً.'];
+        }
+        $pid = $data['PID'] ?? $data['pid'] ?? null;
+        if (!$pid && !empty($data['nextUrl']) && preg_match('/PID=([a-f0-9\-]+)/', $data['nextUrl'], $m)) {
+            $pid = $m[1];
+        }
+        if (!$pid) {
+            return [false, $data['message'] ?? 'تعذر بدء عملية التحويل.'];
+        }
+        $this->transferPid = $pid;
+        return [true, $pid];
+    }
+
+    // الخطوة 4: تأكيد التحويل برمز SMS الثاني
+    public function confirmTransfer($passcode) {
+        $data = $this->postJson('https://odpapp.asiacell.com/api/v1/credit-transfer/do-transfer?lang=ar', [
+            'PID' => $this->transferPid,
+            'passcode' => $passcode,
+        ]);
+        if (!$data) {
+            return [false, 'لا يوجد رد من خادم آسياسيل، حاول لاحقاً.'];
+        }
+        if (!empty($data['success'])) {
+            return [true, $data];
+        }
+        return [false, $data['message'] ?? 'فشل تأكيد التحويل.'];
+    }
+}
+
 function money($amount) {
     return number_format((float)$amount, 2);
 }
@@ -652,6 +828,13 @@ function currencyJsSnippet(PDO $pdo) {
 
 function e($str) {
     return htmlspecialchars((string)$str, ENT_QUOTES, 'UTF-8');
+}
+
+function planIconHtml($icon, $iconImage, $size = 28) {
+    if (!empty($iconImage)) {
+        return '<img src="' . e($iconImage) . '" alt="" style="width:' . (int)$size . 'px;height:' . (int)$size . 'px;object-fit:cover;border-radius:8px;vertical-align:middle">';
+    }
+    return e((string)$icon);
 }
 
 // ============================================================

@@ -1,5 +1,13 @@
             let detailReturnSection = 'home';
-            
+
+            function planIconHtml(icon, iconImage, size) {
+                size = size || 28;
+                if (iconImage) {
+                    return `<img src="${iconImage}" alt="" style="width:${size}px;height:${size}px;object-fit:cover;border-radius:8px;vertical-align:middle">`;
+                }
+                return icon || '';
+            }
+
             // ============================================================
             // تبديل المظهر
             // ============================================================
@@ -541,7 +549,7 @@
                         <div class="radio-circle ${wizardState.planId === Number(plan.id) ? 'checked' : ''}"><i class="fas fa-check"></i></div>
                         <div class="info">
                             <div class="top-row">
-                                <span class="plan-title">${plan.icon} ${plan.name}</span>
+                                <span class="plan-title">${planIconHtml(plan.icon, plan.icon_image)} ${plan.name}</span>
                                 <span class="plan-price">${p.discountPct ? `<s style="font-size:11px;font-weight:600;color:var(--text-muted)" data-usd="${p.original}">${p.original}$</s> ` : ''}<span data-usd="${p.price}">${p.price}$</span><small style="font-size:10px;font-weight:600;color:var(--text-muted)">${p.suffix}</small></span>
                             </div>
                             <div class="plan-meta">${plan.cpu} · ${plan.ram} RAM · ${plan.storage}</div>
@@ -573,7 +581,7 @@
             function renderPlanDetails() {
                 const plan = currentPlan();
                 if (!plan) return;
-                document.getElementById('planDetailsIcon').textContent = plan.icon;
+                document.getElementById('planDetailsIcon').innerHTML = planIconHtml(plan.icon, plan.icon_image, 42);
                 document.getElementById('planDetailsName').textContent = plan.name;
                 const p = planPriceForCycle(plan);
                 document.getElementById('planDetailsPrice').innerHTML = `${p.discountPct ? `<s style="font-size:16px;color:var(--text-muted);margin-left:6px" data-usd="${p.original}">${p.original}$</s>` : ''}<span data-usd="${p.price}">${p.price}$</span> <small style="font-size:13px;color:var(--text-muted)">${p.suffix}</small>${p.referralApplied ? `<div style="font-size:11px;font-weight:700;color:#059669;margin-top:4px"><i class="fas fa-gift"></i> يشمل خصم دعوة ${REFERRAL_DISCOUNT_PCT}%</div>` : ''}`;
@@ -594,7 +602,7 @@
                 const p = planPriceForCycle(plan);
                 const cycleLabel = wizardState.billingCycle === 'yearly' ? t('yearly') : t('monthly');
                 document.getElementById('orderSummaryContent').innerHTML = `
-                    <div class="detail-row"><span class="label">${t('plan_label')}</span><span class="value">${plan.icon} ${plan.name}</span></div>
+                    <div class="detail-row"><span class="label">${t('plan_label')}</span><span class="value">${planIconHtml(plan.icon, plan.icon_image)} ${plan.name}</span></div>
                     <div class="detail-row"><span class="label">${t('server_location')}</span><span class="value">Frankfurt, Germany</span></div>
                     <div class="detail-row"><span class="label">${t('os')}</span><span class="value">Ubuntu 22.04</span></div>
                     <div class="detail-row"><span class="label">${t('subscription_duration')}</span><span class="value">${cycleLabel}</span></div>
@@ -608,17 +616,23 @@
             }
 
             function renderPayOptions() {
-                const options = PAYMENT_METHODS.map(pm => ({
+                // طرق الدفع اليدوي تظهر فقط لشحن الرصيد من قسم الفواتير، وليست لدفع طلب مباشرة
+                const options = PAYMENT_METHODS.filter(pm => pm.method_type !== 'manual').map(pm => ({
                     id: String(pm.id),
                     icon: pm.icon,
                     color: pm.color,
                     logo: pm.logo_path,
                     title: pm.name,
-                    sub: pm.method_type === 'binance' ? 'تحقق تلقائي فوري' : 'تحويل يدوي',
-                    manual: pm.method_type !== 'binance',
+                    sub: 'تحقق تلقائي فوري',
+                    type: pm.method_type,
+                    manual: false,
                     binance: pm.method_type === 'binance',
+                    asiacell: pm.method_type === 'asiacell',
                     account_number: pm.account_number,
                     instructions: pm.instructions,
+                    binanceId: pm.binance_id,
+                    qrCode: pm.qr_code,
+                    exchangeRate: pm.exchange_rate,
                 }));
                 options.push({
                     id: 'balance', icon: 'fa-wallet', color: 'green', logo: null, title: 'رصيد الحساب',
@@ -646,11 +660,15 @@
                 const uploadWrap = document.getElementById('proofUploadWrap');
                 const proofInput = document.getElementById('proofImageInput');
                 const binanceWrap = document.getElementById('binanceOrderIdWrap');
+                const asiacellWrap = document.getElementById('asiacellWrap');
+                const submitBtn = document.getElementById('orderSubmitBtn');
                 const submitBtnLabel = document.querySelector('#orderSubmitBtn span');
 
                 uploadWrap.classList.add('hidden');
                 proofInput.required = false;
                 binanceWrap.classList.add('hidden');
+                asiacellWrap.classList.add('hidden');
+                submitBtn.classList.remove('hidden');
 
                 if (selected && selected.manual) {
                     uploadWrap.classList.remove('hidden');
@@ -663,7 +681,28 @@
                 } else if (selected && selected.binance) {
                     binanceWrap.classList.remove('hidden');
                     document.getElementById('binanceOrderError').classList.add('hidden');
+                    document.getElementById('binancePayInfo').innerHTML = `
+                        <div class="hosting-detail">
+                            <div class="detail-row"><span class="label">الدفع عبر</span><span class="value">Binance Pay</span></div>
+                            ${selected.binanceId ? `<div class="detail-row"><span class="label">Binance Pay ID</span><span class="value" style="direction:ltr">${selected.binanceId}</span></div>` : ''}
+                        </div>
+                        ${selected.qrCode ? `<div style="text-align:center;margin-top:10px"><img src="${selected.qrCode}" alt="QR" style="width:150px;height:150px;object-fit:contain;border-radius:var(--radius-sm);border:1px solid var(--border-color)"></div>` : ''}
+                    `;
                     if (submitBtnLabel) submitBtnLabel.textContent = 'تحقق وإرسال الطلب';
+                } else if (selected && selected.asiacell) {
+                    const wasHidden = asiacellWrap.classList.contains('hidden');
+                    asiacellWrap.classList.remove('hidden');
+                    submitBtn.classList.add('hidden');
+                    if (wasHidden) asiacellShowStep('order', 'phone');
+                    const plan = currentPlan();
+                    const amountUsd = plan ? planPriceForCycle(plan).price : 0;
+                    const rate = parseFloat(selected.exchangeRate) || 0;
+                    document.getElementById('asiacellPayInfo').innerHTML = `
+                        <div class="hosting-detail">
+                            <div class="detail-row"><span class="label">الدفع عبر</span><span class="value">آسياسيل</span></div>
+                            ${rate ? `<div class="detail-row"><span class="label">المبلغ بالدينار العراقي</span><span class="value" style="direction:ltr">${Math.round(amountUsd * rate).toLocaleString()} د.ع</span></div>` : ''}
+                        </div>
+                    `;
                 } else if (submitBtnLabel) {
                     submitBtnLabel.textContent = t('pay_now');
                 }
@@ -680,7 +719,16 @@
                 return !!(pm && pm.method_type === 'binance');
             }
 
+            function isAsiacellMethodSelected() {
+                const pm = PAYMENT_METHODS.find(p => String(p.id) === wizardState.paymentMethod);
+                return !!(pm && pm.method_type === 'asiacell');
+            }
+
             function handleOrderFormSubmit(event) {
+                if (isAsiacellMethodSelected()) {
+                    event.preventDefault();
+                    return false;
+                }
                 if (!isBinanceMethodSelected()) return true;
                 event.preventDefault();
                 submitBinanceOrder();
@@ -785,7 +833,7 @@
                 document.getElementById('invoicesList').classList.remove('hidden');
             }
             
-            function showPaymentPage(methodId, methodName, accountNumber, instructions, methodType) {
+            function showPaymentPage(methodId, methodName, accountNumber, instructions, methodType, binanceId, qrCode, exchangeRate) {
                 document.getElementById('paymentMethodName').textContent = 'شحن عبر ' + methodName;
                 document.getElementById('topUpPaymentMethodId').value = methodId;
                 document.getElementById('topUpInstructions').innerHTML = `
@@ -802,17 +850,34 @@
                 document.getElementById('topUpUsdHint').textContent = '';
 
                 const isBinance = methodType === 'binance';
+                const isAsiacell = methodType === 'asiacell';
                 const proofWrap = document.getElementById('topUpProofWrap');
                 const proofInput = document.getElementById('topUpProofInput');
                 const binanceWrap = document.getElementById('topUpBinanceWrap');
-                proofWrap.classList.toggle('hidden', isBinance);
-                proofInput.required = !isBinance;
+                const asiacellWrap = document.getElementById('topUpAsiacellWrap');
+                const submitBtn = document.querySelector('#paymentPage button[type="submit"]');
+                proofWrap.classList.toggle('hidden', isBinance || isAsiacell);
+                proofInput.required = !isBinance && !isAsiacell;
                 binanceWrap.classList.toggle('hidden', !isBinance);
-                document.getElementById('topUpInstructions').classList.toggle('hidden', isBinance);
+                asiacellWrap.classList.toggle('hidden', !isAsiacell);
+                if (submitBtn) submitBtn.classList.toggle('hidden', isAsiacell);
+                document.getElementById('topUpInstructions').classList.toggle('hidden', isBinance || isAsiacell);
                 document.getElementById('topUpBinanceOrderIdInput').value = '';
                 document.getElementById('topUpBinanceError').classList.add('hidden');
-                document.getElementById('topUpFooterNote').textContent = isBinance
-                    ? 'سيُضاف الرصيد فوراً بعد التحقق التلقائي من عملية Binance.'
+                document.getElementById('topUpBinancePayInfo').innerHTML = isBinance ? `
+                    ${binanceId ? `<div class="hosting-detail"><div class="detail-row"><span class="label">Binance Pay ID</span><span class="value" style="direction:ltr">${binanceId}</span></div></div>` : ''}
+                    ${qrCode ? `<div style="text-align:center;margin-top:10px"><img src="${qrCode}" alt="QR" style="width:150px;height:150px;object-fit:contain;border-radius:var(--radius-sm);border:1px solid var(--border-color)"></div>` : ''}
+                ` : '';
+                if (isAsiacell) {
+                    asiacellShowStep('topup', 'phone');
+                    document.getElementById('topUpAsiacellPhoneInput').value = '';
+                    document.getElementById('topUpAsiacellSms1Input').value = '';
+                    document.getElementById('topUpAsiacellSms2Input').value = '';
+                    ['topUpAsiacellPhoneError', 'topUpAsiacellSms1Error', 'topUpAsiacellSms2Error'].forEach(id => document.getElementById(id).classList.add('hidden'));
+                    document.getElementById('topUpAsiacellPayInfo').innerHTML = `<div class="hosting-detail"><div class="detail-row"><span class="label">الدفع عبر</span><span class="value">آسياسيل</span></div></div>`;
+                }
+                document.getElementById('topUpFooterNote').textContent = (isBinance || isAsiacell)
+                    ? 'سيُضاف الرصيد فوراً بعد التحقق التلقائي من عملية الدفع.'
                     : 'سيتم إضافة الرصيد بعد مراجعة الإيصال من الإدارة.';
             }
 
@@ -824,6 +889,10 @@
             function handleTopUpFormSubmit(event) {
                 syncTopUpAmountUsd();
                 const pm = PAYMENT_METHODS.find(p => String(p.id) === document.getElementById('topUpPaymentMethodId').value);
+                if (pm && pm.method_type === 'asiacell') {
+                    event.preventDefault();
+                    return false;
+                }
                 if (!pm || pm.method_type !== 'binance') return true;
                 event.preventDefault();
                 submitBinanceTopup();
@@ -872,6 +941,157 @@
                     errEl.textContent = 'تعذر الاتصال بالسيرفر. حاول مرة أخرى.';
                     errEl.classList.remove('hidden');
                     if (submitBtn) submitBtn.disabled = false;
+                }
+            }
+
+            // ============================================================
+            // آسياسيل - تحويل رصيد تلقائي (تدفق ثلاث خطوات: هاتف -> رمز SMS -> رمز تأكيد التحويل)
+            // ============================================================
+            const ASIACELL_IDS = {
+                order: {
+                    wrap: 'asiacellWrap', payInfo: 'asiacellPayInfo',
+                    stepPhone: 'asiacellStepPhone', phoneInput: 'asiacellPhoneInput', phoneError: 'asiacellPhoneError', sendBtn: 'asiacellSendCodeBtn',
+                    stepSms1: 'asiacellStepSms1', sms1Input: 'asiacellSms1Input', sms1Error: 'asiacellSms1Error', verifyBtn: 'asiacellVerifySmsBtn',
+                    stepSms2: 'asiacellStepSms2', sms2Input: 'asiacellSms2Input', sms2Error: 'asiacellSms2Error', confirmBtn: 'asiacellConfirmBtn',
+                },
+                topup: {
+                    wrap: 'topUpAsiacellWrap', payInfo: 'topUpAsiacellPayInfo',
+                    stepPhone: 'topUpAsiacellStepPhone', phoneInput: 'topUpAsiacellPhoneInput', phoneError: 'topUpAsiacellPhoneError', sendBtn: 'topUpAsiacellSendCodeBtn',
+                    stepSms1: 'topUpAsiacellStepSms1', sms1Input: 'topUpAsiacellSms1Input', sms1Error: 'topUpAsiacellSms1Error', verifyBtn: 'topUpAsiacellVerifySmsBtn',
+                    stepSms2: 'topUpAsiacellStepSms2', sms2Input: 'topUpAsiacellSms2Input', sms2Error: 'topUpAsiacellSms2Error', confirmBtn: 'topUpAsiacellConfirmBtn',
+                },
+            };
+
+            function asiacellShowStep(ctx, step) {
+                const ids = ASIACELL_IDS[ctx];
+                document.getElementById(ids.stepPhone).classList.toggle('hidden', step !== 'phone');
+                document.getElementById(ids.stepSms1).classList.toggle('hidden', step !== 'sms1');
+                document.getElementById(ids.stepSms2).classList.toggle('hidden', step !== 'sms2');
+            }
+
+            function asiacellReset(ctx) {
+                fetch('index.php?ajax=asiacell_cancel', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ csrf_token: CSRF_TOKEN }),
+                }).catch(() => {});
+                const ids = ASIACELL_IDS[ctx];
+                document.getElementById(ids.phoneInput).value = '';
+                document.getElementById(ids.sms1Input).value = '';
+                document.getElementById(ids.sms2Input).value = '';
+                [ids.phoneError, ids.sms1Error, ids.sms2Error].forEach(id => document.getElementById(id).classList.add('hidden'));
+                asiacellShowStep(ctx, 'phone');
+            }
+
+            async function asiacellSendCode(ctx) {
+                const ids = ASIACELL_IDS[ctx];
+                const errEl = document.getElementById(ids.phoneError);
+                const phone = document.getElementById(ids.phoneInput).value.trim();
+                if (!/^(077|078|079)\d{8}$/.test(phone)) {
+                    errEl.textContent = 'رقم هاتف غير صحيح، يجب أن يكون بصيغة 07xxxxxxxxx.';
+                    errEl.classList.remove('hidden');
+                    return;
+                }
+                errEl.classList.add('hidden');
+                const btn = document.getElementById(ids.sendBtn);
+                btn.disabled = true;
+                try {
+                    const payload = { csrf_token: CSRF_TOKEN, phone: phone, context: ctx };
+                    if (ctx === 'order') {
+                        payload.payment_method_id = document.getElementById('orderPaymentMethodId').value;
+                        payload.plan_id = document.getElementById('orderPlanId').value;
+                    } else {
+                        syncTopUpAmountUsd();
+                        payload.payment_method_id = document.getElementById('topUpPaymentMethodId').value;
+                        payload.amount = document.getElementById('topUpAmountUsd').value;
+                    }
+                    const res = await fetch('index.php?ajax=asiacell_start', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(payload),
+                    });
+                    const data = await res.json();
+                    if (!res.ok || data.error) {
+                        errEl.textContent = data.error || 'تعذر إرسال رمز التحقق.';
+                        errEl.classList.remove('hidden');
+                        btn.disabled = false;
+                        return;
+                    }
+                    asiacellShowStep(ctx, 'sms1');
+                } catch (err) {
+                    errEl.textContent = 'تعذر الاتصال بالسيرفر. حاول مرة أخرى.';
+                    errEl.classList.remove('hidden');
+                }
+                btn.disabled = false;
+            }
+
+            async function asiacellVerifySms(ctx) {
+                const ids = ASIACELL_IDS[ctx];
+                const errEl = document.getElementById(ids.sms1Error);
+                const code = document.getElementById(ids.sms1Input).value.trim();
+                if (!/^\d{4,6}$/.test(code)) {
+                    errEl.textContent = 'رمز التحقق يجب أن يكون من 4 إلى 6 أرقام.';
+                    errEl.classList.remove('hidden');
+                    return;
+                }
+                errEl.classList.add('hidden');
+                const btn = document.getElementById(ids.verifyBtn);
+                btn.disabled = true;
+                try {
+                    const res = await fetch('index.php?ajax=asiacell_verify_sms', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ csrf_token: CSRF_TOKEN, code: code }),
+                    });
+                    const data = await res.json();
+                    if (!res.ok || data.error) {
+                        errEl.textContent = data.error || 'رمز التحقق غير صحيح.';
+                        errEl.classList.remove('hidden');
+                        btn.disabled = false;
+                        return;
+                    }
+                    asiacellShowStep(ctx, 'sms2');
+                } catch (err) {
+                    errEl.textContent = 'تعذر الاتصال بالسيرفر. حاول مرة أخرى.';
+                    errEl.classList.remove('hidden');
+                }
+                btn.disabled = false;
+            }
+
+            async function asiacellConfirmTransfer(ctx) {
+                const ids = ASIACELL_IDS[ctx];
+                const errEl = document.getElementById(ids.sms2Error);
+                const code = document.getElementById(ids.sms2Input).value.trim();
+                if (!/^\d{4,6}$/.test(code)) {
+                    errEl.textContent = 'رمز التأكيد يجب أن يكون من 4 إلى 6 أرقام.';
+                    errEl.classList.remove('hidden');
+                    return;
+                }
+                errEl.classList.add('hidden');
+                const btn = document.getElementById(ids.confirmBtn);
+                btn.disabled = true;
+                try {
+                    const res = await fetch('index.php?ajax=asiacell_confirm_transfer', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ csrf_token: CSRF_TOKEN, code: code }),
+                    });
+                    const data = await res.json();
+                    if (!res.ok || data.error) {
+                        errEl.textContent = data.error || 'تعذر تأكيد التحويل.';
+                        errEl.classList.remove('hidden');
+                        btn.disabled = false;
+                        return;
+                    }
+                    if (ctx === 'order') {
+                        location.href = 'index.php?app=1&ordered=1&order_id=' + data.order_id;
+                    } else {
+                        location.href = 'index.php?app=1&topup=1';
+                    }
+                } catch (err) {
+                    errEl.textContent = 'تعذر الاتصال بالسيرفر. حاول مرة أخرى.';
+                    errEl.classList.remove('hidden');
+                    btn.disabled = false;
                 }
             }
 
@@ -942,7 +1162,7 @@
                 const cycleLabel = order.billing_cycle === 'yearly' ? t('yearly') : t('monthly');
 
                 document.getElementById('orderDetailContent').innerHTML = `
-                    <div class="detail-row"><span class="label">${t('plan_label')}</span><span class="value">${order.plan_icon || ''} ${order.plan_name}</span></div>
+                    <div class="detail-row"><span class="label">${t('plan_label')}</span><span class="value">${planIconHtml(order.plan_icon, order.plan_icon_image)} ${order.plan_name}</span></div>
                     <div class="detail-row"><span class="label">${t('price')}</span><span class="value" data-usd="${order.amount}">$${Number(order.amount).toFixed(2)}</span></div>
                     <div class="detail-row"><span class="label">${t('subscription_duration')}</span><span class="value">${cycleLabel}</span></div>
                     <div class="detail-row"><span class="label">${t('status')}</span><span class="value"><span class="pill ${statusClass}">${statusText}</span></span></div>
