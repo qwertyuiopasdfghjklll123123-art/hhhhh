@@ -5,6 +5,10 @@
 
 require_once __DIR__ . '/includes/bootstrap.php';
 
+if (isset($_GET['ajax'])) {
+    markAjaxRequest();
+}
+
 function safeNextUrl($raw) {
     $raw = (string)($raw ?? '');
     if ($raw === '') return null;
@@ -485,6 +489,19 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === 'verify_binance_order' && $_SERVER
         exit;
     }
 
+    if ($binanceOrderId === '') {
+        http_response_code(400);
+        echo json_encode(['error' => 'الرجاء إدخال رقم عملية Binance (Order ID).']);
+        exit;
+    }
+    $dupStmt = $pdo->prepare('SELECT COUNT(*) FROM invoices WHERE binance_order_id = ?');
+    $dupStmt->execute([$binanceOrderId]);
+    if ((int)$dupStmt->fetchColumn() > 0) {
+        http_response_code(400);
+        echo json_encode(['error' => 'رقم عملية Binance هذا مستخدم مسبقاً لطلب أو شحن رصيد آخر.']);
+        exit;
+    }
+
     $user = currentUser($pdo);
     $referralDiscountPct = 0.0;
     if (!empty($user['referred_by'])) {
@@ -513,8 +530,16 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === 'verify_binance_order' && $_SERVER
 
     $cycleLabel = $billingCycle === 'yearly' ? 'سنوي' : 'شهري';
     $invDescription = 'اشتراك باقة ' . $plan['name'] . ' (' . $cycleLabel . ') - Binance Pay';
-    $pdo->prepare('INSERT INTO invoices (user_id, order_id, invoice_number, amount, status, description) VALUES (?,?,?,?,?,?)')
-        ->execute([$userId, $orderId, nextInvoiceNumber($pdo), $amount, 'paid', $invDescription]);
+    try {
+        $pdo->prepare('INSERT INTO invoices (user_id, order_id, invoice_number, amount, status, description, binance_order_id) VALUES (?,?,?,?,?,?,?)')
+            ->execute([$userId, $orderId, nextInvoiceNumber($pdo), $amount, 'paid', $invDescription, $binanceOrderId]);
+    } catch (PDOException $e) {
+        // فهرس التفرّد منع إدخال رقم عملية مستخدم مسبقاً (حالة تسابق: طلبان متزامنان بنفس الرقم)
+        $pdo->prepare('DELETE FROM orders WHERE id = ?')->execute([$orderId]);
+        http_response_code(400);
+        echo json_encode(['error' => 'رقم عملية Binance هذا مستخدم مسبقاً لطلب أو شحن رصيد آخر.']);
+        exit;
+    }
 
     notifyAdmins($pdo, '🆕 طلب اشتراك جديد (Binance)', 'قدّم ' . $user['name'] . ' طلب اشتراك في باقة "' . $plan['name'] . '" بمبلغ $' . money($amount) . ' عبر Binance Pay (تم التحقق تلقائياً). راجع الطلب لتفعيل الاستضافة.', 'system');
 
@@ -558,6 +583,19 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === 'verify_binance_topup' && $_SERVER
         exit;
     }
 
+    if ($binanceOrderId === '') {
+        http_response_code(400);
+        echo json_encode(['error' => 'الرجاء إدخال رقم عملية Binance (Order ID).']);
+        exit;
+    }
+    $dupStmt = $pdo->prepare('SELECT COUNT(*) FROM invoices WHERE binance_order_id = ?');
+    $dupStmt->execute([$binanceOrderId]);
+    if ((int)$dupStmt->fetchColumn() > 0) {
+        http_response_code(400);
+        echo json_encode(['error' => 'رقم عملية Binance هذا مستخدم مسبقاً لطلب أو شحن رصيد آخر.']);
+        exit;
+    }
+
     [$verified, $result] = verifyBinanceOrder($pm, $binanceOrderId, $amount);
     if (!$verified) {
         http_response_code(400);
@@ -565,11 +603,19 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === 'verify_binance_topup' && $_SERVER
         exit;
     }
 
-    $pdo->beginTransaction();
-    $pdo->prepare('UPDATE users SET balance = balance + ? WHERE id = ?')->execute([$amount, $userId]);
-    $pdo->prepare('INSERT INTO invoices (user_id, invoice_number, amount, status, description) VALUES (?,?,?,?,?)')
-        ->execute([$userId, nextInvoiceNumber($pdo), $amount, 'paid', 'شحن رصيد عبر Binance Pay']);
-    $pdo->commit();
+    try {
+        $pdo->beginTransaction();
+        $pdo->prepare('UPDATE users SET balance = balance + ? WHERE id = ?')->execute([$amount, $userId]);
+        $pdo->prepare('INSERT INTO invoices (user_id, invoice_number, amount, status, description, binance_order_id) VALUES (?,?,?,?,?,?)')
+            ->execute([$userId, nextInvoiceNumber($pdo), $amount, 'paid', 'شحن رصيد عبر Binance Pay', $binanceOrderId]);
+        $pdo->commit();
+    } catch (PDOException $e) {
+        $pdo->rollBack();
+        // فهرس التفرّد منع إدخال رقم عملية مستخدم مسبقاً (حالة تسابق: طلبان متزامنان بنفس الرقم)
+        http_response_code(400);
+        echo json_encode(['error' => 'رقم عملية Binance هذا مستخدم مسبقاً لطلب أو شحن رصيد آخر.']);
+        exit;
+    }
 
     $user = currentUser($pdo);
     notifyUser($pdo, $userId, '💰 تم شحن رصيدك', 'تم إضافة $' . money($amount) . ' إلى رصيد حسابك تلقائياً عبر Binance Pay.', 'topup_approved');

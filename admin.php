@@ -8,7 +8,7 @@ requireAdmin($pdo);
 
 $admin = currentUser($pdo);
 $section = $_GET['section'] ?? 'orders';
-if (!in_array($section, ['orders', 'topups', 'plans', 'payments', 'settings'], true)) {
+if (!in_array($section, ['orders', 'topups', 'plans', 'payments', 'settings', 'backups'], true)) {
     $section = 'orders';
 }
 
@@ -402,6 +402,49 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         adminRedirect('settings', 'تم حفظ الإعدادات بنجاح.');
     }
 
+    if ($action === 'backup_settings_save') {
+        setSetting($pdo, 'telegram_chat_id', trim($_POST['telegram_chat_id'] ?? ''));
+        if (trim($_POST['telegram_bot_token'] ?? '') !== '') {
+            setSetting($pdo, 'telegram_bot_token', trim($_POST['telegram_bot_token']));
+        }
+        adminRedirect('backups', 'تم حفظ إعدادات تيليجرام.');
+    }
+
+    if ($action === 'backup_send_telegram') {
+        [$ok, $msg] = runSiteBackupAndSend($pdo);
+        adminRedirect('backups', $ok ? 'تم إرسال نسخة احتياطية عبر تيليجرام بنجاح.' : null, $ok ? null : $msg);
+    }
+
+    if ($action === 'backup_download') {
+        $data = buildSiteBackupData($pdo);
+        $json = json_encode($data, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+        header('Content-Type: application/json; charset=utf-8');
+        header('Content-Disposition: attachment; filename="istidafati-backup-' . date('Y-m-d-His') . '.json"');
+        header('Content-Length: ' . strlen($json));
+        echo $json;
+        exit;
+    }
+
+    if ($action === 'backup_restore') {
+        if (empty($_FILES['backup_file']) || $_FILES['backup_file']['error'] !== UPLOAD_ERR_OK) {
+            adminRedirect('backups', null, 'الرجاء اختيار ملف نسخة احتياطية صالح.');
+        }
+        $raw = file_get_contents($_FILES['backup_file']['tmp_name']);
+        $backup = json_decode($raw, true);
+        if (json_last_error() !== JSON_ERROR_NONE) {
+            adminRedirect('backups', null, 'الملف المرفوع ليس JSON صالحاً.');
+        }
+        [$ok, $msg, $counts] = restoreSiteBackup($pdo, $backup);
+        if (!$ok) {
+            adminRedirect('backups', null, $msg);
+        }
+        $summary = [];
+        foreach ($counts as $table => $n) {
+            $summary[] = $table . ': ' . $n;
+        }
+        adminRedirect('backups', 'تمت الاستعادة بنجاح (' . implode('، ', $summary) . '). إن لم يعد حسابك الحالي موجوداً ضمن البيانات المستعادة، سجّل الدخول من جديد بحساب موجود فيها.');
+    }
+
     adminRedirect($section);
 }
 
@@ -446,6 +489,7 @@ $activeHostingCount = (int)$pdo->query("SELECT COUNT(*) FROM hosting WHERE statu
         <a class="admin-tab <?php echo $section === 'plans' ? 'active' : ''; ?>" href="admin.php?section=plans"><i class="fas fa-server"></i> الباقات</a>
         <a class="admin-tab <?php echo $section === 'payments' ? 'active' : ''; ?>" href="admin.php?section=payments"><i class="fas fa-credit-card"></i> طرق الدفع</a>
         <a class="admin-tab <?php echo $section === 'settings' ? 'active' : ''; ?>" href="admin.php?section=settings"><i class="fas fa-gear"></i> الإعدادات</a>
+        <a class="admin-tab <?php echo $section === 'backups' ? 'active' : ''; ?>" href="admin.php?section=backups"><i class="fas fa-database"></i> نسخ احتياطي</a>
     </nav>
 
     <div class="admin-container">
@@ -483,6 +527,8 @@ $activeHostingCount = (int)$pdo->query("SELECT COUNT(*) FROM hosting WHERE statu
             renderAdminTopups($pdo);
         } elseif ($section === 'settings') {
             renderAdminSettings($pdo);
+        } elseif ($section === 'backups') {
+            renderAdminBackups($pdo);
         } else {
             renderAdminOrders($pdo);
         }
@@ -1140,6 +1186,101 @@ function renderAdminSettings(PDO $pdo) {
                 <button type="submit" class="btn btn-accent"><i class="fas fa-paper-plane"></i> إرسال للجميع</button>
             </form>
         </div>
+    </div>
+    <?php
+}
+
+// ============================================================
+// قسم: نسخ احتياطي
+// ============================================================
+function renderAdminBackups(PDO $pdo) {
+    $s = getAllSettings($pdo);
+    $scheme = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http';
+    $cronSecret = getOrCreateCronSecret($pdo);
+    $backupCronUrl = $scheme . '://' . $_SERVER['HTTP_HOST'] . '/backup_cron.php?key=' . $cronSecret;
+    $lastRun = $s['backup_last_run'] ?? '';
+    $lastStatus = $s['backup_last_status'] ?? '';
+    ?>
+    <div class="admin-card">
+        <div class="admin-card-header"><h2><i class="fab fa-telegram"></i> بوت تيليجرام للنسخ الاحتياطي</h2></div>
+        <p style="font-size:12px;color:var(--text-muted);margin-bottom:14px;line-height:1.8">
+            أنشئ بوتاً جديداً عبر <a href="https://t.me/BotFather" target="_blank" style="color:var(--accent);font-weight:700">BotFather@</a> واحصل على التوكن،
+            ثم ابدأ محادثة مع بوتك واحصل على معرف حسابك (Chat ID) عبر بوت مثل <a href="https://t.me/userinfobot" target="_blank" style="color:var(--accent);font-weight:700">userinfobot@</a>.
+            كل 6 ساعات سيتم إرسال نسخة كاملة من بيانات الموقع (المستخدمون، الطلبات، الاستضافات، الفواتير، الإعدادات...) كملف إلى محادثتك مع البوت.
+        </p>
+        <form method="POST" action="admin.php?section=backups">
+            <?php echo csrfField(); ?>
+            <input type="hidden" name="action" value="backup_settings_save">
+            <div class="field-grid-2">
+                <div class="field-row">
+                    <label class="field-label">توكن البوت (Bot Token)</label>
+                    <input type="text" name="telegram_bot_token" class="text-input" dir="ltr" placeholder="<?php echo !empty($s['telegram_bot_token']) ? '•••••••• (محفوظ - اتركه فارغاً للإبقاء عليه)' : '123456:ABC-...'; ?>">
+                </div>
+                <div class="field-row">
+                    <label class="field-label">معرف المحادثة (Chat ID)</label>
+                    <input type="text" name="telegram_chat_id" class="text-input" dir="ltr" value="<?php echo e($s['telegram_chat_id'] ?? ''); ?>" placeholder="123456789">
+                </div>
+            </div>
+            <button type="submit" class="btn btn-accent btn-sm"><i class="fas fa-floppy-disk"></i> حفظ إعدادات تيليجرام</button>
+        </form>
+    </div>
+
+    <div class="admin-card">
+        <div class="admin-card-header">
+            <h2><i class="fas fa-clock-rotate-left"></i> جدولة النسخ التلقائي</h2>
+            <span class="pill <?php echo (!empty($s['telegram_bot_token']) && !empty($s['telegram_chat_id'])) ? 'pill-green' : 'pill-gray'; ?>">
+                <?php echo (!empty($s['telegram_bot_token']) && !empty($s['telegram_chat_id'])) ? 'مُعدّ' : 'غير مُعدّ بعد'; ?>
+            </span>
+        </div>
+        <p style="font-size:12px;color:var(--text-muted);margin-bottom:10px;line-height:1.8">
+            أضف الرابط التالي كمهمة Cron Job جديدة (منفصلة عن مهمة التجديد التلقائي الحالية إن وُجدت) من لوحة استضافتك، بحيث يعمل كل 6 ساعات:
+        </p>
+        <div class="text-input" style="direction:ltr;text-align:left;font-family:monospace;font-size:12px;margin-bottom:6px;user-select:all;word-break:break-all"><?php echo e($backupCronUrl); ?></div>
+        <p style="font-size:11px;color:var(--text-muted)">مثال جدولة شائع في لوحات الاستضافة: كل 6 ساعات (0 */6 * * *).</p>
+        <?php if ($lastRun): ?>
+        <p style="font-size:12px;margin-top:10px">
+            آخر محاولة نسخ: <strong><?php echo e($lastRun); ?></strong> -
+            <?php if ($lastStatus === 'ok'): ?>
+                <span style="color:#2e9e5b;font-weight:700">نجحت ✓</span>
+            <?php else: ?>
+                <span style="color:#d9534f;font-weight:700">فشلت: <?php echo e($lastStatus); ?></span>
+            <?php endif; ?>
+        </p>
+        <?php endif; ?>
+    </div>
+
+    <div class="admin-card">
+        <div class="admin-card-header"><h2><i class="fas fa-hand-pointer"></i> نسخة احتياطية يدوية الآن</h2></div>
+        <div class="order-actions">
+            <form method="POST" action="admin.php?section=backups" style="display:inline">
+                <?php echo csrfField(); ?>
+                <input type="hidden" name="action" value="backup_send_telegram">
+                <button type="submit" class="btn btn-accent btn-sm"><i class="fab fa-telegram"></i> إرسال نسخة عبر تيليجرام الآن</button>
+            </form>
+            <form method="POST" action="admin.php?section=backups" style="display:inline">
+                <?php echo csrfField(); ?>
+                <input type="hidden" name="action" value="backup_download">
+                <button type="submit" class="btn btn-outline btn-sm"><i class="fas fa-download"></i> تنزيل نسخة على جهازي</button>
+            </form>
+        </div>
+    </div>
+
+    <div class="admin-card">
+        <div class="admin-card-header"><h2><i class="fas fa-triangle-exclamation"></i> استعادة نسخة احتياطية</h2></div>
+        <p style="font-size:12px;color:#d9534f;margin-bottom:14px;line-height:1.8">
+            تحذير: هذا الإجراء يستبدل <strong>كل</strong> بيانات الموقع الحالية (المستخدمون، الأرصدة، الطلبات، الاستضافات، الفواتير، الإعدادات...)
+            بمحتوى الملف المرفوع، ولا يمكن التراجع عنه بعد التنفيذ. استخدمه فقط لاستعادة الموقع بعد فقدان بياناته.
+            ارفع ملف JSON الذي استلمته سابقاً عبر تيليجرام أو نزّلته يدوياً.
+        </p>
+        <form method="POST" action="admin.php?section=backups" enctype="multipart/form-data" onsubmit="return confirmAndSubmit(this, 'تحذير: سيتم استبدال جميع بيانات الموقع الحالية بالكامل بمحتوى هذا الملف نهائياً. هل أنت متأكد؟')">
+            <?php echo csrfField(); ?>
+            <input type="hidden" name="action" value="backup_restore">
+            <div class="field-row">
+                <label class="field-label">ملف النسخة الاحتياطية (JSON)</label>
+                <input type="file" name="backup_file" class="text-input" accept="application/json,.json" required>
+            </div>
+            <button type="submit" class="btn btn-danger btn-sm"><i class="fas fa-clock-rotate-left"></i> استعادة البيانات من هذا الملف</button>
+        </form>
     </div>
     <?php
 }

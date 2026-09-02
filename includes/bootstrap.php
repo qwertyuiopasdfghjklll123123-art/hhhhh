@@ -30,6 +30,33 @@ if (!file_exists($htaccess)) {
 }
 
 // ============================================================
+// شبكة أمان لطلبات ajax=...: بعض بيئات الاستضافة تفتقد إضافات PHP
+// (مثل cURL) أو قد يحدث خطأ فادح غير متوقع؛ بدل أن يصل للمتصفح صفحة
+// HTML/خطأ فارغة يكسر res.json() (وتظهر كرسالة "تعذر الاتصال" عامة)،
+// نلتقط أي خطأ فادح ونحوّله لرد JSON نظيف. شفافة تماماً عند عدم وجود خطأ.
+// ============================================================
+
+function markAjaxRequest() {
+    ob_start();
+    register_shutdown_function(function () {
+        $error = error_get_last();
+        $fatalTypes = [E_ERROR, E_PARSE, E_CORE_ERROR, E_COMPILE_ERROR, E_USER_ERROR, E_RECOVERABLE_ERROR];
+        if ($error && in_array($error['type'], $fatalTypes, true)) {
+            while (ob_get_level() > 0) {
+                ob_end_clean();
+            }
+            if (!headers_sent()) {
+                http_response_code(500);
+                header('Content-Type: application/json; charset=utf-8');
+            }
+            echo json_encode(['error' => 'حدث خطأ غير متوقع في الخادم، الرجاء المحاولة مرة أخرى.']);
+        } elseif (ob_get_level() > 0) {
+            ob_end_flush();
+        }
+    });
+}
+
+// ============================================================
 // إعدادات الاتصال بقاعدة بيانات MySQL / MariaDB
 // (يكتبها ملف install.php عند التنصيب لأول مرة)
 // ============================================================
@@ -58,7 +85,7 @@ function initSchema(PDO $pdo, $dbName) {
     // رقم إصدار المخطط: يُزاد فقط عند إضافة جدول/عمود/فهرس جديد أدناه.
     // بهذا يتم تخطي كل فحوصات information_schema (البطيئة) في كل طلب بعد أول مرة،
     // بدل تكرارها عشرات المرات على كل تحميل صفحة (وهذا كان السبب الرئيسي لبطء لوحة التحكم).
-    $schemaVersion = '3';
+    $schemaVersion = '4';
     try {
         $stmt = $pdo->query("SELECT value FROM settings WHERE `key` = 'schema_version' LIMIT 1");
         if ($stmt && $stmt->fetchColumn() === $schemaVersion) {
@@ -218,6 +245,7 @@ function initSchema(PDO $pdo, $dbName) {
     $ensureColumn('orders', 'renewal_hosting_id', 'INT NULL');
     $ensureColumn('payment_methods', 'method_extras', 'TEXT NULL');
     $ensureColumn('vps_plans', 'icon_image', 'VARCHAR(500) NULL');
+    $ensureColumn('invoices', 'binance_order_id', 'VARCHAR(100) NULL');
 
     // فهارس التفرّد (يتم إنشاؤها بعد التأكد من وجود الأعمدة أعلاه)
     // ملاحظة: عمود email/phone قابلان لأن يكونا NULL بتكرار (حساب دخول عبر Google
@@ -225,6 +253,9 @@ function initSchema(PDO $pdo, $dbName) {
     $ensureIndex('users', 'idx_users_email', 'email');
     $ensureIndex('users', 'idx_users_phone', 'phone');
     $ensureIndex('users', 'idx_users_referral_code', 'referral_code');
+    // يمنع استخدام رقم عملية Binance نفسه أكثر من مرة (حماية من إعادة إرسال نفس
+    // رقم العملية للحصول على طلب/شحن رصيد إضافي مجاني بدل دفع حقيقي جديد)
+    $ensureIndex('invoices', 'idx_invoices_binance_order_id', 'binance_order_id');
 
     // ------------------------------------------------------------
     // بيانات ابتدائية (تُدرج مرة واحدة فقط إذا كانت الجداول فارغة)
@@ -962,6 +993,10 @@ function notifyAdmins(PDO $pdo, $title, $body, $type = 'system') {
 // ============================================================
 
 function callAiApi(PDO $pdo, $messages) {
+    if (!function_exists('curl_init')) {
+        return [null, 'إضافة cURL غير مُفعّلة على السيرفر، الرجاء تفعيلها من إعدادات الاستضافة لتشغيل المساعد الذكي.'];
+    }
+
     $apiKey = getSetting($pdo, 'nvidia_api_key', '');
     $model = getSetting($pdo, 'nvidia_model', 'openai/gpt-oss-120b');
 
@@ -1034,5 +1069,151 @@ function aiAccountStatusContext(PDO $pdo, $userId) {
     return "\n\nمعلومات حقيقية عن حساب هذا المستخدم الآن (استخدمها فقط إذا سأل عن حالة طلب أو شحن رصيد أو تأخير في الموافقة):\n"
         . implode("\n", $lines)
         . "\nإذا سأل عن سبب التأخير أو متى ستتم الموافقة: اذكر له رقم الطلب/الشحن المعلق أعلاه، وطمئنه بأن طلبه مسجّل وأن الفريق يعمل على مراجعته حالياً، واطلب منه التحلي بالصبر قليلاً دون الوعد بوقت محدد.";
+}
+
+// ============================================================
+// نسخ احتياطي لبيانات الموقع عبر تيليجرام + استعادتها من ملف
+// ============================================================
+
+// كل الجداول التي تُنسخ احتياطياً وتُستعاد. القائمة نفسها تُستخدم كـ"قائمة بيضاء"
+// لأسماء الجداول عند الاستعادة، بحيث لا يمكن لملف نسخة احتياطية مزوّر التأثير
+// على أي جدول خارج هذه القائمة (لا يشمل ملفات الصور المرفوعة، فقط بيانات القاعدة)
+function getOrCreateCronSecret(PDO $pdo) {
+    $secret = getSetting($pdo, 'cron_secret', '');
+    if ($secret === '') {
+        $secret = bin2hex(random_bytes(16));
+        setSetting($pdo, 'cron_secret', $secret);
+    }
+    return $secret;
+}
+
+function backupTableList() {
+    return ['currencies', 'settings', 'users', 'vps_plans', 'payment_methods', 'orders', 'hosting', 'invoices', 'notifications'];
+}
+
+function buildSiteBackupData(PDO $pdo) {
+    $data = [
+        'app' => 'istidafati_backup',
+        'backup_version' => 1,
+        'generated_at' => date('c'),
+        'tables' => [],
+    ];
+    foreach (backupTableList() as $table) {
+        $data['tables'][$table] = $pdo->query('SELECT * FROM `' . $table . '`')->fetchAll(PDO::FETCH_ASSOC);
+    }
+    return $data;
+}
+
+// يرسل محتوى نصياً (بلا كتابة ملف دائم على القرص عادةً) كمستند عبر بوت تيليجرام
+function sendTelegramDocument($botToken, $chatId, $filename, $content, $caption = '') {
+    if (!function_exists('curl_init')) {
+        return [false, 'إضافة cURL غير مُفعّلة على السيرفر.'];
+    }
+
+    $tmpFile = null;
+    if (class_exists('CURLStringFile')) {
+        $documentField = new CURLStringFile($content, $filename, 'application/json');
+    } else {
+        $tmpFile = tempnam(sys_get_temp_dir(), 'bkp');
+        file_put_contents($tmpFile, $content);
+        $documentField = new CURLFile($tmpFile, 'application/json', $filename);
+    }
+
+    $ch = curl_init('https://api.telegram.org/bot' . $botToken . '/sendDocument');
+    $postFields = ['chat_id' => $chatId, 'document' => $documentField];
+    if ($caption !== '') $postFields['caption'] = $caption;
+    curl_setopt_array($ch, [
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_POST => true,
+        CURLOPT_POSTFIELDS => $postFields,
+        CURLOPT_TIMEOUT => 60,
+    ]);
+    $response = curl_exec($ch);
+    $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    $curlError = curl_error($ch);
+    curl_close($ch);
+    if ($tmpFile) @unlink($tmpFile);
+
+    if ($curlError) {
+        return [false, 'تعذر الاتصال بتيليجرام: ' . $curlError];
+    }
+    $data = json_decode($response, true);
+    if ($httpCode !== 200 || empty($data['ok'])) {
+        $desc = $data['description'] ?? ('HTTP ' . $httpCode);
+        return [false, 'رفض تيليجرام الطلب: ' . $desc . ' (تأكد من صحة التوكن ومعرف المحادثة، ومن أنك بدأت محادثة مع البوت بالضغط على Start)'];
+    }
+    return [true, 'تم الإرسال بنجاح.'];
+}
+
+// ينشئ نسخة احتياطية كاملة ويرسلها عبر تيليجرام، ويسجّل وقت/نتيجة آخر محاولة.
+// يُستخدم من كل من backup_cron.php (تلقائي كل 6 ساعات) وزر "إرسال الآن" بلوحة الأدمن
+function runSiteBackupAndSend(PDO $pdo) {
+    $botToken = getSetting($pdo, 'telegram_bot_token', '');
+    $chatId = getSetting($pdo, 'telegram_chat_id', '');
+    if ($botToken === '' || $chatId === '') {
+        return [false, 'لم يتم إعداد بوت تيليجرام بعد (التوكن أو معرف المحادثة فارغ).'];
+    }
+
+    $data = buildSiteBackupData($pdo);
+    $rowCount = 0;
+    foreach ($data['tables'] as $rows) {
+        $rowCount += count($rows);
+    }
+    $json = json_encode($data, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+    $filename = 'istidafati-backup-' . date('Y-m-d-His') . '.json';
+    $caption = '📦 نسخة احتياطية - ' . date('Y-m-d H:i') . ' (' . $rowCount . ' سجل)';
+
+    [$ok, $msg] = sendTelegramDocument($botToken, $chatId, $filename, $json, $caption);
+
+    setSetting($pdo, 'backup_last_run', date('c'));
+    setSetting($pdo, 'backup_last_status', $ok ? 'ok' : $msg);
+
+    return [$ok, $msg];
+}
+
+// يستعيد كل بيانات الموقع من مصفوفة نسخة احتياطية (نتيجة json_decode لملف تم إنشاؤه
+// بواسطة buildSiteBackupData). يستبدل محتوى كل جدول موجود في النسخة الاحتياطية بالكامل.
+// أسماء الجداول والأعمدة تُقارَن دوماً بقائمة بيضاء / بمخطط قاعدة البيانات الفعلي،
+// والقيم تُمرَّر دائماً عبر prepared statements - لا مجال لحقن SQL من ملف مرفوع.
+function restoreSiteBackup(PDO $pdo, $backup) {
+    if (!is_array($backup) || !isset($backup['tables']) || !is_array($backup['tables'])) {
+        return [false, 'ملف النسخة الاحتياطية غير صالح أو تالف.', []];
+    }
+
+    $counts = [];
+    $pdo->exec('SET FOREIGN_KEY_CHECKS=0');
+    try {
+        $pdo->beginTransaction();
+        foreach (backupTableList() as $table) {
+            if (!isset($backup['tables'][$table]) || !is_array($backup['tables'][$table])) {
+                continue;
+            }
+            $rows = array_values(array_filter($backup['tables'][$table], 'is_array'));
+            $liveColumns = array_column($pdo->query('SHOW COLUMNS FROM `' . $table . '`')->fetchAll(PDO::FETCH_ASSOC), 'Field');
+            $pdo->exec('DELETE FROM `' . $table . '`');
+
+            $inserted = 0;
+            if (!empty($rows)) {
+                $insertCols = array_values(array_intersect(array_keys($rows[0]), $liveColumns));
+                if (!empty($insertCols)) {
+                    $colList = implode(',', array_map(fn($c) => "`$c`", $insertCols));
+                    $placeholders = implode(',', array_fill(0, count($insertCols), '?'));
+                    $stmt = $pdo->prepare("INSERT INTO `$table` ($colList) VALUES ($placeholders)");
+                    foreach ($rows as $row) {
+                        $stmt->execute(array_map(fn($c) => $row[$c] ?? null, $insertCols));
+                        $inserted++;
+                    }
+                }
+            }
+            $counts[$table] = $inserted;
+        }
+        $pdo->commit();
+        $pdo->exec('SET FOREIGN_KEY_CHECKS=1');
+        return [true, 'تمت الاستعادة بنجاح.', $counts];
+    } catch (Throwable $e) {
+        $pdo->rollBack();
+        $pdo->exec('SET FOREIGN_KEY_CHECKS=1');
+        return [false, 'فشلت الاستعادة، لم يتم تغيير أي بيانات (تراجع كامل): ' . $e->getMessage(), []];
+    }
 }
 

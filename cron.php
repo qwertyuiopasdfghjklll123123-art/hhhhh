@@ -6,11 +6,7 @@ require_once __DIR__ . '/includes/bootstrap.php';
 
 $isCli = PHP_SAPI === 'cli';
 if (!$isCli) {
-    $cronSecret = getSetting($pdo, 'cron_secret', '');
-    if ($cronSecret === '') {
-        $cronSecret = bin2hex(random_bytes(16));
-        setSetting($pdo, 'cron_secret', $cronSecret);
-    }
+    $cronSecret = getOrCreateCronSecret($pdo);
     header('Content-Type: text/plain; charset=utf-8');
     if (!hash_equals($cronSecret, (string)($_GET['key'] ?? ''))) {
         http_response_code(403);
