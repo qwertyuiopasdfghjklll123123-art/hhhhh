@@ -272,13 +272,17 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === 'ai_chat' && $_SERVER['REQUEST_MET
     }
 
     $systemPrompts = [
-        'home' => 'أنت "المساعد الذكي" داخل تطبيق استضافة خوادم VPS. تساعد المستخدمين في كل ما يخص تنصيب وإدارة وحل مشاكل خوادم VPS وتثبيت البرمجيات والمكتبات اللازمة وتعليمهم خطوة بخطوة. أجب بالعربية بوضوح وإيجاز.',
-        'solve' => 'أنت خبير VPS ولينكس محترف. شخّص المشكلة التقنية التي يصفها المستخدم (اتصال، أداء، خدمات، شبكة) واقترح خطوات عملية مرقّمة للحل بالعربية.',
-        'explain' => 'أنت خبير أوامر لينكس وVPS. اشرح أي أمر يرسله المستخدم: ماذا يفعل، متى يُستخدم، ومثال عملي عليه. إن لم يرسل أمراً بل سؤالاً عاماً أجب عليه بنفس الروح. أجب بالعربية بإيجاز ووضوح، وضع الأوامر داخل أسطر كود.',
-        'tips' => 'أنت خبير في تحسين أداء وأمان سيرفرات VPS. قدّم نصائح عملية ومحددة قابلة للتطبيق فوراً بالعربية.',
-        'suggestions' => 'أنت مساعد ذكي متخصص باستضافة المواقع وخوادم VPS، تقدّم اقتراحات ذكية ومفيدة لإدارة السيرفر وتحسين تجربة المستخدم، بالعربية.',
+        'home' => 'أنت "المساعد الذكي" داخل تطبيق استضافة خوادم VPS. تساعد المستخدمين في كل ما يخص تنصيب وإدارة وحل مشاكل خوادم VPS وتثبيت البرمجيات والمكتبات اللازمة وتعليمهم خطوة بخطوة، وكل ما يخص استخدام منصتنا (الباقات، الطلبات، الفواتير، الدفع).',
+        'solve' => 'أنت خبير VPS ولينكس محترف. شخّص المشكلة التقنية التي يصفها المستخدم (اتصال، أداء، خدمات، شبكة) واقترح خطوات عملية مرقّمة للحل.',
+        'explain' => 'أنت خبير أوامر لينكس وVPS. اشرح أي أمر يرسله المستخدم: ماذا يفعل، متى يُستخدم، ومثال عملي عليه. إن لم يرسل أمراً بل سؤالاً عاماً عن VPS أو لينكس أجب عليه بنفس الروح، وضع الأوامر داخل أسطر كود.',
+        'tips' => 'أنت خبير في تحسين أداء وأمان سيرفرات VPS. قدّم نصائح عملية ومحددة قابلة للتطبيق فوراً.',
+        'suggestions' => 'أنت مساعد ذكي متخصص باستضافة المواقع وخوادم VPS، تقدّم اقتراحات ذكية ومفيدة لإدارة السيرفر وتحسين تجربة المستخدم على منصتنا.',
     ];
     $systemPrompt = $systemPrompts[$section] ?? $systemPrompts['home'];
+    // قيود ثابتة على كل الأقسام: الإيجاز (لسرعة الرد) والاقتصار على مواضيع VPS/لينكس/منصتنا فقط
+    $systemPrompt .= ' أجب بالعربية دائماً، بإيجاز شديد ووضوح (فقرة أو نقاط قصيرة، بدون حشو)، إلا إذا طلب المستخدم صراحة تفصيلاً أكبر.'
+        . ' اقتصر حصرياً على مواضيع استضافة السيرفرات (VPS)، إدارة لينكس والسيرفرات، واستخدام منصتنا (الباقات، الطلبات، الفواتير، الدفع، الحساب). '
+        . 'إن سألك المستخدم عن أي موضوع آخر لا علاقة له بذلك، اعتذر بلطف بجملة واحدة ووضّح أنك مخصص فقط لمواضيع الاستضافة والسيرفرات، ولا تجب عن السؤال خارج هذا النطاق مهما كان.';
     $systemPrompt .= aiAccountStatusContext($pdo, (int)$_SESSION['user_id']);
 
     $messages = [['role' => 'system', 'content' => $systemPrompt]];
@@ -1086,6 +1090,11 @@ function includeLandingPage(PDO $pdo) {
         </section>
 
         <footer class="site-footer">© <?php echo date('Y'); ?> <?php echo e($siteName); ?>. <span data-i18n="all_rights_reserved">جميع الحقوق محفوظة.</span></footer>
+        <script>
+            if (window.location.search || /index\.php$/.test(window.location.pathname)) {
+                history.replaceState(null, '', window.location.pathname.replace(/index\.php$/, ''));
+            }
+        </script>
     </body>
     </html>
     <?php
@@ -1281,6 +1290,11 @@ function includeLoginPage(PDO $pdo, $error) {
                 <p class="auth-switch"><a href="index.php" data-i18n="back_home">« العودة للرئيسية</a></p>
             </div>
         </div>
+        <script>
+            if (window.location.search || /index\.php$/.test(window.location.pathname)) {
+                history.replaceState(null, '', window.location.pathname.replace(/index\.php$/, ''));
+            }
+        </script>
     </body>
     </html>
     <?php
@@ -1367,6 +1381,11 @@ function includeRegisterPage(PDO $pdo, $error) {
                 <p class="auth-switch"><a href="index.php" data-i18n="back_home">« العودة للرئيسية</a></p>
             </div>
         </div>
+        <script>
+            if (window.location.search || /index\.php$/.test(window.location.pathname)) {
+                history.replaceState(null, '', window.location.pathname.replace(/index\.php$/, ''));
+            }
+        </script>
     </body>
     </html>
     <?php
@@ -2661,7 +2680,7 @@ function includeAppPage(PDO $pdo) {
 
             <div class="ai-input-bar" id="aiInputBar">
                 <input type="text" id="aiInputField" placeholder="اكتب سؤالك هنا..." onkeydown="if(event.key==='Enter') sendAiMessage()">
-                <button onclick="sendAiMessage()"><i class="fas fa-paper-plane"></i></button>
+                <button id="aiSendBtn" onclick="sendAiMessage()"><i class="fas fa-paper-plane"></i></button>
             </div>
 
             <nav class="bottom-nav hidden" id="aiBottomNav">

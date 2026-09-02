@@ -982,10 +982,10 @@ function callAiApi(PDO $pdo, $messages) {
             'messages' => $messages,
             'temperature' => 0.6,
             'top_p' => 0.9,
-            'max_tokens' => 1024,
+            'max_tokens' => 500,
             'stream' => false,
         ]),
-        CURLOPT_TIMEOUT => 45,
+        CURLOPT_TIMEOUT => 30,
     ]);
     $response = curl_exec($ch);
     $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);

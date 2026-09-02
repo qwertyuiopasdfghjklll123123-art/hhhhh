@@ -1425,7 +1425,15 @@
                 return bubble;
             }
 
+            let aiSending = false;
+
             async function sendToAi(section, logId, userText) {
+                aiSending = true;
+                const input = document.getElementById('aiInputField');
+                const btn = document.getElementById('aiSendBtn');
+                if (input) input.disabled = true;
+                if (btn) btn.disabled = true;
+
                 appendChatBubble(logId, 'user', escapeHtml(userText));
                 const history = (aiHistories[section] || []).slice();
                 aiHistories[section] = history.concat([{ role: 'user', content: userText }]);
@@ -1449,10 +1457,15 @@
                 } catch (err) {
                     typing.remove();
                     appendChatBubble(logId, 'bot', '⚠️ تعذر الاتصال بالخادم، حاول مجدداً.');
+                } finally {
+                    aiSending = false;
+                    if (input) { input.disabled = false; input.focus(); }
+                    if (btn) btn.disabled = false;
                 }
             }
 
             function sendAiMessage() {
+                if (aiSending) return;
                 const input = document.getElementById('aiInputField');
                 const text = input.value.trim();
                 if (!text) return;
