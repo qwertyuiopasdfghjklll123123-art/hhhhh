@@ -598,6 +598,21 @@ class AsiaCellAPI {
         return null;
     }
 
+    // يستخرج أوضح رسالة خطأ متاحة من رد آسياسيل. أحياناً حقل message فارغ والرسالة الفعلية
+    // مدفونة داخل معامل msg= ضمن رابط nextAction (مثال حقيقي: "ليس هناك رصيد كافٍ... رصيدك الحالي X IQD")
+    private static function extractMessage(array $data, $fallback) {
+        $msg = self::pick($data, ['message', 'error', 'errorMessage', 'desc']);
+        if ($msg) return $msg;
+        if (!empty($data['nextAction'])) {
+            $query = parse_url($data['nextAction'], PHP_URL_QUERY);
+            if ($query) {
+                parse_str($query, $params);
+                if (!empty($params['msg'])) return $params['msg'];
+            }
+        }
+        return $fallback;
+    }
+
     private function generateUuid() {
         return sprintf('%04x%04x-%04x-%04x-%04x-%04x%04x%04x',
             mt_rand(0, 0xffff), mt_rand(0, 0xffff),
@@ -656,14 +671,14 @@ class AsiaCellAPI {
             return [false, 'لا يوجد رد من خادم آسياسيل، حاول لاحقاً.'];
         }
         if (isset($data['success']) && !$data['success']) {
-            return [false, self::pick($data, ['message', 'error', 'errorMessage', 'desc']) ?? 'فشل إرسال رمز التحقق إلى هذا الرقم.'];
+            return [false, self::extractMessage($data, 'فشل إرسال رمز التحقق إلى هذا الرقم.')];
         }
         $pid = self::pick($data, ['PID', 'pid']);
         if (!$pid && !empty($data['nextUrl']) && preg_match('/PID=([a-zA-Z0-9\-]+)/', $data['nextUrl'], $m)) {
             $pid = $m[1];
         }
         if (!$pid) {
-            return [false, self::pick($data, ['message', 'error']) ?? 'تعذر بدء عملية تسجيل الدخول.'];
+            return [false, self::extractMessage($data, 'تعذر بدء عملية تسجيل الدخول.')];
         }
         $this->pid = $pid;
         return [true, $this->pid];
@@ -681,7 +696,7 @@ class AsiaCellAPI {
         }
         $token = self::pick($data, ['access_token', 'accessToken', 'token']);
         if ((isset($data['success']) && !$data['success']) || !$token) {
-            return [false, self::pick($data, ['message', 'error', 'errorMessage', 'desc']) ?? 'رمز التحقق غير صحيح.'];
+            return [false, self::extractMessage($data, 'رمز التحقق غير صحيح.')];
         }
         $this->accessToken = $token;
         $this->headers[] = 'Authorization: Bearer ' . $this->accessToken;
@@ -702,7 +717,7 @@ class AsiaCellAPI {
             $pid = $m[1];
         }
         if (!$pid) {
-            return [false, self::pick($data, ['message', 'error', 'errorMessage', 'desc']) ?? 'تعذر بدء عملية التحويل.'];
+            return [false, self::extractMessage($data, 'تعذر بدء عملية التحويل.')];
         }
         $this->transferPid = $pid;
         return [true, $pid];
@@ -720,7 +735,7 @@ class AsiaCellAPI {
         if (!empty($data['success'])) {
             return [true, $data];
         }
-        return [false, self::pick($data, ['message', 'error', 'errorMessage', 'desc']) ?? 'فشل تأكيد التحويل.'];
+        return [false, self::extractMessage($data, 'فشل تأكيد التحويل.')];
     }
 }
 
