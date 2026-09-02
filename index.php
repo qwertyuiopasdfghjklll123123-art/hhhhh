@@ -1063,9 +1063,9 @@ function includeLandingPage(PDO $pdo) {
         <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
         <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
         <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
-        <link rel="stylesheet" href="assets/css/theme.css">
-        <script src="assets/js/i18n.js"></script>
-        <link rel="stylesheet" href="assets/css/public.css">
+        <link rel="stylesheet" href="<?php echo e(assetUrl('assets/css/theme.css')); ?>">
+        <script src="<?php echo e(assetUrl('assets/js/i18n.js')); ?>"></script>
+        <link rel="stylesheet" href="<?php echo e(assetUrl('assets/css/public.css')); ?>">
         <style>
         /* تجعل الصفحة الترحيبية على الجوال تملأ الشاشة دون الحاجة للتمرير */
         @media (max-width: 600px) {
@@ -1166,9 +1166,9 @@ function includePlansPage(PDO $pdo) {
         <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
         <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
         <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
-        <link rel="stylesheet" href="assets/css/theme.css">
-        <script src="assets/js/i18n.js"></script>
-        <link rel="stylesheet" href="assets/css/public.css">
+        <link rel="stylesheet" href="<?php echo e(assetUrl('assets/css/theme.css')); ?>">
+        <script src="<?php echo e(assetUrl('assets/js/i18n.js')); ?>"></script>
+        <link rel="stylesheet" href="<?php echo e(assetUrl('assets/css/public.css')); ?>">
     </head>
     <body>
         <header class="site-header">
@@ -1180,7 +1180,7 @@ function includePlansPage(PDO $pdo) {
                 </div>
             </div>
             <nav class="site-nav">
-                <a href="index.php"><i class="fas fa-arrow-right"></i> <span data-i18n="back">رجوع</span></a>
+                <a href="."><i class="fas fa-arrow-right"></i> <span data-i18n="back">رجوع</span></a>
                 <button type="button" class="lang-toggle-btn" onclick="toggleLanguage()"><i class="fas fa-globe"></i> <span class="lang-toggle-label">EN</span></button>
             </nav>
         </header>
@@ -1217,6 +1217,11 @@ function includePlansPage(PDO $pdo) {
 
         <footer class="site-footer">© <?php echo date('Y'); ?> <?php echo e($siteName); ?>. <span data-i18n="all_rights_reserved">جميع الحقوق محفوظة.</span></footer>
         <?php echo currencyJsSnippet($pdo); ?>
+        <script>
+            if (window.location.search || /index\.php$/.test(window.location.pathname)) {
+                history.replaceState(null, '', window.location.pathname.replace(/index\.php$/, ''));
+            }
+        </script>
     </body>
     </html>
     <?php
@@ -1242,9 +1247,9 @@ function includePoliciesPage(PDO $pdo, $type) {
         <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
         <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
         <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
-        <link rel="stylesheet" href="assets/css/theme.css">
-        <script src="assets/js/i18n.js"></script>
-        <link rel="stylesheet" href="assets/css/public.css">
+        <link rel="stylesheet" href="<?php echo e(assetUrl('assets/css/theme.css')); ?>">
+        <script src="<?php echo e(assetUrl('assets/js/i18n.js')); ?>"></script>
+        <link rel="stylesheet" href="<?php echo e(assetUrl('assets/css/public.css')); ?>">
         <style>
         .policy-content { max-width: 720px; margin: 0 auto; padding: 8px 20px 60px; font-size: 14px; line-height: 2.1; color: var(--text-secondary); white-space: pre-line; }
         </style>
@@ -1270,6 +1275,11 @@ function includePoliciesPage(PDO $pdo, $type) {
         <div class="policy-content"><?php echo e($content ?: 'لا يوجد محتوى بعد.'); ?></div>
 
         <footer class="site-footer">© <?php echo date('Y'); ?> <?php echo e($siteName); ?>. <span data-i18n="all_rights_reserved">جميع الحقوق محفوظة.</span></footer>
+        <script>
+            if (window.location.search || /index\.php$/.test(window.location.pathname)) {
+                history.replaceState(null, '', window.location.pathname.replace(/index\.php$/, ''));
+            }
+        </script>
     </body>
     </html>
     <?php
@@ -1295,9 +1305,9 @@ function includeLoginPage(PDO $pdo, $error) {
         <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
         <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
         <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
-        <link rel="stylesheet" href="assets/css/theme.css">
-        <script src="assets/js/i18n.js"></script>
-        <link rel="stylesheet" href="assets/css/public.css">
+        <link rel="stylesheet" href="<?php echo e(assetUrl('assets/css/theme.css')); ?>">
+        <script src="<?php echo e(assetUrl('assets/js/i18n.js')); ?>"></script>
+        <link rel="stylesheet" href="<?php echo e(assetUrl('assets/css/public.css')); ?>">
     </head>
     <body>
         <div class="auth-lang-toggle-wrap">
@@ -1333,7 +1343,7 @@ function includeLoginPage(PDO $pdo, $error) {
                 </form>
 
                 <p class="auth-switch"><span data-i18n="no_account">ليس لديك حساب؟</span> <a href="index.php?page=register<?php echo $next ? '&next=' . urlencode($next) : ''; ?>" data-i18n="create_new_account">إنشاء حساب جديد</a></p>
-                <p class="auth-switch"><a href="index.php" data-i18n="back_home">« العودة للرئيسية</a></p>
+                <p class="auth-switch"><a href="." data-i18n="back_home">« العودة للرئيسية</a></p>
             </div>
         </div>
         <script>
@@ -1368,9 +1378,9 @@ function includeRegisterPage(PDO $pdo, $error) {
         <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
         <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
         <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
-        <link rel="stylesheet" href="assets/css/theme.css">
-        <script src="assets/js/i18n.js"></script>
-        <link rel="stylesheet" href="assets/css/public.css">
+        <link rel="stylesheet" href="<?php echo e(assetUrl('assets/css/theme.css')); ?>">
+        <script src="<?php echo e(assetUrl('assets/js/i18n.js')); ?>"></script>
+        <link rel="stylesheet" href="<?php echo e(assetUrl('assets/css/public.css')); ?>">
     </head>
     <body>
         <div class="auth-lang-toggle-wrap">
@@ -1424,7 +1434,7 @@ function includeRegisterPage(PDO $pdo, $error) {
                 </form>
 
                 <p class="auth-switch"><span data-i18n="have_account">لديك حساب مسبقاً؟</span> <a href="index.php?page=login<?php echo $next ? '&next=' . urlencode($next) : ''; ?>" data-i18n="login">تسجيل الدخول</a></p>
-                <p class="auth-switch"><a href="index.php" data-i18n="back_home">« العودة للرئيسية</a></p>
+                <p class="auth-switch"><a href="." data-i18n="back_home">« العودة للرئيسية</a></p>
             </div>
         </div>
         <script>
@@ -1651,8 +1661,8 @@ function includeAppPage(PDO $pdo) {
         <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
         <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
         <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
-        <link rel="stylesheet" href="assets/css/app.css">
-        <script src="assets/js/i18n.js"></script>
+        <link rel="stylesheet" href="<?php echo e(assetUrl('assets/css/app.css')); ?>">
+        <script src="<?php echo e(assetUrl('assets/js/i18n.js')); ?>"></script>
     </head>
     <body>
         <!-- ============================================================
@@ -2811,7 +2821,7 @@ function includeAppPage(PDO $pdo) {
                 history.replaceState(null, '', cleanPath);
             }
         </script>
-        <script src="assets/js/app.js"></script>
+        <script src="<?php echo e(assetUrl('assets/js/app.js')); ?>"></script>
     </body>
     </html>
     <?php

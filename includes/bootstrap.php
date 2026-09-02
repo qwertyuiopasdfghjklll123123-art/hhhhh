@@ -924,6 +924,15 @@ function currencyJsSnippet(PDO $pdo) {
     JS;
 }
 
+// رابط ملف CSS/JS مع رقم إصدار (وقت آخر تعديل فعلي للملف)، حتى يجبر المتصفح
+// على تحميل النسخة الجديدة فوراً بعد أي تحديث للموقع، بدل تخزينها مؤقتاً
+// وإظهار HTML جديد مع CSS/JS قديم (وهو ما يكسر الشكل دون أي خطأ ظاهر)
+function assetUrl($relativePath) {
+    $full = BASE_DIR . '/' . $relativePath;
+    $v = file_exists($full) ? filemtime($full) : time();
+    return $relativePath . '?v=' . $v;
+}
+
 function e($str) {
     return htmlspecialchars((string)$str, ENT_QUOTES, 'UTF-8');
 }
