@@ -544,7 +544,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
             ->execute([$order['user_id'], $orderId, $vpsId, $hostName, $plan['name'] ?? '-', $ip, $username, $password, 'active', $expiry]);
         $pdo->prepare("UPDATE orders SET status = 'approved', decided_at = CURRENT_TIMESTAMP WHERE id = ?")->execute([$orderId]);
         $pdo->prepare("UPDATE invoices SET status = 'paid' WHERE order_id = ?")->execute([$orderId]);
-        notifyUser($pdo, $order['user_id'], '✅ تم قبول طلبك', 'تم تفعيل استضافتك (' . $hostName . ') وهي جاهزة الآن ضمن "سيرفراتي".', 'order_approved');
+        notifyUser($pdo, $order['user_id'], ' تم قبول طلبك', 'تم تفعيل استضافتك (' . $hostName . ') وهي جاهزة الآن ضمن "سيرفراتي".', 'order_approved');
         $pdo->commit();
 
         adminRedirect('orders', 'تم قبول الطلب وتفعيل الاستضافة للمستخدم.');
@@ -573,7 +573,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         $pdo->prepare("UPDATE hosting SET status = 'active', expiry_date = ? WHERE id = ?")->execute([$newExpiry, $hosting['id']]);
         $pdo->prepare("UPDATE orders SET status = 'approved', decided_at = CURRENT_TIMESTAMP WHERE id = ?")->execute([$orderId]);
         $pdo->prepare("UPDATE invoices SET status = 'paid' WHERE order_id = ?")->execute([$orderId]);
-        notifyUser($pdo, $order['user_id'], '✅ تم تجديد الاستضافة', 'تم تجديد استضافتك (' . $hosting['name'] . ') بنجاح حتى ' . $newExpiry . '.', 'order_approved');
+        notifyUser($pdo, $order['user_id'], ' تم تجديد الاستضافة', 'تم تجديد استضافتك (' . $hosting['name'] . ') بنجاح حتى ' . $newExpiry . '.', 'order_approved');
         $pdo->commit();
 
         adminRedirect('orders', 'تم تجديد الاستضافة بنجاح.');
@@ -600,7 +600,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
             $rejectMsg = $refunded
                 ? 'تم رفض طلب الاشتراك وإعادة المبلغ إلى رصيد حسابك. تواصل مع الدعم الفني لمعرفة السبب.'
                 : 'تم رفض طلب الاشتراك. تواصل مع الدعم الفني لمعرفة السبب.';
-            notifyUser($pdo, $order['user_id'], '❌ تم رفض طلبك', $rejectMsg, 'order_rejected');
+            notifyUser($pdo, $order['user_id'], ' تم رفض طلبك', $rejectMsg, 'order_rejected');
         }
         adminRedirect('orders', 'تم رفض الطلب.');
     }
@@ -614,7 +614,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
             $pdo->beginTransaction();
             $pdo->prepare('UPDATE users SET balance = balance + ? WHERE id = ?')->execute([$inv['amount'], $inv['user_id']]);
             $pdo->prepare("UPDATE invoices SET status = 'paid' WHERE id = ?")->execute([$invId]);
-            notifyUser($pdo, $inv['user_id'], '💰 تم شحن رصيدك', 'تم إضافة $' . money($inv['amount']) . ' إلى رصيد حسابك.', 'topup_approved');
+            notifyUser($pdo, $inv['user_id'], ' تم شحن رصيدك', 'تم إضافة $' . money($inv['amount']) . ' إلى رصيد حسابك.', 'topup_approved');
             $pdo->commit();
         }
         adminRedirect('topups', 'تم تأكيد الشحن وإضافة الرصيد للمستخدم.');
@@ -627,7 +627,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         $inv = $stmt->fetch(PDO::FETCH_ASSOC);
         if ($inv) {
             $pdo->prepare("UPDATE invoices SET status = 'rejected' WHERE id = ?")->execute([$invId]);
-            notifyUser($pdo, $inv['user_id'], '❌ تم رفض طلب الشحن', 'لم نتمكن من تأكيد إيصال التحويل الخاص بك. تواصل مع الدعم الفني.', 'topup_rejected');
+            notifyUser($pdo, $inv['user_id'], ' تم رفض طلب الشحن', 'لم نتمكن من تأكيد إيصال التحويل الخاص بك. تواصل مع الدعم الفني.', 'topup_rejected');
         }
         adminRedirect('topups', 'تم رفض طلب الشحن.');
     }
@@ -1030,7 +1030,7 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === 'verify_binance_order' && $_SERVER
         exit;
     }
 
-    notifyAdmins($pdo, '🆕 طلب اشتراك جديد (Binance)', 'قدّم ' . $user['name'] . ' طلب اشتراك في باقة "' . $plan['name'] . '" بمبلغ $' . money($amount) . ' عبر Binance Pay (تم التحقق تلقائياً). راجع الطلب لتفعيل الاستضافة.', 'system');
+    notifyAdmins($pdo, ' طلب اشتراك جديد (Binance)', 'قدّم ' . $user['name'] . ' طلب اشتراك في باقة "' . $plan['name'] . '" بمبلغ $' . money($amount) . ' عبر Binance Pay (تم التحقق تلقائياً). راجع الطلب لتفعيل الاستضافة.', 'system');
 
     echo json_encode(['ok' => true, 'order_id' => $orderId]);
     exit;
@@ -1107,7 +1107,7 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === 'verify_binance_topup' && $_SERVER
     }
 
     $user = currentUser($pdo);
-    notifyUser($pdo, $userId, '💰 تم شحن رصيدك', 'تم إضافة $' . money($amount) . ' إلى رصيد حسابك تلقائياً عبر Binance Pay.', 'topup_approved');
+    notifyUser($pdo, $userId, ' تم شحن رصيدك', 'تم إضافة $' . money($amount) . ' إلى رصيد حسابك تلقائياً عبر Binance Pay.', 'topup_approved');
 
     echo json_encode(['ok' => true, 'balance' => (float)$user['balance']]);
     exit;
@@ -1421,7 +1421,7 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === 'asiacell_confirm_transfer' && $_S
         }
 
         $user = currentUser($pdo);
-        notifyAdmins($pdo, '🆕 طلب اشتراك جديد (آسياسيل)', 'قدّم ' . $user['name'] . ' طلب اشتراك في باقة "' . $planName . '" بمبلغ $' . money($amountUsd) . ' عبر آسياسيل (تم التحقق تلقائياً). راجع الطلب لتفعيل الاستضافة.', 'system');
+        notifyAdmins($pdo, ' طلب اشتراك جديد (آسياسيل)', 'قدّم ' . $user['name'] . ' طلب اشتراك في باقة "' . $planName . '" بمبلغ $' . money($amountUsd) . ' عبر آسياسيل (تم التحقق تلقائياً). راجع الطلب لتفعيل الاستضافة.', 'system');
 
         unset($_SESSION['asiacell_flow']);
         echo json_encode(['ok' => true, 'done' => true, 'order_id' => $orderId, 'overpay_credited' => $overpayUsd]);
@@ -1438,7 +1438,7 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === 'asiacell_confirm_transfer' && $_S
     }
     $pdo->commit();
 
-    notifyUser($pdo, $userId, '💰 تم شحن رصيدك', 'تم إضافة $' . money($amountUsd + $overpayUsd) . ' إلى رصيد حسابك تلقائياً عبر آسياسيل.', 'topup_approved');
+    notifyUser($pdo, $userId, ' تم شحن رصيدك', 'تم إضافة $' . money($amountUsd + $overpayUsd) . ' إلى رصيد حسابك تلقائياً عبر آسياسيل.', 'topup_approved');
 
     unset($_SESSION['asiacell_flow']);
     $user = currentUser($pdo);
@@ -1467,7 +1467,7 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === 'asiacell_cancel' && $_SERVER['REQ
         $pdo->prepare('UPDATE users SET balance = balance + ? WHERE id = ?')->execute([$creditedUsd, $userId]);
         $pdo->prepare('INSERT INTO invoices (user_id, invoice_number, amount, status, description) VALUES (?,?,?,?,?)')
             ->execute([$userId, nextInvoiceNumber($pdo), $creditedUsd, 'paid', 'رصيد مسترد من تحويل آسياسيل تم إلغاؤه بعد دفع جزئي']);
-        notifyUser($pdo, $userId, '💰 تم استرداد رصيدك', 'تم إلغاء عملية آسياسيل بعد تحويل ' . number_format($flow['amount_iqd_paid']) . ' د.ع، وأضفنا $' . money($creditedUsd) . ' كرصيد إلى حسابك.', 'system');
+        notifyUser($pdo, $userId, ' تم استرداد رصيدك', 'تم إلغاء عملية آسياسيل بعد تحويل ' . number_format($flow['amount_iqd_paid']) . ' د.ع، وأضفنا $' . money($creditedUsd) . ' كرصيد إلى حسابك.', 'system');
     }
     unset($_SESSION['asiacell_flow']);
     echo json_encode(['ok' => true, 'credited_usd' => $creditedUsd]);
@@ -1578,7 +1578,7 @@ function renderAdminOrders(PDO $pdo) {
         <?php endif; ?>
 
         <?php foreach ($orders as $o):
-            $statusLabel = ['pending' => '⏳ قيد المراجعة', 'approved' => '✅ مقبول', 'rejected' => '❌ مرفوض'][$o['status']] ?? $o['status'];
+            $statusLabel = ['pending' => ' قيد المراجعة', 'approved' => ' مقبول', 'rejected' => 'ملغى'][$o['status']] ?? $o['status'];
             $statusPill = ['pending' => 'pill-amber', 'approved' => 'pill-green', 'rejected' => 'pill-red'][$o['status']] ?? 'pill-gray';
         ?>
         <div class="order-card <?php echo $o['status'] === 'pending' ? 'pending' : ''; ?>">
@@ -1706,7 +1706,7 @@ function renderAdminTopups(PDO $pdo) {
         <?php endif; ?>
 
         <?php foreach ($invoices as $inv):
-            $statusLabel = ['pending' => '⏳ قيد المراجعة', 'paid' => '✅ تم الشحن', 'rejected' => '❌ مرفوض'][$inv['status']] ?? $inv['status'];
+            $statusLabel = ['pending' => ' قيد المراجعة', 'paid' => ' تم الشحن', 'rejected' => 'ملغى'][$inv['status']] ?? $inv['status'];
             $statusPill = ['pending' => 'pill-amber', 'paid' => 'pill-green', 'rejected' => 'pill-red'][$inv['status']] ?? 'pill-gray';
         ?>
         <div class="order-card <?php echo $inv['status'] === 'pending' ? 'pending' : ''; ?>">
@@ -2890,7 +2890,7 @@ function handleSubmitOrder(PDO $pdo) {
     $pdo->prepare('INSERT INTO invoices (user_id, order_id, invoice_number, amount, status, description) VALUES (?,?,?,?,?,?)')
         ->execute([$userId, $orderId, nextInvoiceNumber($pdo), $amount, $paymentChoice === 'balance' ? 'paid' : 'pending', $invDescription]);
 
-    notifyAdmins($pdo, '🆕 طلب اشتراك جديد', 'قدّم ' . $user['name'] . ' طلب اشتراك في باقة "' . $plan['name'] . '" بمبلغ $' . money($amount) . '. راجع الطلب من لوحة التحكم.', 'system');
+    notifyAdmins($pdo, ' طلب اشتراك جديد', 'قدّم ' . $user['name'] . ' طلب اشتراك في باقة "' . $plan['name'] . '" بمبلغ $' . money($amount) . '. راجع الطلب من لوحة التحكم.', 'system');
 
     return [$orderId, null];
 }
@@ -3182,9 +3182,9 @@ function includeAppPage(PDO $pdo) {
 
                 <div class="card" style="background:linear-gradient(135deg, #ffa64d, #ff7a1a, #f26a00);border:none;color:#ffffff">
                     <div style="display:flex;align-items:center;gap:14px">
-                        <div style="width:52px;height:52px;border-radius:50%;background:rgba(255,255,255,.22);display:flex;align-items:center;justify-content:center;font-size:24px">🚀</div>
+                        <div style="width:52px;height:52px;border-radius:50%;background:rgba(255,255,255,.22);display:flex;align-items:center;justify-content:center;font-size:24px"> </div>
                         <div>
-                            <h3 style="font-size:18px;font-weight:900">مرحباً بك في منصة VPS</h3>
+                            <h3 style="font-size:18px;font-weight:900">مرحباً بك في صار</h3>
                             <div style="font-size:12px;opacity:.8">استمتع بخدماتنا المتميزة</div>
                         </div>
                     </div>
@@ -3249,23 +3249,6 @@ function includeAppPage(PDO $pdo) {
                     <img src="assets/images/ai-assistant-banner.webp" alt="المساعد الذكي" class="promo-ai-banner-img">
                 </button>
 
-                <!-- شارك واحصل أصدقاؤك على خصم -->
-                <?php if ($referralDiscountPct > 0): ?>
-                <div class="card referral-share-card">
-                    <div class="referral-share-head">
-                        <div class="referral-share-icon"><i class="fas fa-gift"></i></div>
-                        <div>
-                            <h3 data-i18n="share_and_earn">شارك واحصل أصدقاؤك على خصم</h3>
-                            <p>كل صديق يسجّل عبر رابطك يحصل على خصم <?php echo (int)$referralDiscountPct; ?>% على أول طلب VPS له.</p>
-                        </div>
-                    </div>
-                    <div class="referral-link-row">
-                        <input type="text" id="referralLinkInput" class="referral-link-input" readonly value="<?php echo e($referralLink); ?>" dir="ltr" onclick="this.select()">
-                        <button type="button" id="referralCopyBtn" class="referral-copy-btn" onclick="copyReferralLink()" title="نسخ"><i class="fas fa-copy"></i></button>
-                    </div>
-                    <button type="button" class="btn-gold" style="width:100%;margin-top:10px" onclick="shareReferralLink()"><i class="fas fa-share-nodes"></i> <span data-i18n="share_link">مشاركة الرابط</span></button>
-                </div>
-                <?php endif; ?>
 
                 <!-- قائمة الاستضافات -->
                 <div class="card">
@@ -3284,7 +3267,7 @@ function includeAppPage(PDO $pdo) {
                         </div>
                         <div class="status-badge">
                             <span class="pill <?php echo $h['status'] === 'active' ? 'pill-green' : 'pill-red'; ?>">
-                                <?php echo $h['status'] === 'active' ? '✅ مفعل' : '❌ منتهي'; ?>
+                                <?php echo $h['status'] === 'active' ? ' مفعل' : ' منتهي'; ?>
                             </span>
                             <div style="font-size:9px;color:var(--text-muted);margin-top:2px">
                                 ينتهي: <?php echo e($h['expiry_date']); ?>
@@ -3304,7 +3287,7 @@ function includeAppPage(PDO $pdo) {
                     <div class="text-muted text-center" style="padding:20px 0;font-size:12px">📭 لا توجد فواتير بعد</div>
                     <?php endif; ?>
                     <?php foreach (array_slice($invoices, 0, 3) as $inv):
-                        $homeInvLabel = ['paid' => '✅ مدفوع', 'pending' => '⏳ معلق', 'rejected' => '❌ مرفوض'][$inv['status']] ?? $inv['status'];
+                        $homeInvLabel = ['paid' => 'مكتمـل', 'pending' => ' معلق', 'rejected' => 'ملغى'][$inv['status']] ?? $inv['status'];
                         $homeInvPill = ['paid' => 'pill-green', 'pending' => 'pill-amber', 'rejected' => 'pill-red'][$inv['status']] ?? 'pill-amber';
                     ?>
                     <div class="invoice-item" onclick="showInvoiceDetail(<?php echo (int)$inv['id']; ?>)">
@@ -3320,6 +3303,24 @@ function includeAppPage(PDO $pdo) {
                     <?php endforeach; ?>
                 </div>
 
+                <!-- شارك واحصل أصدقاؤك على خصم -->
+                <?php if ($referralDiscountPct > 0): ?>
+                <div class="card referral-share-card">
+                    <div class="referral-share-head">
+                        <div class="referral-share-icon"><i class="fas fa-gift"></i></div>
+                        <div>
+                            <h3 data-i18n="share_and_earn">شارك واحصل أصدقاؤك على خصم</h3>
+                            <p>كل صديق يسجّل عبر رابطك يحصل على خصم <?php echo (int)$referralDiscountPct; ?>% على أول طلب VPS له.</p>
+                        </div>
+                    </div>
+                    <div class="referral-link-row">
+                        <input type="text" id="referralLinkInput" class="referral-link-input" readonly value="<?php echo e($referralLink); ?>" dir="ltr" onclick="this.select()">
+                        <button type="button" id="referralCopyBtn" class="referral-copy-btn" onclick="copyReferralLink()" title="نسخ"><i class="fas fa-copy"></i></button>
+                    </div>
+                    <button type="button" class="btn-gold" style="width:100%;margin-top:10px" onclick="shareReferralLink()"><i class="fas fa-share-nodes"></i> <span data-i18n="share_link">مشاركة الرابط</span></button>
+                </div>
+                <?php endif; ?>
+                
             </div>
             
             <!-- ============================================================
@@ -3344,7 +3345,7 @@ function includeAppPage(PDO $pdo) {
                             </div>
                             <div class="status-badge">
                                 <span class="pill <?php echo $h['status'] === 'active' ? 'pill-green' : 'pill-red'; ?>">
-                                    <?php echo $h['status'] === 'active' ? '✅ قيد التشغيل' : '❌ منتهي'; ?>
+                                    <?php echo $h['status'] === 'active' ? ' قيد التشغيل' : ' منتهي'; ?>
                                 </span>
                                 <div style="font-size:9px;color:var(--text-muted);margin-top:2px">
                                     ينتهي: <?php echo e($h['expiry_date']); ?>
@@ -3650,7 +3651,7 @@ function includeAppPage(PDO $pdo) {
                         <div class="text-muted text-center" style="padding:24px 0">لا توجد فواتير بعد</div>
                         <?php endif; ?>
                         <?php foreach ($invoices as $inv):
-                            $invStatusLabel = ['paid' => '✅ مدفوع', 'pending' => '⏳ معلق', 'rejected' => '❌ مرفوض'][$inv['status']] ?? $inv['status'];
+                            $invStatusLabel = ['paid' => 'مكتمـل', 'pending' => ' معلق', 'rejected' => 'ملغى'][$inv['status']] ?? $inv['status'];
                             $invStatusPill = ['paid' => 'pill-green', 'pending' => 'pill-amber', 'rejected' => 'pill-red'][$inv['status']] ?? 'pill-amber';
                         ?>
                         <div class="invoice-item" onclick="showInvoiceDetail(<?php echo (int)$inv['id']; ?>)">
@@ -3700,7 +3701,7 @@ function includeAppPage(PDO $pdo) {
                             <span style="color:var(--accent);cursor:pointer" onclick="showSection('vps')">اطلب خادمك الآن</span>
                         </div>
                         <?php else: foreach ($orders as $o):
-                            $statusLabel = ['pending' => '⏳ قيد المراجعة', 'approved' => '✅ مقبول', 'rejected' => '❌ مرفوض'][$o['status']] ?? $o['status'];
+                            $statusLabel = ['pending' => ' قيد المراجعة', 'approved' => ' مقبول', 'rejected' => 'ملغى'][$o['status']] ?? $o['status'];
                             $statusPill = ['pending' => 'pill-amber', 'approved' => 'pill-green', 'rejected' => 'pill-red'][$o['status']] ?? 'pill-amber';
                         ?>
                         <div class="invoice-item" onclick="showOrderDetail(<?php echo (int)$o['id']; ?>)">
@@ -3941,19 +3942,7 @@ function includeAppPage(PDO $pdo) {
                             </div>
                         </div>
 
-                        <div class="settings-item">
-                            <div class="left">
-                                <div class="icon-wrap green"><i class="fas fa-language"></i></div>
-                                <div class="text">
-                                    <div class="title">اللغة</div>
-                                    <div class="sub">اختيار لغة التطبيق</div>
-                                </div>
-                            </div>
-                            <div class="right">
-                                <span style="color:var(--text-secondary);font-weight:600;font-size:12px">العربية</span>
-                                <i class="fas fa-chevron-left chevron"></i>
-                            </div>
-                        </div>
+                
 
                     </div>
 
