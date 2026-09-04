@@ -755,9 +755,7 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === 'ai_chat' && $_SERVER['REQUEST_MET
 
     $systemPrompts = [
         'home' => 'أنت "المساعد الذكي" داخل تطبيق استضافة خوادم VPS. تساعد المستخدمين في كل ما يخص تنصيب وإدارة وحل مشاكل خوادم VPS وتثبيت البرمجيات والمكتبات اللازمة وتعليمهم خطوة بخطوة، وكل ما يخص استخدام منصتنا (الباقات، الطلبات، الفواتير، الدفع).',
-        'solve' => 'أنت خبير VPS ولينكس محترف. شخّص المشكلة التقنية التي يصفها المستخدم (اتصال، أداء، خدمات، شبكة) واقترح خطوات عملية مرقّمة للحل.',
         'explain' => 'أنت خبير أوامر لينكس وVPS. اشرح أي أمر يرسله المستخدم: ماذا يفعل، متى يُستخدم، ومثال عملي عليه. إن لم يرسل أمراً بل سؤالاً عاماً عن VPS أو لينكس أجب عليه بنفس الروح، وضع الأوامر داخل أسطر كود.',
-        'tips' => 'أنت خبير في تحسين أداء وأمان سيرفرات VPS. قدّم نصائح عملية ومحددة قابلة للتطبيق فوراً.',
         'suggestions' => 'أنت مساعد ذكي متخصص باستضافة المواقع وخوادم VPS، تقدّم اقتراحات ذكية ومفيدة لإدارة السيرفر وتحسين تجربة المستخدم على منصتنا.',
     ];
     $systemPrompt = $systemPrompts[$section] ?? $systemPrompts['home'];
@@ -4057,6 +4055,7 @@ function includeAppPage(PDO $pdo) {
                 <button class="back-btn" onclick="exitAI()"><i class="fas fa-arrow-right"></i></button>
                 <div class="ai-avatar"><?php echo $aiLogo ? '<img src="' . e($aiLogo) . '" alt="">' : '<i class="fas fa-robot"></i>'; ?></div>
                 <h2 id="aiHeaderTitle">المساعد الذكي</h2>
+                <button class="back-btn" onclick="showAiView('conversations')" title="سجل محادثات سابقة"><i class="fas fa-clock-rotate-left"></i></button>
             </div>
 
             <div class="ai-body" id="aiBody">
@@ -4067,9 +4066,7 @@ function includeAppPage(PDO $pdo) {
                         <p>كيف يمكنني مساعدتك اليوم؟</p>
                     </div>
                     <div class="ai-quick-grid">
-                        <button class="ai-quick-card" onclick="showAiView('solve')"><i class="fas fa-wrench"></i><span>حل مشكلة</span></button>
                         <button class="ai-quick-card" onclick="showAiView('explain')"><i class="fas fa-terminal"></i><span>شرح أمر</span></button>
-                        <button class="ai-quick-card" onclick="showAiView('tips')"><i class="fas fa-wand-magic-sparkles"></i><span>نصائح التحسين</span></button>
                         <button class="ai-quick-card" onclick="showAiView('suggestions')"><i class="fas fa-lightbulb"></i><span>اقتراحات ذكية</span></button>
                     </div>
                     <div class="chat-log" id="aiHomeChatLog"></div>
@@ -4078,16 +4075,6 @@ function includeAppPage(PDO $pdo) {
                 <!-- شرح أمر -->
                 <div id="aiViewExplain" class="ai-view hidden">
                     <div class="chat-log" id="aiExplainChatLog"></div>
-                </div>
-
-                <!-- حل مشكلة -->
-                <div id="aiViewSolve" class="ai-view hidden">
-                    <div class="chat-log" id="aiSolveChatLog"></div>
-                </div>
-
-                <!-- نصائح التحسين -->
-                <div id="aiViewTips" class="ai-view hidden">
-                    <div class="chat-log" id="aiTipsChatLog"></div>
                 </div>
 
                 <!-- اقتراحات ذكية -->

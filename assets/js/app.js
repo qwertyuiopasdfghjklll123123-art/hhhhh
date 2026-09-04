@@ -1483,21 +1483,17 @@
             const AI_VIEW_TITLES = {
                 home: 'المساعد الذكي',
                 explain: 'شرح أمر',
-                solve: 'حل مشكلة',
-                tips: 'نصائح التحسين',
                 suggestions: 'اقتراحات ذكية',
                 tools: 'الأدوات الذكية',
                 conversations: 'المحادثات',
                 settings: 'إعدادات المساعد'
             };
-            const AI_CHAT_VIEWS = ['home', 'explain', 'solve', 'tips', 'suggestions'];
+            const AI_CHAT_VIEWS = ['home', 'explain', 'suggestions'];
             const AI_WELCOME_HINTS = {
                 explain: 'اكتب أي أمر لينكس (مثل: sudo apt update) وسأشرحه لك خطوة بخطوة 👇',
-                solve: 'صف المشكلة التي تواجهها مع سيرفرك (اتصال، أداء، خدمة معينة...) وسأساعدك بتشخيصها وحلها 🔧',
-                tips: 'اسألني عن أي جانب من سيرفرك (الأداء، الأمان، إدارة الموارد) وسأقترح تحسينات عملية 🚀',
                 suggestions: 'اكتب ما تعمل عليه بسيرفرك وسأقترح عليك أفكاراً وخطوات ذكية 💡',
             };
-            const aiHistories = { home: [], explain: [], solve: [], tips: [], suggestions: [] };
+            const aiHistories = { home: [], explain: [], suggestions: [] };
 
             function showAiView(view) {
                 document.querySelectorAll('.ai-view').forEach(el => el.classList.add('hidden'));

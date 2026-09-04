@@ -1057,14 +1057,17 @@ function callAiApi(PDO $pdo, $messages) {
     ]);
     $response = curl_exec($ch);
     $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-    $curlError = curl_error($ch);
+    $curlErrno = curl_errno($ch);
     curl_close($ch);
 
-    if ($curlError) {
-        return [null, 'تعذر الاتصال بخدمة الذكاء الاصطناعي: ' . $curlError];
+    if ($curlErrno) {
+        $msg = $curlErrno === CURLE_OPERATION_TIMEDOUT
+            ? 'استغرق رد المساعد الذكي وقتاً أطول من المعتاد، حاول مرة أخرى.'
+            : 'تعذر الاتصال بخدمة الذكاء الاصطناعي، تحقق من اتصالك وحاول مرة أخرى.';
+        return [null, $msg];
     }
     if ($httpCode !== 200) {
-        return [null, 'خطأ من خدمة الذكاء الاصطناعي (HTTP ' . $httpCode . ').'];
+        return [null, 'تعذر الحصول على رد من المساعد الذكي حالياً، حاول مرة أخرى.'];
     }
     $data = json_decode($response, true);
     $reply = $data['choices'][0]['message']['content'] ?? null;
