@@ -243,7 +243,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         $topUpError = handleTopUpBalance($pdo);
         header('Location: ' . appUrl($topUpError ? 'topup_error=' . urlencode($topUpError) : 'topup=1'));
         exit;
-    } elseif (in_array($_POST['action'], ['plan_save', 'plan_delete', 'pm_save', 'pm_save_binance', 'pm_save_asiacell', 'pm_delete', 'currency_save', 'currency_delete', 'broadcast_notification', 'order_fulfill', 'order_fulfill_renewal', 'order_reject', 'topup_approve', 'topup_reject', 'settings_save', 'backup_settings_save', 'backup_send_telegram', 'backup_download', 'backup_restore'], true)) {
+    } elseif (in_array($_POST['action'], ['plan_save', 'plan_delete', 'pm_save', 'pm_save_binance', 'pm_save_asiacell', 'pm_delete', 'currency_save', 'currency_delete', 'coupon_save', 'coupon_delete', 'broadcast_notification', 'order_fulfill', 'order_fulfill_renewal', 'order_reject', 'topup_approve', 'topup_reject', 'settings_save', 'backup_settings_save', 'backup_send_telegram', 'backup_download', 'backup_restore'], true)) {
         requireAdmin($pdo);
         $action = $_POST['action'];
     if ($action === 'plan_save') {
@@ -477,6 +477,44 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         adminRedirect('settings', 'تم إرسال الإشعار إلى ' . count($userIds) . ' مستخدم.');
     }
 
+    if ($action === 'coupon_save') {
+        $code = strtoupper(trim($_POST['code'] ?? ''));
+        $discountPct = (float)($_POST['discount_pct'] ?? 0);
+        $expiresAt = trim($_POST['expires_at'] ?? '');
+        $expiresTs = $expiresAt !== '' ? strtotime($expiresAt) : false;
+
+        if ($code === '' || $discountPct <= 0 || $discountPct > 100 || !$expiresTs) {
+            adminRedirect('settings', null, 'الرجاء تعبئة جميع الحقول بشكل صحيح (نسبة خصم بين 0 و100، وتاريخ انتهاء صالح).');
+        }
+        if ($expiresTs <= time()) {
+            adminRedirect('settings', null, 'لا يمكن إنشاء كوبون بتاريخ انتهاء صلاحية في الماضي.');
+        }
+
+        $dupStmt = $pdo->prepare('SELECT COUNT(*) FROM coupons WHERE code = ?');
+        $dupStmt->execute([$code]);
+        if ((int)$dupStmt->fetchColumn() > 0) {
+            adminRedirect('settings', null, 'يوجد كوبون بنفس هذا الكود مسبقاً، استخدم كوداً آخر أو احذف القديم أولاً.');
+        }
+
+        $admin = currentUser($pdo);
+        $pdo->prepare('INSERT INTO coupons (code, discount_pct, expires_at, is_active, created_by) VALUES (?,?,?,1,?)')
+            ->execute([$code, $discountPct, date('Y-m-d H:i:s', $expiresTs), (int)$admin['id']]);
+
+        $pctDisplay = rtrim(rtrim(number_format($discountPct, 2), '0'), '.');
+        $userIds = $pdo->query('SELECT id FROM users')->fetchAll(PDO::FETCH_COLUMN);
+        foreach ($userIds as $uid) {
+            notifyUser($pdo, (int)$uid, '🏷️ كوبون خصم جديد: ' . $code, 'استخدم الكود "' . $code . '" للحصول على خصم ' . $pctDisplay . '% عند طلب باقة VPS جديدة، حتى ' . date('Y-m-d', $expiresTs) . '.', 'coupon');
+        }
+
+        adminRedirect('settings', 'تم إنشاء الكوبون وإرسال إشعار إلى ' . count($userIds) . ' مستخدم.');
+    }
+
+    if ($action === 'coupon_delete') {
+        $id = (int)($_POST['id'] ?? 0);
+        $pdo->prepare('DELETE FROM coupons WHERE id = ?')->execute([$id]);
+        adminRedirect('settings', 'تم حذف الكوبون.');
+    }
+
     if ($action === 'order_fulfill') {
         $orderId = (int)($_POST['order_id'] ?? 0);
         $stmt = $pdo->prepare("SELECT * FROM orders WHERE id = ? AND status = 'pending'");
@@ -617,6 +655,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
             adminRedirect('settings', null, $uploadErr);
         }
         if ($logoPath) {
+            // لوجو أصغر من 192×192 يجعل Chrome يرفض استخدامه كأيقونة تثبيت (PWA) ويستبدله
+            // بأيقونة افتراضية مختلفة تماماً - وهو السبب المتكرر وراء "أيقونة التطبيق ليست نفس الشعار"
+            $logoDims = @getimagesize(BASE_DIR . '/' . $logoPath);
+            if ($logoDims && ($logoDims[0] < 192 || $logoDims[1] < 192)) {
+                @unlink(BASE_DIR . '/' . $logoPath);
+                adminRedirect('settings', null, 'شعار الموقع صغير جداً (' . $logoDims[0] . '×' . $logoDims[1] . ' بكسل). لضمان ظهوره بشكل صحيح كأيقونة تثبيت للتطبيق على الهاتف، ارفع صورة مربعة بحجم 512×512 بكسل على الأقل.');
+            }
             setSetting($pdo, 'site_logo', $logoPath);
         }
 
@@ -949,6 +994,14 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === 'verify_binance_order' && $_SERVER
         $amount = round($amount * (1 - $referralDiscountPct / 100), 2);
     }
 
+    $couponCode = strtoupper(trim((string)($body['coupon_code'] ?? '')));
+    $couponPct = validCouponDiscountPct($pdo, $couponCode);
+    if ($couponPct !== null) {
+        $amount = round($amount * (1 - $couponPct / 100), 2);
+    } else {
+        $couponCode = null;
+    }
+
     [$verified, $result] = verifyBinanceOrder($pm, $binanceOrderId, $amount);
     if (!$verified) {
         http_response_code(400);
@@ -957,12 +1010,15 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === 'verify_binance_order' && $_SERVER
     }
 
     $billingCycle = ($plan['billing_cycle'] ?? 'monthly') === 'yearly' ? 'yearly' : 'monthly';
-    $pdo->prepare('INSERT INTO orders (user_id, plan_id, payment_method_id, amount, billing_cycle, status) VALUES (?,?,?,?,?,?)')
-        ->execute([$userId, $planId, $paymentMethodId, $amount, $billingCycle, 'pending']);
+    $pdo->prepare('INSERT INTO orders (user_id, plan_id, payment_method_id, amount, billing_cycle, status, coupon_code) VALUES (?,?,?,?,?,?,?)')
+        ->execute([$userId, $planId, $paymentMethodId, $amount, $billingCycle, 'pending', $couponCode]);
     $orderId = (int)$pdo->lastInsertId();
 
     $cycleLabel = $billingCycle === 'yearly' ? 'سنوي' : 'شهري';
     $invDescription = 'اشتراك باقة ' . $plan['name'] . ' (' . $cycleLabel . ') - Binance Pay';
+    if ($couponPct !== null) {
+        $invDescription .= ' - كوبون ' . $couponCode . ' (خصم ' . rtrim(rtrim(number_format($couponPct, 2), '0'), '.') . '%)';
+    }
     try {
         $pdo->prepare('INSERT INTO invoices (user_id, order_id, invoice_number, amount, status, description, binance_order_id) VALUES (?,?,?,?,?,?,?)')
             ->execute([$userId, $orderId, nextInvoiceNumber($pdo), $amount, 'paid', $invDescription, $binanceOrderId]);
@@ -1141,8 +1197,16 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === 'asiacell_start' && $_SERVER['REQU
         if ($referralDiscountPct > 0) {
             $amountUsd = round($amountUsd * (1 - $referralDiscountPct / 100), 2);
         }
+        $couponCode = strtoupper(trim((string)($body['coupon_code'] ?? '')));
+        $couponPct = validCouponDiscountPct($pdo, $couponCode);
+        if ($couponPct !== null) {
+            $amountUsd = round($amountUsd * (1 - $couponPct / 100), 2);
+        } else {
+            $couponCode = null;
+        }
         $billingCycle = ($plan['billing_cycle'] ?? 'monthly') === 'yearly' ? 'yearly' : 'monthly';
     } else {
+        $couponCode = null;
         $amountUsd = (float)($body['amount'] ?? 0);
         if ($amountUsd <= 0) {
             http_response_code(400);
@@ -1173,6 +1237,7 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === 'asiacell_start' && $_SERVER['REQU
         'plan_id' => $planId,
         'payment_method_id' => $paymentMethodId,
         'billing_cycle' => $billingCycle,
+        'coupon_code' => $couponCode,
         'amount_usd' => $amountUsd,
         'overpay_usd' => $overpayUsd,
         'exchange_rate' => $exchangeRate,
@@ -1332,8 +1397,9 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === 'asiacell_confirm_transfer' && $_S
     $overpayUsd = round((float)($flow['overpay_usd'] ?? 0), 2);
 
     if ($flow['context'] === 'order') {
-        $pdo->prepare('INSERT INTO orders (user_id, plan_id, payment_method_id, amount, billing_cycle, status) VALUES (?,?,?,?,?,?)')
-            ->execute([$userId, $flow['plan_id'], $flow['payment_method_id'], $amountUsd, $flow['billing_cycle'], 'pending']);
+        $couponCode = $flow['coupon_code'] ?? null;
+        $pdo->prepare('INSERT INTO orders (user_id, plan_id, payment_method_id, amount, billing_cycle, status, coupon_code) VALUES (?,?,?,?,?,?,?)')
+            ->execute([$userId, $flow['plan_id'], $flow['payment_method_id'], $amountUsd, $flow['billing_cycle'], 'pending', $couponCode]);
         $orderId = (int)$pdo->lastInsertId();
 
         $planStmt = $pdo->prepare('SELECT name FROM vps_plans WHERE id = ?');
@@ -1342,6 +1408,9 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === 'asiacell_confirm_transfer' && $_S
 
         $cycleLabel = $flow['billing_cycle'] === 'yearly' ? 'سنوي' : 'شهري';
         $invDescription = 'اشتراك باقة ' . $planName . ' (' . $cycleLabel . ') - آسياسيل';
+        if ($couponCode) {
+            $invDescription .= ' - كوبون ' . $couponCode;
+        }
         $pdo->prepare('INSERT INTO invoices (user_id, order_id, invoice_number, amount, status, description) VALUES (?,?,?,?,?,?)')
             ->execute([$userId, $orderId, nextInvoiceNumber($pdo), $amountUsd, 'paid', $invDescription]);
 
@@ -1402,6 +1471,46 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === 'asiacell_cancel' && $_SERVER['REQ
     }
     unset($_SESSION['asiacell_flow']);
     echo json_encode(['ok' => true, 'credited_usd' => $creditedUsd]);
+    exit;
+}
+
+// ============================================================
+// التحقق من كوبون خصم (معاينة فورية أثناء إنشاء الطلب) - التطبيق
+// الفعلي والنهائي للخصم يُعاد اشتقاقه دائماً من الخادم عند إنشاء الطلب
+// نفسه (بغض النظر عن طريقة الدفع)، فلا يُعتمد هنا إلا لعرض المعاينة
+// ============================================================
+
+if (isset($_GET['ajax']) && $_GET['ajax'] === 'apply_coupon' && $_SERVER['REQUEST_METHOD'] === 'POST') {
+    header('Content-Type: application/json; charset=utf-8');
+
+    if (!isLoggedIn()) {
+        http_response_code(401);
+        echo json_encode(['error' => 'يجب تسجيل الدخول.']);
+        exit;
+    }
+
+    $body = json_decode((string)file_get_contents('php://input'), true) ?: [];
+    if (!hash_equals($_SESSION['csrf_token'] ?? '', (string)($body['csrf_token'] ?? ''))) {
+        http_response_code(400);
+        echo json_encode(['error' => 'انتهت صلاحية الجلسة، أعد تحميل الصفحة.']);
+        exit;
+    }
+
+    $code = strtoupper(trim((string)($body['code'] ?? '')));
+    if ($code === '') {
+        http_response_code(400);
+        echo json_encode(['error' => 'الرجاء إدخال كود الكوبون.']);
+        exit;
+    }
+
+    $pct = validCouponDiscountPct($pdo, $code);
+    if ($pct === null) {
+        http_response_code(400);
+        echo json_encode(['error' => 'كود الكوبون غير صحيح أو منتهي الصلاحية.']);
+        exit;
+    }
+
+    echo json_encode(['ok' => true, 'code' => $code, 'discount_pct' => $pct]);
     exit;
 }
 
@@ -1926,6 +2035,7 @@ function renderAdminSettings(PDO $pdo) {
     $scheme = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http';
     $redirectUri = $scheme . '://' . $_SERVER['HTTP_HOST'] . '/index.php?action=google_callback';
     $currencies = getAllCurrencies($pdo);
+    $coupons = $pdo->query('SELECT * FROM coupons ORDER BY created_at DESC')->fetchAll(PDO::FETCH_ASSOC);
     ?>
     <div class="settings-subtabs">
         <button type="button" class="subtab-btn active" onclick="showSettingsPanel(this, 'site')"><i class="fas fa-shop"></i> الموقع</button>
@@ -1935,6 +2045,7 @@ function renderAdminSettings(PDO $pdo) {
         <button type="button" class="subtab-btn" onclick="showSettingsPanel(this, 'policies')"><i class="fas fa-file-contract"></i> السياسات</button>
         <button type="button" class="subtab-btn" onclick="showSettingsPanel(this, 'currencies')"><i class="fas fa-coins"></i> العملات</button>
         <button type="button" class="subtab-btn" onclick="showSettingsPanel(this, 'notify')"><i class="fas fa-bullhorn"></i> إشعار جماعي</button>
+        <button type="button" class="subtab-btn" onclick="showSettingsPanel(this, 'coupons')"><i class="fas fa-tag"></i> كوبونات الخصم</button>
     </div>
 
     <form method="POST" enctype="multipart/form-data">
@@ -2087,6 +2198,53 @@ function renderAdminSettings(PDO $pdo) {
                 <button type="submit" class="btn btn-accent"><i class="fas fa-paper-plane"></i> إرسال للجميع</button>
             </form>
         </div>
+    </div>
+
+    <div class="settings-panel hidden" data-panel="coupons">
+        <div class="admin-card">
+            <div class="admin-card-header"><h2><i class="fas fa-tag"></i> إنشاء كوبون خصم جديد</h2></div>
+            <p style="font-size:12px;color:var(--text-muted);margin-bottom:14px;line-height:1.8">
+                يُطبَّق خصم الكوبون على سعر أي باقة عند إدخاله في صفحة إنشاء الطلب (فوق خصم الباقة وخصم الدعوة إن وُجدا). عند الإنشاء يصل إشعار لجميع المستخدمين وتظهر بطاقة الكوبون في الصفحة الرئيسية حتى انتهاء صلاحيته.
+            </p>
+            <form method="POST">
+                <?php echo csrfField(); ?>
+                <input type="hidden" name="action" value="coupon_save">
+                <div class="field-grid-2">
+                    <div class="field-row"><label class="field-label">كود الكوبون</label><input type="text" name="code" class="text-input" placeholder="SALE25" maxlength="32" dir="ltr" style="text-transform:uppercase" required></div>
+                    <div class="field-row"><label class="field-label">نسبة الخصم (%)</label><input type="number" step="0.01" min="0.01" max="100" name="discount_pct" class="text-input" placeholder="25" required></div>
+                </div>
+                <div class="field-row"><label class="field-label">تاريخ انتهاء الصلاحية</label><input type="datetime-local" name="expires_at" class="text-input" min="<?php echo e(date('Y-m-d\TH:i')); ?>" required></div>
+                <button type="submit" class="btn btn-accent btn-sm"><i class="fas fa-plus"></i> إنشاء الكوبون وإرسال إشعار للجميع</button>
+            </form>
+        </div>
+
+        <?php if ($coupons): ?>
+        <div class="admin-card" style="margin-top:14px">
+            <div class="admin-card-header"><h2><i class="fas fa-list"></i> الكوبونات الحالية</h2></div>
+            <?php foreach ($coupons as $cp):
+                $isExpired = strtotime($cp['expires_at']) <= time();
+                $statusLabel = !$cp['is_active'] ? 'معطّل' : ($isExpired ? 'منتهي الصلاحية' : 'نشط');
+                $statusPill = !$cp['is_active'] ? 'pill-gray' : ($isExpired ? 'pill-red' : 'pill-green');
+                $pctDisplay = rtrim(rtrim(number_format((float)$cp['discount_pct'], 2), '0'), '.');
+            ?>
+            <div class="settings-item" style="display:block;margin-top:14px;padding-top:14px;border-top:1px solid var(--border-color)">
+                <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
+                    <strong style="direction:ltr"><?php echo e($cp['code']); ?></strong>
+                    <span class="pill <?php echo $statusPill; ?>"><?php echo $statusLabel; ?></span>
+                </div>
+                <div class="text-muted" style="font-size:12px;margin-bottom:10px">
+                    خصم <?php echo $pctDisplay; ?>% - ينتهي في <?php echo e(date('Y-m-d H:i', strtotime($cp['expires_at']))); ?>
+                </div>
+                <form method="POST" onsubmit="return confirmAndSubmit(this, 'حذف هذا الكوبون؟')">
+                    <?php echo csrfField(); ?>
+                    <input type="hidden" name="action" value="coupon_delete">
+                    <input type="hidden" name="id" value="<?php echo (int)$cp['id']; ?>">
+                    <button type="submit" class="btn btn-danger btn-sm"><i class="fas fa-trash"></i> حذف</button>
+                </form>
+            </div>
+            <?php endforeach; ?>
+        </div>
+        <?php endif; ?>
     </div>
     <?php
 }
@@ -2685,6 +2843,14 @@ function handleSubmitOrder(PDO $pdo) {
         $amount = round($amount * (1 - $referralDiscountPct / 100), 2);
     }
 
+    $couponCode = strtoupper(trim($_POST['coupon_code'] ?? ''));
+    $couponPct = validCouponDiscountPct($pdo, $couponCode);
+    if ($couponPct !== null) {
+        $amount = round($amount * (1 - $couponPct / 100), 2);
+    } else {
+        $couponCode = null;
+    }
+
     $paymentMethodId = null;
     $proofPath = null;
 
@@ -2709,14 +2875,17 @@ function handleSubmitOrder(PDO $pdo) {
         }
     }
 
-    $pdo->prepare('INSERT INTO orders (user_id, plan_id, payment_method_id, amount, billing_cycle, proof_image, status) VALUES (?,?,?,?,?,?,?)')
-        ->execute([$userId, $planId, $paymentMethodId, $amount, $billingCycle, $proofPath, 'pending']);
+    $pdo->prepare('INSERT INTO orders (user_id, plan_id, payment_method_id, amount, billing_cycle, proof_image, status, coupon_code) VALUES (?,?,?,?,?,?,?,?)')
+        ->execute([$userId, $planId, $paymentMethodId, $amount, $billingCycle, $proofPath, 'pending', $couponCode]);
     $orderId = (int)$pdo->lastInsertId();
 
     $cycleLabel = $billingCycle === 'yearly' ? 'سنوي' : 'شهري';
     $invDescription = 'اشتراك باقة ' . $plan['name'] . ' (' . $cycleLabel . ')';
     if ($referralDiscountPct > 0) {
         $invDescription .= ' - يشمل خصم دعوة ' . (int)$referralDiscountPct . '%';
+    }
+    if ($couponPct !== null) {
+        $invDescription .= ' - كوبون ' . $couponCode . ' (خصم ' . rtrim(rtrim(number_format($couponPct, 2), '0'), '.') . '%)';
     }
     $pdo->prepare('INSERT INTO invoices (user_id, order_id, invoice_number, amount, status, description) VALUES (?,?,?,?,?,?)')
         ->execute([$userId, $orderId, nextInvoiceNumber($pdo), $amount, $paymentChoice === 'balance' ? 'paid' : 'pending', $invDescription]);
@@ -2841,6 +3010,8 @@ function includeAppPage(PDO $pdo) {
     unset($pmRow);
 
     $vps_plans = $pdo->query('SELECT * FROM vps_plans WHERE is_active = 1 ORDER BY sort_order ASC, id ASC')->fetchAll(PDO::FETCH_ASSOC);
+
+    $activeCoupon = $pdo->query("SELECT * FROM coupons WHERE is_active = 1 AND expires_at > NOW() ORDER BY created_at DESC LIMIT 1")->fetch(PDO::FETCH_ASSOC);
 
     $buyPlanId = (int)($_GET['buy'] ?? 0);
     $orderedFlag = isset($_GET['ordered']);
@@ -3054,7 +3225,18 @@ function includeAppPage(PDO $pdo) {
                         <div class="label">منتهية</div>
                     </div>
                 </div>
-                
+
+                <?php if ($activeCoupon): ?>
+                <div class="card coupon-promo-card" onclick="wizardApplyCouponFromHome('<?php echo e($activeCoupon['code']); ?>')">
+                    <div class="coupon-promo-icon"><i class="fas fa-tag"></i></div>
+                    <div class="coupon-promo-text">
+                        <div class="coupon-promo-title">كوبون خصم <?php echo rtrim(rtrim(number_format((float)$activeCoupon['discount_pct'], 2), '0'), '.'); ?>%</div>
+                        <div class="coupon-promo-sub">استخدم الكود <strong><?php echo e($activeCoupon['code']); ?></strong> عند طلب باقة VPS جديدة</div>
+                    </div>
+                    <i class="fas fa-chevron-left coupon-promo-chevron"></i>
+                </div>
+                <?php endif; ?>
+
                 <div class="quick-grid">
                     <button class="quick-btn" onclick="showSection('servers')"><i class="fas fa-server"></i>سيرفراتي</button>
                     <button class="quick-btn" onclick="showSection('invoices')"><i class="fas fa-receipt"></i>فواتير</button>
@@ -3157,15 +3339,15 @@ function includeAppPage(PDO $pdo) {
                         <?php foreach ($hosting as $h): ?>
                         <div class="hosting-item server-list-item" data-name="<?php echo htmlspecialchars(mb_strtolower($h['name'])); ?>" onclick="showHostingDetail(<?php echo $h['id']; ?>)">
                             <div class="info">
-                                <div class="name"><?php echo $h['name']; ?> <span style="color:var(--text-muted);font-weight:600;font-size:11px">#<?php echo e($h['vps_id'] ?: $h['id']); ?></span></div>
-                                <div class="sub"><?php echo $h['plan']; ?> · <?php echo $h['ip']; ?></div>
+                                <div class="name"><?php echo e($h['name']); ?> <span style="color:var(--text-muted);font-weight:600;font-size:11px">#<?php echo e($h['vps_id'] ?: $h['id']); ?></span></div>
+                                <div class="sub"><?php echo e($h['plan']); ?> · <?php echo e($h['ip']); ?></div>
                             </div>
                             <div class="status-badge">
                                 <span class="pill <?php echo $h['status'] === 'active' ? 'pill-green' : 'pill-red'; ?>">
                                     <?php echo $h['status'] === 'active' ? '✅ قيد التشغيل' : '❌ منتهي'; ?>
                                 </span>
                                 <div style="font-size:9px;color:var(--text-muted);margin-top:2px">
-                                    ينتهي: <?php echo $h['expiry_date']; ?>
+                                    ينتهي: <?php echo e($h['expiry_date']); ?>
                                 </div>
                             </div>
                         </div>
@@ -3252,6 +3434,16 @@ function includeAppPage(PDO $pdo) {
                         <input type="hidden" name="payment_method_id" id="orderPaymentMethodId" value="">
 
                         <div id="payOptionsContent"></div>
+
+                        <div class="field-row" style="margin-top:10px">
+                            <label class="field-label">لديك كوبون خصم؟ (اختياري)</label>
+                            <div style="display:flex;gap:8px">
+                                <input type="text" id="couponCodeInput" class="text-input" placeholder="أدخل كود الكوبون" style="flex:1;text-transform:uppercase" dir="ltr">
+                                <button type="button" class="btn btn-outline btn-sm" onclick="applyCoupon()" style="white-space:nowrap">تطبيق</button>
+                            </div>
+                            <div id="couponFeedback" style="font-size:12px;margin-top:6px"></div>
+                        </div>
+                        <input type="hidden" name="coupon_code" id="orderCouponCode" value="">
 
                         <div id="proofUploadWrap" class="hidden">
                             <div class="hosting-detail" id="payInstructionsBox" style="margin-bottom:12px"></div>
@@ -3555,6 +3747,7 @@ function includeAppPage(PDO $pdo) {
                             'order_approved' => ['fa-circle-check', 'green'],
                             'order_rejected' => ['fa-circle-xmark', 'gold'],
                             'topup_rejected' => ['fa-circle-xmark', 'gold'],
+                            'coupon' => ['fa-tag', 'gold'],
                         ][$n['type']] ?? ['fa-bullhorn', 'blue'];
                     ?>
                     <div class="notif-item<?php echo (int)$n['is_read'] ? '' : ' unread'; ?>" data-notif-id="<?php echo (int)$n['id']; ?>">

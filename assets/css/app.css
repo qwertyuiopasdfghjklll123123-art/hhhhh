@@ -226,7 +226,51 @@
                 color: var(--text-muted);
                 transition: color var(--transition);
             }
-            
+
+            .coupon-promo-card {
+                position: relative;
+                overflow: hidden;
+                display: flex;
+                align-items: center;
+                gap: 14px;
+                background: linear-gradient(135deg, #ffe08a, #ffb020, #f29400);
+                border: none;
+                color: #2b1a00;
+                cursor: pointer;
+            }
+            .coupon-promo-card::before {
+                content: '';
+                position: absolute;
+                top: 0;
+                bottom: 0;
+                left: -70%;
+                width: 55%;
+                background: linear-gradient(100deg, transparent, rgba(255,255,255,.65), transparent);
+                animation: couponShineSweep 3.2s ease-in-out infinite;
+                pointer-events: none;
+            }
+            @keyframes couponShineSweep {
+                0% { left: -70%; }
+                45%, 100% { left: 115%; }
+            }
+            .coupon-promo-icon {
+                position: relative;
+                width: 46px;
+                height: 46px;
+                border-radius: 50%;
+                background: rgba(255,255,255,.4);
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                font-size: 19px;
+                flex-shrink: 0;
+            }
+            .coupon-promo-text { position: relative; flex: 1; min-width: 0; }
+            .coupon-promo-title { font-size: 15px; font-weight: 900; }
+            .coupon-promo-sub { font-size: 12px; opacity: .85; margin-top: 2px; }
+            .coupon-promo-sub strong { font-weight: 800; letter-spacing: .5px; }
+            .coupon-promo-chevron { position: relative; font-size: 14px; opacity: .65; }
+
             .quick-grid {
                 display: grid;
                 grid-template-columns: repeat(4, 1fr);

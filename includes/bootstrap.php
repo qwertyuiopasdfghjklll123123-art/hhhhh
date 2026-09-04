@@ -85,7 +85,7 @@ function initSchema(PDO $pdo, $dbName) {
     // رقم إصدار المخطط: يُزاد فقط عند إضافة جدول/عمود/فهرس جديد أدناه.
     // بهذا يتم تخطي كل فحوصات information_schema (البطيئة) في كل طلب بعد أول مرة،
     // بدل تكرارها عشرات المرات على كل تحميل صفحة (وهذا كان السبب الرئيسي لبطء لوحة التحكم).
-    $schemaVersion = '4';
+    $schemaVersion = '5';
     try {
         $stmt = $pdo->query("SELECT value FROM settings WHERE `key` = 'schema_version' LIMIT 1");
         if ($stmt && $stmt->fetchColumn() === $schemaVersion) {
@@ -205,6 +205,16 @@ function initSchema(PDO $pdo, $dbName) {
             is_active INT NOT NULL DEFAULT 1,
             sort_order INT NOT NULL DEFAULT 0
         )$charset",
+
+        "CREATE TABLE IF NOT EXISTS coupons (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            code VARCHAR(32) NOT NULL,
+            discount_pct DECIMAL(5,2) NOT NULL,
+            expires_at DATETIME NOT NULL,
+            is_active INT NOT NULL DEFAULT 1,
+            created_by INT NULL,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        )$charset",
     ];
     foreach ($tables as $sql) {
         $pdo->exec($sql);
@@ -246,6 +256,7 @@ function initSchema(PDO $pdo, $dbName) {
     $ensureColumn('payment_methods', 'method_extras', 'TEXT NULL');
     $ensureColumn('vps_plans', 'icon_image', 'VARCHAR(500) NULL');
     $ensureColumn('invoices', 'binance_order_id', 'VARCHAR(100) NULL');
+    $ensureColumn('orders', 'coupon_code', 'VARCHAR(32) NULL');
 
     // فهارس التفرّد (يتم إنشاؤها بعد التأكد من وجود الأعمدة أعلاه)
     // ملاحظة: عمود email/phone قابلان لأن يكونا NULL بتكرار (حساب دخول عبر Google
@@ -256,6 +267,7 @@ function initSchema(PDO $pdo, $dbName) {
     // يمنع استخدام رقم عملية Binance نفسه أكثر من مرة (حماية من إعادة إرسال نفس
     // رقم العملية للحصول على طلب/شحن رصيد إضافي مجاني بدل دفع حقيقي جديد)
     $ensureIndex('invoices', 'idx_invoices_binance_order_id', 'binance_order_id');
+    $ensureIndex('coupons', 'idx_coupons_code', 'code');
 
     // ------------------------------------------------------------
     // بيانات ابتدائية (تُدرج مرة واحدة فقط إذا كانت الجداول فارغة)
@@ -444,6 +456,18 @@ function csrfCheck() {
         http_response_code(400);
         die('انتهت صلاحية النموذج، الرجاء إعادة تحميل الصفحة والمحاولة مجدداً.');
     }
+}
+
+// يتحقق من كود كوبون خصم: موجود، مفعّل، ولم تنتهِ صلاحيته بعد. يعيد نسبة
+// الخصم إن كان صالحاً أو null (تُستدعى من كل نقاط إنشاء الطلب حتى تُطبَّق
+// نفس النسبة على أي طريقة دفع، ولا يُعتمد أبداً على نسبة يرسلها المتصفح)
+function validCouponDiscountPct(PDO $pdo, $code) {
+    $code = strtoupper(trim((string)$code));
+    if ($code === '') return null;
+    $stmt = $pdo->prepare("SELECT discount_pct FROM coupons WHERE code = ? AND is_active = 1 AND expires_at > NOW()");
+    $stmt->execute([$code]);
+    $pct = $stmt->fetchColumn();
+    return $pct !== false ? (float)$pct : null;
 }
 
 // ============================================================

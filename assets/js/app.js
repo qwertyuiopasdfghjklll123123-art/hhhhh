@@ -3,9 +3,9 @@
             function planIconHtml(icon, iconImage, size) {
                 size = size || 28;
                 if (iconImage) {
-                    return `<img src="${iconImage}" alt="" style="width:${size}px;height:${size}px;object-fit:cover;border-radius:8px;vertical-align:middle">`;
+                    return `<img src="${escapeHtml(iconImage)}" alt="" style="width:${size}px;height:${size}px;object-fit:cover;border-radius:8px;vertical-align:middle">`;
                 }
-                return icon || '';
+                return escapeHtml(icon || '');
             }
 
             // ============================================================
@@ -229,9 +229,9 @@
                     const c = CURRENCIES[code];
                     const isSelected = code === current;
                     return `
-                    <div class="picker-option ${isSelected ? 'selected' : ''}" onclick="chooseCurrency('${code}')">
-                        <div class="picker-option-symbol">${c.symbol}</div>
-                        <div class="picker-option-main"><strong>${c.name}</strong><span>${code}</span></div>
+                    <div class="picker-option ${isSelected ? 'selected' : ''}" onclick="chooseCurrency('${escapeHtml(code)}')">
+                        <div class="picker-option-symbol">${escapeHtml(c.symbol)}</div>
+                        <div class="picker-option-main"><strong>${escapeHtml(c.name)}</strong><span>${escapeHtml(code)}</span></div>
                         ${isSelected ? '<i class="fas fa-check picker-option-check"></i>' : ''}
                     </div>
                 `;
@@ -439,35 +439,35 @@
                 document.getElementById('hostingDetailContent').innerHTML = `
                     <div class="detail-row">
                         <span class="label">${t('server_id')}</span>
-                        <span class="value" style="direction:ltr">#${hosting.vps_id || hosting.id}</span>
+                        <span class="value" style="direction:ltr">#${escapeHtml(hosting.vps_id || hosting.id)}</span>
                     </div>
                     <div class="detail-row">
                         <span class="label">${t('hosting_name')}</span>
-                        <span class="value">${hosting.name}</span>
+                        <span class="value">${escapeHtml(hosting.name)}</span>
                     </div>
                     <div class="detail-row">
                         <span class="label">${t('plan_label')}</span>
-                        <span class="value">${hosting.plan}</span>
+                        <span class="value">${escapeHtml(hosting.plan)}</span>
                     </div>
                     <div class="detail-row">
                         <span class="label">${t('ip_address')}</span>
                         <span class="value">
-                            ${hosting.ip}
-                            <button class="copy-btn" onclick="copyText('${hosting.ip}')" title="نسخ"><i class="fas fa-copy"></i></button>
+                            ${escapeHtml(hosting.ip)}
+                            <button class="copy-btn" data-copy="${escapeHtml(hosting.ip)}" onclick="copyText(this.dataset.copy)" title="نسخ"><i class="fas fa-copy"></i></button>
                         </span>
                     </div>
                     <div class="detail-row">
                         <span class="label">${t('username')}</span>
                         <span class="value">
-                            ${hosting.username}
-                            <button class="copy-btn" onclick="copyText('${hosting.username}')" title="نسخ"><i class="fas fa-copy"></i></button>
+                            ${escapeHtml(hosting.username)}
+                            <button class="copy-btn" data-copy="${escapeHtml(hosting.username)}" onclick="copyText(this.dataset.copy)" title="نسخ"><i class="fas fa-copy"></i></button>
                         </span>
                     </div>
                     <div class="detail-row">
                         <span class="label">${t('password')}</span>
                         <span class="value password">
-                            ${hosting.password}
-                            <button class="copy-btn" onclick="copyText('${hosting.password}')" title="نسخ"><i class="fas fa-copy"></i></button>
+                            ${escapeHtml(hosting.password)}
+                            <button class="copy-btn" data-copy="${escapeHtml(hosting.password)}" onclick="copyText(this.dataset.copy)" title="نسخ"><i class="fas fa-copy"></i></button>
                         </span>
                     </div>
                     <div class="detail-row">
@@ -476,7 +476,7 @@
                     </div>
                     <div class="detail-row">
                         <span class="label">${t('expiry_date')}</span>
-                        <span class="value">${hosting.expiry_date}</span>
+                        <span class="value">${escapeHtml(hosting.expiry_date)}</span>
                     </div>
                     ${isExpired && hosting.pending_renewal ? `
                     <div class="form-alert-inline" style="text-align:center"><i class="fas fa-clock"></i> ${t('renewal_pending_msg')}</div>
@@ -596,7 +596,7 @@
             // ============================================================
             // معالج طلب VPS
             // ============================================================
-            let wizardState = { planId: null, billingCycle: 'monthly' };
+            let wizardState = { planId: null, billingCycle: 'monthly', couponCode: null, couponDiscountPct: 0 };
 
             function planDiscountPct(plan) {
                 const original = Number(plan.original_price) || 0;
@@ -616,6 +616,12 @@
                 if (REFERRAL_ELIGIBLE && REFERRAL_DISCOUNT_PCT > 0) {
                     result.price = Math.round(result.price * (1 - REFERRAL_DISCOUNT_PCT / 100) * 100) / 100;
                     result.referralApplied = true;
+                }
+                result.couponApplied = false;
+                if (wizardState.couponCode && wizardState.couponDiscountPct > 0) {
+                    result.price = Math.round(result.price * (1 - wizardState.couponDiscountPct / 100) * 100) / 100;
+                    result.couponApplied = true;
+                    result.couponPct = wizardState.couponDiscountPct;
                 }
                 return result;
             }
@@ -641,11 +647,11 @@
                         <div class="radio-circle ${wizardState.planId === Number(plan.id) ? 'checked' : ''}"><i class="fas fa-check"></i></div>
                         <div class="info">
                             <div class="top-row">
-                                <span class="plan-title">${planIconHtml(plan.icon, plan.icon_image)} ${plan.name}</span>
+                                <span class="plan-title">${planIconHtml(plan.icon, plan.icon_image)} ${escapeHtml(plan.name)}</span>
                                 <span class="plan-price">${p.discountPct ? `<s style="font-size:11px;font-weight:600;color:var(--text-muted)" data-usd="${p.original}">${p.original}$</s> ` : ''}<span data-usd="${p.price}">${p.price}$</span><small style="font-size:10px;font-weight:600;color:var(--text-muted)">${p.suffix}</small></span>
                             </div>
-                            <div class="plan-meta">${plan.cpu} · ${plan.ram} RAM · ${plan.storage}</div>
-                            ${plan.badge ? `<span class="pill pill-gold" style="margin-top:6px">${plan.badge}</span>` : ''}
+                            <div class="plan-meta">${escapeHtml(plan.cpu)} · ${escapeHtml(plan.ram)} RAM · ${escapeHtml(plan.storage)}</div>
+                            ${plan.badge ? `<span class="pill pill-gold" style="margin-top:6px">${escapeHtml(plan.badge)}</span>` : ''}
                             ${p.discountPct ? `<span class="pill" style="margin-top:6px;margin-right:4px;background:rgba(239,68,68,.12);color:#ef4444">خصم ${p.discountPct}%</span>` : ''}
                         </div>
                     </div>
@@ -678,10 +684,10 @@
                 const p = planPriceForCycle(plan);
                 document.getElementById('planDetailsPrice').innerHTML = `${p.discountPct ? `<s style="font-size:16px;color:var(--text-muted);margin-left:6px" data-usd="${p.original}">${p.original}$</s>` : ''}<span data-usd="${p.price}">${p.price}$</span> <small style="font-size:13px;color:var(--text-muted)">${p.suffix}</small>${p.referralApplied ? `<div style="font-size:11px;font-weight:700;color:#059669;margin-top:4px"><i class="fas fa-gift"></i> يشمل خصم دعوة ${REFERRAL_DISCOUNT_PCT}%</div>` : ''}`;
                 document.getElementById('planDetailsSpecs').innerHTML = `
-                    <div class="detail-row"><span class="label">${t('cpu')}</span><span class="value">${plan.cpu}</span></div>
-                    <div class="detail-row"><span class="label">${t('ram')}</span><span class="value">${plan.ram}</span></div>
-                    <div class="detail-row"><span class="label">${t('storage')}</span><span class="value">${plan.storage}</span></div>
-                    <div class="detail-row"><span class="label">${t('bandwidth')}</span><span class="value">${plan.bandwidth}</span></div>
+                    <div class="detail-row"><span class="label">${t('cpu')}</span><span class="value">${escapeHtml(plan.cpu)}</span></div>
+                    <div class="detail-row"><span class="label">${t('ram')}</span><span class="value">${escapeHtml(plan.ram)}</span></div>
+                    <div class="detail-row"><span class="label">${t('storage')}</span><span class="value">${escapeHtml(plan.storage)}</span></div>
+                    <div class="detail-row"><span class="label">${t('bandwidth')}</span><span class="value">${escapeHtml(plan.bandwidth)}</span></div>
                     <div class="detail-row"><span class="label">${t('os')}</span><span class="value">Ubuntu 22.04</span></div>
                     <div class="detail-row"><span class="label">${t('server_location')}</span><span class="value">Frankfurt, Germany</span></div>
                 `;
@@ -694,11 +700,12 @@
                 const p = planPriceForCycle(plan);
                 const cycleLabel = wizardState.billingCycle === 'yearly' ? t('yearly') : t('monthly');
                 document.getElementById('orderSummaryContent').innerHTML = `
-                    <div class="detail-row"><span class="label">${t('plan_label')}</span><span class="value">${planIconHtml(plan.icon, plan.icon_image)} ${plan.name}</span></div>
+                    <div class="detail-row"><span class="label">${t('plan_label')}</span><span class="value">${planIconHtml(plan.icon, plan.icon_image)} ${escapeHtml(plan.name)}</span></div>
                     <div class="detail-row"><span class="label">${t('server_location')}</span><span class="value">Frankfurt, Germany</span></div>
                     <div class="detail-row"><span class="label">${t('os')}</span><span class="value">Ubuntu 22.04</span></div>
                     <div class="detail-row"><span class="label">${t('subscription_duration')}</span><span class="value">${cycleLabel}</span></div>
                     ${p.referralApplied ? `<div class="detail-row"><span class="label"><i class="fas fa-gift"></i> خصم دعوة صديق</span><span class="value" style="color:#059669">${REFERRAL_DISCOUNT_PCT}%</span></div>` : ''}
+                    ${p.couponApplied ? `<div class="detail-row"><span class="label"><i class="fas fa-tag"></i> كوبون ${escapeHtml(wizardState.couponCode)}</span><span class="value" style="color:#059669">${p.couponPct}%</span></div>` : ''}
                     <div class="detail-row"><span class="label">${t('price')}</span><span class="value" data-usd="${p.price}">${p.price}$${p.suffix}</span></div>
                 `;
                 document.getElementById('paymentTotalAmount').setAttribute('data-usd', p.price);
@@ -737,8 +744,8 @@
                     <div class="pay-option ${wizardState.paymentMethod === opt.id ? 'selected' : ''}" onclick="wizardSelectPayment('${opt.id}')">
                         ${opt.logo ? `<div class="pm-logo-wrap"><img src="${opt.logo}" alt=""></div>` : `<div class="icon-wrap ${opt.color}"><i class="fas ${opt.icon}"></i></div>`}
                         <div style="flex:1">
-                            <div class="title">${opt.title}</div>
-                            <div class="sub">${opt.sub}</div>
+                            <div class="title">${escapeHtml(opt.title)}</div>
+                            <div class="sub">${escapeHtml(opt.sub)}</div>
                         </div>
                         <div class="radio-circle ${wizardState.paymentMethod === opt.id ? 'checked' : ''}"><i class="fas fa-check"></i></div>
                     </div>
@@ -766,8 +773,8 @@
                     uploadWrap.classList.remove('hidden');
                     proofInput.required = true;
                     document.getElementById('payInstructionsBox').innerHTML = `
-                        <div class="detail-row"><span class="label">حوّل إلى</span><span class="value">${selected.account_number || '-'}</span></div>
-                        ${selected.instructions ? `<div class="detail-row"><span class="label">ملاحظة</span><span class="value" style="direction:rtl;text-align:right;font-weight:400;font-size:12px">${selected.instructions}</span></div>` : ''}
+                        <div class="detail-row"><span class="label">حوّل إلى</span><span class="value">${escapeHtml(selected.account_number || '-')}</span></div>
+                        ${selected.instructions ? `<div class="detail-row"><span class="label">ملاحظة</span><span class="value" style="direction:rtl;text-align:right;font-weight:400;font-size:12px">${escapeHtml(selected.instructions)}</span></div>` : ''}
                     `;
                     if (submitBtnLabel) submitBtnLabel.textContent = t('pay_now');
                 } else if (selected && selected.binance) {
@@ -780,9 +787,9 @@
                     const amountUsd = plan ? planPriceForCycle(plan).price : 0;
                     document.getElementById('binancePayInfo').innerHTML = `
                         <div class="hosting-detail">
-                            <div class="detail-row"><span class="label">المبلغ المطلوب</span><span class="value">${formatUsd(amountUsd)}</span></div>
+                            <div class="detail-row"><span class="label">المبلغ المطلوب</span><span class="value" style="direction:ltr">$${amountUsd.toFixed(2)}</span></div>
                             <div class="detail-row"><span class="label">الدفع عبر</span><span class="value">Binance Pay</span></div>
-                            ${selected.binanceId ? `<div class="detail-row"><span class="label">Binance Pay ID</span><span class="value" style="direction:ltr">${selected.binanceId}</span></div>` : ''}
+                            ${selected.binanceId ? `<div class="detail-row"><span class="label">Binance Pay ID</span><span class="value" style="direction:ltr">${escapeHtml(selected.binanceId)}</span></div>` : ''}
                         </div>
                         ${selected.qrCode ? `<div style="text-align:center;margin-top:10px"><img src="${selected.qrCode}" alt="QR" style="width:150px;height:150px;object-fit:contain;border-radius:var(--radius-sm);border:1px solid var(--border-color)"></div>` : ''}
                     `;
@@ -807,6 +814,52 @@
 
             function wizardSelectPayment(id) {
                 wizardState.paymentMethod = id;
+                renderPayOptions();
+                checkBalanceSufficiency();
+            }
+
+            function wizardApplyCouponFromHome(code) {
+                showSection('vps');
+                wizardGoTo('plan');
+                const input = document.getElementById('couponCodeInput');
+                if (input) input.value = code;
+                applyCoupon();
+            }
+
+            async function applyCoupon() {
+                const input = document.getElementById('couponCodeInput');
+                const feedback = document.getElementById('couponFeedback');
+                const hiddenField = document.getElementById('orderCouponCode');
+                const code = input.value.trim().toUpperCase();
+                if (!code) return;
+
+                feedback.style.color = '';
+                feedback.textContent = 'جاري التحقق...';
+                try {
+                    const res = await fetch('index.php?ajax=apply_coupon', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ csrf_token: CSRF_TOKEN, code: code }),
+                    });
+                    const data = await res.json();
+                    if (!res.ok || data.error) {
+                        wizardState.couponCode = null;
+                        wizardState.couponDiscountPct = 0;
+                        hiddenField.value = '';
+                        feedback.style.color = '#ef4444';
+                        feedback.textContent = data.error || 'كود الكوبون غير صالح.';
+                    } else {
+                        wizardState.couponCode = data.code;
+                        wizardState.couponDiscountPct = data.discount_pct;
+                        hiddenField.value = data.code;
+                        feedback.style.color = '#059669';
+                        feedback.textContent = `تم تطبيق خصم ${data.discount_pct}% بنجاح ✅`;
+                    }
+                } catch (err) {
+                    feedback.style.color = '#ef4444';
+                    feedback.textContent = 'تعذر الاتصال بالسيرفر، حاول مجدداً.';
+                }
+                renderOrderSummary();
                 renderPayOptions();
                 checkBalanceSufficiency();
             }
@@ -854,6 +907,7 @@
                             plan_id: document.getElementById('orderPlanId').value,
                             payment_method_id: document.getElementById('orderPaymentMethodId').value,
                             binance_order_id: binanceOrderId,
+                            coupon_code: wizardState.couponCode || '',
                         }),
                     });
                     const data = await res.json();
@@ -898,7 +952,13 @@
                 document.getElementById('vpsStep' + step.charAt(0).toUpperCase() + step.slice(1)).classList.remove('hidden');
 
                 if (step === 'plan') {
-                    wizardState = { planId: null, paymentMethod: null, billingCycle: 'monthly' };
+                    wizardState = { planId: null, paymentMethod: null, billingCycle: 'monthly', couponCode: null, couponDiscountPct: 0 };
+                    const couponInputEl = document.getElementById('couponCodeInput');
+                    if (couponInputEl) couponInputEl.value = '';
+                    const couponFeedbackEl = document.getElementById('couponFeedback');
+                    if (couponFeedbackEl) couponFeedbackEl.textContent = '';
+                    const orderCouponCodeEl = document.getElementById('orderCouponCode');
+                    if (orderCouponCodeEl) orderCouponCodeEl.value = '';
                     document.getElementById('billingTabMonthly')?.classList.add('active');
                     document.getElementById('billingTabYearly')?.classList.remove('active');
                     renderPlanList();
@@ -937,15 +997,22 @@
                 document.getElementById('paymentMethodName').textContent = 'شحن عبر ' + methodName;
                 document.getElementById('topUpPaymentMethodId').value = methodId;
                 document.getElementById('topUpInstructions').innerHTML = `
-                    <div class="detail-row"><span class="label">حوّل إلى</span><span class="value">${accountNumber || '-'}</span></div>
-                ` + (instructions ? `<div class="detail-row"><span class="label">ملاحظة</span><span class="value" style="direction:rtl;text-align:right;font-weight:400;font-size:12px">${instructions}</span></div>` : '');
+                    <div class="detail-row"><span class="label">حوّل إلى</span><span class="value">${escapeHtml(accountNumber || '-')}</span></div>
+                ` + (instructions ? `<div class="detail-row"><span class="label">ملاحظة</span><span class="value" style="direction:rtl;text-align:right;font-weight:400;font-size:12px">${escapeHtml(instructions)}</span></div>` : '');
                 document.getElementById('paymentPage').classList.remove('hidden');
                 document.getElementById('addBalanceSection').classList.add('hidden');
 
                 const code = detectCurrencyCode();
                 const cur = CURRENCIES[code];
-                document.getElementById('topUpCurrencyLabel').textContent = cur ? (code + ' ' + cur.symbol) : '$';
-                document.getElementById('topUpAmountInput').value = '';
+                const amountInput = document.getElementById('topUpAmountInput');
+                if (methodType === 'binance') {
+                    document.getElementById('topUpCurrencyLabel').textContent = '$';
+                    amountInput.placeholder = 'أدخل المبلغ بالدولار الأمريكي';
+                } else {
+                    document.getElementById('topUpCurrencyLabel').textContent = cur ? (code + ' ' + cur.symbol) : '$';
+                    amountInput.placeholder = 'أدخل المبلغ';
+                }
+                amountInput.value = '';
                 document.getElementById('topUpAmountUsd').value = '';
                 document.getElementById('topUpUsdHint').textContent = '';
                 topUpManualExchangeRate = methodType === 'manual' ? (parseFloat(exchangeRate) || 0) : 0;
@@ -1074,9 +1141,9 @@
                 const { binanceId, qrCode } = topUpBinanceState;
                 document.getElementById('topUpBinancePayInfo').innerHTML = `
                     <div class="hosting-detail">
-                        <div class="detail-row"><span class="label">المبلغ المطلوب</span><span class="value">${formatUsd(amountUsd)}</span></div>
+                        <div class="detail-row"><span class="label">المبلغ المطلوب</span><span class="value" style="direction:ltr">$${amountUsd.toFixed(2)}</span></div>
                         <div class="detail-row"><span class="label">الدفع عبر</span><span class="value">Binance Pay</span></div>
-                        ${binanceId ? `<div class="detail-row"><span class="label">Binance Pay ID</span><span class="value" style="direction:ltr">${binanceId}</span></div>` : ''}
+                        ${binanceId ? `<div class="detail-row"><span class="label">Binance Pay ID</span><span class="value" style="direction:ltr">${escapeHtml(binanceId)}</span></div>` : ''}
                     </div>
                     ${qrCode ? `<div style="text-align:center;margin-top:10px"><img src="${qrCode}" alt="QR" style="width:150px;height:150px;object-fit:contain;border-radius:var(--radius-sm);border:1px solid var(--border-color)"></div>` : ''}
                 `;
@@ -1152,6 +1219,7 @@
                     if (ctx === 'order') {
                         payload.payment_method_id = document.getElementById('orderPaymentMethodId').value;
                         payload.plan_id = document.getElementById('orderPlanId').value;
+                        payload.coupon_code = wizardState.couponCode || '';
                     } else {
                         syncTopUpAmountUsd();
                         payload.payment_method_id = document.getElementById('topUpPaymentMethodId').value;
@@ -1272,12 +1340,23 @@
                 const input = document.getElementById('topUpAmountInput');
                 const hidden = document.getElementById('topUpAmountUsd');
                 const hint = document.getElementById('topUpUsdHint');
-                const code = detectCurrencyCode();
-                const cur = CURRENCIES[code] || { rate: 1 };
                 const entered = parseFloat(input.value) || 0;
-                const usd = cur.rate ? (entered / cur.rate) : entered;
+                const pm = PAYMENT_METHODS.find(p => String(p.id) === document.getElementById('topUpPaymentMethodId').value);
+                const isBinance = !!(pm && pm.method_type === 'binance');
+
+                // Binance Pay يُسوّى بالدولار (USDT) حصراً، فالمبلغ المُدخل هو ذاته المبلغ بالدولار
+                // دون أي تحويل من عملة العرض المكتشفة تلقائياً - لتفادي أي فارق تقريب مع ما يرسله العميل فعلياً عبر Binance
+                let usd;
+                if (isBinance) {
+                    usd = entered;
+                    hint.textContent = '';
+                } else {
+                    const code = detectCurrencyCode();
+                    const cur = CURRENCIES[code] || { rate: 1 };
+                    usd = cur.rate ? (entered / cur.rate) : entered;
+                    hint.textContent = (entered > 0 && code !== 'USD') ? ('≈ ' + usd.toFixed(2) + ' $') : '';
+                }
                 hidden.value = usd.toFixed(2);
-                hint.textContent = (entered > 0 && code !== 'USD') ? ('≈ ' + usd.toFixed(2) + ' $') : '';
 
                 const manualHint = document.getElementById('topUpManualIqdHint');
                 if (manualHint) {
@@ -1286,8 +1365,7 @@
                         : '';
                 }
 
-                const pm = PAYMENT_METHODS.find(p => String(p.id) === document.getElementById('topUpPaymentMethodId').value);
-                if (pm && pm.method_type === 'binance' && !document.getElementById('topUpBinanceWrap').classList.contains('hidden')) {
+                if (isBinance && !document.getElementById('topUpBinanceWrap').classList.contains('hidden')) {
                     updateTopUpBinancePayInfo();
                 }
             }
@@ -1306,7 +1384,7 @@
                 document.getElementById('invoiceDetailContent').innerHTML = `
                     <div class="detail-row">
                         <span class="label">رقم الفاتورة</span>
-                        <span class="value">${invoice.number}</span>
+                        <span class="value">${escapeHtml(invoice.number)}</span>
                     </div>
                     <div class="detail-row">
                         <span class="label">المبلغ</span>
@@ -1318,7 +1396,7 @@
                     </div>
                     <div class="detail-row">
                         <span class="label">الوصف</span>
-                        <span class="value">${invoice.description || 'لا يوجد وصف'}</span>
+                        <span class="value">${escapeHtml(invoice.description || 'لا يوجد وصف')}</span>
                     </div>
                 `;
                 applyCurrencyDisplay(document.getElementById('invoiceDetailContent'));
@@ -1347,13 +1425,13 @@
                 const cycleLabel = order.billing_cycle === 'yearly' ? t('yearly') : t('monthly');
 
                 document.getElementById('orderDetailContent').innerHTML = `
-                    <div class="detail-row"><span class="label">${t('plan_label')}</span><span class="value">${planIconHtml(order.plan_icon, order.plan_icon_image)} ${order.plan_name}</span></div>
+                    <div class="detail-row"><span class="label">${t('plan_label')}</span><span class="value">${planIconHtml(order.plan_icon, order.plan_icon_image)} ${escapeHtml(order.plan_name)}</span></div>
                     <div class="detail-row"><span class="label">${t('price')}</span><span class="value" data-usd="${order.amount}">$${Number(order.amount).toFixed(2)}</span></div>
                     <div class="detail-row"><span class="label">${t('subscription_duration')}</span><span class="value">${cycleLabel}</span></div>
                     <div class="detail-row"><span class="label">${t('status')}</span><span class="value"><span class="pill ${statusClass}">${statusText}</span></span></div>
-                    <div class="detail-row"><span class="label">${t('order_date')}</span><span class="value">${(order.created_at || '').substring(0, 10)}</span></div>
+                    <div class="detail-row"><span class="label">${t('order_date')}</span><span class="value">${escapeHtml((order.created_at || '').substring(0, 10))}</span></div>
                     ${order.renewal_hosting_id ? `<div class="detail-row"><span class="label">${t('order_type')}</span><span class="value">${t('renewal_order')}</span></div>` : ''}
-                    ${order.status === 'rejected' && order.admin_note ? `<div class="detail-row"><span class="label">${t('admin_note')}</span><span class="value" style="direction:rtl;text-align:right;font-weight:400;font-size:12px">${order.admin_note}</span></div>` : ''}
+                    ${order.status === 'rejected' && order.admin_note ? `<div class="detail-row"><span class="label">${t('admin_note')}</span><span class="value" style="direction:rtl;text-align:right;font-weight:400;font-size:12px">${escapeHtml(order.admin_note)}</span></div>` : ''}
                 `;
                 applyCurrencyDisplay(document.getElementById('orderDetailContent'));
 
