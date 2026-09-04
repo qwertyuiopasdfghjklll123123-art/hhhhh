@@ -1,3 +1,6 @@
 # رابط نظيف للتطبيق بعد تسجيل الدخول: /app بدل /index.php?app=1
 RewriteEngine On
 RewriteRule ^app/?$ index.php?app=1 [L,QSA]
+
+# رابط نظيف لمشاركة الإحالة: /r/الكود بدل /index.php?ref=الكود
+RewriteRule ^r/([A-Za-z0-9]+)/?$ index.php?ref=$1 [L,QSA]

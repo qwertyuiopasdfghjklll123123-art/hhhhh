@@ -1564,10 +1564,11 @@ function includeAppPage(PDO $pdo) {
     $siteName = getSetting($pdo, 'site_name', 'استضافتي');
     $siteLogo = getSetting($pdo, 'site_logo', '');
     $aiLogo = getSetting($pdo, 'ai_logo', '');
+    $supportWhatsapp = getSetting($pdo, 'support_whatsapp', '');
     $referralDiscountPct = (float)getSetting($pdo, 'referral_discount_pct', 0);
     $myReferralCode = getOrCreateReferralCode($pdo, $user);
     $referralScheme = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http';
-    $referralLink = $referralScheme . '://' . $_SERVER['HTTP_HOST'] . '/index.php?ref=' . $myReferralCode;
+    $referralLink = $referralScheme . '://' . $_SERVER['HTTP_HOST'] . '/r/' . $myReferralCode;
 
     // عملية آسياسيل غير مكتملة (تم تحويل جزء منها فعلياً) تبقى في الجلسة حتى يُكملها العميل أو يُلغيها صراحةً
     $asiacellPending = null;
@@ -2111,8 +2112,8 @@ function includeAppPage(PDO $pdo) {
                 <!-- الرصيد -->
                 <div class="card" style="background:linear-gradient(135deg, #ffa64d, #ff7a1a, #f26a00);border:none;color:#ffffff;text-align:center">
                     <div style="font-size:14px;opacity:.8">الرصيد الحالي</div>
-                    <div style="font-size:36px;font-weight:900" data-usd="<?php echo (float)$balance; ?>">$<?php echo number_format($balance, 2); ?></div>
-                    <button class="btn-gold" style="padding:10px;font-size:14px;margin-top:8px;width:auto;display:inline-flex" onclick="showAddBalance()">
+                    <div style="font-size:36px;font-weight:900;margin:8px 0 4px" data-usd="<?php echo (float)$balance; ?>">$<?php echo number_format($balance, 2); ?></div>
+                    <button style="padding:12px 22px;font-size:14px;margin-top:10px;width:auto;display:inline-flex;align-items:center;gap:8px;background:#ffffff;color:#ee6a05;border:none;border-radius:999px;font-weight:800;cursor:pointer;box-shadow:0 6px 20px rgba(0,0,0,.12)" onclick="showAddBalance()">
                         <i class="fas fa-plus-circle"></i> إضافة رصيد
                     </button>
                 </div>
@@ -2495,7 +2496,8 @@ function includeAppPage(PDO $pdo) {
                             <i class="fas fa-headset"></i> الدعم والتواصل
                         </div>
                         
-                        <div class="settings-item" onclick="window.open('https://wa.me/9647701234567', '_blank')">
+                        <?php if ($supportWhatsapp !== ''): ?>
+                        <div class="settings-item" onclick="window.open('https://wa.me/<?php echo e($supportWhatsapp); ?>', '_blank')">
                             <div class="left">
                                 <div class="icon-wrap green"><i class="fab fa-whatsapp"></i></div>
                                 <div class="text">
@@ -2507,7 +2509,8 @@ function includeAppPage(PDO $pdo) {
                                 <i class="fas fa-chevron-left chevron"></i>
                             </div>
                         </div>
-                        
+                        <?php endif; ?>
+
                         <div class="settings-item">
                             <div class="left">
                                 <div class="icon-wrap purple"><i class="fas fa-envelope"></i></div>

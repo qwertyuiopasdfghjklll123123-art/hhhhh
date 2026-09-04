@@ -149,6 +149,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if ($qrCodeErr) {
             adminRedirect('payments', null, $qrCodeErr);
         }
+        [$binanceLogoPath, $binanceLogoErr] = handleImageUpload('binance_logo', LOGOS_DIR, 'uploads/logos');
+        if ($binanceLogoErr) {
+            adminRedirect('payments', null, $binanceLogoErr);
+        }
 
         $methodExtras = json_encode([
             'api_key' => $binanceApiKey !== '' ? $binanceApiKey : ($existingExtras['api_key'] ?? ''),
@@ -156,8 +160,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             'binance_id' => $binanceId,
             'qr_code' => $qrCodePath ?: ($existingExtras['qr_code'] ?? ''),
         ]);
-        $pdo->prepare('UPDATE payment_methods SET is_active = ?, method_extras = ? WHERE id = ?')
-            ->execute([$isActive, $methodExtras, $row['id']]);
+        if ($binanceLogoPath) {
+            $pdo->prepare('UPDATE payment_methods SET is_active=?, logo_path=?, method_extras=? WHERE id=?')
+                ->execute([$isActive, $binanceLogoPath, $methodExtras, $row['id']]);
+        } else {
+            $pdo->prepare('UPDATE payment_methods SET is_active = ?, method_extras = ? WHERE id = ?')
+                ->execute([$isActive, $methodExtras, $row['id']]);
+        }
         adminRedirect('payments', 'تم حفظ إعدادات Binance Pay بنجاح.');
     }
 
@@ -376,6 +385,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             setSetting($pdo, 'google_client_secret', trim($_POST['google_client_secret']));
         }
         setSetting($pdo, 'app_currency', trim($_POST['app_currency'] ?? ''));
+        setSetting($pdo, 'support_whatsapp', preg_replace('/[^0-9]/', '', $_POST['support_whatsapp'] ?? ''));
         $referralPct = (float)($_POST['referral_discount_pct'] ?? 0);
         if ($referralPct < 0) $referralPct = 0;
         if ($referralPct > 100) $referralPct = 100;
@@ -887,6 +897,13 @@ function renderAdminPayments(PDO $pdo) {
                     <?php endif; ?>
                     <input type="file" name="binance_qr_code" class="text-input" accept="image/png,image/jpeg,image/webp">
                 </div>
+                <div class="field-row">
+                    <label class="field-label">الشعار (صورة، اختياري)</label>
+                    <?php if (!empty($binance['logo_path'])): ?>
+                    <div style="margin-bottom:6px"><img src="<?php echo e($binance['logo_path']); ?>" alt="" style="width:64px;height:64px;object-fit:cover;border-radius:8px;border:1px solid var(--border-color)"></div>
+                    <?php endif; ?>
+                    <input type="file" name="binance_logo" class="text-input" accept="image/png,image/jpeg,image/webp">
+                </div>
             </div>
             <div class="checkbox-row"><input type="checkbox" name="is_active" id="binanceActive" <?php echo $binance['is_active'] ? 'checked' : ''; ?>><label for="binanceActive">مفعّلة وتظهر للمستخدمين</label></div>
             <button type="submit" class="btn btn-accent btn-sm"><i class="fas fa-floppy-disk"></i> حفظ إعدادات Binance</button>
@@ -1068,6 +1085,11 @@ function renderAdminSettings(PDO $pdo) {
                         <?php endforeach; ?>
                     </select>
                 </div>
+                <div class="field-row">
+                    <label class="field-label">رقم واتساب الدعم الفني</label>
+                    <input type="text" name="support_whatsapp" class="text-input" dir="ltr" value="<?php echo e($s['support_whatsapp'] ?? ''); ?>" placeholder="9647701234567">
+                    <p style="font-size:11px;color:var(--text-muted);margin-top:4px">بصيغة دولية بدون + أو أصفار في البداية (مثال: 9647701234567). زر واتساب في تطبيق العملاء يفتح محادثة مباشرة مع هذا الرقم.</p>
+                </div>
             </div>
         </div>
 
@@ -1198,9 +1220,25 @@ function renderAdminBackups(PDO $pdo) {
     $scheme = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http';
     $cronSecret = getOrCreateCronSecret($pdo);
     $backupCronUrl = $scheme . '://' . $_SERVER['HTTP_HOST'] . '/backup_cron.php?key=' . $cronSecret;
+    $renewalCronUrl = $scheme . '://' . $_SERVER['HTTP_HOST'] . '/cron.php?key=' . $cronSecret;
     $lastRun = $s['backup_last_run'] ?? '';
     $lastStatus = $s['backup_last_status'] ?? '';
     ?>
+    <div class="admin-card">
+        <div class="admin-card-header"><h2><i class="fas fa-key"></i> روابط مهام Cron الخاصة بالنظام</h2></div>
+        <p style="font-size:12px;color:var(--text-muted);margin-bottom:12px;line-height:1.8">
+            هذان الرابطان خاصان بحسابك فقط، ولا يظهران لغيرك. أضفهما كمهام Cron Job من لوحة استضافتك ليعملا تلقائياً.
+        </p>
+        <div class="field-row">
+            <label class="field-label">تجديد الاستضافات تلقائياً (يومياً)</label>
+            <div class="text-input" style="direction:ltr;text-align:left;font-family:monospace;font-size:12px;user-select:all;word-break:break-all"><?php echo e($renewalCronUrl); ?></div>
+        </div>
+        <div class="field-row" style="margin-bottom:0">
+            <label class="field-label">النسخ الاحتياطي عبر تيليجرام (كل 6 ساعات)</label>
+            <div class="text-input" style="direction:ltr;text-align:left;font-family:monospace;font-size:12px;user-select:all;word-break:break-all"><?php echo e($backupCronUrl); ?></div>
+        </div>
+    </div>
+
     <div class="admin-card">
         <div class="admin-card-header"><h2><i class="fab fa-telegram"></i> بوت تيليجرام للنسخ الاحتياطي</h2></div>
         <p style="font-size:12px;color:var(--text-muted);margin-bottom:14px;line-height:1.8">
@@ -1233,10 +1271,8 @@ function renderAdminBackups(PDO $pdo) {
             </span>
         </div>
         <p style="font-size:12px;color:var(--text-muted);margin-bottom:10px;line-height:1.8">
-            أضف الرابط التالي كمهمة Cron Job جديدة (منفصلة عن مهمة التجديد التلقائي الحالية إن وُجدت) من لوحة استضافتك، بحيث يعمل كل 6 ساعات:
+            رابط مهمة الـ Cron موجود أعلاه في بطاقة "روابط مهام Cron". أضفه من لوحة استضافتك ليعمل كل 6 ساعات - مثال جدولة شائع: <span dir="ltr" style="font-family:monospace">0 */6 * * *</span>.
         </p>
-        <div class="text-input" style="direction:ltr;text-align:left;font-family:monospace;font-size:12px;margin-bottom:6px;user-select:all;word-break:break-all"><?php echo e($backupCronUrl); ?></div>
-        <p style="font-size:11px;color:var(--text-muted)">مثال جدولة شائع في لوحات الاستضافة: كل 6 ساعات (0 */6 * * *).</p>
         <?php if ($lastRun): ?>
         <p style="font-size:12px;margin-top:10px">
             آخر محاولة نسخ: <strong><?php echo e($lastRun); ?></strong> -
