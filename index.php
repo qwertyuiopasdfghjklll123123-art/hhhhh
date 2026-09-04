@@ -4079,7 +4079,18 @@ function includeAppPage(PDO $pdo) {
                             </div>
                         </div>
 
-                
+                        <div class="settings-item hidden" id="pwaInstallSettingsItem" onclick="triggerPwaInstall()">
+                            <div class="left">
+                                <div class="icon-wrap blue"><i class="fas fa-mobile-screen-button"></i></div>
+                                <div class="text">
+                                    <div class="title" data-i18n="install_app">تثبيت التطبيق</div>
+                                    <div class="sub" data-i18n="install_app_sub">أضف التطبيق إلى جهازك لوصول أسرع</div>
+                                </div>
+                            </div>
+                            <div class="right">
+                                <i class="fas fa-chevron-left chevron"></i>
+                            </div>
+                        </div>
 
                     </div>
 

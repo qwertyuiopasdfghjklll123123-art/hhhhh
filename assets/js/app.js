@@ -124,15 +124,27 @@
                 deferredInstallPrompt = null;
                 localStorage.setItem('pwaInstallDismissed', '1');
                 document.getElementById('pwaInstallCard')?.classList.add('hidden');
+                updatePwaSettingsItemVisibility();
             });
 
+            // يبقى مخفياً تلقائياً إذا كان التطبيق مثبّتاً فعلاً (يعمل بوضع standalone)؛
+            // يظهر دائماً كطريقة تثبيت ثابتة، بعكس بطاقة الترحيب التي تختفي للأبد بعد إغلاقها مرة
+            function updatePwaSettingsItemVisibility() {
+                document.getElementById('pwaInstallSettingsItem')?.classList.toggle('hidden', isStandalonePwa());
+            }
+            updatePwaSettingsItemVisibility();
+
             async function triggerPwaInstall() {
-                if (!deferredInstallPrompt) return;
+                if (!deferredInstallPrompt) {
+                    alert('التثبيت التلقائي غير متاح الآن من هذا المتصفح.\nافتح قائمة المتصفح (⋮) واختر "تثبيت التطبيق" أو "إضافة إلى الشاشة الرئيسية" لتثبيته كتطبيق حقيقي.');
+                    return;
+                }
                 deferredInstallPrompt.prompt();
                 await deferredInstallPrompt.userChoice;
                 deferredInstallPrompt = null;
                 localStorage.setItem('pwaInstallDismissed', '1');
                 document.getElementById('pwaInstallCard')?.classList.add('hidden');
+                updatePwaSettingsItemVisibility();
             }
 
             function requestNotifPermission() {
