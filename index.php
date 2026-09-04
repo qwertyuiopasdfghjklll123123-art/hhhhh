@@ -635,8 +635,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
     if ($action === 'settings_save') {
         setSetting($pdo, 'site_name', trim($_POST['site_name'] ?? '') ?: 'استضافتي');
         setSetting($pdo, 'site_tagline', trim($_POST['site_tagline'] ?? ''));
-        setSetting($pdo, 'nvidia_api_key', trim($_POST['nvidia_api_key'] ?? ''));
-        setSetting($pdo, 'nvidia_model', trim($_POST['nvidia_model'] ?? '') ?: 'openai/gpt-oss-120b');
+        setSetting($pdo, 'deepseek_api_key', trim($_POST['deepseek_api_key'] ?? ''));
+        setSetting($pdo, 'deepseek_model', trim($_POST['deepseek_model'] ?? '') ?: 'deepseek-chat');
         setSetting($pdo, 'google_client_id', trim($_POST['google_client_id'] ?? ''));
         if (trim($_POST['google_client_secret'] ?? '') !== '') {
             setSetting($pdo, 'google_client_secret', trim($_POST['google_client_secret']));
@@ -744,7 +744,6 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === 'ai_chat' && $_SERVER['REQUEST_MET
         exit;
     }
 
-    $section = (string)($body['section'] ?? 'home');
     $userMessage = trim((string)($body['message'] ?? ''));
     $history = is_array($body['history'] ?? null) ? array_slice($body['history'], -12) : [];
 
@@ -753,13 +752,8 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === 'ai_chat' && $_SERVER['REQUEST_MET
         exit;
     }
 
-    $systemPrompts = [
-        'home' => 'أنت "المساعد الذكي" داخل تطبيق استضافة خوادم VPS. تساعد المستخدمين في كل ما يخص تنصيب وإدارة وحل مشاكل خوادم VPS وتثبيت البرمجيات والمكتبات اللازمة وتعليمهم خطوة بخطوة، وكل ما يخص استخدام منصتنا (الباقات، الطلبات، الفواتير، الدفع).',
-        'explain' => 'أنت خبير أوامر لينكس وVPS. اشرح أي أمر يرسله المستخدم: ماذا يفعل، متى يُستخدم، ومثال عملي عليه. إن لم يرسل أمراً بل سؤالاً عاماً عن VPS أو لينكس أجب عليه بنفس الروح، وضع الأوامر داخل أسطر كود.',
-        'suggestions' => 'أنت مساعد ذكي متخصص باستضافة المواقع وخوادم VPS، تقدّم اقتراحات ذكية ومفيدة لإدارة السيرفر وتحسين تجربة المستخدم على منصتنا.',
-    ];
-    $systemPrompt = $systemPrompts[$section] ?? $systemPrompts['home'];
-    // قيود ثابتة على كل الأقسام: الإيجاز (لسرعة الرد) والاقتصار على مواضيع VPS/لينكس/منصتنا فقط
+    $systemPrompt = 'أنت "المساعد الذكي" داخل تطبيق استضافة خوادم VPS. تساعد المستخدمين في كل ما يخص تنصيب وإدارة وحل مشاكل خوادم VPS وتثبيت البرمجيات والمكتبات اللازمة وتعليمهم خطوة بخطوة، وكل ما يخص استخدام منصتنا (الباقات، الطلبات، الفواتير، الدفع).';
+    // قيود ثابتة: الإيجاز (لسرعة الرد) والاقتصار على مواضيع VPS/لينكس/منصتنا فقط
     $systemPrompt .= ' أجب بالعربية دائماً، بإيجاز شديد ووضوح (فقرة أو نقاط قصيرة، بدون حشو)، إلا إذا طلب المستخدم صراحة تفصيلاً أكبر.'
         . ' اقتصر حصرياً على مواضيع استضافة السيرفرات (VPS)، إدارة لينكس والسيرفرات، واستخدام منصتنا (الباقات، الطلبات، الفواتير، الدفع، الحساب). '
         . 'إن سألك المستخدم عن أي موضوع آخر لا علاقة له بذلك، اعتذر بلطف بجملة واحدة ووضّح أنك مخصص فقط لمواضيع الاستضافة والسيرفرات، ولا تجب عن السؤال خارج هذا النطاق مهما كان.';
@@ -2094,9 +2088,9 @@ function renderAdminSettings(PDO $pdo) {
 
         <div class="settings-panel hidden" data-panel="ai">
             <div class="admin-card">
-                <div class="admin-card-header"><h2><i class="fas fa-robot"></i> المساعد الذكي (NVIDIA API)</h2></div>
-                <div class="field-row"><label class="field-label">مفتاح API</label><input type="text" name="nvidia_api_key" class="text-input" value="<?php echo e($s['nvidia_api_key'] ?? ''); ?>" dir="ltr" placeholder="nvapi-..."></div>
-                <div class="field-row"><label class="field-label">اسم النموذج (Model)</label><input type="text" name="nvidia_model" class="text-input" value="<?php echo e($s['nvidia_model'] ?? ''); ?>" dir="ltr"></div>
+                <div class="admin-card-header"><h2><i class="fas fa-robot"></i> المساعد الذكي (DeepSeek API)</h2></div>
+                <div class="field-row"><label class="field-label">مفتاح API</label><input type="text" name="deepseek_api_key" class="text-input" value="<?php echo e($s['deepseek_api_key'] ?? ''); ?>" dir="ltr" placeholder="sk-..."></div>
+                <div class="field-row"><label class="field-label">اسم النموذج (Model)</label><input type="text" name="deepseek_model" class="text-input" value="<?php echo e($s['deepseek_model'] ?? ''); ?>" dir="ltr"></div>
                 <div class="field-row">
                     <label class="field-label">شعار المساعد الذكي (اختياري)</label>
                     <?php if (!empty($s['ai_logo'])): ?>
@@ -3235,13 +3229,6 @@ function includeAppPage(PDO $pdo) {
                 </div>
                 <?php endif; ?>
 
-                <div class="quick-grid">
-                    <button class="quick-btn" onclick="showSection('servers')"><i class="fas fa-server"></i>سيرفراتي</button>
-                    <button class="quick-btn" onclick="showSection('invoices')"><i class="fas fa-receipt"></i>فواتير</button>
-                    <button class="quick-btn" onclick="showSection('orders')"><i class="fas fa-list"></i>طلباتي</button>
-                    <button class="quick-btn" onclick="showSection('settings')"><i class="fas fa-gear"></i>إعدادات</button>
-                </div>
-
                 <!-- المساعد الذكي -->
                 <button type="button" class="promo-ai-card has-banner" onclick="enterAI()">
                     <img src="assets/images/ai-assistant-banner.webp" alt="المساعد الذكي" class="promo-ai-banner-img">
@@ -3870,6 +3857,21 @@ function includeAppPage(PDO $pdo) {
                         <i class="fas fa-chevron-left currency-card-chevron"></i>
                     </div>
 
+                    <div class="settings-group">
+                        <div class="settings-item" onclick="showSection('orders')">
+                            <div class="left">
+                                <div class="icon-wrap blue"><i class="fas fa-list"></i></div>
+                                <div class="text">
+                                    <div class="title" data-i18n="my_orders">طلباتي</div>
+                                    <div class="sub" data-i18n="my_orders_sub">تصفّح كل طلبات الاشتراك السابقة وحالتها</div>
+                                </div>
+                            </div>
+                            <div class="right">
+                                <i class="fas fa-chevron-left chevron"></i>
+                            </div>
+                        </div>
+                    </div>
+
                     <?php if ($isAdmin): ?>
                     <div class="settings-group">
                         <div class="group-header">
@@ -4065,21 +4067,7 @@ function includeAppPage(PDO $pdo) {
                         <h3>مرحباً <?php echo htmlspecialchars($user_name); ?>! 👋</h3>
                         <p>كيف يمكنني مساعدتك اليوم؟</p>
                     </div>
-                    <div class="ai-quick-grid">
-                        <button class="ai-quick-card" onclick="showAiView('explain')"><i class="fas fa-terminal"></i><span>شرح أمر</span></button>
-                        <button class="ai-quick-card" onclick="showAiView('suggestions')"><i class="fas fa-lightbulb"></i><span>اقتراحات ذكية</span></button>
-                    </div>
                     <div class="chat-log" id="aiHomeChatLog"></div>
-                </div>
-
-                <!-- شرح أمر -->
-                <div id="aiViewExplain" class="ai-view hidden">
-                    <div class="chat-log" id="aiExplainChatLog"></div>
-                </div>
-
-                <!-- اقتراحات ذكية -->
-                <div id="aiViewSuggestions" class="ai-view hidden">
-                    <div class="chat-log" id="aiSuggestionsChatLog"></div>
                 </div>
 
                 <!-- الأدوات الذكية -->

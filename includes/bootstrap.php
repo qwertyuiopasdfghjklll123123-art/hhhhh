@@ -349,8 +349,8 @@ function initSchema(PDO $pdo, $dbName) {
         $seed->execute(['site_name', 'استضافتي']);
         $seed->execute(['site_tagline', 'استضافة سريعة وآمنة']);
         $seed->execute(['site_logo', '']);
-        $seed->execute(['nvidia_api_key', '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']);
-        $seed->execute(['nvidia_model', 'openai/gpt-oss-120b']);
+        $seed->execute(['deepseek_api_key', '']);
+        $seed->execute(['deepseek_model', 'deepseek-chat']);
         $seed->execute(['google_client_id', '']);
         $seed->execute(['google_client_secret', '']);
         $seed->execute(['app_currency', '']);
@@ -1022,7 +1022,7 @@ function notifyAdmins(PDO $pdo, $title, $body, $type = 'system') {
 }
 
 // ============================================================
-// استدعاء واجهة الذكاء الاصطناعي (متوافقة مع NVIDIA / OpenAI chat completions)
+// استدعاء واجهة الذكاء الاصطناعي (DeepSeek - متوافقة مع OpenAI chat completions)
 // ============================================================
 
 function callAiApi(PDO $pdo, $messages) {
@@ -1030,14 +1030,14 @@ function callAiApi(PDO $pdo, $messages) {
         return [null, 'إضافة cURL غير مُفعّلة على السيرفر، الرجاء تفعيلها من إعدادات الاستضافة لتشغيل المساعد الذكي.'];
     }
 
-    $apiKey = getSetting($pdo, 'nvidia_api_key', '');
-    $model = getSetting($pdo, 'nvidia_model', 'openai/gpt-oss-120b');
+    $apiKey = getSetting($pdo, 'deepseek_api_key', '');
+    $model = getSetting($pdo, 'deepseek_model', 'deepseek-chat');
 
     if ($apiKey === '') {
         return [null, 'لم يتم إعداد مفتاح الذكاء الاصطناعي بعد. الرجاء التواصل مع الإدارة.'];
     }
 
-    $ch = curl_init('https://integrate.api.nvidia.com/v1/chat/completions');
+    $ch = curl_init('https://api.deepseek.com/chat/completions');
     curl_setopt_array($ch, [
         CURLOPT_RETURNTRANSFER => true,
         CURLOPT_POST => true,

@@ -1482,18 +1482,13 @@
 
             const AI_VIEW_TITLES = {
                 home: 'المساعد الذكي',
-                explain: 'شرح أمر',
-                suggestions: 'اقتراحات ذكية',
                 tools: 'الأدوات الذكية',
                 conversations: 'المحادثات',
                 settings: 'إعدادات المساعد'
             };
-            const AI_CHAT_VIEWS = ['home', 'explain', 'suggestions'];
-            const AI_WELCOME_HINTS = {
-                explain: 'اكتب أي أمر لينكس (مثل: sudo apt update) وسأشرحه لك خطوة بخطوة 👇',
-                suggestions: 'اكتب ما تعمل عليه بسيرفرك وسأقترح عليك أفكاراً وخطوات ذكية 💡',
-            };
-            const aiHistories = { home: [], explain: [], suggestions: [] };
+            const AI_CHAT_VIEWS = ['home'];
+            const AI_WELCOME_HINTS = {};
+            const aiHistories = { home: [] };
 
             function showAiView(view) {
                 document.querySelectorAll('.ai-view').forEach(el => el.classList.add('hidden'));

@@ -271,38 +271,6 @@
             .coupon-promo-sub strong { font-weight: 800; letter-spacing: .5px; }
             .coupon-promo-chevron { position: relative; font-size: 14px; opacity: .65; }
 
-            .quick-grid {
-                display: grid;
-                grid-template-columns: repeat(4, 1fr);
-                gap: 8px;
-                margin-bottom: 16px;
-            }
-            .quick-btn {
-                background: var(--bg-card);
-                border: 1px solid var(--border-color);
-                border-radius: var(--radius-sm);
-                padding: 14px 4px;
-                text-align: center;
-                cursor: pointer;
-                font-family: inherit;
-                color: var(--text-primary);
-                font-weight: 600;
-                font-size: 11px;
-                transition: var(--transition);
-            }
-            .quick-btn:hover {
-                border-color: var(--border-active);
-                background: var(--bg-card-hover);
-                transform: translateY(-3px);
-                box-shadow: var(--shadow-sm);
-            }
-            .quick-btn i {
-                font-size: 24px;
-                color: var(--accent);
-                display: block;
-                margin-bottom: 4px;
-            }
-            
             .bottom-nav {
                 position: fixed;
                 bottom: 0;
@@ -1504,26 +1472,6 @@
             }
             .ai-greeting-card h3 { font-size: 17px; font-weight: 800; margin-bottom: 4px; }
             .ai-greeting-card p { font-size: 12px; opacity: .75; }
-            .ai-quick-grid {
-                display: grid;
-                grid-template-columns: 1fr 1fr;
-                gap: 10px;
-                margin-bottom: 16px;
-            }
-            .ai-quick-card {
-                background: var(--bg-secondary);
-                border: 1px solid var(--border-color);
-                border-radius: var(--radius-sm);
-                padding: 16px 10px;
-                text-align: center;
-                cursor: pointer;
-                transition: var(--transition);
-                font-family: inherit;
-                color: var(--text-primary);
-            }
-            .ai-quick-card:hover { border-color: var(--border-active); transform: translateY(-2px); }
-            .ai-quick-card i { font-size: 22px; color: var(--accent); display: block; margin-bottom: 6px; }
-            .ai-quick-card span { font-size: 12px; font-weight: 700; }
 
             .chat-log { display: flex; flex-direction: column; gap: 10px; margin-bottom: 16px; }
             .chat-bubble {
@@ -1626,7 +1574,6 @@
             #aiBottomNav { z-index: 301; }
 
             @media (max-width: 480px) {
-                .quick-grid { grid-template-columns: repeat(2, 1fr); }
                 .vps-grid { grid-template-columns: 1fr; }
                 .container { padding: 12px 14px; }
                 .card { padding: 16px 12px; }
