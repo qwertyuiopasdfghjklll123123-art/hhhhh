@@ -978,7 +978,7 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === 'asiacell_cancel' && $_SERVER['REQ
 
 if (isset($_GET['logout'])) {
     session_destroy();
-    header('Location: index.php');
+    header('Location: .');
     exit;
 }
 
@@ -1058,6 +1058,11 @@ function includeLandingPage(PDO $pdo) {
     <head>
         <meta charset="UTF-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <script>
+            if (window.location.search || /index\.php$/.test(window.location.pathname)) {
+                history.replaceState(null, '', window.location.pathname.replace(/index\.php$/, ''));
+            }
+        </script>
         <title><?php echo e($siteName); ?> - استضافة VPS سريعة وآمنة</title>
         <link rel="preconnect" href="https://fonts.googleapis.com">
         <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -1136,11 +1141,6 @@ function includeLandingPage(PDO $pdo) {
         </section>
 
         <footer class="site-footer">© <?php echo date('Y'); ?> <?php echo e($siteName); ?>. <span data-i18n="all_rights_reserved">جميع الحقوق محفوظة.</span></footer>
-        <script>
-            if (window.location.search || /index\.php$/.test(window.location.pathname)) {
-                history.replaceState(null, '', window.location.pathname.replace(/index\.php$/, ''));
-            }
-        </script>
     </body>
     </html>
     <?php
@@ -1161,6 +1161,11 @@ function includePlansPage(PDO $pdo) {
     <head>
         <meta charset="UTF-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <script>
+            if (window.location.search || /index\.php$/.test(window.location.pathname)) {
+                history.replaceState(null, '', window.location.pathname.replace(/index\.php$/, ''));
+            }
+        </script>
         <title>الخطط والأسعار - <?php echo e($siteName); ?></title>
         <link rel="preconnect" href="https://fonts.googleapis.com">
         <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -1217,11 +1222,6 @@ function includePlansPage(PDO $pdo) {
 
         <footer class="site-footer">© <?php echo date('Y'); ?> <?php echo e($siteName); ?>. <span data-i18n="all_rights_reserved">جميع الحقوق محفوظة.</span></footer>
         <?php echo currencyJsSnippet($pdo); ?>
-        <script>
-            if (window.location.search || /index\.php$/.test(window.location.pathname)) {
-                history.replaceState(null, '', window.location.pathname.replace(/index\.php$/, ''));
-            }
-        </script>
     </body>
     </html>
     <?php
@@ -1242,6 +1242,11 @@ function includePoliciesPage(PDO $pdo, $type) {
     <head>
         <meta charset="UTF-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <script>
+            if (window.location.search || /index\.php$/.test(window.location.pathname)) {
+                history.replaceState(null, '', window.location.pathname.replace(/index\.php$/, ''));
+            }
+        </script>
         <title><?php echo e($title); ?> - <?php echo e($siteName); ?></title>
         <link rel="preconnect" href="https://fonts.googleapis.com">
         <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -1275,11 +1280,6 @@ function includePoliciesPage(PDO $pdo, $type) {
         <div class="policy-content"><?php echo e($content ?: 'لا يوجد محتوى بعد.'); ?></div>
 
         <footer class="site-footer">© <?php echo date('Y'); ?> <?php echo e($siteName); ?>. <span data-i18n="all_rights_reserved">جميع الحقوق محفوظة.</span></footer>
-        <script>
-            if (window.location.search || /index\.php$/.test(window.location.pathname)) {
-                history.replaceState(null, '', window.location.pathname.replace(/index\.php$/, ''));
-            }
-        </script>
     </body>
     </html>
     <?php
@@ -1300,6 +1300,11 @@ function includeLoginPage(PDO $pdo, $error) {
     <head>
         <meta charset="UTF-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <script>
+            if (window.location.search || /index\.php$/.test(window.location.pathname)) {
+                history.replaceState(null, '', window.location.pathname.replace(/index\.php$/, ''));
+            }
+        </script>
         <title>تسجيل الدخول - <?php echo e($siteName); ?></title>
         <link rel="preconnect" href="https://fonts.googleapis.com">
         <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -1346,11 +1351,6 @@ function includeLoginPage(PDO $pdo, $error) {
                 <p class="auth-switch"><a href="." data-i18n="back_home">« العودة للرئيسية</a></p>
             </div>
         </div>
-        <script>
-            if (window.location.search || /index\.php$/.test(window.location.pathname)) {
-                history.replaceState(null, '', window.location.pathname.replace(/index\.php$/, ''));
-            }
-        </script>
     </body>
     </html>
     <?php
@@ -1373,6 +1373,11 @@ function includeRegisterPage(PDO $pdo, $error) {
     <head>
         <meta charset="UTF-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <script>
+            if (window.location.search || /index\.php$/.test(window.location.pathname)) {
+                history.replaceState(null, '', window.location.pathname.replace(/index\.php$/, ''));
+            }
+        </script>
         <title>إنشاء حساب - <?php echo e($siteName); ?></title>
         <link rel="preconnect" href="https://fonts.googleapis.com">
         <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -1437,11 +1442,6 @@ function includeRegisterPage(PDO $pdo, $error) {
                 <p class="auth-switch"><a href="." data-i18n="back_home">« العودة للرئيسية</a></p>
             </div>
         </div>
-        <script>
-            if (window.location.search || /index\.php$/.test(window.location.pathname)) {
-                history.replaceState(null, '', window.location.pathname.replace(/index\.php$/, ''));
-            }
-        </script>
     </body>
     </html>
     <?php
@@ -2112,8 +2112,8 @@ function includeAppPage(PDO $pdo) {
                 <!-- الرصيد -->
                 <div class="card" style="background:linear-gradient(135deg, #ffa64d, #ff7a1a, #f26a00);border:none;color:#ffffff;text-align:center">
                     <div style="font-size:14px;opacity:.8">الرصيد الحالي</div>
-                    <div style="font-size:36px;font-weight:900;margin:8px 0 4px" data-usd="<?php echo (float)$balance; ?>">$<?php echo number_format($balance, 2); ?></div>
-                    <button style="padding:12px 22px;font-size:14px;margin-top:10px;width:auto;display:inline-flex;align-items:center;gap:8px;background:#ffffff;color:#ee6a05;border:none;border-radius:999px;font-weight:800;cursor:pointer;box-shadow:0 6px 20px rgba(0,0,0,.12)" onclick="showAddBalance()">
+                    <div style="font-size:36px;font-weight:900" data-usd="<?php echo (float)$balance; ?>">$<?php echo number_format($balance, 2); ?></div>
+                    <button class="btn-gold" style="padding:10px;font-size:14px;margin-top:8px;width:auto;display:inline-flex" onclick="showAddBalance()">
                         <i class="fas fa-plus-circle"></i> إضافة رصيد
                     </button>
                 </div>
@@ -2510,21 +2510,8 @@ function includeAppPage(PDO $pdo) {
                             </div>
                         </div>
                         <?php endif; ?>
-
-                        <div class="settings-item">
-                            <div class="left">
-                                <div class="icon-wrap purple"><i class="fas fa-envelope"></i></div>
-                                <div class="text">
-                                    <div class="title">البريد الإلكتروني</div>
-                                    <div class="sub">support@vps-platform.com</div>
-                                </div>
-                            </div>
-                            <div class="right">
-                                <i class="fas fa-chevron-left chevron"></i>
-                            </div>
-                        </div>
                     </div>
-                    
+
                     <div class="settings-group">
                         <div class="group-header">
                             <i class="fas fa-info-circle"></i> معلومات التطبيق

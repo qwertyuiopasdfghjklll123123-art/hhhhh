@@ -8,7 +8,9 @@ $siteLogo = getSetting($pdo, 'site_logo', '');
 
 $icons = [];
 if ($siteLogo !== '') {
-    $icons[] = ['src' => $siteLogo, 'sizes' => 'any', 'type' => 'image/png', 'purpose' => 'any'];
+    // نفس sizes/purpose الخاصة بالأيقونة الافتراضية أدناه، وإلا يتجاهل Chrome هذه
+    // الأيقونة المرفوعة عند اختيار أيقونة التثبيت لأنها بلا حجم محدد/غير قابلة للقص (maskable)
+    $icons[] = ['src' => $siteLogo, 'sizes' => '512x512', 'type' => 'image/png', 'purpose' => 'any maskable'];
 }
 $icons[] = ['src' => 'assets/icons/icon-192.png', 'sizes' => '192x192', 'type' => 'image/png', 'purpose' => 'any maskable'];
 $icons[] = ['src' => 'assets/icons/icon-512.png', 'sizes' => '512x512', 'type' => 'image/png', 'purpose' => 'any maskable'];
