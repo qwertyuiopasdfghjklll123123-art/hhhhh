@@ -85,7 +85,7 @@ function initSchema(PDO $pdo, $dbName) {
     // رقم إصدار المخطط: يُزاد فقط عند إضافة جدول/عمود/فهرس جديد أدناه.
     // بهذا يتم تخطي كل فحوصات information_schema (البطيئة) في كل طلب بعد أول مرة،
     // بدل تكرارها عشرات المرات على كل تحميل صفحة (وهذا كان السبب الرئيسي لبطء لوحة التحكم).
-    $schemaVersion = '5';
+    $schemaVersion = '6';
     try {
         $stmt = $pdo->query("SELECT value FROM settings WHERE `key` = 'schema_version' LIMIT 1");
         if ($stmt && $stmt->fetchColumn() === $schemaVersion) {
@@ -214,6 +214,24 @@ function initSchema(PDO $pdo, $dbName) {
             is_active INT NOT NULL DEFAULT 1,
             created_by INT NULL,
             created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        )$charset",
+
+        "CREATE TABLE IF NOT EXISTS ai_conversations (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            user_id INT NOT NULL,
+            title VARCHAR(255) NOT NULL DEFAULT '',
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (user_id) REFERENCES users(id)
+        )$charset",
+
+        "CREATE TABLE IF NOT EXISTS ai_messages (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            conversation_id INT NOT NULL,
+            role VARCHAR(16) NOT NULL,
+            content TEXT NOT NULL,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (conversation_id) REFERENCES ai_conversations(id)
         )$charset",
     ];
     foreach ($tables as $sql) {

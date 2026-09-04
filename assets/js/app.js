@@ -1488,7 +1488,7 @@
             };
             const AI_CHAT_VIEWS = ['home'];
             const AI_WELCOME_HINTS = {};
-            const aiHistories = { home: [] };
+            let currentAiConversationId = 0;
 
             function showAiView(view) {
                 document.querySelectorAll('.ai-view').forEach(el => el.classList.add('hidden'));
@@ -1508,6 +1508,8 @@
                 if (AI_WELCOME_HINTS[view] && log && !log.children.length) {
                     appendChatBubble(logId, 'bot', escapeHtml(AI_WELCOME_HINTS[view]));
                 }
+
+                if (view === 'conversations') loadAiConversationsList();
 
                 document.getElementById('aiBody').scrollTop = 0;
             }
@@ -1546,24 +1548,21 @@
                 if (btn) btn.disabled = true;
 
                 appendChatBubble(logId, 'user', escapeHtml(userText));
-                const history = (aiHistories[section] || []).slice();
-                aiHistories[section] = history.concat([{ role: 'user', content: userText }]);
-
                 const typing = appendChatBubble(logId, 'bot', '<i class="fas fa-ellipsis"></i> جاري الكتابة...');
 
                 try {
                     const res = await fetch('index.php?ajax=ai_chat', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ csrf_token: CSRF_TOKEN, section: section, message: userText, history: history }),
+                        body: JSON.stringify({ csrf_token: CSRF_TOKEN, message: userText, conversation_id: currentAiConversationId }),
                     });
                     const data = await res.json();
                     typing.remove();
+                    if (data.conversation_id) currentAiConversationId = data.conversation_id;
                     if (data.error) {
                         appendChatBubble(logId, 'bot', '⚠️ ' + escapeHtml(data.error));
                     } else {
                         appendChatBubble(logId, 'bot', formatAiReply(data.reply));
-                        aiHistories[section].push({ role: 'assistant', content: data.reply });
                     }
                 } catch (err) {
                     typing.remove();
@@ -1587,14 +1586,88 @@
                 sendToAi(activeView, logId, text);
             }
 
-            function openConversation(title) {
-                showAiView('home');
-                appendChatBubble('aiHomeChatLog', 'bot', '📂 فتح محادثة سابقة: <strong>' + escapeHtml(title) + '</strong> (السجل الكامل غير متاح في هذه النسخة التجريبية)');
+            async function loadAiConversationsList() {
+                const list = document.getElementById('aiConversationsList');
+                if (!list) return;
+                try {
+                    const res = await fetch('index.php?ajax=ai_conversations_list', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ csrf_token: CSRF_TOKEN }),
+                    });
+                    const data = await res.json();
+                    const items = data.conversations || [];
+                    if (!items.length) {
+                        list.innerHTML = '<div class="text-muted text-center" style="padding:24px 0">لا توجد محادثات محفوظة</div>';
+                        return;
+                    }
+                    list.innerHTML = items.map(c => `
+                        <div class="invoice-item" onclick="openConversation(${c.id | 0})">
+                            <div class="info">
+                                <div class="number">${escapeHtml(c.title)}</div>
+                                <div class="date">${escapeHtml(c.preview)}</div>
+                            </div>
+                            <div style="text-align:left;font-size:10px;color:var(--text-muted);white-space:nowrap">${escapeHtml(c.time)}</div>
+                        </div>
+                    `).join('');
+                } catch (err) {
+                    list.innerHTML = '<div class="text-muted text-center" style="padding:24px 0">تعذر تحميل المحادثات</div>';
+                }
             }
 
-            function clearAiConversations() {
+            async function openConversation(id) {
+                showAiView('home');
+                const log = document.getElementById('aiHomeChatLog');
+                log.innerHTML = '<div class="text-muted text-center" style="padding:16px 0"><i class="fas fa-spinner fa-spin"></i></div>';
+                try {
+                    const res = await fetch('index.php?ajax=ai_conversation_load', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ csrf_token: CSRF_TOKEN, conversation_id: id }),
+                    });
+                    const data = await res.json();
+                    log.innerHTML = '';
+                    if (data.error) {
+                        appendChatBubble('aiHomeChatLog', 'bot', '⚠️ ' + escapeHtml(data.error));
+                        return;
+                    }
+                    currentAiConversationId = id | 0;
+                    (data.messages || []).forEach(m => {
+                        if (m.role === 'user') {
+                            appendChatBubble('aiHomeChatLog', 'user', escapeHtml(m.content));
+                        } else {
+                            appendChatBubble('aiHomeChatLog', 'bot', formatAiReply(m.content));
+                        }
+                    });
+                } catch (err) {
+                    log.innerHTML = '';
+                    appendChatBubble('aiHomeChatLog', 'bot', '⚠️ تعذر تحميل المحادثة، حاول مجدداً.');
+                }
+            }
+
+            function startNewAiConversation() {
+                currentAiConversationId = 0;
+                const log = document.getElementById('aiHomeChatLog');
+                if (log) log.innerHTML = '';
+                showAiView('home');
+            }
+
+            async function clearAiConversations() {
                 if (!confirm('هل تريد مسح جميع المحادثات؟ لا يمكن التراجع عن هذا الإجراء.')) return;
+                try {
+                    const res = await fetch('index.php?ajax=ai_conversations_clear', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ csrf_token: CSRF_TOKEN }),
+                    });
+                    const data = await res.json();
+                    if (data.error) { alert(data.error); return; }
+                } catch (err) {
+                    alert('تعذر الاتصال بالخادم، حاول مجدداً.');
+                    return;
+                }
                 document.getElementById('aiConversationsList').innerHTML = '<div class="text-muted text-center" style="padding:24px 0">لا توجد محادثات محفوظة</div>';
+                startNewAiConversation();
             }
 
             // ============================================================

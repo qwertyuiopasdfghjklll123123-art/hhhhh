@@ -745,30 +745,167 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === 'ai_chat' && $_SERVER['REQUEST_MET
     }
 
     $userMessage = trim((string)($body['message'] ?? ''));
-    $history = is_array($body['history'] ?? null) ? array_slice($body['history'], -12) : [];
 
     if ($userMessage === '') {
         echo json_encode(['error' => 'الرسالة فارغة.']);
         exit;
     }
 
+    $userId = (int)$_SESSION['user_id'];
+
+    // تحديد المحادثة: استكمال محادثة قائمة يملكها المستخدم، أو إنشاء واحدة جديدة
+    $conversationId = (int)($body['conversation_id'] ?? 0);
+    if ($conversationId > 0) {
+        $chk = $pdo->prepare('SELECT id FROM ai_conversations WHERE id = ? AND user_id = ?');
+        $chk->execute([$conversationId, $userId]);
+        if (!$chk->fetchColumn()) {
+            $conversationId = 0;
+        }
+    }
+    if ($conversationId === 0) {
+        $title = mb_substr($userMessage, 0, 60) . (mb_strlen($userMessage) > 60 ? '…' : '');
+        $pdo->prepare('INSERT INTO ai_conversations (user_id, title, created_at, updated_at) VALUES (?, ?, NOW(), NOW())')
+            ->execute([$userId, $title]);
+        $conversationId = (int)$pdo->lastInsertId();
+    }
+
+    $pdo->prepare('INSERT INTO ai_messages (conversation_id, role, content) VALUES (?, ?, ?)')
+        ->execute([$conversationId, 'user', $userMessage]);
+    $pdo->prepare('UPDATE ai_conversations SET updated_at = NOW() WHERE id = ?')->execute([$conversationId]);
+
     $systemPrompt = 'أنت "المساعد الذكي" داخل تطبيق استضافة خوادم VPS. تساعد المستخدمين في كل ما يخص تنصيب وإدارة وحل مشاكل خوادم VPS وتثبيت البرمجيات والمكتبات اللازمة وتعليمهم خطوة بخطوة، وكل ما يخص استخدام منصتنا (الباقات، الطلبات، الفواتير، الدفع).';
     // قيود ثابتة: الإيجاز (لسرعة الرد) والاقتصار على مواضيع VPS/لينكس/منصتنا فقط
     $systemPrompt .= ' أجب بالعربية دائماً، بإيجاز شديد ووضوح (فقرة أو نقاط قصيرة، بدون حشو)، إلا إذا طلب المستخدم صراحة تفصيلاً أكبر.'
         . ' اقتصر حصرياً على مواضيع استضافة السيرفرات (VPS)، إدارة لينكس والسيرفرات، واستخدام منصتنا (الباقات، الطلبات، الفواتير، الدفع، الحساب). '
         . 'إن سألك المستخدم عن أي موضوع آخر لا علاقة له بذلك، اعتذر بلطف بجملة واحدة ووضّح أنك مخصص فقط لمواضيع الاستضافة والسيرفرات، ولا تجب عن السؤال خارج هذا النطاق مهما كان.';
-    $systemPrompt .= aiAccountStatusContext($pdo, (int)$_SESSION['user_id']);
+    $systemPrompt .= aiAccountStatusContext($pdo, $userId);
+
+    // آخر 12 رسالة من هذه المحادثة (من قاعدة البيانات) كسياق للنموذج
+    $histStmt = $pdo->prepare('SELECT role, content FROM (SELECT id, role, content FROM ai_messages WHERE conversation_id = ? ORDER BY id DESC LIMIT 12) t ORDER BY id ASC');
+    $histStmt->execute([$conversationId]);
 
     $messages = [['role' => 'system', 'content' => $systemPrompt]];
-    foreach ($history as $h) {
-        if (isset($h['role'], $h['content']) && in_array($h['role'], ['user', 'assistant'], true)) {
-            $messages[] = ['role' => (string)$h['role'], 'content' => (string)$h['content']];
-        }
+    foreach ($histStmt->fetchAll(PDO::FETCH_ASSOC) as $h) {
+        $messages[] = ['role' => $h['role'], 'content' => $h['content']];
     }
-    $messages[] = ['role' => 'user', 'content' => $userMessage];
 
     [$reply, $aiError] = callAiApi($pdo, $messages);
-    echo json_encode($aiError ? ['error' => $aiError] : ['reply' => $reply]);
+    if ($aiError) {
+        echo json_encode(['error' => $aiError, 'conversation_id' => $conversationId]);
+        exit;
+    }
+
+    $pdo->prepare('INSERT INTO ai_messages (conversation_id, role, content) VALUES (?, ?, ?)')
+        ->execute([$conversationId, 'assistant', $reply]);
+    $pdo->prepare('UPDATE ai_conversations SET updated_at = NOW() WHERE id = ?')->execute([$conversationId]);
+
+    echo json_encode(['reply' => $reply, 'conversation_id' => $conversationId]);
+    exit;
+}
+
+// ============================================================
+// المساعد الذكي - قائمة المحادثات السابقة
+// ============================================================
+
+if (isset($_GET['ajax']) && $_GET['ajax'] === 'ai_conversations_list' && $_SERVER['REQUEST_METHOD'] === 'POST') {
+    header('Content-Type: application/json; charset=utf-8');
+
+    if (!isLoggedIn()) {
+        http_response_code(401);
+        echo json_encode(['error' => 'يجب تسجيل الدخول.']);
+        exit;
+    }
+
+    $body = json_decode((string)file_get_contents('php://input'), true) ?: [];
+    if (!hash_equals($_SESSION['csrf_token'] ?? '', (string)($body['csrf_token'] ?? ''))) {
+        http_response_code(400);
+        echo json_encode(['error' => 'انتهت صلاحية الجلسة، أعد تحميل الصفحة.']);
+        exit;
+    }
+
+    $stmt = $pdo->prepare("SELECT c.id, c.title, c.updated_at,
+            (SELECT content FROM ai_messages WHERE conversation_id = c.id ORDER BY id DESC LIMIT 1) AS last_message
+        FROM ai_conversations c WHERE c.user_id = ? ORDER BY c.updated_at DESC LIMIT 50");
+    $stmt->execute([(int)$_SESSION['user_id']]);
+
+    $out = [];
+    foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $r) {
+        $out[] = [
+            'id' => (int)$r['id'],
+            'title' => $r['title'] !== '' ? $r['title'] : 'محادثة بدون عنوان',
+            'preview' => mb_substr((string)($r['last_message'] ?? ''), 0, 80),
+            'time' => $r['updated_at'],
+        ];
+    }
+    echo json_encode(['conversations' => $out]);
+    exit;
+}
+
+// ============================================================
+// المساعد الذكي - تحميل رسائل محادثة سابقة
+// ============================================================
+
+if (isset($_GET['ajax']) && $_GET['ajax'] === 'ai_conversation_load' && $_SERVER['REQUEST_METHOD'] === 'POST') {
+    header('Content-Type: application/json; charset=utf-8');
+
+    if (!isLoggedIn()) {
+        http_response_code(401);
+        echo json_encode(['error' => 'يجب تسجيل الدخول.']);
+        exit;
+    }
+
+    $body = json_decode((string)file_get_contents('php://input'), true) ?: [];
+    if (!hash_equals($_SESSION['csrf_token'] ?? '', (string)($body['csrf_token'] ?? ''))) {
+        http_response_code(400);
+        echo json_encode(['error' => 'انتهت صلاحية الجلسة، أعد تحميل الصفحة.']);
+        exit;
+    }
+
+    $conversationId = (int)($body['conversation_id'] ?? 0);
+    $chk = $pdo->prepare('SELECT id FROM ai_conversations WHERE id = ? AND user_id = ?');
+    $chk->execute([$conversationId, (int)$_SESSION['user_id']]);
+    if (!$chk->fetchColumn()) {
+        http_response_code(404);
+        echo json_encode(['error' => 'المحادثة غير موجودة.']);
+        exit;
+    }
+
+    $stmt = $pdo->prepare('SELECT role, content FROM ai_messages WHERE conversation_id = ? ORDER BY id ASC');
+    $stmt->execute([$conversationId]);
+    echo json_encode(['messages' => $stmt->fetchAll(PDO::FETCH_ASSOC)]);
+    exit;
+}
+
+// ============================================================
+// المساعد الذكي - مسح جميع المحادثات
+// ============================================================
+
+if (isset($_GET['ajax']) && $_GET['ajax'] === 'ai_conversations_clear' && $_SERVER['REQUEST_METHOD'] === 'POST') {
+    header('Content-Type: application/json; charset=utf-8');
+
+    if (!isLoggedIn()) {
+        http_response_code(401);
+        echo json_encode(['error' => 'يجب تسجيل الدخول.']);
+        exit;
+    }
+
+    $body = json_decode((string)file_get_contents('php://input'), true) ?: [];
+    if (!hash_equals($_SESSION['csrf_token'] ?? '', (string)($body['csrf_token'] ?? ''))) {
+        http_response_code(400);
+        echo json_encode(['error' => 'انتهت صلاحية الجلسة، أعد تحميل الصفحة.']);
+        exit;
+    }
+
+    $uid = (int)$_SESSION['user_id'];
+    $idsStmt = $pdo->prepare('SELECT id FROM ai_conversations WHERE user_id = ?');
+    $idsStmt->execute([$uid]);
+    $convIds = $idsStmt->fetchAll(PDO::FETCH_COLUMN);
+    if ($convIds) {
+        $in = implode(',', array_fill(0, count($convIds), '?'));
+        $pdo->prepare("DELETE FROM ai_messages WHERE conversation_id IN ($in)")->execute($convIds);
+        $pdo->prepare("DELETE FROM ai_conversations WHERE id IN ($in)")->execute($convIds);
+    }
+    echo json_encode(['ok' => true]);
     exit;
 }
 
@@ -3013,17 +3150,12 @@ function includeAppPage(PDO $pdo) {
     $adminMsgHint = $isAdmin ? (string)($_GET['admin_msg'] ?? '') : '';
     $adminErrHint = $isAdmin ? (string)($_GET['admin_err'] ?? '') : '';
 
-    // بيانات المساعد الذكي (تجريبية)
+    // بيانات المساعد الذكي
     $ai_tools = [
         ['icon' => 'fa-gauge-high', 'color' => 'gold', 'title' => 'تحسين حالة السيرفر', 'sub' => 'فحص أداء جميع خدمات السيرفر'],
         ['icon' => 'fa-bolt', 'color' => 'blue', 'title' => 'اختبار السرعة', 'sub' => 'اختبار سرعة الشبكة والاتصال'],
         ['icon' => 'fa-shield-halved', 'color' => 'green', 'title' => 'فحص الأمان', 'sub' => 'تدقيق إعدادات أمان السيرفر'],
         ['icon' => 'fa-database', 'color' => 'purple', 'title' => 'نسخ احتياطي ذكي', 'sub' => 'إنشاء نسخة احتياطية فورية'],
-    ];
-    $ai_conversations = [
-        ['title' => 'تحسين أداء السيرفر', 'preview' => 'شكراً، الخطوات وضحت المشكلة', 'time' => '10:30 ص · اليوم'],
-        ['title' => 'مشكلة في الاتصال بالسيرفر', 'preview' => 'جرب إعادة تشغيل خدمة الشبكة', 'time' => '4:15 م · أمس'],
-        ['title' => 'شرح أمر sudo apt update', 'preview' => 'يقوم هذا الأمر بتحديث قائمة الحزم', 'time' => '9:45 ص · منذ يومين'],
     ];
 
     ?>
@@ -3897,7 +4029,7 @@ function includeAppPage(PDO $pdo) {
                             <i class="fas fa-sliders-h"></i> <span data-i18n="general_settings">الإعدادات العامة</span>
                         </div>
 
-                        <div class="settings-item" onclick="toggleTheme()">
+                        <div class="settings-item">
                             <div class="left">
                                 <div class="icon-wrap gold"><i class="fas fa-moon"></i></div>
                                 <div class="text">
@@ -4094,15 +4226,7 @@ function includeAppPage(PDO $pdo) {
                     <div class="card">
                         <div class="card-header"><h3><i class="fas fa-comments"></i> المحادثات السابقة</h3></div>
                         <div id="aiConversationsList">
-                            <?php foreach ($ai_conversations as $c): ?>
-                            <div class="invoice-item" data-title="<?php echo htmlspecialchars($c['title'], ENT_QUOTES); ?>" onclick="openConversation(this.dataset.title)">
-                                <div class="info">
-                                    <div class="number"><?php echo htmlspecialchars($c['title']); ?></div>
-                                    <div class="date"><?php echo htmlspecialchars($c['preview']); ?></div>
-                                </div>
-                                <div style="text-align:left;font-size:10px;color:var(--text-muted);white-space:nowrap"><?php echo htmlspecialchars($c['time']); ?></div>
-                            </div>
-                            <?php endforeach; ?>
+                            <div class="text-muted text-center" style="padding:24px 0">جاري التحميل...</div>
                         </div>
                     </div>
                 </div>
@@ -4192,7 +4316,7 @@ function includeAppPage(PDO $pdo) {
                     <i class="fas fa-comments"></i>
                     <span>المحادثات</span>
                 </button>
-                <button class="nav-item nav-item-fab" onclick="showAiView('home')">
+                <button class="nav-item nav-item-fab" onclick="startNewAiConversation()">
                     <span class="fab-icon"><i class="fas fa-plus"></i></span>
                     <span>محادثة جديدة</span>
                 </button>
@@ -4222,7 +4346,6 @@ function includeAppPage(PDO $pdo) {
             const VPS_PLANS = <?php echo json_encode($vps_plans); ?>;
             const PAYMENT_METHODS = <?php echo json_encode($payment_methods); ?>;
             const ASIACELL_PENDING = <?php echo json_encode($asiacellPending); ?>;
-            const AI_CONVERSATIONS = <?php echo json_encode($ai_conversations); ?>;
             const USER_NAME = <?php echo json_encode($user_name); ?>;
             const CSRF_TOKEN = <?php echo json_encode(csrfToken()); ?>;
             let NEEDS_ONBOARDING = <?php echo empty($user['onboarding_done']) ? 'true' : 'false'; ?>;
