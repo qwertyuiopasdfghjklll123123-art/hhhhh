@@ -2493,6 +2493,11 @@ function renderAdminBackups(PDO $pdo) {
 
 if (isset($_GET['app'])) {
     if (isLoggedIn()) {
+        // صفحة التطبيق مخصّصة لكل مستخدم (رصيد، إشعارات، مظهر...)؛ يجب ألا يُخزّنها
+        // المتصفح أو أي كاش وسيط، وإلا بقيت تعرض حالة قديمة (مثال: مفتاح المظهر الداكن)
+        // حتى بعد رفع تحديثات جديدة على السيرفر
+        header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0');
+        header('Pragma: no-cache');
         includeAppPage($pdo);
         exit;
     }
