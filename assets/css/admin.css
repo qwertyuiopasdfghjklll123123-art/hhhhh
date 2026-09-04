@@ -1,23 +1,6 @@
-        :root {
-            --bg-primary: #f7f4f0;
-            --bg-secondary: #ffffff;
-            --bg-card: #fbf7f3;
-            --bg-card-hover: #fdeee0;
-            --text-primary: #221a12;
-            --text-secondary: #6b5d50;
-            --text-muted: #998a7c;
-            --accent: #ff7a1a;
-            --accent-dark: #ee6a05;
-            --accent-light: #ffa64d;
-            --accent-glow: rgba(255,122,26,.12);
-            --border-color: #f0e6da;
-            --border-active: rgba(255,122,26,.3);
-            --shadow: 0 10px 40px rgba(34,26,18,.08);
-            --shadow-sm: 0 6px 20px rgba(34,26,18,.05);
-            --radius: 18px;
-            --radius-sm: 12px;
-            --transition: .2s ease;
-        }
+        /* المتغيرات (الألوان، الأبعاد، الانتقال) تأتي من app.css الذي يُحمَّل قبل هذا
+           الملف دائماً على نفس الصفحة؛ لا تُعرَّف هنا كي لا تُلغي دعم الوضع الداكن
+           لحساب الأدمن (كانت قيم ثابتة هنا تكتب فوق [data-theme="dark"] دائماً) */
         * { margin:0; padding:0; box-sizing:border-box; }
         body { font-family:'IBM Plex Sans Arabic','Tajawal',system-ui,sans-serif; background:var(--bg-primary); color:var(--text-primary); padding-bottom:60px; }
         a { color:inherit; text-decoration:none; }
