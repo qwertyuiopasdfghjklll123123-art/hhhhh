@@ -317,11 +317,53 @@
                     if (searchInput) searchInput.value = '';
                     filterServers();
                 }
-                if (section === 'admin') {
-                    const frame = document.getElementById('adminEmbedFrame');
-                    if (frame && !frame.src) frame.src = frame.dataset.src;
-                }
                 window.scrollTo({ top: 0, behavior: 'smooth' });
+            }
+
+            // ============================================================
+            // لوحة التحكم (الإدارة) - قسم مضمّن بالكامل داخل صفحة /app
+            // التبديل بين تبويباتها يتم بالكامل في المتصفح، دون أي طلب شبكة
+            // ============================================================
+            function showAdminTab(key) {
+                document.querySelectorAll('#adminTabsNav .admin-tab').forEach(el => {
+                    el.classList.toggle('active', el.dataset.adminTab === key);
+                });
+                document.querySelectorAll('#section-admin .admin-tab-panel').forEach(el => {
+                    el.classList.toggle('hidden', el.dataset.adminPanel !== key);
+                });
+                const hero = document.getElementById('adminHeroCard');
+                if (hero) hero.classList.toggle('hidden', key !== 'orders');
+                const stats = document.getElementById('adminStatsRow');
+                if (stats) stats.classList.toggle('hidden', key !== 'orders' && key !== 'topups');
+            }
+
+            function showAdminFlash(msg, err) {
+                const msgEl = document.getElementById('adminFlashMsg');
+                if (msgEl) {
+                    if (msg) { msgEl.querySelector('span').textContent = msg; msgEl.classList.remove('hidden'); }
+                    else { msgEl.classList.add('hidden'); }
+                }
+                const errEl = document.getElementById('adminFlashErr');
+                if (errEl) {
+                    if (err) { errEl.querySelector('span').textContent = err; errEl.classList.remove('hidden'); }
+                    else { errEl.classList.add('hidden'); }
+                }
+            }
+
+            function confirmAndSubmit(form, message) {
+                if (confirm(message)) form.submit();
+                return false;
+            }
+
+            function toggleFulfillForm(orderId) {
+                const el = document.getElementById('fulfill-' + orderId);
+                el.classList.toggle('hidden');
+            }
+
+            function showSettingsPanel(btn, key) {
+                document.querySelectorAll('.settings-subtabs .subtab-btn').forEach(b => b.classList.remove('active'));
+                btn.classList.add('active');
+                document.querySelectorAll('.settings-panel').forEach(p => p.classList.toggle('hidden', p.dataset.panel !== key));
             }
 
             async function markNotificationsRead() {
@@ -1500,4 +1542,8 @@
                 showSection('vps');
                 wizardSelectPlan(ROUTE_HINT.buyPlanId);
                 wizardGoTo(ROUTE_HINT.hasOrderError ? 'payment' : 'details');
+            } else if (ROUTE_HINT.adminSection) {
+                showSection('admin');
+                showAdminTab(ROUTE_HINT.adminSection);
+                showAdminFlash(ROUTE_HINT.adminMsg, ROUTE_HINT.adminErr);
             }

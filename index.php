@@ -243,6 +243,439 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         $topUpError = handleTopUpBalance($pdo);
         header('Location: ' . appUrl($topUpError ? 'topup_error=' . urlencode($topUpError) : 'topup=1'));
         exit;
+    } elseif (in_array($_POST['action'], ['plan_save', 'plan_delete', 'pm_save', 'pm_save_binance', 'pm_save_asiacell', 'pm_delete', 'currency_save', 'currency_delete', 'broadcast_notification', 'order_fulfill', 'order_fulfill_renewal', 'order_reject', 'topup_approve', 'topup_reject', 'settings_save', 'backup_settings_save', 'backup_send_telegram', 'backup_download', 'backup_restore'], true)) {
+        requireAdmin($pdo);
+        $action = $_POST['action'];
+    if ($action === 'plan_save') {
+        $id = (int)($_POST['id'] ?? 0);
+        $name = trim($_POST['name'] ?? '');
+        $icon = trim($_POST['icon'] ?? '') ?: '🚀';
+        $cpu = trim($_POST['cpu'] ?? '');
+        $ram = trim($_POST['ram'] ?? '');
+        $storage = trim($_POST['storage'] ?? '');
+        $bandwidth = trim($_POST['bandwidth'] ?? '');
+        $billingCycle = ($_POST['billing_cycle'] ?? '') === 'yearly' ? 'yearly' : 'monthly';
+        $price = (float)($_POST['price'] ?? 0);
+        $originalPriceRaw = trim($_POST['original_price'] ?? '');
+        $originalPrice = $originalPriceRaw === '' ? null : (float)$originalPriceRaw;
+        $badge = trim($_POST['badge'] ?? '') ?: null;
+        $isActive = isset($_POST['is_active']) ? 1 : 0;
+        $sortOrder = (int)($_POST['sort_order'] ?? 0);
+
+        if ($name === '' || $cpu === '' || $ram === '' || $storage === '' || $bandwidth === '' || $price <= 0) {
+            adminRedirect('plans', null, 'الرجاء تعبئة جميع الحقول المطلوبة (السعر يجب أن يكون أكبر من صفر).');
+        }
+        if ($originalPrice !== null && $originalPrice <= $price) {
+            $originalPrice = null;
+        }
+
+        [$iconImagePath, $iconImageErr] = handleImageUpload('icon_image', LOGOS_DIR, 'uploads/logos');
+        if ($iconImageErr) {
+            adminRedirect('plans', null, $iconImageErr);
+        }
+
+        $previousOriginalPrice = null;
+        if ($id > 0) {
+            $prevStmt = $pdo->prepare('SELECT original_price FROM vps_plans WHERE id = ?');
+            $prevStmt->execute([$id]);
+            $previousOriginalPrice = $prevStmt->fetchColumn();
+            $previousOriginalPrice = $previousOriginalPrice !== false && $previousOriginalPrice !== null ? (float)$previousOriginalPrice : null;
+
+            if ($iconImagePath) {
+                $pdo->prepare('UPDATE vps_plans SET name=?, icon=?, icon_image=?, cpu=?, ram=?, storage=?, bandwidth=?, price=?, original_price=?, billing_cycle=?, badge=?, is_active=?, sort_order=? WHERE id=?')
+                    ->execute([$name, $icon, $iconImagePath, $cpu, $ram, $storage, $bandwidth, $price, $originalPrice, $billingCycle, $badge, $isActive, $sortOrder, $id]);
+            } else {
+                $pdo->prepare('UPDATE vps_plans SET name=?, icon=?, cpu=?, ram=?, storage=?, bandwidth=?, price=?, original_price=?, billing_cycle=?, badge=?, is_active=?, sort_order=? WHERE id=?')
+                    ->execute([$name, $icon, $cpu, $ram, $storage, $bandwidth, $price, $originalPrice, $billingCycle, $badge, $isActive, $sortOrder, $id]);
+            }
+        } else {
+            $pdo->prepare('INSERT INTO vps_plans (name, icon, icon_image, cpu, ram, storage, bandwidth, price, original_price, billing_cycle, badge, is_active, sort_order) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)')
+                ->execute([$name, $icon, $iconImagePath, $cpu, $ram, $storage, $bandwidth, $price, $originalPrice, $billingCycle, $badge, $isActive, $sortOrder]);
+        }
+
+        if ($isActive && $originalPrice !== null && $originalPrice !== $previousOriginalPrice) {
+            $discountPct = (int)round((($originalPrice - $price) / $originalPrice) * 100);
+            $userIds = $pdo->query('SELECT id FROM users')->fetchAll(PDO::FETCH_COLUMN);
+            foreach ($userIds as $uid) {
+                notifyUser($pdo, (int)$uid, '🔥 خصم جديد!', 'احصل الآن على خصم ' . $discountPct . '% على باقة "' . $name . '" - بسعر $' . money($price) . ' بدلاً من $' . money($originalPrice) . '.', 'system');
+            }
+        }
+
+        adminRedirect('plans', 'تم حفظ الباقة بنجاح.');
+    }
+
+    if ($action === 'plan_delete') {
+        $pdo->prepare('DELETE FROM vps_plans WHERE id = ?')->execute([(int)($_POST['id'] ?? 0)]);
+        adminRedirect('plans', 'تم حذف الباقة.');
+    }
+
+    if ($action === 'pm_save') {
+        // هذا النموذج لطرق الدفع اليدوية فقط؛ Binance وآسياسيل ثابتتان وتُعدَّلان عبر
+        // pm_save_binance / pm_save_asiacell أدناه (لا يمكن إنشاؤهما أو حذفهما).
+        $id = (int)($_POST['id'] ?? 0);
+        $name = trim($_POST['name'] ?? '');
+        $icon = trim($_POST['icon'] ?? '') ?: 'fa-money-bill-wave';
+        $account = trim($_POST['account_number'] ?? '');
+        $instructions = trim($_POST['instructions'] ?? '');
+        $currencyCode = trim($_POST['currency_code'] ?? '') ?: 'USD';
+        $isActive = isset($_POST['is_active']) ? 1 : 0;
+        $sortOrder = (int)($_POST['sort_order'] ?? 0);
+        $exchangeRate = (float)($_POST['exchange_rate'] ?? 0);
+
+        if ($name === '') {
+            adminRedirect('payments', null, 'الرجاء إدخال اسم طريقة الدفع.');
+        }
+
+        [$logoPath, $uploadErr] = handleImageUpload('logo', LOGOS_DIR, 'uploads/logos');
+        if ($uploadErr) {
+            adminRedirect('payments', null, $uploadErr);
+        }
+
+        $methodExtras = json_encode(['exchange_rate' => $exchangeRate > 0 ? $exchangeRate : null]);
+
+        if ($id > 0) {
+            $typeStmt = $pdo->prepare('SELECT method_type FROM payment_methods WHERE id = ?');
+            $typeStmt->execute([$id]);
+            if ($typeStmt->fetchColumn() !== 'manual') {
+                adminRedirect('payments', null, 'لا يمكن تعديل هذه الطريقة من هذا النموذج.');
+            }
+            if ($logoPath) {
+                $pdo->prepare('UPDATE payment_methods SET name=?, icon=?, account_number=?, instructions=?, currency_code=?, is_active=?, sort_order=?, logo_path=?, method_extras=? WHERE id=?')
+                    ->execute([$name, $icon, $account, $instructions, $currencyCode, $isActive, $sortOrder, $logoPath, $methodExtras, $id]);
+            } else {
+                $pdo->prepare('UPDATE payment_methods SET name=?, icon=?, account_number=?, instructions=?, currency_code=?, is_active=?, sort_order=?, method_extras=? WHERE id=?')
+                    ->execute([$name, $icon, $account, $instructions, $currencyCode, $isActive, $sortOrder, $methodExtras, $id]);
+            }
+        } else {
+            $pdo->prepare("INSERT INTO payment_methods (name, icon, account_number, instructions, currency_code, is_active, sort_order, logo_path, method_type, method_extras) VALUES (?,?,?,?,?,?,?,?,'manual',?)")
+                ->execute([$name, $icon, $account, $instructions, $currencyCode, $isActive, $sortOrder, $logoPath, $methodExtras]);
+        }
+        adminRedirect('payments', 'تم حفظ طريقة الدفع بنجاح.');
+    }
+
+    if ($action === 'pm_save_binance') {
+        $row = $pdo->query("SELECT id, method_extras FROM payment_methods WHERE method_type = 'binance' LIMIT 1")->fetch(PDO::FETCH_ASSOC);
+        if (!$row) {
+            adminRedirect('payments', null, 'تعذر العثور على طريقة Binance Pay.');
+        }
+        $existingExtras = json_decode($row['method_extras'] ?? '{}', true) ?: [];
+        $isActive = isset($_POST['is_active']) ? 1 : 0;
+        $binanceApiKey = trim($_POST['binance_api_key'] ?? '');
+        $binanceApiSecret = trim($_POST['binance_api_secret'] ?? '');
+        $binanceId = trim($_POST['binance_id'] ?? '');
+
+        [$qrCodePath, $qrCodeErr] = handleImageUpload('binance_qr_code', LOGOS_DIR, 'uploads/logos');
+        if ($qrCodeErr) {
+            adminRedirect('payments', null, $qrCodeErr);
+        }
+        [$binanceLogoPath, $binanceLogoErr] = handleImageUpload('binance_logo', LOGOS_DIR, 'uploads/logos');
+        if ($binanceLogoErr) {
+            adminRedirect('payments', null, $binanceLogoErr);
+        }
+
+        $methodExtras = json_encode([
+            'api_key' => $binanceApiKey !== '' ? $binanceApiKey : ($existingExtras['api_key'] ?? ''),
+            'api_secret' => $binanceApiSecret !== '' ? $binanceApiSecret : ($existingExtras['api_secret'] ?? ''),
+            'binance_id' => $binanceId,
+            'qr_code' => $qrCodePath ?: ($existingExtras['qr_code'] ?? ''),
+        ]);
+        if ($binanceLogoPath) {
+            $pdo->prepare('UPDATE payment_methods SET is_active=?, logo_path=?, method_extras=? WHERE id=?')
+                ->execute([$isActive, $binanceLogoPath, $methodExtras, $row['id']]);
+        } else {
+            $pdo->prepare('UPDATE payment_methods SET is_active = ?, method_extras = ? WHERE id = ?')
+                ->execute([$isActive, $methodExtras, $row['id']]);
+        }
+        adminRedirect('payments', 'تم حفظ إعدادات Binance Pay بنجاح.');
+    }
+
+    if ($action === 'pm_save_asiacell') {
+        $row = $pdo->query("SELECT id, method_extras FROM payment_methods WHERE method_type = 'asiacell' LIMIT 1")->fetch(PDO::FETCH_ASSOC);
+        if (!$row) {
+            adminRedirect('payments', null, 'تعذر العثور على طريقة آسياسيل.');
+        }
+        $existingExtras = json_decode($row['method_extras'] ?? '{}', true) ?: [];
+        $isActive = isset($_POST['is_active']) ? 1 : 0;
+        $receiverMsisdn = trim($_POST['asiacell_receiver'] ?? '');
+        $exchangeRate = (float)($_POST['asiacell_exchange_rate'] ?? 0);
+        $maxTransfer = (int)($_POST['asiacell_max_transfer'] ?? 0);
+        $instructions = trim($_POST['instructions'] ?? '');
+
+        if ($receiverMsisdn !== '' && !preg_match('/^(077|078|079)\d{8}$/', $receiverMsisdn)) {
+            adminRedirect('payments', null, 'رقم آسياسيل المستقبل غير صحيح، يجب أن يكون بصيغة 07xxxxxxxxx.');
+        }
+
+        [$logoPath, $logoErr] = handleImageUpload('logo', LOGOS_DIR, 'uploads/logos');
+        if ($logoErr) {
+            adminRedirect('payments', null, $logoErr);
+        }
+
+        $methodExtras = json_encode([
+            'receiver_msisdn' => $receiverMsisdn !== '' ? $receiverMsisdn : ($existingExtras['receiver_msisdn'] ?? ''),
+            'exchange_rate' => $exchangeRate > 0 ? $exchangeRate : ($existingExtras['exchange_rate'] ?? 1000),
+            'max_transfer' => $maxTransfer > 0 ? $maxTransfer : ($existingExtras['max_transfer'] ?? 10000),
+        ]);
+
+        if ($logoPath) {
+            $pdo->prepare('UPDATE payment_methods SET is_active=?, instructions=?, logo_path=?, method_extras=? WHERE id=?')
+                ->execute([$isActive, $instructions, $logoPath, $methodExtras, $row['id']]);
+        } else {
+            $pdo->prepare('UPDATE payment_methods SET is_active=?, instructions=?, method_extras=? WHERE id=?')
+                ->execute([$isActive, $instructions, $methodExtras, $row['id']]);
+        }
+        adminRedirect('payments', 'تم حفظ إعدادات آسياسيل بنجاح.');
+    }
+
+    if ($action === 'pm_delete') {
+        $id = (int)($_POST['id'] ?? 0);
+        $typeStmt = $pdo->prepare('SELECT method_type FROM payment_methods WHERE id = ?');
+        $typeStmt->execute([$id]);
+        if ($typeStmt->fetchColumn() !== 'manual') {
+            adminRedirect('payments', null, 'لا يمكن حذف Binance Pay أو آسياسيل، فقط تعطيلهما من إعداداتهما.');
+        }
+        $pdo->prepare('DELETE FROM payment_methods WHERE id = ?')->execute([$id]);
+        adminRedirect('payments', 'تم حذف طريقة الدفع.');
+    }
+
+    if ($action === 'currency_save') {
+        $code = strtoupper(trim($_POST['code'] ?? ''));
+        $name = trim($_POST['name'] ?? '');
+        $symbol = trim($_POST['symbol'] ?? '');
+        $rate = (float)($_POST['rate_per_usd'] ?? 0);
+        $isActive = isset($_POST['is_active']) ? 1 : 0;
+        $sortOrder = (int)($_POST['sort_order'] ?? 0);
+
+        if (!preg_match('/^[A-Z]{3}$/', $code) || $name === '' || $symbol === '' || $rate <= 0) {
+            adminRedirect('settings', null, 'رمز العملة يجب أن يكون 3 أحرف (مثل USD)، مع اسم ورمز وسعر صرف أكبر من صفر.');
+        }
+
+        $pdo->prepare('INSERT INTO currencies (code, name, symbol, rate_per_usd, is_active, sort_order) VALUES (?,?,?,?,?,?)
+            ON DUPLICATE KEY UPDATE name = VALUES(name), symbol = VALUES(symbol), rate_per_usd = VALUES(rate_per_usd), is_active = VALUES(is_active), sort_order = VALUES(sort_order)')
+            ->execute([$code, $name, $symbol, $rate, $isActive, $sortOrder]);
+        adminRedirect('settings', 'تم حفظ العملة بنجاح.');
+    }
+
+    if ($action === 'currency_delete') {
+        $code = strtoupper(trim($_POST['code'] ?? ''));
+        if ($code === 'USD') {
+            adminRedirect('settings', null, 'لا يمكن حذف الدولار الأمريكي، فهو العملة الأساسية للأسعار.');
+        }
+        $pdo->prepare('DELETE FROM currencies WHERE code = ?')->execute([$code]);
+        adminRedirect('settings', 'تم حذف العملة.');
+    }
+
+    if ($action === 'broadcast_notification') {
+        $title = trim($_POST['title'] ?? '');
+        $body = trim($_POST['body'] ?? '');
+        if ($title === '') {
+            adminRedirect('settings', null, 'الرجاء إدخال عنوان الإشعار.');
+        }
+        $userIds = $pdo->query('SELECT id FROM users')->fetchAll(PDO::FETCH_COLUMN);
+        foreach ($userIds as $uid) {
+            notifyUser($pdo, (int)$uid, $title, $body, 'system');
+        }
+        adminRedirect('settings', 'تم إرسال الإشعار إلى ' . count($userIds) . ' مستخدم.');
+    }
+
+    if ($action === 'order_fulfill') {
+        $orderId = (int)($_POST['order_id'] ?? 0);
+        $stmt = $pdo->prepare("SELECT * FROM orders WHERE id = ? AND status = 'pending'");
+        $stmt->execute([$orderId]);
+        $order = $stmt->fetch(PDO::FETCH_ASSOC);
+        if (!$order) {
+            adminRedirect('orders', null, 'الطلب غير موجود أو تمت معالجته مسبقاً.');
+        }
+        $planStmt = $pdo->prepare('SELECT * FROM vps_plans WHERE id = ?');
+        $planStmt->execute([$order['plan_id']]);
+        $plan = $planStmt->fetch(PDO::FETCH_ASSOC);
+
+        $vpsId = trim($_POST['vps_id'] ?? '');
+        $hostName = trim($_POST['host_name'] ?? '') ?: ('خادم ' . ($plan['name'] ?? ''));
+        $ip = trim($_POST['host_ip'] ?? '');
+        $username = trim($_POST['host_username'] ?? '');
+        $password = trim($_POST['host_password'] ?? '');
+        $expiryInterval = $order['billing_cycle'] === 'yearly' ? '+1 year' : '+1 month';
+        $expiry = date('Y-m-d', strtotime($expiryInterval));
+
+        if ($vpsId === '' || $ip === '' || $username === '' || $password === '') {
+            adminRedirect('orders', null, 'الرجاء تعبئة معرّف VPS وعنوان IP واسم المستخدم وكلمة المرور لتفعيل الاستضافة.');
+        }
+
+        $pdo->beginTransaction();
+        $pdo->prepare('INSERT INTO hosting (user_id, order_id, vps_id, name, plan, ip, username, password, status, expiry_date) VALUES (?,?,?,?,?,?,?,?,?,?)')
+            ->execute([$order['user_id'], $orderId, $vpsId, $hostName, $plan['name'] ?? '-', $ip, $username, $password, 'active', $expiry]);
+        $pdo->prepare("UPDATE orders SET status = 'approved', decided_at = CURRENT_TIMESTAMP WHERE id = ?")->execute([$orderId]);
+        $pdo->prepare("UPDATE invoices SET status = 'paid' WHERE order_id = ?")->execute([$orderId]);
+        notifyUser($pdo, $order['user_id'], '✅ تم قبول طلبك', 'تم تفعيل استضافتك (' . $hostName . ') وهي جاهزة الآن ضمن "سيرفراتي".', 'order_approved');
+        $pdo->commit();
+
+        adminRedirect('orders', 'تم قبول الطلب وتفعيل الاستضافة للمستخدم.');
+    }
+
+    if ($action === 'order_fulfill_renewal') {
+        $orderId = (int)($_POST['order_id'] ?? 0);
+        $stmt = $pdo->prepare("SELECT * FROM orders WHERE id = ? AND status = 'pending' AND renewal_hosting_id IS NOT NULL");
+        $stmt->execute([$orderId]);
+        $order = $stmt->fetch(PDO::FETCH_ASSOC);
+        if (!$order) {
+            adminRedirect('orders', null, 'طلب التجديد غير موجود أو تمت معالجته مسبقاً.');
+        }
+        $hostingStmt = $pdo->prepare('SELECT * FROM hosting WHERE id = ?');
+        $hostingStmt->execute([$order['renewal_hosting_id']]);
+        $hosting = $hostingStmt->fetch(PDO::FETCH_ASSOC);
+        if (!$hosting) {
+            adminRedirect('orders', null, 'الاستضافة المرتبطة بطلب التجديد غير موجودة.');
+        }
+
+        $expiryInterval = $order['billing_cycle'] === 'yearly' ? '+1 year' : '+1 month';
+        $baseDate = max($hosting['expiry_date'] ?: date('Y-m-d'), date('Y-m-d'));
+        $newExpiry = date('Y-m-d', strtotime($baseDate . ' ' . $expiryInterval));
+
+        $pdo->beginTransaction();
+        $pdo->prepare("UPDATE hosting SET status = 'active', expiry_date = ? WHERE id = ?")->execute([$newExpiry, $hosting['id']]);
+        $pdo->prepare("UPDATE orders SET status = 'approved', decided_at = CURRENT_TIMESTAMP WHERE id = ?")->execute([$orderId]);
+        $pdo->prepare("UPDATE invoices SET status = 'paid' WHERE order_id = ?")->execute([$orderId]);
+        notifyUser($pdo, $order['user_id'], '✅ تم تجديد الاستضافة', 'تم تجديد استضافتك (' . $hosting['name'] . ') بنجاح حتى ' . $newExpiry . '.', 'order_approved');
+        $pdo->commit();
+
+        adminRedirect('orders', 'تم تجديد الاستضافة بنجاح.');
+    }
+
+    if ($action === 'order_reject') {
+        $orderId = (int)($_POST['order_id'] ?? 0);
+        $stmt = $pdo->prepare("SELECT * FROM orders WHERE id = ? AND status = 'pending'");
+        $stmt->execute([$orderId]);
+        $order = $stmt->fetch(PDO::FETCH_ASSOC);
+        if ($order) {
+            $pdo->beginTransaction();
+            $pdo->prepare("UPDATE orders SET status = 'rejected', decided_at = CURRENT_TIMESTAMP WHERE id = ?")->execute([$orderId]);
+            $pdo->prepare("UPDATE invoices SET status = 'rejected' WHERE order_id = ?")->execute([$orderId]);
+            $refunded = false;
+            if (empty($order['payment_method_id'])) {
+                $pdo->prepare('UPDATE users SET balance = balance + ? WHERE id = ?')->execute([(float)$order['amount'], $order['user_id']]);
+                $refunded = true;
+            }
+            if (!empty($order['renewal_hosting_id'])) {
+                $pdo->prepare("UPDATE hosting SET status = 'expired' WHERE id = ?")->execute([$order['renewal_hosting_id']]);
+            }
+            $pdo->commit();
+            $rejectMsg = $refunded
+                ? 'تم رفض طلب الاشتراك وإعادة المبلغ إلى رصيد حسابك. تواصل مع الدعم الفني لمعرفة السبب.'
+                : 'تم رفض طلب الاشتراك. تواصل مع الدعم الفني لمعرفة السبب.';
+            notifyUser($pdo, $order['user_id'], '❌ تم رفض طلبك', $rejectMsg, 'order_rejected');
+        }
+        adminRedirect('orders', 'تم رفض الطلب.');
+    }
+
+    if ($action === 'topup_approve') {
+        $invId = (int)($_POST['invoice_id'] ?? 0);
+        $stmt = $pdo->prepare("SELECT * FROM invoices WHERE id = ? AND status = 'pending' AND order_id IS NULL");
+        $stmt->execute([$invId]);
+        $inv = $stmt->fetch(PDO::FETCH_ASSOC);
+        if ($inv) {
+            $pdo->beginTransaction();
+            $pdo->prepare('UPDATE users SET balance = balance + ? WHERE id = ?')->execute([$inv['amount'], $inv['user_id']]);
+            $pdo->prepare("UPDATE invoices SET status = 'paid' WHERE id = ?")->execute([$invId]);
+            notifyUser($pdo, $inv['user_id'], '💰 تم شحن رصيدك', 'تم إضافة $' . money($inv['amount']) . ' إلى رصيد حسابك.', 'topup_approved');
+            $pdo->commit();
+        }
+        adminRedirect('topups', 'تم تأكيد الشحن وإضافة الرصيد للمستخدم.');
+    }
+
+    if ($action === 'topup_reject') {
+        $invId = (int)($_POST['invoice_id'] ?? 0);
+        $stmt = $pdo->prepare("SELECT * FROM invoices WHERE id = ? AND status = 'pending' AND order_id IS NULL");
+        $stmt->execute([$invId]);
+        $inv = $stmt->fetch(PDO::FETCH_ASSOC);
+        if ($inv) {
+            $pdo->prepare("UPDATE invoices SET status = 'rejected' WHERE id = ?")->execute([$invId]);
+            notifyUser($pdo, $inv['user_id'], '❌ تم رفض طلب الشحن', 'لم نتمكن من تأكيد إيصال التحويل الخاص بك. تواصل مع الدعم الفني.', 'topup_rejected');
+        }
+        adminRedirect('topups', 'تم رفض طلب الشحن.');
+    }
+
+    if ($action === 'settings_save') {
+        setSetting($pdo, 'site_name', trim($_POST['site_name'] ?? '') ?: 'استضافتي');
+        setSetting($pdo, 'site_tagline', trim($_POST['site_tagline'] ?? ''));
+        setSetting($pdo, 'nvidia_api_key', trim($_POST['nvidia_api_key'] ?? ''));
+        setSetting($pdo, 'nvidia_model', trim($_POST['nvidia_model'] ?? '') ?: 'openai/gpt-oss-120b');
+        setSetting($pdo, 'google_client_id', trim($_POST['google_client_id'] ?? ''));
+        if (trim($_POST['google_client_secret'] ?? '') !== '') {
+            setSetting($pdo, 'google_client_secret', trim($_POST['google_client_secret']));
+        }
+        setSetting($pdo, 'app_currency', trim($_POST['app_currency'] ?? ''));
+        setSetting($pdo, 'support_whatsapp', preg_replace('/[^0-9]/', '', $_POST['support_whatsapp'] ?? ''));
+        $referralPct = (float)($_POST['referral_discount_pct'] ?? 0);
+        if ($referralPct < 0) $referralPct = 0;
+        if ($referralPct > 100) $referralPct = 100;
+        setSetting($pdo, 'referral_discount_pct', (string)$referralPct);
+        setSetting($pdo, 'site_terms', trim($_POST['site_terms'] ?? ''));
+        setSetting($pdo, 'site_privacy', trim($_POST['site_privacy'] ?? ''));
+
+        [$logoPath, $uploadErr] = handleImageUpload('site_logo', LOGOS_DIR, 'uploads/logos');
+        if ($uploadErr) {
+            adminRedirect('settings', null, $uploadErr);
+        }
+        if ($logoPath) {
+            setSetting($pdo, 'site_logo', $logoPath);
+        }
+
+        [$aiLogoPath, $aiLogoErr] = handleImageUpload('ai_logo', LOGOS_DIR, 'uploads/logos');
+        if ($aiLogoErr) {
+            adminRedirect('settings', null, $aiLogoErr);
+        }
+        if ($aiLogoPath) {
+            setSetting($pdo, 'ai_logo', $aiLogoPath);
+        }
+
+        adminRedirect('settings', 'تم حفظ الإعدادات بنجاح.');
+    }
+
+    if ($action === 'backup_settings_save') {
+        setSetting($pdo, 'telegram_chat_id', trim($_POST['telegram_chat_id'] ?? ''));
+        if (trim($_POST['telegram_bot_token'] ?? '') !== '') {
+            setSetting($pdo, 'telegram_bot_token', trim($_POST['telegram_bot_token']));
+        }
+        adminRedirect('backups', 'تم حفظ إعدادات تيليجرام.');
+    }
+
+    if ($action === 'backup_send_telegram') {
+        [$ok, $msg] = runSiteBackupAndSend($pdo);
+        adminRedirect('backups', $ok ? 'تم إرسال نسخة احتياطية عبر تيليجرام بنجاح.' : null, $ok ? null : $msg);
+    }
+
+    if ($action === 'backup_download') {
+        $data = buildSiteBackupData($pdo);
+        $json = json_encode($data, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+        header('Content-Type: application/json; charset=utf-8');
+        header('Content-Disposition: attachment; filename="istidafati-backup-' . date('Y-m-d-His') . '.json"');
+        header('Content-Length: ' . strlen($json));
+        echo $json;
+        exit;
+    }
+
+    if ($action === 'backup_restore') {
+        if (empty($_FILES['backup_file']) || $_FILES['backup_file']['error'] !== UPLOAD_ERR_OK) {
+            adminRedirect('backups', null, 'الرجاء اختيار ملف نسخة احتياطية صالح.');
+        }
+        $raw = file_get_contents($_FILES['backup_file']['tmp_name']);
+        $backup = json_decode($raw, true);
+        if (json_last_error() !== JSON_ERROR_NONE) {
+            adminRedirect('backups', null, 'الملف المرفوع ليس JSON صالحاً.');
+        }
+        [$ok, $msg, $counts] = restoreSiteBackup($pdo, $backup);
+        if (!$ok) {
+            adminRedirect('backups', null, $msg);
+        }
+        $summary = [];
+        foreach ($counts as $table => $n) {
+            $summary[] = $table . ': ' . $n;
+        }
+        adminRedirect('backups', 'تمت الاستعادة بنجاح (' . implode('، ', $summary) . '). إن لم يعد حسابك الحالي موجوداً ضمن البيانات المستعادة، سجّل الدخول من جديد بحساب موجود فيها.');
+    }
+
+    adminRedirect('orders');
+
     }
 }
 
@@ -1002,6 +1435,17 @@ if (!empty($_GET['ref'])) {
 // ============================================================
 // قسم: الطلبات
 // ============================================================
+// يُستخدم من داخل معالجات إجراءات لوحة التحكم (كلها الآن جزء من نفس صفحة /app؛
+// لا رابط/طلب منفصل لعرضها) - يعيد التوجيه لنفس صفحة التطبيق مع تلميح بالقسم
+// والرسالة، تقرأه واجهة JS لإظهار تبويب لوحة التحكم الصحيح والرسالة بعد التحميل
+function adminRedirect($section, $msg = null, $err = null) {
+    $qs = 'admin_section=' . urlencode($section);
+    if ($msg) $qs .= '&admin_msg=' . urlencode($msg);
+    if ($err) $qs .= '&admin_err=' . urlencode($err);
+    header('Location: ' . appUrl($qs));
+    exit;
+}
+
 function renderAdminOrders(PDO $pdo) {
     $orders = $pdo->query("
         SELECT o.*, u.name AS user_name, u.phone AS user_phone, u.email AS user_email,
@@ -1067,13 +1511,13 @@ function renderAdminOrders(PDO $pdo) {
                 هذا طلب تجديد تلقائي — تم خصم المبلغ من رصيد المستخدم مسبقاً. الموافقة تُمدّد صلاحية نفس الاستضافة دون الحاجة لإدخال أي بيانات جديدة.
             </p>
             <div class="order-actions" style="margin-top:4px">
-                <form method="POST" action="index.php?admin=1&section=orders" style="display:inline" onsubmit="return confirmAndSubmit(this, 'تأكيد الموافقة على تجديد هذه الاستضافة؟')">
+                <form method="POST" style="display:inline" onsubmit="return confirmAndSubmit(this, 'تأكيد الموافقة على تجديد هذه الاستضافة؟')">
                     <?php echo csrfField(); ?>
                     <input type="hidden" name="action" value="order_fulfill_renewal">
                     <input type="hidden" name="order_id" value="<?php echo (int)$o['id']; ?>">
                     <button type="submit" class="btn btn-accent btn-sm"><i class="fas fa-check"></i> الموافقة على التجديد</button>
                 </form>
-                <form method="POST" action="index.php?admin=1&section=orders" style="display:inline" onsubmit="return confirmAndSubmit(this, 'هل أنت متأكد من رفض طلب التجديد؟ سيتم إعادة المبلغ إلى رصيد المستخدم.')">
+                <form method="POST" style="display:inline" onsubmit="return confirmAndSubmit(this, 'هل أنت متأكد من رفض طلب التجديد؟ سيتم إعادة المبلغ إلى رصيد المستخدم.')">
                     <?php echo csrfField(); ?>
                     <input type="hidden" name="action" value="order_reject">
                     <input type="hidden" name="order_id" value="<?php echo (int)$o['id']; ?>">
@@ -1083,7 +1527,7 @@ function renderAdminOrders(PDO $pdo) {
             <?php elseif ($o['status'] === 'pending'): ?>
             <div class="order-actions" style="margin-top:12px">
                 <button type="button" class="btn btn-accent btn-sm" onclick="toggleFulfillForm(<?php echo (int)$o['id']; ?>)"><i class="fas fa-check"></i> قبول وتفعيل الاستضافة</button>
-                <form method="POST" action="index.php?admin=1&section=orders" style="display:inline" onsubmit="return confirmAndSubmit(this, 'هل أنت متأكد من رفض هذا الطلب؟')">
+                <form method="POST" style="display:inline" onsubmit="return confirmAndSubmit(this, 'هل أنت متأكد من رفض هذا الطلب؟')">
                     <?php echo csrfField(); ?>
                     <input type="hidden" name="action" value="order_reject">
                     <input type="hidden" name="order_id" value="<?php echo (int)$o['id']; ?>">
@@ -1092,7 +1536,7 @@ function renderAdminOrders(PDO $pdo) {
             </div>
 
             <div class="fulfill-form hidden" id="fulfill-<?php echo (int)$o['id']; ?>">
-                <form method="POST" action="index.php?admin=1&section=orders">
+                <form method="POST">
                     <?php echo csrfField(); ?>
                     <input type="hidden" name="action" value="order_fulfill">
                     <input type="hidden" name="order_id" value="<?php echo (int)$o['id']; ?>">
@@ -1179,13 +1623,13 @@ function renderAdminTopups(PDO $pdo) {
             <?php endif; ?>
             <?php if ($inv['status'] === 'pending'): ?>
             <div class="order-actions" style="margin-top:12px">
-                <form method="POST" action="index.php?admin=1&section=topups" style="display:inline">
+                <form method="POST" style="display:inline">
                     <?php echo csrfField(); ?>
                     <input type="hidden" name="action" value="topup_approve">
                     <input type="hidden" name="invoice_id" value="<?php echo (int)$inv['id']; ?>">
                     <button type="submit" class="btn btn-accent btn-sm"><i class="fas fa-check"></i> تأكيد الاستلام وإضافة الرصيد</button>
                 </form>
-                <form method="POST" action="index.php?admin=1&section=topups" style="display:inline" onsubmit="return confirmAndSubmit(this, 'هل أنت متأكد من رفض طلب الشحن؟')">
+                <form method="POST" style="display:inline" onsubmit="return confirmAndSubmit(this, 'هل أنت متأكد من رفض طلب الشحن؟')">
                     <?php echo csrfField(); ?>
                     <input type="hidden" name="action" value="topup_reject">
                     <input type="hidden" name="invoice_id" value="<?php echo (int)$inv['id']; ?>">
@@ -1207,7 +1651,7 @@ function renderAdminPlans(PDO $pdo) {
     ?>
     <div class="admin-card">
         <div class="admin-card-header"><h2><i class="fas fa-plus"></i> إضافة باقة جديدة</h2></div>
-        <form method="POST" action="index.php?admin=1&section=plans" enctype="multipart/form-data">
+        <form method="POST" enctype="multipart/form-data">
             <?php echo csrfField(); ?>
             <input type="hidden" name="action" value="plan_save">
             <input type="hidden" name="id" value="0">
@@ -1252,7 +1696,7 @@ function renderAdminPlans(PDO $pdo) {
                 <span class="pill <?php echo ($plan['billing_cycle'] ?? 'monthly') === 'yearly' ? 'pill-amber' : 'pill-green'; ?>" style="margin-inline-end:6px"><?php echo ($plan['billing_cycle'] ?? 'monthly') === 'yearly' ? 'سنوي' : 'شهري'; ?></span>
                 <span class="pill <?php echo $plan['is_active'] ? 'pill-green' : 'pill-gray'; ?>"><?php echo $plan['is_active'] ? 'مفعّلة' : 'موقوفة'; ?></span>
             </summary>
-            <form method="POST" action="index.php?admin=1&section=plans" enctype="multipart/form-data" style="margin-top:14px">
+            <form method="POST" enctype="multipart/form-data" style="margin-top:14px">
                 <?php echo csrfField(); ?>
                 <input type="hidden" name="action" value="plan_save">
                 <input type="hidden" name="id" value="<?php echo (int)$plan['id']; ?>">
@@ -1287,7 +1731,7 @@ function renderAdminPlans(PDO $pdo) {
                     <button type="submit" class="btn btn-accent btn-sm"><i class="fas fa-floppy-disk"></i> حفظ التعديلات</button>
                 </div>
             </form>
-            <form method="POST" action="index.php?admin=1&section=plans" style="margin-top:8px" onsubmit="return confirmAndSubmit(this, 'حذف هذه الباقة نهائياً؟')">
+            <form method="POST" style="margin-top:8px" onsubmit="return confirmAndSubmit(this, 'حذف هذه الباقة نهائياً؟')">
                 <?php echo csrfField(); ?>
                 <input type="hidden" name="action" value="plan_delete">
                 <input type="hidden" name="id" value="<?php echo (int)$plan['id']; ?>">
@@ -1318,7 +1762,7 @@ function renderAdminPayments(PDO $pdo) {
         </div>
         <div class="text-muted" style="font-size:12px;margin-bottom:14px">طريقة دفع تلقائي ثابتة في النظام - عبّئ الإعدادات أدناه ثم فعّلها. تحقق فوري من عملية الدفع دون مراجعة يدوية.</div>
         <?php if ($binance): ?>
-        <form method="POST" action="index.php?admin=1&section=payments" enctype="multipart/form-data">
+        <form method="POST" enctype="multipart/form-data">
             <?php echo csrfField(); ?>
             <input type="hidden" name="action" value="pm_save_binance">
             <div class="field-grid-2">
@@ -1353,7 +1797,7 @@ function renderAdminPayments(PDO $pdo) {
         </div>
         <div class="text-muted" style="font-size:12px;margin-bottom:14px">طريقة دفع تلقائي ثابتة في النظام - عبّئ الإعدادات أدناه ثم فعّلها. العميل يحوّل الرصيد مباشرة من رقمه عبر رمزَي تحقق SMS.</div>
         <?php if ($asiacell): ?>
-        <form method="POST" action="index.php?admin=1&section=payments" enctype="multipart/form-data">
+        <form method="POST" enctype="multipart/form-data">
             <?php echo csrfField(); ?>
             <input type="hidden" name="action" value="pm_save_asiacell">
             <div class="field-grid-2">
@@ -1393,7 +1837,7 @@ function renderAdminPayments(PDO $pdo) {
     <div class="admin-card">
         <div class="admin-card-header"><h2><i class="fas fa-plus"></i> إضافة طريقة دفع يدوية جديدة</h2></div>
         <div class="text-muted" style="font-size:12px;margin-bottom:14px">لطرق التحويل التي تُراجعها الإدارة يدوياً (زين كاش، تحويل بنكي...). تظهر فقط في قسم الفواتير لشحن الرصيد.</div>
-        <form method="POST" action="index.php?admin=1&section=payments" enctype="multipart/form-data">
+        <form method="POST" enctype="multipart/form-data">
             <?php echo csrfField(); ?>
             <input type="hidden" name="action" value="pm_save">
             <input type="hidden" name="id" value="0">
@@ -1435,7 +1879,7 @@ function renderAdminPayments(PDO $pdo) {
                 </span>
                 <span class="pill <?php echo $pm['is_active'] ? 'pill-green' : 'pill-gray'; ?>"><?php echo $pm['is_active'] ? 'مفعّلة' : 'موقوفة'; ?></span>
             </summary>
-            <form method="POST" action="index.php?admin=1&section=payments" enctype="multipart/form-data" style="margin-top:14px">
+            <form method="POST" enctype="multipart/form-data" style="margin-top:14px">
                 <?php echo csrfField(); ?>
                 <input type="hidden" name="action" value="pm_save">
                 <input type="hidden" name="id" value="<?php echo (int)$pm['id']; ?>">
@@ -1462,7 +1906,7 @@ function renderAdminPayments(PDO $pdo) {
                     <button type="submit" class="btn btn-accent btn-sm"><i class="fas fa-floppy-disk"></i> حفظ التعديلات</button>
                 </div>
             </form>
-            <form method="POST" action="index.php?admin=1&section=payments" style="margin-top:8px" onsubmit="return confirmAndSubmit(this, 'حذف طريقة الدفع هذه نهائياً؟')">
+            <form method="POST" style="margin-top:8px" onsubmit="return confirmAndSubmit(this, 'حذف طريقة الدفع هذه نهائياً؟')">
                 <?php echo csrfField(); ?>
                 <input type="hidden" name="action" value="pm_delete">
                 <input type="hidden" name="id" value="<?php echo (int)$pm['id']; ?>">
@@ -1493,7 +1937,7 @@ function renderAdminSettings(PDO $pdo) {
         <button type="button" class="subtab-btn" onclick="showSettingsPanel(this, 'notify')"><i class="fas fa-bullhorn"></i> إشعار جماعي</button>
     </div>
 
-    <form method="POST" action="index.php?admin=1&section=settings" enctype="multipart/form-data">
+    <form method="POST" enctype="multipart/form-data">
         <?php echo csrfField(); ?>
         <input type="hidden" name="action" value="settings_save">
 
@@ -1589,7 +2033,7 @@ function renderAdminSettings(PDO $pdo) {
                 كل الأسعار في النظام مخزّنة بالدولار الأمريكي كعملة أساس. أضف هنا أي عملة أخرى وسعر صرفها مقابل الدولار،
                 لتُستخدم في عرض الأسعار للزوار وفي طرق الدفع.
             </p>
-            <form method="POST" action="index.php?admin=1&section=settings">
+            <form method="POST">
                 <?php echo csrfField(); ?>
                 <input type="hidden" name="action" value="currency_save">
                 <div class="field-grid-2">
@@ -1604,7 +2048,7 @@ function renderAdminSettings(PDO $pdo) {
 
             <?php foreach ($currencies as $c): ?>
             <div class="settings-item" style="margin-top:14px;padding-top:14px;border-top:1px solid var(--border-color)">
-                <form method="POST" action="index.php?admin=1&section=settings" style="width:100%">
+                <form method="POST" style="width:100%">
                     <?php echo csrfField(); ?>
                     <input type="hidden" name="action" value="currency_save">
                     <input type="hidden" name="code" value="<?php echo e($c['code']); ?>">
@@ -1620,7 +2064,7 @@ function renderAdminSettings(PDO $pdo) {
                     </div>
                 </form>
                 <?php if ($c['code'] !== 'USD'): ?>
-                <form method="POST" action="index.php?admin=1&section=settings" style="margin-top:8px" onsubmit="return confirmAndSubmit(this, 'حذف هذه العملة؟')">
+                <form method="POST" style="margin-top:8px" onsubmit="return confirmAndSubmit(this, 'حذف هذه العملة؟')">
                     <?php echo csrfField(); ?>
                     <input type="hidden" name="action" value="currency_delete">
                     <input type="hidden" name="code" value="<?php echo e($c['code']); ?>">
@@ -1635,7 +2079,7 @@ function renderAdminSettings(PDO $pdo) {
     <div class="settings-panel hidden" data-panel="notify">
         <div class="admin-card">
             <div class="admin-card-header"><h2><i class="fas fa-bullhorn"></i> إرسال إشعار لجميع المستخدمين</h2></div>
-            <form method="POST" action="index.php?admin=1&section=settings" onsubmit="return confirmAndSubmit(this, 'إرسال هذا الإشعار لجميع المستخدمين؟')">
+            <form method="POST" onsubmit="return confirmAndSubmit(this, 'إرسال هذا الإشعار لجميع المستخدمين؟')">
                 <?php echo csrfField(); ?>
                 <input type="hidden" name="action" value="broadcast_notification">
                 <div class="field-row"><label class="field-label">عنوان الإشعار</label><input type="text" name="title" class="text-input" placeholder="📢 تحديث جديد" required></div>
@@ -1681,7 +2125,7 @@ function renderAdminBackups(PDO $pdo) {
             ثم ابدأ محادثة مع بوتك واحصل على معرف حسابك (Chat ID) عبر بوت مثل <a href="https://t.me/userinfobot" target="_blank" style="color:var(--accent);font-weight:700">userinfobot@</a>.
             كل 6 ساعات سيتم إرسال نسخة كاملة من بيانات الموقع (المستخدمون، الطلبات، الاستضافات، الفواتير، الإعدادات...) كملف إلى محادثتك مع البوت.
         </p>
-        <form method="POST" action="index.php?admin=1&section=backups">
+        <form method="POST">
             <?php echo csrfField(); ?>
             <input type="hidden" name="action" value="backup_settings_save">
             <div class="field-grid-2">
@@ -1723,12 +2167,12 @@ function renderAdminBackups(PDO $pdo) {
     <div class="admin-card">
         <div class="admin-card-header"><h2><i class="fas fa-hand-pointer"></i> نسخة احتياطية يدوية الآن</h2></div>
         <div class="order-actions">
-            <form method="POST" action="index.php?admin=1&section=backups" style="display:inline">
+            <form method="POST" style="display:inline">
                 <?php echo csrfField(); ?>
                 <input type="hidden" name="action" value="backup_send_telegram">
                 <button type="submit" class="btn btn-accent btn-sm"><i class="fab fa-telegram"></i> إرسال نسخة عبر تيليجرام الآن</button>
             </form>
-            <form method="POST" action="index.php?admin=1&section=backups" style="display:inline">
+            <form method="POST" style="display:inline">
                 <?php echo csrfField(); ?>
                 <input type="hidden" name="action" value="backup_download">
                 <button type="submit" class="btn btn-outline btn-sm"><i class="fas fa-download"></i> تنزيل نسخة على جهازي</button>
@@ -1743,7 +2187,7 @@ function renderAdminBackups(PDO $pdo) {
             بمحتوى الملف المرفوع، ولا يمكن التراجع عنه بعد التنفيذ. استخدمه فقط لاستعادة الموقع بعد فقدان بياناته.
             ارفع ملف JSON الذي استلمته سابقاً عبر تيليجرام أو نزّلته يدوياً.
         </p>
-        <form method="POST" action="index.php?admin=1&section=backups" enctype="multipart/form-data" onsubmit="return confirmAndSubmit(this, 'تحذير: سيتم استبدال جميع بيانات الموقع الحالية بالكامل بمحتوى هذا الملف نهائياً. هل أنت متأكد؟')">
+        <form method="POST" enctype="multipart/form-data" onsubmit="return confirmAndSubmit(this, 'تحذير: سيتم استبدال جميع بيانات الموقع الحالية بالكامل بمحتوى هذا الملف نهائياً. هل أنت متأكد؟')">
             <?php echo csrfField(); ?>
             <input type="hidden" name="action" value="backup_restore">
             <div class="field-row">
@@ -1756,573 +2200,6 @@ function renderAdminBackups(PDO $pdo) {
     <?php
 }
 
-if (isset($_GET['admin'])) {
-// ============================================================
-// لوحة تحكم الأدمن - استضافتي
-// ============================================================
-
-require_once __DIR__ . '/includes/bootstrap.php';
-requireAdmin($pdo);
-
-$admin = currentUser($pdo);
-$section = $_GET['section'] ?? 'orders';
-if (!in_array($section, ['orders', 'topups', 'plans', 'payments', 'settings', 'backups'], true)) {
-    $section = 'orders';
-}
-
-function adminRedirect($section, $msg = null, $err = null) {
-    $url = 'index.php?admin=1&section=' . urlencode($section);
-    if ($msg) $url .= '&msg=' . urlencode($msg);
-    if ($err) $url .= '&err=' . urlencode($err);
-    header('Location: ' . $url);
-    exit;
-}
-
-// ============================================================
-// معالجة الإجراءات
-// ============================================================
-if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    csrfCheck();
-    $action = $_POST['action'] ?? '';
-
-    if ($action === 'plan_save') {
-        $id = (int)($_POST['id'] ?? 0);
-        $name = trim($_POST['name'] ?? '');
-        $icon = trim($_POST['icon'] ?? '') ?: '🚀';
-        $cpu = trim($_POST['cpu'] ?? '');
-        $ram = trim($_POST['ram'] ?? '');
-        $storage = trim($_POST['storage'] ?? '');
-        $bandwidth = trim($_POST['bandwidth'] ?? '');
-        $billingCycle = ($_POST['billing_cycle'] ?? '') === 'yearly' ? 'yearly' : 'monthly';
-        $price = (float)($_POST['price'] ?? 0);
-        $originalPriceRaw = trim($_POST['original_price'] ?? '');
-        $originalPrice = $originalPriceRaw === '' ? null : (float)$originalPriceRaw;
-        $badge = trim($_POST['badge'] ?? '') ?: null;
-        $isActive = isset($_POST['is_active']) ? 1 : 0;
-        $sortOrder = (int)($_POST['sort_order'] ?? 0);
-
-        if ($name === '' || $cpu === '' || $ram === '' || $storage === '' || $bandwidth === '' || $price <= 0) {
-            adminRedirect('plans', null, 'الرجاء تعبئة جميع الحقول المطلوبة (السعر يجب أن يكون أكبر من صفر).');
-        }
-        if ($originalPrice !== null && $originalPrice <= $price) {
-            $originalPrice = null;
-        }
-
-        [$iconImagePath, $iconImageErr] = handleImageUpload('icon_image', LOGOS_DIR, 'uploads/logos');
-        if ($iconImageErr) {
-            adminRedirect('plans', null, $iconImageErr);
-        }
-
-        $previousOriginalPrice = null;
-        if ($id > 0) {
-            $prevStmt = $pdo->prepare('SELECT original_price FROM vps_plans WHERE id = ?');
-            $prevStmt->execute([$id]);
-            $previousOriginalPrice = $prevStmt->fetchColumn();
-            $previousOriginalPrice = $previousOriginalPrice !== false && $previousOriginalPrice !== null ? (float)$previousOriginalPrice : null;
-
-            if ($iconImagePath) {
-                $pdo->prepare('UPDATE vps_plans SET name=?, icon=?, icon_image=?, cpu=?, ram=?, storage=?, bandwidth=?, price=?, original_price=?, billing_cycle=?, badge=?, is_active=?, sort_order=? WHERE id=?')
-                    ->execute([$name, $icon, $iconImagePath, $cpu, $ram, $storage, $bandwidth, $price, $originalPrice, $billingCycle, $badge, $isActive, $sortOrder, $id]);
-            } else {
-                $pdo->prepare('UPDATE vps_plans SET name=?, icon=?, cpu=?, ram=?, storage=?, bandwidth=?, price=?, original_price=?, billing_cycle=?, badge=?, is_active=?, sort_order=? WHERE id=?')
-                    ->execute([$name, $icon, $cpu, $ram, $storage, $bandwidth, $price, $originalPrice, $billingCycle, $badge, $isActive, $sortOrder, $id]);
-            }
-        } else {
-            $pdo->prepare('INSERT INTO vps_plans (name, icon, icon_image, cpu, ram, storage, bandwidth, price, original_price, billing_cycle, badge, is_active, sort_order) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)')
-                ->execute([$name, $icon, $iconImagePath, $cpu, $ram, $storage, $bandwidth, $price, $originalPrice, $billingCycle, $badge, $isActive, $sortOrder]);
-        }
-
-        if ($isActive && $originalPrice !== null && $originalPrice !== $previousOriginalPrice) {
-            $discountPct = (int)round((($originalPrice - $price) / $originalPrice) * 100);
-            $userIds = $pdo->query('SELECT id FROM users')->fetchAll(PDO::FETCH_COLUMN);
-            foreach ($userIds as $uid) {
-                notifyUser($pdo, (int)$uid, '🔥 خصم جديد!', 'احصل الآن على خصم ' . $discountPct . '% على باقة "' . $name . '" - بسعر $' . money($price) . ' بدلاً من $' . money($originalPrice) . '.', 'system');
-            }
-        }
-
-        adminRedirect('plans', 'تم حفظ الباقة بنجاح.');
-    }
-
-    if ($action === 'plan_delete') {
-        $pdo->prepare('DELETE FROM vps_plans WHERE id = ?')->execute([(int)($_POST['id'] ?? 0)]);
-        adminRedirect('plans', 'تم حذف الباقة.');
-    }
-
-    if ($action === 'pm_save') {
-        // هذا النموذج لطرق الدفع اليدوية فقط؛ Binance وآسياسيل ثابتتان وتُعدَّلان عبر
-        // pm_save_binance / pm_save_asiacell أدناه (لا يمكن إنشاؤهما أو حذفهما).
-        $id = (int)($_POST['id'] ?? 0);
-        $name = trim($_POST['name'] ?? '');
-        $icon = trim($_POST['icon'] ?? '') ?: 'fa-money-bill-wave';
-        $account = trim($_POST['account_number'] ?? '');
-        $instructions = trim($_POST['instructions'] ?? '');
-        $currencyCode = trim($_POST['currency_code'] ?? '') ?: 'USD';
-        $isActive = isset($_POST['is_active']) ? 1 : 0;
-        $sortOrder = (int)($_POST['sort_order'] ?? 0);
-        $exchangeRate = (float)($_POST['exchange_rate'] ?? 0);
-
-        if ($name === '') {
-            adminRedirect('payments', null, 'الرجاء إدخال اسم طريقة الدفع.');
-        }
-
-        [$logoPath, $uploadErr] = handleImageUpload('logo', LOGOS_DIR, 'uploads/logos');
-        if ($uploadErr) {
-            adminRedirect('payments', null, $uploadErr);
-        }
-
-        $methodExtras = json_encode(['exchange_rate' => $exchangeRate > 0 ? $exchangeRate : null]);
-
-        if ($id > 0) {
-            $typeStmt = $pdo->prepare('SELECT method_type FROM payment_methods WHERE id = ?');
-            $typeStmt->execute([$id]);
-            if ($typeStmt->fetchColumn() !== 'manual') {
-                adminRedirect('payments', null, 'لا يمكن تعديل هذه الطريقة من هذا النموذج.');
-            }
-            if ($logoPath) {
-                $pdo->prepare('UPDATE payment_methods SET name=?, icon=?, account_number=?, instructions=?, currency_code=?, is_active=?, sort_order=?, logo_path=?, method_extras=? WHERE id=?')
-                    ->execute([$name, $icon, $account, $instructions, $currencyCode, $isActive, $sortOrder, $logoPath, $methodExtras, $id]);
-            } else {
-                $pdo->prepare('UPDATE payment_methods SET name=?, icon=?, account_number=?, instructions=?, currency_code=?, is_active=?, sort_order=?, method_extras=? WHERE id=?')
-                    ->execute([$name, $icon, $account, $instructions, $currencyCode, $isActive, $sortOrder, $methodExtras, $id]);
-            }
-        } else {
-            $pdo->prepare("INSERT INTO payment_methods (name, icon, account_number, instructions, currency_code, is_active, sort_order, logo_path, method_type, method_extras) VALUES (?,?,?,?,?,?,?,?,'manual',?)")
-                ->execute([$name, $icon, $account, $instructions, $currencyCode, $isActive, $sortOrder, $logoPath, $methodExtras]);
-        }
-        adminRedirect('payments', 'تم حفظ طريقة الدفع بنجاح.');
-    }
-
-    if ($action === 'pm_save_binance') {
-        $row = $pdo->query("SELECT id, method_extras FROM payment_methods WHERE method_type = 'binance' LIMIT 1")->fetch(PDO::FETCH_ASSOC);
-        if (!$row) {
-            adminRedirect('payments', null, 'تعذر العثور على طريقة Binance Pay.');
-        }
-        $existingExtras = json_decode($row['method_extras'] ?? '{}', true) ?: [];
-        $isActive = isset($_POST['is_active']) ? 1 : 0;
-        $binanceApiKey = trim($_POST['binance_api_key'] ?? '');
-        $binanceApiSecret = trim($_POST['binance_api_secret'] ?? '');
-        $binanceId = trim($_POST['binance_id'] ?? '');
-
-        [$qrCodePath, $qrCodeErr] = handleImageUpload('binance_qr_code', LOGOS_DIR, 'uploads/logos');
-        if ($qrCodeErr) {
-            adminRedirect('payments', null, $qrCodeErr);
-        }
-        [$binanceLogoPath, $binanceLogoErr] = handleImageUpload('binance_logo', LOGOS_DIR, 'uploads/logos');
-        if ($binanceLogoErr) {
-            adminRedirect('payments', null, $binanceLogoErr);
-        }
-
-        $methodExtras = json_encode([
-            'api_key' => $binanceApiKey !== '' ? $binanceApiKey : ($existingExtras['api_key'] ?? ''),
-            'api_secret' => $binanceApiSecret !== '' ? $binanceApiSecret : ($existingExtras['api_secret'] ?? ''),
-            'binance_id' => $binanceId,
-            'qr_code' => $qrCodePath ?: ($existingExtras['qr_code'] ?? ''),
-        ]);
-        if ($binanceLogoPath) {
-            $pdo->prepare('UPDATE payment_methods SET is_active=?, logo_path=?, method_extras=? WHERE id=?')
-                ->execute([$isActive, $binanceLogoPath, $methodExtras, $row['id']]);
-        } else {
-            $pdo->prepare('UPDATE payment_methods SET is_active = ?, method_extras = ? WHERE id = ?')
-                ->execute([$isActive, $methodExtras, $row['id']]);
-        }
-        adminRedirect('payments', 'تم حفظ إعدادات Binance Pay بنجاح.');
-    }
-
-    if ($action === 'pm_save_asiacell') {
-        $row = $pdo->query("SELECT id, method_extras FROM payment_methods WHERE method_type = 'asiacell' LIMIT 1")->fetch(PDO::FETCH_ASSOC);
-        if (!$row) {
-            adminRedirect('payments', null, 'تعذر العثور على طريقة آسياسيل.');
-        }
-        $existingExtras = json_decode($row['method_extras'] ?? '{}', true) ?: [];
-        $isActive = isset($_POST['is_active']) ? 1 : 0;
-        $receiverMsisdn = trim($_POST['asiacell_receiver'] ?? '');
-        $exchangeRate = (float)($_POST['asiacell_exchange_rate'] ?? 0);
-        $maxTransfer = (int)($_POST['asiacell_max_transfer'] ?? 0);
-        $instructions = trim($_POST['instructions'] ?? '');
-
-        if ($receiverMsisdn !== '' && !preg_match('/^(077|078|079)\d{8}$/', $receiverMsisdn)) {
-            adminRedirect('payments', null, 'رقم آسياسيل المستقبل غير صحيح، يجب أن يكون بصيغة 07xxxxxxxxx.');
-        }
-
-        [$logoPath, $logoErr] = handleImageUpload('logo', LOGOS_DIR, 'uploads/logos');
-        if ($logoErr) {
-            adminRedirect('payments', null, $logoErr);
-        }
-
-        $methodExtras = json_encode([
-            'receiver_msisdn' => $receiverMsisdn !== '' ? $receiverMsisdn : ($existingExtras['receiver_msisdn'] ?? ''),
-            'exchange_rate' => $exchangeRate > 0 ? $exchangeRate : ($existingExtras['exchange_rate'] ?? 1000),
-            'max_transfer' => $maxTransfer > 0 ? $maxTransfer : ($existingExtras['max_transfer'] ?? 10000),
-        ]);
-
-        if ($logoPath) {
-            $pdo->prepare('UPDATE payment_methods SET is_active=?, instructions=?, logo_path=?, method_extras=? WHERE id=?')
-                ->execute([$isActive, $instructions, $logoPath, $methodExtras, $row['id']]);
-        } else {
-            $pdo->prepare('UPDATE payment_methods SET is_active=?, instructions=?, method_extras=? WHERE id=?')
-                ->execute([$isActive, $instructions, $methodExtras, $row['id']]);
-        }
-        adminRedirect('payments', 'تم حفظ إعدادات آسياسيل بنجاح.');
-    }
-
-    if ($action === 'pm_delete') {
-        $id = (int)($_POST['id'] ?? 0);
-        $typeStmt = $pdo->prepare('SELECT method_type FROM payment_methods WHERE id = ?');
-        $typeStmt->execute([$id]);
-        if ($typeStmt->fetchColumn() !== 'manual') {
-            adminRedirect('payments', null, 'لا يمكن حذف Binance Pay أو آسياسيل، فقط تعطيلهما من إعداداتهما.');
-        }
-        $pdo->prepare('DELETE FROM payment_methods WHERE id = ?')->execute([$id]);
-        adminRedirect('payments', 'تم حذف طريقة الدفع.');
-    }
-
-    if ($action === 'currency_save') {
-        $code = strtoupper(trim($_POST['code'] ?? ''));
-        $name = trim($_POST['name'] ?? '');
-        $symbol = trim($_POST['symbol'] ?? '');
-        $rate = (float)($_POST['rate_per_usd'] ?? 0);
-        $isActive = isset($_POST['is_active']) ? 1 : 0;
-        $sortOrder = (int)($_POST['sort_order'] ?? 0);
-
-        if (!preg_match('/^[A-Z]{3}$/', $code) || $name === '' || $symbol === '' || $rate <= 0) {
-            adminRedirect('settings', null, 'رمز العملة يجب أن يكون 3 أحرف (مثل USD)، مع اسم ورمز وسعر صرف أكبر من صفر.');
-        }
-
-        $pdo->prepare('INSERT INTO currencies (code, name, symbol, rate_per_usd, is_active, sort_order) VALUES (?,?,?,?,?,?)
-            ON DUPLICATE KEY UPDATE name = VALUES(name), symbol = VALUES(symbol), rate_per_usd = VALUES(rate_per_usd), is_active = VALUES(is_active), sort_order = VALUES(sort_order)')
-            ->execute([$code, $name, $symbol, $rate, $isActive, $sortOrder]);
-        adminRedirect('settings', 'تم حفظ العملة بنجاح.');
-    }
-
-    if ($action === 'currency_delete') {
-        $code = strtoupper(trim($_POST['code'] ?? ''));
-        if ($code === 'USD') {
-            adminRedirect('settings', null, 'لا يمكن حذف الدولار الأمريكي، فهو العملة الأساسية للأسعار.');
-        }
-        $pdo->prepare('DELETE FROM currencies WHERE code = ?')->execute([$code]);
-        adminRedirect('settings', 'تم حذف العملة.');
-    }
-
-    if ($action === 'broadcast_notification') {
-        $title = trim($_POST['title'] ?? '');
-        $body = trim($_POST['body'] ?? '');
-        if ($title === '') {
-            adminRedirect('settings', null, 'الرجاء إدخال عنوان الإشعار.');
-        }
-        $userIds = $pdo->query('SELECT id FROM users')->fetchAll(PDO::FETCH_COLUMN);
-        foreach ($userIds as $uid) {
-            notifyUser($pdo, (int)$uid, $title, $body, 'system');
-        }
-        adminRedirect('settings', 'تم إرسال الإشعار إلى ' . count($userIds) . ' مستخدم.');
-    }
-
-    if ($action === 'order_fulfill') {
-        $orderId = (int)($_POST['order_id'] ?? 0);
-        $stmt = $pdo->prepare("SELECT * FROM orders WHERE id = ? AND status = 'pending'");
-        $stmt->execute([$orderId]);
-        $order = $stmt->fetch(PDO::FETCH_ASSOC);
-        if (!$order) {
-            adminRedirect('orders', null, 'الطلب غير موجود أو تمت معالجته مسبقاً.');
-        }
-        $planStmt = $pdo->prepare('SELECT * FROM vps_plans WHERE id = ?');
-        $planStmt->execute([$order['plan_id']]);
-        $plan = $planStmt->fetch(PDO::FETCH_ASSOC);
-
-        $vpsId = trim($_POST['vps_id'] ?? '');
-        $hostName = trim($_POST['host_name'] ?? '') ?: ('خادم ' . ($plan['name'] ?? ''));
-        $ip = trim($_POST['host_ip'] ?? '');
-        $username = trim($_POST['host_username'] ?? '');
-        $password = trim($_POST['host_password'] ?? '');
-        $expiryInterval = $order['billing_cycle'] === 'yearly' ? '+1 year' : '+1 month';
-        $expiry = date('Y-m-d', strtotime($expiryInterval));
-
-        if ($vpsId === '' || $ip === '' || $username === '' || $password === '') {
-            adminRedirect('orders', null, 'الرجاء تعبئة معرّف VPS وعنوان IP واسم المستخدم وكلمة المرور لتفعيل الاستضافة.');
-        }
-
-        $pdo->beginTransaction();
-        $pdo->prepare('INSERT INTO hosting (user_id, order_id, vps_id, name, plan, ip, username, password, status, expiry_date) VALUES (?,?,?,?,?,?,?,?,?,?)')
-            ->execute([$order['user_id'], $orderId, $vpsId, $hostName, $plan['name'] ?? '-', $ip, $username, $password, 'active', $expiry]);
-        $pdo->prepare("UPDATE orders SET status = 'approved', decided_at = CURRENT_TIMESTAMP WHERE id = ?")->execute([$orderId]);
-        $pdo->prepare("UPDATE invoices SET status = 'paid' WHERE order_id = ?")->execute([$orderId]);
-        notifyUser($pdo, $order['user_id'], '✅ تم قبول طلبك', 'تم تفعيل استضافتك (' . $hostName . ') وهي جاهزة الآن ضمن "سيرفراتي".', 'order_approved');
-        $pdo->commit();
-
-        adminRedirect('orders', 'تم قبول الطلب وتفعيل الاستضافة للمستخدم.');
-    }
-
-    if ($action === 'order_fulfill_renewal') {
-        $orderId = (int)($_POST['order_id'] ?? 0);
-        $stmt = $pdo->prepare("SELECT * FROM orders WHERE id = ? AND status = 'pending' AND renewal_hosting_id IS NOT NULL");
-        $stmt->execute([$orderId]);
-        $order = $stmt->fetch(PDO::FETCH_ASSOC);
-        if (!$order) {
-            adminRedirect('orders', null, 'طلب التجديد غير موجود أو تمت معالجته مسبقاً.');
-        }
-        $hostingStmt = $pdo->prepare('SELECT * FROM hosting WHERE id = ?');
-        $hostingStmt->execute([$order['renewal_hosting_id']]);
-        $hosting = $hostingStmt->fetch(PDO::FETCH_ASSOC);
-        if (!$hosting) {
-            adminRedirect('orders', null, 'الاستضافة المرتبطة بطلب التجديد غير موجودة.');
-        }
-
-        $expiryInterval = $order['billing_cycle'] === 'yearly' ? '+1 year' : '+1 month';
-        $baseDate = max($hosting['expiry_date'] ?: date('Y-m-d'), date('Y-m-d'));
-        $newExpiry = date('Y-m-d', strtotime($baseDate . ' ' . $expiryInterval));
-
-        $pdo->beginTransaction();
-        $pdo->prepare("UPDATE hosting SET status = 'active', expiry_date = ? WHERE id = ?")->execute([$newExpiry, $hosting['id']]);
-        $pdo->prepare("UPDATE orders SET status = 'approved', decided_at = CURRENT_TIMESTAMP WHERE id = ?")->execute([$orderId]);
-        $pdo->prepare("UPDATE invoices SET status = 'paid' WHERE order_id = ?")->execute([$orderId]);
-        notifyUser($pdo, $order['user_id'], '✅ تم تجديد الاستضافة', 'تم تجديد استضافتك (' . $hosting['name'] . ') بنجاح حتى ' . $newExpiry . '.', 'order_approved');
-        $pdo->commit();
-
-        adminRedirect('orders', 'تم تجديد الاستضافة بنجاح.');
-    }
-
-    if ($action === 'order_reject') {
-        $orderId = (int)($_POST['order_id'] ?? 0);
-        $stmt = $pdo->prepare("SELECT * FROM orders WHERE id = ? AND status = 'pending'");
-        $stmt->execute([$orderId]);
-        $order = $stmt->fetch(PDO::FETCH_ASSOC);
-        if ($order) {
-            $pdo->beginTransaction();
-            $pdo->prepare("UPDATE orders SET status = 'rejected', decided_at = CURRENT_TIMESTAMP WHERE id = ?")->execute([$orderId]);
-            $pdo->prepare("UPDATE invoices SET status = 'rejected' WHERE order_id = ?")->execute([$orderId]);
-            $refunded = false;
-            if (empty($order['payment_method_id'])) {
-                $pdo->prepare('UPDATE users SET balance = balance + ? WHERE id = ?')->execute([(float)$order['amount'], $order['user_id']]);
-                $refunded = true;
-            }
-            if (!empty($order['renewal_hosting_id'])) {
-                $pdo->prepare("UPDATE hosting SET status = 'expired' WHERE id = ?")->execute([$order['renewal_hosting_id']]);
-            }
-            $pdo->commit();
-            $rejectMsg = $refunded
-                ? 'تم رفض طلب الاشتراك وإعادة المبلغ إلى رصيد حسابك. تواصل مع الدعم الفني لمعرفة السبب.'
-                : 'تم رفض طلب الاشتراك. تواصل مع الدعم الفني لمعرفة السبب.';
-            notifyUser($pdo, $order['user_id'], '❌ تم رفض طلبك', $rejectMsg, 'order_rejected');
-        }
-        adminRedirect('orders', 'تم رفض الطلب.');
-    }
-
-    if ($action === 'topup_approve') {
-        $invId = (int)($_POST['invoice_id'] ?? 0);
-        $stmt = $pdo->prepare("SELECT * FROM invoices WHERE id = ? AND status = 'pending' AND order_id IS NULL");
-        $stmt->execute([$invId]);
-        $inv = $stmt->fetch(PDO::FETCH_ASSOC);
-        if ($inv) {
-            $pdo->beginTransaction();
-            $pdo->prepare('UPDATE users SET balance = balance + ? WHERE id = ?')->execute([$inv['amount'], $inv['user_id']]);
-            $pdo->prepare("UPDATE invoices SET status = 'paid' WHERE id = ?")->execute([$invId]);
-            notifyUser($pdo, $inv['user_id'], '💰 تم شحن رصيدك', 'تم إضافة $' . money($inv['amount']) . ' إلى رصيد حسابك.', 'topup_approved');
-            $pdo->commit();
-        }
-        adminRedirect('topups', 'تم تأكيد الشحن وإضافة الرصيد للمستخدم.');
-    }
-
-    if ($action === 'topup_reject') {
-        $invId = (int)($_POST['invoice_id'] ?? 0);
-        $stmt = $pdo->prepare("SELECT * FROM invoices WHERE id = ? AND status = 'pending' AND order_id IS NULL");
-        $stmt->execute([$invId]);
-        $inv = $stmt->fetch(PDO::FETCH_ASSOC);
-        if ($inv) {
-            $pdo->prepare("UPDATE invoices SET status = 'rejected' WHERE id = ?")->execute([$invId]);
-            notifyUser($pdo, $inv['user_id'], '❌ تم رفض طلب الشحن', 'لم نتمكن من تأكيد إيصال التحويل الخاص بك. تواصل مع الدعم الفني.', 'topup_rejected');
-        }
-        adminRedirect('topups', 'تم رفض طلب الشحن.');
-    }
-
-    if ($action === 'settings_save') {
-        setSetting($pdo, 'site_name', trim($_POST['site_name'] ?? '') ?: 'استضافتي');
-        setSetting($pdo, 'site_tagline', trim($_POST['site_tagline'] ?? ''));
-        setSetting($pdo, 'nvidia_api_key', trim($_POST['nvidia_api_key'] ?? ''));
-        setSetting($pdo, 'nvidia_model', trim($_POST['nvidia_model'] ?? '') ?: 'openai/gpt-oss-120b');
-        setSetting($pdo, 'google_client_id', trim($_POST['google_client_id'] ?? ''));
-        if (trim($_POST['google_client_secret'] ?? '') !== '') {
-            setSetting($pdo, 'google_client_secret', trim($_POST['google_client_secret']));
-        }
-        setSetting($pdo, 'app_currency', trim($_POST['app_currency'] ?? ''));
-        setSetting($pdo, 'support_whatsapp', preg_replace('/[^0-9]/', '', $_POST['support_whatsapp'] ?? ''));
-        $referralPct = (float)($_POST['referral_discount_pct'] ?? 0);
-        if ($referralPct < 0) $referralPct = 0;
-        if ($referralPct > 100) $referralPct = 100;
-        setSetting($pdo, 'referral_discount_pct', (string)$referralPct);
-        setSetting($pdo, 'site_terms', trim($_POST['site_terms'] ?? ''));
-        setSetting($pdo, 'site_privacy', trim($_POST['site_privacy'] ?? ''));
-
-        [$logoPath, $uploadErr] = handleImageUpload('site_logo', LOGOS_DIR, 'uploads/logos');
-        if ($uploadErr) {
-            adminRedirect('settings', null, $uploadErr);
-        }
-        if ($logoPath) {
-            setSetting($pdo, 'site_logo', $logoPath);
-        }
-
-        [$aiLogoPath, $aiLogoErr] = handleImageUpload('ai_logo', LOGOS_DIR, 'uploads/logos');
-        if ($aiLogoErr) {
-            adminRedirect('settings', null, $aiLogoErr);
-        }
-        if ($aiLogoPath) {
-            setSetting($pdo, 'ai_logo', $aiLogoPath);
-        }
-
-        adminRedirect('settings', 'تم حفظ الإعدادات بنجاح.');
-    }
-
-    if ($action === 'backup_settings_save') {
-        setSetting($pdo, 'telegram_chat_id', trim($_POST['telegram_chat_id'] ?? ''));
-        if (trim($_POST['telegram_bot_token'] ?? '') !== '') {
-            setSetting($pdo, 'telegram_bot_token', trim($_POST['telegram_bot_token']));
-        }
-        adminRedirect('backups', 'تم حفظ إعدادات تيليجرام.');
-    }
-
-    if ($action === 'backup_send_telegram') {
-        [$ok, $msg] = runSiteBackupAndSend($pdo);
-        adminRedirect('backups', $ok ? 'تم إرسال نسخة احتياطية عبر تيليجرام بنجاح.' : null, $ok ? null : $msg);
-    }
-
-    if ($action === 'backup_download') {
-        $data = buildSiteBackupData($pdo);
-        $json = json_encode($data, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
-        header('Content-Type: application/json; charset=utf-8');
-        header('Content-Disposition: attachment; filename="istidafati-backup-' . date('Y-m-d-His') . '.json"');
-        header('Content-Length: ' . strlen($json));
-        echo $json;
-        exit;
-    }
-
-    if ($action === 'backup_restore') {
-        if (empty($_FILES['backup_file']) || $_FILES['backup_file']['error'] !== UPLOAD_ERR_OK) {
-            adminRedirect('backups', null, 'الرجاء اختيار ملف نسخة احتياطية صالح.');
-        }
-        $raw = file_get_contents($_FILES['backup_file']['tmp_name']);
-        $backup = json_decode($raw, true);
-        if (json_last_error() !== JSON_ERROR_NONE) {
-            adminRedirect('backups', null, 'الملف المرفوع ليس JSON صالحاً.');
-        }
-        [$ok, $msg, $counts] = restoreSiteBackup($pdo, $backup);
-        if (!$ok) {
-            adminRedirect('backups', null, $msg);
-        }
-        $summary = [];
-        foreach ($counts as $table => $n) {
-            $summary[] = $table . ': ' . $n;
-        }
-        adminRedirect('backups', 'تمت الاستعادة بنجاح (' . implode('، ', $summary) . '). إن لم يعد حسابك الحالي موجوداً ضمن البيانات المستعادة، سجّل الدخول من جديد بحساب موجود فيها.');
-    }
-
-    adminRedirect($section);
-}
-
-// ============================================================
-// إحصائيات سريعة
-// ============================================================
-$pendingOrdersCount = (int)$pdo->query("SELECT COUNT(*) FROM orders WHERE status = 'pending'")->fetchColumn();
-$pendingTopupsCount = (int)$pdo->query("SELECT COUNT(*) FROM invoices WHERE status = 'pending' AND order_id IS NULL")->fetchColumn();
-$usersCount = (int)$pdo->query('SELECT COUNT(*) FROM users WHERE is_admin = 0')->fetchColumn();
-$activeHostingCount = (int)$pdo->query("SELECT COUNT(*) FROM hosting WHERE status = 'active'")->fetchColumn();
-
-?>
-<!DOCTYPE html>
-<html lang="ar" dir="rtl">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>لوحة التحكم - استضافتي</title>
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
-    <link rel="stylesheet" href="<?php echo e(assetUrl('assets/css/admin.css')); ?>">
-</head>
-<body>
-    <header class="admin-header">
-        <div class="brand"><i class="fas fa-gauge"></i> لوحة التحكم</div>
-        <div class="right-links">
-            <span><i class="fas fa-user-shield"></i> <?php echo e($admin['name']); ?></span>
-        </div>
-    </header>
-
-    <nav class="admin-tabs">
-        <a class="admin-tab <?php echo $section === 'orders' ? 'active' : ''; ?>" href="index.php?admin=1&section=orders">
-            <i class="fas fa-clipboard-list"></i> الطلبات
-            <?php if ($pendingOrdersCount): ?><span class="tab-badge"><?php echo $pendingOrdersCount; ?></span><?php endif; ?>
-        </a>
-        <a class="admin-tab <?php echo $section === 'topups' ? 'active' : ''; ?>" href="index.php?admin=1&section=topups">
-            <i class="fas fa-wallet"></i> شحن الرصيد
-            <?php if ($pendingTopupsCount): ?><span class="tab-badge"><?php echo $pendingTopupsCount; ?></span><?php endif; ?>
-        </a>
-        <a class="admin-tab <?php echo $section === 'plans' ? 'active' : ''; ?>" href="index.php?admin=1&section=plans"><i class="fas fa-server"></i> الباقات</a>
-        <a class="admin-tab <?php echo $section === 'payments' ? 'active' : ''; ?>" href="index.php?admin=1&section=payments"><i class="fas fa-credit-card"></i> طرق الدفع</a>
-        <a class="admin-tab <?php echo $section === 'settings' ? 'active' : ''; ?>" href="index.php?admin=1&section=settings"><i class="fas fa-gear"></i> الإعدادات</a>
-        <a class="admin-tab <?php echo $section === 'backups' ? 'active' : ''; ?>" href="index.php?admin=1&section=backups"><i class="fas fa-database"></i> نسخ احتياطي</a>
-    </nav>
-
-    <div class="admin-container">
-        <?php if ($section === 'orders'): ?>
-        <div class="admin-hero">
-            <div class="admin-hero-top">
-                <div class="admin-hero-icon"><i class="fas fa-gauge-high"></i></div>
-                <div>
-                    <h3>مرحباً، <?php echo e($admin['name']); ?> 👋</h3>
-                    <div class="admin-hero-sub">إليك ملخص نشاط المنصة اليوم</div>
-                </div>
-            </div>
-            <div class="admin-hero-date"><i class="fas fa-calendar-alt"></i> <?php echo date('l, d F Y'); ?></div>
-        </div>
-        <?php endif; ?>
-
-        <?php if (in_array($section, ['orders', 'topups'], true)): ?>
-        <div class="stats-row">
-            <div class="stat-tile"><div class="num"><?php echo $pendingOrdersCount; ?></div><div class="label">طلبات قيد المراجعة</div></div>
-            <div class="stat-tile"><div class="num"><?php echo $pendingTopupsCount; ?></div><div class="label">طلبات شحن معلقة</div></div>
-            <div class="stat-tile"><div class="num"><?php echo $usersCount; ?></div><div class="label">إجمالي المستخدمين</div></div>
-            <div class="stat-tile"><div class="num"><?php echo $activeHostingCount; ?></div><div class="label">استضافات نشطة</div></div>
-        </div>
-        <?php endif; ?>
-
-        <?php if (!empty($_GET['msg'])): ?><div class="flash-msg"><i class="fas fa-circle-check"></i> <?php echo e($_GET['msg']); ?></div><?php endif; ?>
-        <?php if (!empty($_GET['err'])): ?><div class="flash-err"><i class="fas fa-triangle-exclamation"></i> <?php echo e($_GET['err']); ?></div><?php endif; ?>
-
-        <?php
-        if ($section === 'plans') {
-            renderAdminPlans($pdo);
-        } elseif ($section === 'payments') {
-            renderAdminPayments($pdo);
-        } elseif ($section === 'topups') {
-            renderAdminTopups($pdo);
-        } elseif ($section === 'settings') {
-            renderAdminSettings($pdo);
-        } elseif ($section === 'backups') {
-            renderAdminBackups($pdo);
-        } else {
-            renderAdminOrders($pdo);
-        }
-        ?>
-    </div>
-
-    <script>
-        function confirmAndSubmit(form, message) {
-            if (confirm(message)) form.submit();
-            return false;
-        }
-        function toggleFulfillForm(orderId) {
-            const el = document.getElementById('fulfill-' + orderId);
-            el.classList.toggle('hidden');
-        }
-        function showSettingsPanel(btn, key) {
-            document.querySelectorAll('.settings-subtabs .subtab-btn').forEach(b => b.classList.remove('active'));
-            btn.classList.add('active');
-            document.querySelectorAll('.settings-panel').forEach(p => p.classList.toggle('hidden', p.dataset.panel !== key));
-        }
-    </script>
-</body>
-</html>
-<?php
-    exit;
-}
 
 // التوجيه
 // ============================================================
@@ -2890,6 +2767,12 @@ function includeAppPage(PDO $pdo) {
     $balance = (float)($user['balance'] ?? 0);
     $userId = (int)$user['id'];
     $isAdmin = (int)($user['is_admin'] ?? 0) === 1;
+    if ($isAdmin) {
+        $adminPendingOrdersCount = (int)$pdo->query("SELECT COUNT(*) FROM orders WHERE status = 'pending'")->fetchColumn();
+        $adminPendingTopupsCount = (int)$pdo->query("SELECT COUNT(*) FROM invoices WHERE status = 'pending' AND order_id IS NULL")->fetchColumn();
+        $adminUsersCount = (int)$pdo->query('SELECT COUNT(*) FROM users WHERE is_admin = 0')->fetchColumn();
+        $adminActiveHostingCount = (int)$pdo->query("SELECT COUNT(*) FROM hosting WHERE status = 'active'")->fetchColumn();
+    }
     $siteName = getSetting($pdo, 'site_name', 'استضافتي');
     $siteLogo = getSetting($pdo, 'site_logo', '');
     $aiLogo = getSetting($pdo, 'ai_logo', '');
@@ -2963,6 +2846,9 @@ function includeAppPage(PDO $pdo) {
     $orderedFlag = isset($_GET['ordered']);
     $orderedId = (int)($_GET['order_id'] ?? 0);
     $orderErrorMsg = $_GET['order_error'] ?? null;
+    $adminSectionHint = $isAdmin ? (string)($_GET['admin_section'] ?? '') : '';
+    $adminMsgHint = $isAdmin ? (string)($_GET['admin_msg'] ?? '') : '';
+    $adminErrHint = $isAdmin ? (string)($_GET['admin_err'] ?? '') : '';
 
     // بيانات المساعد الذكي (تجريبية)
     $ai_tools = [
@@ -3696,7 +3582,65 @@ function includeAppPage(PDO $pdo) {
                     <h3><i class="fas fa-gauge"></i> لوحة التحكم</h3>
                     <button class="btn-back" onclick="showSection('settings')">رجوع</button>
                 </div>
-                <iframe id="adminEmbedFrame" data-src="index.php?admin=1" title="لوحة التحكم" style="width:100%;min-height:calc(100vh - 220px);border:0;border-radius:var(--radius-sm);background:var(--bg-secondary)"></iframe>
+
+                <link rel="stylesheet" href="<?php echo e(assetUrl('assets/css/admin.css')); ?>">
+
+                <nav class="admin-tabs" id="adminTabsNav">
+                    <button type="button" class="admin-tab active" style="border:none;cursor:pointer;font-family:inherit" data-admin-tab="orders" onclick="showAdminTab('orders')">
+                        <i class="fas fa-clipboard-list"></i> الطلبات
+                        <?php if ($adminPendingOrdersCount): ?><span class="tab-badge"><?php echo $adminPendingOrdersCount; ?></span><?php endif; ?>
+                    </button>
+                    <button type="button" class="admin-tab" style="border:none;cursor:pointer;font-family:inherit" data-admin-tab="topups" onclick="showAdminTab('topups')">
+                        <i class="fas fa-wallet"></i> شحن الرصيد
+                        <?php if ($adminPendingTopupsCount): ?><span class="tab-badge"><?php echo $adminPendingTopupsCount; ?></span><?php endif; ?>
+                    </button>
+                    <button type="button" class="admin-tab" style="border:none;cursor:pointer;font-family:inherit" data-admin-tab="plans" onclick="showAdminTab('plans')"><i class="fas fa-server"></i> الباقات</button>
+                    <button type="button" class="admin-tab" style="border:none;cursor:pointer;font-family:inherit" data-admin-tab="payments" onclick="showAdminTab('payments')"><i class="fas fa-credit-card"></i> طرق الدفع</button>
+                    <button type="button" class="admin-tab" style="border:none;cursor:pointer;font-family:inherit" data-admin-tab="settings" onclick="showAdminTab('settings')"><i class="fas fa-gear"></i> الإعدادات</button>
+                    <button type="button" class="admin-tab" style="border:none;cursor:pointer;font-family:inherit" data-admin-tab="backups" onclick="showAdminTab('backups')"><i class="fas fa-database"></i> نسخ احتياطي</button>
+                </nav>
+
+                <div class="admin-container">
+                    <div class="admin-hero" id="adminHeroCard">
+                        <div class="admin-hero-top">
+                            <div class="admin-hero-icon"><i class="fas fa-gauge-high"></i></div>
+                            <div>
+                                <h3>مرحباً، <?php echo e($user_name); ?> 👋</h3>
+                                <div class="admin-hero-sub">إليك ملخص نشاط المنصة اليوم</div>
+                            </div>
+                        </div>
+                        <div class="admin-hero-date"><i class="fas fa-calendar-alt"></i> <?php echo date('l, d F Y'); ?></div>
+                    </div>
+
+                    <div class="stats-row" id="adminStatsRow">
+                        <div class="stat-tile"><div class="num"><?php echo $adminPendingOrdersCount; ?></div><div class="label">طلبات قيد المراجعة</div></div>
+                        <div class="stat-tile"><div class="num"><?php echo $adminPendingTopupsCount; ?></div><div class="label">طلبات شحن معلقة</div></div>
+                        <div class="stat-tile"><div class="num"><?php echo $adminUsersCount; ?></div><div class="label">إجمالي المستخدمين</div></div>
+                        <div class="stat-tile"><div class="num"><?php echo $adminActiveHostingCount; ?></div><div class="label">استضافات نشطة</div></div>
+                    </div>
+
+                    <div id="adminFlashMsg" class="flash-msg hidden"><i class="fas fa-circle-check"></i> <span></span></div>
+                    <div id="adminFlashErr" class="flash-err hidden"><i class="fas fa-triangle-exclamation"></i> <span></span></div>
+
+                    <div class="admin-tab-panel" data-admin-panel="orders">
+                        <?php renderAdminOrders($pdo); ?>
+                    </div>
+                    <div class="admin-tab-panel hidden" data-admin-panel="topups">
+                        <?php renderAdminTopups($pdo); ?>
+                    </div>
+                    <div class="admin-tab-panel hidden" data-admin-panel="plans">
+                        <?php renderAdminPlans($pdo); ?>
+                    </div>
+                    <div class="admin-tab-panel hidden" data-admin-panel="payments">
+                        <?php renderAdminPayments($pdo); ?>
+                    </div>
+                    <div class="admin-tab-panel hidden" data-admin-panel="settings">
+                        <?php renderAdminSettings($pdo); ?>
+                    </div>
+                    <div class="admin-tab-panel hidden" data-admin-panel="backups">
+                        <?php renderAdminBackups($pdo); ?>
+                    </div>
+                </div>
             </div>
             <?php endif; ?>
 
@@ -4130,6 +4074,9 @@ function includeAppPage(PDO $pdo) {
                 ordered: <?php echo $orderedFlag ? 'true' : 'false'; ?>,
                 orderedId: <?php echo (int)$orderedId; ?>,
                 hasOrderError: <?php echo !empty($orderErrorMsg) ? 'true' : 'false'; ?>,
+                adminSection: <?php echo json_encode($adminSectionHint); ?>,
+                adminMsg: <?php echo json_encode($adminMsgHint); ?>,
+                adminErr: <?php echo json_encode($adminErrHint); ?>,
             };
 
             // إبقاء الرابط الظاهر دوماً domain/app دون أي معاملات إضافية
