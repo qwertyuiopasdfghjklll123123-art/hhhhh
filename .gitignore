@@ -6,6 +6,8 @@ node_modules/
 .env.local
 *.env
 public/api/config.php
+standalone/*.sqlite
+standalone/.*.sqlite
 
 # Logs
 npm-debug.log*

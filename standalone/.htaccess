@@ -1,0 +1,22 @@
+# ارفع هذا الملف بجانب index.php لحماية قاعدة البيانات (تحوي كلمات مرور مشفّرة
+# ومفتاح DeepSeek مشفّراً) من التحميل المباشر عبر المتصفح.
+<FilesMatch "\.sqlite$">
+  Require all denied
+</FilesMatch>
+<IfModule !mod_authz_core.c>
+  <FilesMatch "\.sqlite$">
+    Order allow,deny
+    Deny from all
+  </FilesMatch>
+</IfModule>
+
+# حماية إضافية: يمنع الوصول لأي ملف يبدأ بنقطة (يشمل ملف قاعدة البيانات نفسه)
+<FilesMatch "^\.">
+  Require all denied
+</FilesMatch>
+<IfModule !mod_authz_core.c>
+  <FilesMatch "^\.">
+    Order allow,deny
+    Deny from all
+  </FilesMatch>
+</IfModule>
