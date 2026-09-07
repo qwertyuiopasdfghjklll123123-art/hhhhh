@@ -71,6 +71,8 @@ function db(): PDO
     if ($isNew) {
         install_schema($pdo);
         seed_data();
+    } else {
+        migrate_schema_if_needed($pdo);
     }
     return $pdo;
 }
@@ -326,6 +328,57 @@ function install_schema(PDO $pdo): void
     foreach ($statements as $sql) {
         $pdo->exec($sql);
     }
+}
+
+// ترقية تلقائية لقاعدة بيانات موجودة من نسخة سابقة إلى البنية الحالية،
+// بدون حذف أي بيانات (حسابات المستخدمين، نقاطهم، إلخ). تُستدعى في كل اتصال
+// على قاعدة بيانات موجودة مسبقاً، ولا تفعل شيئاً إن كانت البنية محدَّثة أصلاً.
+function migrate_schema_if_needed(PDO $pdo): void
+{
+    $hasTeachers = q_one("SELECT name FROM sqlite_master WHERE type='table' AND name='teachers'");
+    if ($hasTeachers) {
+        return;
+    }
+
+    // نسخة سابقة كانت units.subject_id مباشرة (بدون جدول مدرّسين). ننشئ جدول
+    // المدرّسين، ثم ننشئ "مدرّساً" افتراضياً واحداً لكل مادة تملك وحدات فعلاً
+    // وننقل تلك الوحدات إليه، فتبقى كل البيانات القديمة سليمة ومرئية.
+    $pdo->exec("CREATE TABLE teachers (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        subject_id INTEGER NOT NULL REFERENCES subjects(id) ON DELETE CASCADE,
+        name_ar TEXT NOT NULL,
+        bio TEXT,
+        avatar_color TEXT DEFAULT '#00e6bb',
+        order_index INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )");
+
+    $hasUnits = q_one("SELECT name FROM sqlite_master WHERE type='table' AND name='units'");
+    if (!$hasUnits) {
+        return;
+    }
+
+    $unitCols = array_column(q_all("PRAGMA table_info(units)"), 'name');
+    if (!in_array('subject_id', $unitCols, true) || in_array('teacher_id', $unitCols, true)) {
+        return; // بنية units غير متوقعة أو محدَّثة أصلاً؛ لا شيء نفعله
+    }
+
+    $pdo->exec("ALTER TABLE units ADD COLUMN teacher_id INTEGER REFERENCES teachers(id) ON DELETE CASCADE");
+
+    $subjectsWithUnits = q_all(
+        "SELECT DISTINCT s.id, s.name_ar FROM subjects s JOIN units u ON u.subject_id = s.id"
+    );
+    foreach ($subjectsWithUnits as $s) {
+        q_run(
+            "INSERT INTO teachers (subject_id, name_ar, bio, order_index) VALUES (?,?,?,1)",
+            [$s['id'], 'فريق ' . $s['name_ar'], 'محتوى منقول تلقائياً من إصدار سابق من التطبيق']
+        );
+        $teacherId = (int) $pdo->lastInsertId();
+        q_run("UPDATE units SET teacher_id=? WHERE subject_id=?", [$teacherId, $s['id']]);
+    }
+    // عمود subject_id القديم في units يبقى بلا استخدام (بعض إصدارات SQLite لا
+    // تدعم DROP COLUMN بأمان)؛ وجوده غير ضار لأن كل الاستعلامات الحالية تمر
+    // عبر teacher_id.
 }
 
 // بيانات تجريبية أولية (دولة + مرحلة + مادة + مدرّس + وحدة + 5 محاضرات + اختبار جاهز)
@@ -938,6 +991,7 @@ function h_generate_curriculum($stageId): void
     $unitCount = 0;
     $lectureCount = 0;
     $failedSubjects = [];
+    $lastError = null;
 
     // كل مادة تُعالَج بنداء AI منفصل خاص بها فقط (وليس نداءً واحداً ضخماً لكل
     // المواد معاً)، كي يبقى كل رد صغيراً وموثوقاً، ولضمان أن فشل توليد محتوى
@@ -963,6 +1017,7 @@ function h_generate_curriculum($stageId): void
         } catch (Throwable $e) {
             $pdo->rollBack();
             $failedSubjects[] = $subject['name_ar'] ?? ('مادة #' . ($sIndex + 1));
+            $lastError = $e->getMessage();
             continue;
         }
 
@@ -971,6 +1026,7 @@ function h_generate_curriculum($stageId): void
         } catch (Throwable $e) {
             // المادة والمدرّس أُنشئا بنجاح، لكن تعذّر توليد الوحدات/المحاضرات لهما الآن
             $failedSubjects[] = $subject['name_ar'];
+            $lastError = $e->getMessage();
             continue;
         }
 
@@ -999,6 +1055,7 @@ function h_generate_curriculum($stageId): void
         } catch (Throwable $e) {
             $pdo->rollBack();
             $failedSubjects[] = $subject['name_ar'];
+            $lastError = $e->getMessage();
         }
     }
 
@@ -1013,7 +1070,8 @@ function h_generate_curriculum($stageId): void
     );
 
     if ($allFailed) {
-        throw new ApiException(502, 'تعذّر توليد المنهج بالكامل. تحقّق من مفتاح DeepSeek وحاول مجدداً.');
+        $detail = $lastError ? (' السبب: ' . $lastError) : '';
+        throw new ApiException(502, 'تعذّر توليد المنهج بالكامل.' . $detail);
     }
 
     $message = 'تم توليد المنهج بنجاح';
@@ -2225,19 +2283,36 @@ App.views.home = async function home() {
     const { subjects, needsGeneration } = await App.api.getSubjects(selection.stageId);
     if (!subjects.length && needsGeneration) {
       holder.innerHTML = App.state.isAdmin()
-        ? `<div class="center-box"><i class="fas fa-wand-magic-sparkles"></i><div style="font-weight:700;color:var(--text)">لا يوجد منهج بعد لهذه المرحلة</div><div style="font-size:.75rem">يمكنك توليده تلقائياً بالذكاء الاصطناعي الآن (مواد، مدرّسون، ومحاضرات)</div><button class="btn btn-primary" id="genCurriculumBtn" style="margin-top:10px"><i class="fas fa-sparkles"></i> توليد المنهج بالذكاء الاصطناعي</button></div>`
+        ? `<div class="center-box"><i class="fas fa-wand-magic-sparkles"></i><div style="font-weight:700;color:var(--text)">لا يوجد منهج بعد لهذه المرحلة</div><div style="font-size:.75rem">يمكنك توليده تلقائياً بالذكاء الاصطناعي الآن (مواد، مدرّسون، ومحاضرات)</div><button class="btn btn-primary" id="genCurriculumBtn" style="margin-top:10px"><i class="fas fa-sparkles"></i> توليد المنهج بالذكاء الاصطناعي</button><div id="genErrorBox"></div></div>`
         : App.ui.emptyStateHtml('fa-hourglass-half', 'المنهج قيد التحضير', 'يقوم فريقنا بإعداد محتوى هذه المرحلة، عد قريباً');
       const genBtn = document.getElementById('genCurriculumBtn');
       if (genBtn) {
         genBtn.addEventListener('click', async () => {
           genBtn.disabled = true; genBtn.innerHTML = '<span class="spinner"></span> جاري التوليد (قد يستغرق دقيقة)...';
+          const errorBox = document.getElementById('genErrorBox');
+          errorBox.innerHTML = '';
           try {
             const result = await App.api.generateCurriculum(selection.stageId);
             App.ui.toast(result.message, (result.failedSubjects && result.failedSubjects.length) ? '' : 'ok');
             App.views.home();
           } catch (err) {
-            App.ui.toast(err.message, 'err'); genBtn.disabled = false;
+            App.ui.toast('فشل التوليد — التفاصيل أسفل الزر', 'err');
+            genBtn.disabled = false;
             genBtn.innerHTML = '<i class="fas fa-sparkles"></i> توليد المنهج بالذكاء الاصطناعي';
+            // نعرض رسالة الخطأ الكاملة بشكل ثابت (لا تختفي كالتوست) مع زر نسخ
+            // كي يسهل تشخيص السبب الحقيقي بدل تخمينه
+            errorBox.innerHTML = `
+              <div class="card an" style="margin-top:14px;border:1px solid var(--danger);text-align:start">
+                <div style="display:flex;align-items:center;gap:8px;color:var(--danger);font-weight:700;font-size:.8rem;margin-bottom:8px">
+                  <i class="fas fa-triangle-exclamation"></i> سبب فشل التوليد
+                </div>
+                <div style="font-size:.72rem;color:var(--muted);line-height:1.8;word-break:break-word">${App.ui.escapeHtml(err.message)}</div>
+                <button class="btn btn-outline btn-sm" id="copyGenErrorBtn" style="margin-top:10px"><i class="fas fa-copy"></i> نسخ رسالة الخطأ</button>
+              </div>`;
+            document.getElementById('copyGenErrorBtn').addEventListener('click', async () => {
+              try { await navigator.clipboard.writeText(err.message); App.ui.toast('تم نسخ رسالة الخطأ', 'ok'); }
+              catch (copyErr) { App.ui.toast('تعذّر النسخ التلقائي، انسخ النص يدوياً', 'err'); }
+            });
           }
         });
       }
