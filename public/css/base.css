@@ -1,0 +1,46 @@
+/* ============================================================
+   إعادة الضبط الأساسية + الخلفية والطباعة العامة
+   ============================================================ */
+*{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html{scroll-behavior:smooth}
+
+body{
+  font-family:var(--font-ar);
+  background:var(--bg);
+  color:var(--text);
+  min-height:100vh;
+  min-height:100dvh;
+  overflow-x:hidden;
+  -webkit-font-smoothing:antialiased;
+  text-rendering:optimizeLegibility;
+  transition:background .3s,color .3s;
+}
+
+::selection{background:var(--blue);color:#04231c}
+
+a{color:inherit;text-decoration:none}
+button{font-family:inherit}
+input,select,textarea{font-family:inherit}
+
+.bg-orb{position:fixed;border-radius:50%;filter:blur(80px);pointer-events:none;z-index:0}
+.bo1{width:340px;height:340px;background:rgba(0,230,187,0.09);top:-120px;inset-inline-end:-90px}
+.bo2{width:260px;height:260px;background:rgba(0,196,160,0.06);bottom:10%;inset-inline-start:-80px}
+[data-theme="dark"] .bo1{background:rgba(0,255,204,0.12)}
+[data-theme="dark"] .bo2{background:rgba(0,230,187,0.09)}
+
+.hidden{display:none !important}
+
+/* شريط تمرير خفيف */
+::-webkit-scrollbar{width:6px;height:6px}
+::-webkit-scrollbar-thumb{background:var(--border);border-radius:10px}
+
+@keyframes fadeUp{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}
+.an{animation:fadeUp .35s both}
+
+@keyframes spin{to{transform:rotate(360deg)}}
+.spinner{width:18px;height:18px;border-radius:50%;border:3px solid var(--border);border-top-color:var(--blue);animation:spin .7s linear infinite;display:inline-block}
+
+.loading-block{display:flex;align-items:center;justify-content:center;gap:10px;padding:48px 16px;color:var(--muted);font-size:.85rem}
+
+@keyframes blink{0%,100%{opacity:1}50%{opacity:.25}}
+.dot-live{width:6px;height:6px;border-radius:50%;background:var(--success);animation:blink 2s infinite;display:inline-block}
