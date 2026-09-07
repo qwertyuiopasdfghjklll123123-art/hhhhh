@@ -898,6 +898,79 @@ function youtube_get_playlist_items(string $playlistId, int $maxItems = 20): arr
     return $items;
 }
 
+// يجلب نص محاضرة (ترجمة الفيديو) من يوتيوب بلا أي مفتاح أو تسجيل دخول، عبر
+// نقطة الترجمات العامة التي يستخدمها مشغّل يوتيوب نفسه لعرض الترجمة أسفل
+// الفيديو. يُستخدم هذا النص كأساس لتوليد أسئلة اختبار مبنية على محتوى
+// الفيديو الفعلي بدل عنوانه فقط، وكسياق أدق للمساعد الذكي. ليست كل الفيديوهات
+// تملك ترجمة متاحة؛ في تلك الحالة تُعاد null بصمت والنظام يستمر بالوصف فقط.
+function youtube_fetch_transcript(string $videoId): ?string
+{
+    if (!trim($videoId)) {
+        return null;
+    }
+
+    $ch = curl_init('https://video.google.com/timedtext?type=list&v=' . urlencode($videoId));
+    curl_setopt_array($ch, [CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT => 8]);
+    $listXml = curl_exec($ch);
+    curl_close($ch);
+    if (!$listXml) {
+        return null;
+    }
+
+    $prevErrors = libxml_use_internal_errors(true);
+    $list = simplexml_load_string($listXml);
+    libxml_clear_errors();
+    libxml_use_internal_errors($prevErrors);
+    if (!$list || !isset($list->track) || count($list->track) === 0) {
+        return null;
+    }
+
+    $chosen = null;
+    foreach (['ar', 'en'] as $lang) {
+        foreach ($list->track as $track) {
+            if ((string) $track['lang_code'] === $lang) {
+                $chosen = $track;
+                break 2;
+            }
+        }
+    }
+    if (!$chosen) {
+        $chosen = $list->track[0];
+    }
+
+    $params = ['v' => $videoId, 'lang' => (string) $chosen['lang_code']];
+    if ((string) $chosen['kind'] === 'asr') {
+        $params['kind'] = 'asr';
+    }
+    if ((string) $chosen['name'] !== '') {
+        $params['name'] = (string) $chosen['name'];
+    }
+    $ch = curl_init('https://video.google.com/timedtext?' . http_build_query($params));
+    curl_setopt_array($ch, [CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT => 10]);
+    $trackXml = curl_exec($ch);
+    curl_close($ch);
+    if (!$trackXml) {
+        return null;
+    }
+
+    $prevErrors = libxml_use_internal_errors(true);
+    $doc = simplexml_load_string($trackXml);
+    libxml_clear_errors();
+    libxml_use_internal_errors($prevErrors);
+    if (!$doc || !isset($doc->text)) {
+        return null;
+    }
+
+    $lines = [];
+    foreach ($doc->text as $line) {
+        $decoded = trim(preg_replace('/\s+/', ' ', html_entity_decode((string) $line, ENT_QUOTES | ENT_XML1, 'UTF-8')));
+        if ($decoded !== '') {
+            $lines[] = $decoded;
+        }
+    }
+    return $lines ? mb_substr(implode(' ', $lines), 0, 8000) : null;
+}
+
 // احتياطي بلا أي مفتاح أو تسجيل دخول: يطلب صفحة نتائج بحث يوتيوب العامة تماماً
 // كما يفعل أي زائر غير مسجَّل دخوله، ويستخرج أول معرّف فيديو من الصفحة. هذا
 // ليس رسمياً ولا مضموناً (يعتمد على بنية صفحة يوتيوب الحالية)، لذا يُستخدم
@@ -1051,17 +1124,19 @@ function deepseek_generate_subject_units(string $countryName, string $stageName,
     return deepseek_parse_json($r['content']);
 }
 
-function deepseek_generate_quiz(string $title, ?string $description, ?string $transcript): array
+// نولّد عدداً محدوداً من الأسئلة في كل نداء (وليس العدد الكامل دفعة واحدة)
+// لنفس سبب تقسيم توليد المنهج: رد أصغر يبقى موثوقاً ولا يُقطع بسبب حد الرموز
+function deepseek_generate_quiz(string $title, ?string $description, ?string $transcript, int $questionCount = 5): array
 {
     $system = 'أنت مساعد تعليمي متخصص بإعداد اختبارات اختيار من متعدد بالعربية. أعد النتيجة بصيغة JSON فقط.';
     $context = $transcript
         ? ('محتوى المحاضرة: ' . mb_substr($transcript, 0, 6000))
         : ('وصف المحاضرة: ' . ($description ?: 'غير متوفر'));
-    $user = "أنشئ اختباراً من 5 أسئلة اختيار من متعدد حول محاضرة بعنوان \"$title\".\n$context\n\n"
-        . 'لكل سؤال 4 خيارات وخيار صحيح واحد فقط وشرح مختصر للإجابة. أعد الناتج بهذا الشكل بالضبط (JSON فقط):'
+    $user = "أنشئ اختباراً من $questionCount أسئلة اختيار من متعدد حول محاضرة بعنوان \"$title\".\n$context\n\n"
+        . 'لكل سؤال 4 خيارات وخيار صحيح واحد فقط وشرح واضح يوضّح تحديداً لماذا الخيار الصحيح هو الصحيح. أعد الناتج بهذا الشكل بالضبط (JSON فقط):'
         . '{"questions":[{"question_text":"...","explanation":"...","options":[{"text":"...","is_correct":false},{"text":"...","is_correct":true},{"text":"...","is_correct":false},{"text":"...","is_correct":false}]}]}';
 
-    $r = deepseek_chat([['role' => 'system', 'content' => $system], ['role' => 'user', 'content' => $user]], 0.4, true, 3000);
+    $r = deepseek_chat([['role' => 'system', 'content' => $system], ['role' => 'user', 'content' => $user]], 0.5, true, 3000);
     return deepseek_parse_json($r['content']);
 }
 
@@ -1617,7 +1692,46 @@ function h_get_quiz($lectureId, array $user): void
 
     $existing = q_one("SELECT id FROM quizzes WHERE lecture_id=? LIMIT 1", [$lectureId]);
     if (!$existing) {
-        $generated = deepseek_generate_quiz($lecture['title_ar'], $lecture['description'], $lecture['transcript_text']);
+        // نجلب ترجمة الفيديو أولاً (إن لم تكن محفوظة بعد) كي يبني الذكاء
+        // الاصطناعي الأسئلة على محتوى المحاضرة الفعلي بدل عنوانها فقط
+        if (!$lecture['transcript_text'] && $lecture['youtube_video_id']) {
+            $transcript = youtube_fetch_transcript($lecture['youtube_video_id']);
+            if ($transcript) {
+                q_run("UPDATE lectures SET transcript_text=? WHERE id=?", [$transcript, $lecture['id']]);
+                $lecture['transcript_text'] = $transcript;
+            }
+        }
+        // نطلب 20 سؤالاً كحد أقصى ضمن دفعات صغيرة من 5 (وليس نداءً واحداً ضخماً،
+        // لضمان موثوقية كل رد). إن توفّرت ترجمة الفيديو نقسّمها إلى أجزاء
+        // متتالية بعدد الدفعات كي تغطي كل دفعة جزءاً مختلفاً من المحاضرة بدل
+        // تكرار السؤال عن نفس المقطع، وإن فشلت دفعة نتوقف ونستخدم ما نجح فعلاً
+        // بدل إفشال الاختبار بالكامل.
+        $targetQuestionCount = 20;
+        $batchSize = 5;
+        $batchCount = (int) ceil($targetQuestionCount / $batchSize);
+        $transcriptChunks = [];
+        if ($lecture['transcript_text']) {
+            $chunkLen = (int) ceil(mb_strlen($lecture['transcript_text']) / $batchCount);
+            for ($i = 0; $i < $batchCount; $i++) {
+                $transcriptChunks[] = mb_substr($lecture['transcript_text'], $i * $chunkLen, $chunkLen);
+            }
+        }
+        $allQuestions = [];
+        $lastGenError = null;
+        for ($b = 0; $b < $batchCount; $b++) {
+            try {
+                $batchTranscript = $transcriptChunks[$b] ?? null;
+                $batch = deepseek_generate_quiz($lecture['title_ar'], $lecture['description'], $batchTranscript, $batchSize);
+                $allQuestions = array_merge($allQuestions, $batch['questions'] ?? []);
+            } catch (Throwable $e) {
+                $lastGenError = $e;
+                break;
+            }
+        }
+        if (!$allQuestions) {
+            throw $lastGenError ?? new ApiException(502, 'تعذّر توليد أسئلة الاختبار');
+        }
+        $generated = ['questions' => $allQuestions];
         $pdo = db();
         $pdo->beginTransaction();
         try {
@@ -1644,6 +1758,31 @@ function h_get_quiz($lectureId, array $user): void
         }
     }
     json_response(load_quiz_with_questions($existing['id'], false));
+}
+
+// يتحقّق من إجابة سؤال واحد فوراً (للاستخدام أثناء الاختبار، سؤالاً سؤالاً)
+// بلا كشف أي إجابات صحيحة أخرى مقدَّماً، وبلا تسجيل المحاولة بعد — التسجيل
+// النهائي والنقاط يتمّان كما كانا دفعة واحدة عبر h_submit_quiz بعد آخر سؤال.
+function h_check_quiz_answer($questionId, array $body, array $user): void
+{
+    $question = q_one("SELECT id, explanation FROM quiz_questions WHERE id=?", [$questionId]);
+    if (!$question) {
+        throw new ApiException(404, 'السؤال غير موجود');
+    }
+    $options = q_all("SELECT id, is_correct FROM quiz_options WHERE question_id=?", [$questionId]);
+    $correctOption = null;
+    foreach ($options as $o) {
+        if ($o['is_correct']) {
+            $correctOption = $o;
+            break;
+        }
+    }
+    $selectedId = isset($body['selectedOptionId']) ? (int) $body['selectedOptionId'] : null;
+    json_response([
+        'isCorrect' => (bool) ($correctOption && $selectedId === (int) $correctOption['id']),
+        'correctOptionId' => $correctOption ? (int) $correctOption['id'] : null,
+        'explanation' => $question['explanation'],
+    ]);
 }
 
 function h_submit_quiz($quizId, array $body, array $user): void
@@ -1851,6 +1990,16 @@ function h_tutor_chat(array $body, array $user): void
         throw new ApiException(404, 'المحاضرة غير موجودة');
     }
 
+    // نجلب ترجمة الفيديو (إن لم تكن محفوظة بعد) كي يجيب المساعد ويلخّص بناءً
+    // على محتوى المحاضرة الفعلي بدل عنوانها ووصفها فقط
+    if (!$lecture['transcript_text'] && $lecture['youtube_video_id']) {
+        $transcript = youtube_fetch_transcript($lecture['youtube_video_id']);
+        if ($transcript) {
+            q_run("UPDATE lectures SET transcript_text=? WHERE id=?", [$transcript, $lecture['id']]);
+            $lecture['transcript_text'] = $transcript;
+        }
+    }
+
     $session = get_or_create_chat_session($user['id'], $lectureId);
     $history = q_all(
         "SELECT role, message_text FROM ai_chat_messages WHERE session_id=? ORDER BY created_at ASC LIMIT 20",
@@ -2030,6 +2179,8 @@ function dispatch_api(): void
             h_lecture_progress($m[1], $body, require_auth());
         } elseif ($method === 'POST' && preg_match('#^/quizzes/([^/]+)/submit$#', $route, $m)) {
             h_submit_quiz($m[1], $body, require_auth());
+        } elseif ($method === 'POST' && preg_match('#^/quiz-questions/([^/]+)/check$#', $route, $m)) {
+            h_check_quiz_answer($m[1], $body, require_auth());
         } elseif ($method === 'GET' && $route === '/points/me') {
             h_points_me(require_auth());
         } elseif ($method === 'GET' && $route === '/leaderboard') {
@@ -2262,19 +2413,15 @@ body.auth-mode .view{padding:0;min-height:100vh;min-height:100dvh}
 .video-fallback i{font-size:2rem;color:var(--blue)}
 .progress-track{height:6px;border-radius:100px;background:var(--hover-bg);overflow:hidden;margin:14px 0}
 .progress-fill{height:100%;background:var(--gradient-primary);border-radius:100px;transition:width .4s}
-.tutor-fab{position:fixed;bottom:calc(94px + var(--safe-b));inset-inline-end:18px;z-index:150;width:54px;height:54px;border-radius:50%;background:var(--gradient-primary);color:#04231c;border:none;box-shadow:0 8px 24px rgba(0,230,187,.4);font-size:1.3rem;cursor:pointer;display:flex;align-items:center;justify-content:center}
-@media (min-width:1024px){.tutor-fab{bottom:24px}}
-.tutor-panel{position:fixed;bottom:0;inset-inline:0;z-index:200;max-width:480px;margin:0 auto;background:var(--card);border-radius:22px 22px 0 0;box-shadow:0 -10px 40px rgba(0,0,0,.25);display:flex;flex-direction:column;height:min(72vh,600px);transform:translateY(100%);transition:transform .25s ease}
-.tutor-panel.open{transform:translateY(0)}
-@media (min-width:640px){.tutor-panel{inset-inline:auto;inset-inline-end:18px;bottom:24px;width:380px;border-radius:22px}}
-.tutor-head{display:flex;align-items:center;justify-content:space-between;padding:14px 16px;border-bottom:1px solid var(--border)}
+.tutor-page{display:flex;flex-direction:column;min-height:calc(100dvh - 180px)}
+.tutor-head{display:flex;align-items:center;justify-content:space-between;padding:14px 16px;border-bottom:1px solid var(--border);background:var(--card);border-radius:var(--radius-md) var(--radius-md) 0 0}
 .tutor-head h4{font-size:.88rem;font-weight:800;display:flex;align-items:center;gap:8px}
 .tutor-head h4 i{color:var(--cyan)}
-.tutor-body{flex:1;overflow-y:auto;padding:14px 16px;display:flex;flex-direction:column;gap:10px}
+.tutor-body{flex:1;padding:14px 16px;display:flex;flex-direction:column;gap:10px;background:var(--card)}
 .tutor-msg{max-width:85%;padding:10px 13px;border-radius:14px;font-size:.78rem;line-height:1.7}
 .tutor-msg.user{align-self:flex-end;background:var(--gradient-primary);color:#04231c;border-bottom-left-radius:4px;border-bottom-right-radius:14px}
 .tutor-msg.assistant{align-self:flex-start;background:var(--hover-bg);border-bottom-right-radius:4px}
-.tutor-input{display:flex;gap:8px;padding:12px 14px calc(12px + var(--safe-b));border-top:1px solid var(--border)}
+.tutor-input{display:flex;gap:8px;padding:12px 14px;background:var(--card);border-top:1px solid var(--border);border-radius:0 0 var(--radius-md) var(--radius-md);position:sticky;bottom:calc(70px + var(--safe-b))}
 .tutor-input input{flex:1;border:1px solid var(--border);background:var(--bg);border-radius:100px;padding:10px 16px;font-size:.8rem;color:var(--text);outline:none}
 .tutor-input input:focus{border-color:var(--blue)}
 .tutor-send{width:40px;height:40px;border-radius:50%;background:var(--gradient-primary);color:#04231c;border:none;cursor:pointer;flex-shrink:0}
@@ -2475,6 +2622,7 @@ App.api = (function () {
     updateProgress: (id, payload) => request(`/lectures/${id}/progress`, { method: 'POST', body: payload }),
 
     getQuiz: (lectureId) => request(`/lectures/${lectureId}/quiz`),
+    checkQuizAnswer: (questionId, payload) => request(`/quiz-questions/${questionId}/check`, { method: 'POST', body: payload }),
     submitQuiz: (quizId, payload) => request(`/quizzes/${quizId}/submit`, { method: 'POST', body: payload }),
 
     getTutorHistory: (lectureId) => request(`/tutor/sessions/${lectureId}`),
@@ -3041,16 +3189,8 @@ App.views.lecture = async function lecture({ id }) {
       <div style="display:flex;gap:10px;flex-wrap:wrap">
         <button class="btn btn-outline" id="markCompleteBtn" ${isCompleted ? 'disabled' : ''}><i class="fas fa-check"></i> ${isCompleted ? 'تمت المشاهدة' : 'أنهيت المشاهدة'}</button>
         <button class="btn btn-primary" id="startQuizBtn"><i class="fas fa-pen-to-square"></i> ابدأ الاختبار</button>
+        <button class="btn btn-outline" id="openTutorBtn"><i class="fas fa-robot"></i> المساعد الذكي</button>
       </div>
-    </div>
-    <button class="tutor-fab" id="tutorFab" title="المساعد الذكي"><i class="fas fa-robot"></i></button>
-    <div class="tutor-panel" id="tutorPanel">
-      <div class="tutor-head"><h4><i class="fas fa-robot"></i> المساعد الذكي</h4><button class="icon-btn" id="tutorCloseBtn"><i class="fas fa-xmark"></i></button></div>
-      <div class="tutor-body" id="tutorBody"><div class="tutor-msg assistant">أهلاً بك! أنا مساعدك الذكي لهذه المحاضرة. اسألني عن أي نقطة غامضة 🤓</div></div>
-      <form class="tutor-input" id="tutorForm">
-        <input type="text" id="tutorInput" placeholder="اكتب سؤالك هنا..." autocomplete="off">
-        <button class="tutor-send" type="submit"><i class="fas fa-paper-plane"></i></button>
-      </form>
     </div>
   `;
   view.querySelectorAll('[data-nav]').forEach((el) => el.addEventListener('click', () => (location.hash = el.dataset.nav)));
@@ -3081,106 +3221,140 @@ App.views.lecture = async function lecture({ id }) {
     });
   }
   document.getElementById('startQuizBtn').addEventListener('click', () => { location.hash = `#/quiz/${id}`; });
-  const fab = document.getElementById('tutorFab');
-  const panel = document.getElementById('tutorPanel');
+  document.getElementById('openTutorBtn').addEventListener('click', () => { location.hash = `#/tutor/${id}`; });
+};
+
+// صفحة كاملة للمساعد الذكي (بدل لوحة صغيرة منزلقة)، ويبقى محصوراً بمحاضرة
+// واحدة فقط (لا يجيب إلا عن سياق المحاضرة التي فُتح منها)
+App.views.tutorPage = async function tutorPage({ lectureId }) {
+  const view = document.getElementById('view');
+  view.innerHTML = App.ui.loadingHtml();
+  const { lecture: lec } = await App.api.getLecture(lectureId);
+  view.innerHTML = `
+    <div class="an tutor-page">
+      <div class="breadcrumb"><a href="#/lecture/${lectureId}">العودة للمحاضرة</a></div>
+      <div class="tutor-head">
+        <h4><i class="fas fa-robot"></i> المساعد الذكي — ${App.ui.escapeHtml(lec.title_ar)}</h4>
+        <button class="btn btn-outline btn-sm" id="summarizeBtn"><i class="fas fa-list"></i> لخّص المحاضرة</button>
+      </div>
+      <div class="tutor-body" id="tutorBody"><div class="tutor-msg assistant">أهلاً بك! أنا مساعدك الذكي لهذه المحاضرة تحديداً. اسألني عن أي نقطة غامضة، أو اطلب مني تلخيصها 🤓</div></div>
+      <form class="tutor-input" id="tutorForm">
+        <input type="text" id="tutorInput" placeholder="اكتب سؤالك هنا..." autocomplete="off">
+        <button class="tutor-send" type="submit"><i class="fas fa-paper-plane"></i></button>
+      </form>
+    </div>
+  `;
   const body = document.getElementById('tutorBody');
   const form = document.getElementById('tutorForm');
   const input = document.getElementById('tutorInput');
-  let historyLoaded = false;
   function addMessage(role, text) {
     const div = document.createElement('div'); div.className = `tutor-msg ${role}`; div.textContent = text;
-    body.appendChild(div); body.scrollTop = body.scrollHeight;
+    body.appendChild(div); div.scrollIntoView({ behavior: 'smooth', block: 'end' });
   }
-  fab.addEventListener('click', async () => {
-    panel.classList.toggle('open');
-    if (panel.classList.contains('open') && !historyLoaded) {
-      historyLoaded = true;
-      try { const { messages } = await App.api.getTutorHistory(id); messages.forEach((m) => addMessage(m.role, m.message_text)); }
-      catch (err) {}
-    }
-  });
-  document.getElementById('tutorCloseBtn').addEventListener('click', () => panel.classList.remove('open'));
-  form.addEventListener('submit', async (e) => {
+  async function sendMessage(text) {
+    addMessage('user', text);
+    input.disabled = true;
+    const typingEl = document.createElement('div'); typingEl.className = 'tutor-msg assistant'; typingEl.innerHTML = '<span class="spinner"></span>';
+    body.appendChild(typingEl); typingEl.scrollIntoView({ behavior: 'smooth', block: 'end' });
+    try { const { reply } = await App.api.sendTutorMessage(lectureId, text); typingEl.remove(); addMessage('assistant', reply); }
+    catch (err) { typingEl.remove(); addMessage('assistant', `عذراً، حدث خطأ: ${err.message}`); }
+    finally { input.disabled = false; input.focus(); }
+  }
+  try {
+    const { messages } = await App.api.getTutorHistory(lectureId);
+    messages.forEach((m) => addMessage(m.role, m.message_text));
+  } catch (err) {}
+  form.addEventListener('submit', (e) => {
     e.preventDefault();
     const text = input.value.trim();
     if (!text) return;
-    addMessage('user', text); input.value = ''; input.disabled = true;
-    const typingEl = document.createElement('div'); typingEl.className = 'tutor-msg assistant'; typingEl.innerHTML = '<span class="spinner"></span>';
-    body.appendChild(typingEl); body.scrollTop = body.scrollHeight;
-    try { const { reply } = await App.api.sendTutorMessage(id, text); typingEl.remove(); addMessage('assistant', reply); }
-    catch (err) { typingEl.remove(); addMessage('assistant', `عذراً، حدث خطأ: ${err.message}`); }
-    finally { input.disabled = false; input.focus(); }
+    input.value = '';
+    sendMessage(text);
   });
+  document.getElementById('summarizeBtn').addEventListener('click', () => sendMessage('لخّص لي هذه المحاضرة بنقاط واضحة ومختصرة.'));
 };
 
+// اختبار بسؤال واحد في كل شاشة: يختار الطالب إجابته فتُقفَل فوراً ويظهر
+// الصحيح/الخطأ مع شرح الذكاء الاصطناعي، ثم زر "التالي" ينقله للسؤال الذي يليه؛
+// وفي النهاية تُرسَل كل الإجابات دفعة واحدة (كما كان) ليُحسب المجموع والنقاط.
 App.views.quiz = async function quiz({ lectureId }) {
   const view = document.getElementById('view');
   view.innerHTML = App.ui.loadingHtml('جاري تجهيز الاختبار بالذكاء الاصطناعي...');
   const { quiz: quizData, questions } = await App.api.getQuiz(lectureId);
+  if (!questions.length) { view.innerHTML = App.ui.emptyStateHtml('fa-clipboard-question', 'لا يوجد اختبار متاح حالياً', 'حاول لاحقاً'); return; }
+
   const startedAt = new Date().toISOString();
-  const selected = {};
-  function renderQuestions(submittedResults) {
-    const resultMap = submittedResults ? new Map(submittedResults.map((r) => [r.questionId, r])) : null;
-    return questions.map((q, qi) => {
-      const result = resultMap ? resultMap.get(q.id) : null;
-      const optionsHtml = q.options.map((o) => {
-        let cls = '';
-        if (result) { if (o.id === result.correctOptionId) cls = 'correct'; else if (o.id === result.selectedOptionId && !result.isCorrect) cls = 'incorrect'; }
-        else if (selected[q.id] === o.id) cls = 'selected';
-        return `<div class="option-row ${cls}" data-question="${q.id}" data-option="${o.id}" ${result ? 'style="pointer-events:none"' : ''}>
-          <span class="option-mark">${result && o.id === result.correctOptionId ? '<i class="fas fa-check"></i>' : result && cls === 'incorrect' ? '<i class="fas fa-xmark"></i>' : ''}</span>
-          <span>${App.ui.escapeHtml(o.option_text)}</span>
-        </div>`;
-      }).join('');
-      return `<div class="question-card an">
-        <div class="quiz-progress">السؤال ${qi + 1} من ${questions.length}</div>
-        <div class="question-text">${App.ui.escapeHtml(q.question_text)}</div>
-        ${optionsHtml}
-        ${result && result.explanation ? `<div class="option-explain"><i class="fas fa-lightbulb" style="color:var(--gold)"></i> ${App.ui.escapeHtml(result.explanation)}</div>` : ''}
+  const answers = {};
+  const checks = {};
+  let current = 0;
+
+  function renderQuestion() {
+    const q = questions[current];
+    const answeredId = answers[q.id];
+    const check = checks[q.id];
+    const isLast = current === questions.length - 1;
+    const optionsHtml = q.options.map((o) => {
+      let cls = '';
+      if (check) {
+        if (o.id === check.correctOptionId) cls = 'correct';
+        else if (o.id === answeredId && !check.isCorrect) cls = 'incorrect';
+      }
+      return `<div class="option-row ${cls}" data-option="${o.id}" ${check ? 'style="pointer-events:none"' : ''}>
+        <span class="option-mark">${cls === 'correct' ? '<i class="fas fa-check"></i>' : cls === 'incorrect' ? '<i class="fas fa-xmark"></i>' : ''}</span>
+        <span>${App.ui.escapeHtml(o.option_text)}</span>
       </div>`;
     }).join('');
-  }
-  function attachOptionHandlers() {
-    view.querySelectorAll('.option-row').forEach((row) => {
-      row.addEventListener('click', () => {
-        const qId = Number(row.dataset.question); const oId = Number(row.dataset.option);
-        selected[qId] = oId;
-        view.querySelectorAll(`.option-row[data-question="${qId}"]`).forEach((r) => r.classList.remove('selected'));
-        row.classList.add('selected'); updateSubmitState();
-      });
-    });
-  }
-  function updateSubmitState() {
-    const submitBtn = document.getElementById('submitQuizBtn'); if (!submitBtn) return;
-    const answeredCount = Object.keys(selected).length;
-    submitBtn.disabled = answeredCount < questions.length;
-    submitBtn.textContent = answeredCount < questions.length ? `أجب على كل الأسئلة (${answeredCount}/${questions.length})` : 'تصحيح الاختبار';
-  }
-  function renderForm() {
     view.innerHTML = `
       <div class="an">
         <div class="breadcrumb"><a href="#/lecture/${lectureId}">العودة للمحاضرة</a></div>
         <div class="page-title">${App.ui.escapeHtml(quizData.title)}</div>
-        <div class="page-sub">أجب على جميع الأسئلة ثم اضغط تصحيح لمعرفة نتيجتك فوراً</div>
-        <div id="questionsHolder">${renderQuestions(null)}</div>
-        <button class="btn btn-primary btn-block" id="submitQuizBtn" disabled>أجب على كل الأسئلة (0/${questions.length})</button>
+        <div class="question-card an">
+          <div class="quiz-progress">السؤال ${current + 1} من ${questions.length}</div>
+          <div class="question-text">${App.ui.escapeHtml(q.question_text)}</div>
+          <div id="optionsHolder">${optionsHtml}</div>
+          ${check && check.explanation ? `<div class="option-explain"><i class="fas fa-lightbulb" style="color:var(--gold)"></i> ${App.ui.escapeHtml(check.explanation)}</div>` : ''}
+        </div>
+        <button class="btn btn-primary btn-block" id="quizNextBtn" ${check ? '' : 'disabled'}>${isLast ? 'عرض النتيجة' : 'التالي'} <i class="fas fa-arrow-left"></i></button>
       </div>
     `;
-    attachOptionHandlers();
-    document.getElementById('submitQuizBtn').addEventListener('click', handleSubmit);
+    if (!check) {
+      view.querySelectorAll('.option-row').forEach((row) => {
+        row.addEventListener('click', async () => {
+          if (answers[q.id] != null) return; // منع نقرات متكررة أثناء انتظار التحقق
+          const selectedOptionId = Number(row.dataset.option);
+          answers[q.id] = selectedOptionId;
+          view.querySelectorAll('.option-row').forEach((r) => { r.style.pointerEvents = 'none'; });
+          try {
+            checks[q.id] = await App.api.checkQuizAnswer(q.id, { selectedOptionId });
+          } catch (err) {
+            App.ui.toast(err.message, 'err');
+            delete answers[q.id];
+            view.querySelectorAll('.option-row').forEach((r) => { r.style.pointerEvents = ''; });
+            return;
+          }
+          renderQuestion();
+        });
+      });
+    }
+    document.getElementById('quizNextBtn').addEventListener('click', () => {
+      if (isLast) { handleSubmit(); return; }
+      current++; renderQuestion();
+    });
   }
+
   async function handleSubmit() {
-    const submitBtn = document.getElementById('submitQuizBtn');
-    submitBtn.disabled = true; submitBtn.innerHTML = '<span class="spinner"></span> جاري التصحيح...';
+    const btn = document.getElementById('quizNextBtn');
+    btn.disabled = true; btn.innerHTML = '<span class="spinner"></span> جاري حساب النتيجة...';
     try {
-      const answers = Object.entries(selected).map(([questionId, selectedOptionId]) => ({ questionId: Number(questionId), selectedOptionId }));
-      const result = await App.api.submitQuiz(quizData.id, { answers, startedAt });
+      const payload = Object.entries(answers).map(([questionId, selectedOptionId]) => ({ questionId: Number(questionId), selectedOptionId }));
+      const result = await App.api.submitQuiz(quizData.id, { answers: payload, startedAt });
       renderResult(result);
     } catch (err) {
       if (!App.ui.handleAuthError(err)) App.ui.toast(err.message, 'err');
-      submitBtn.disabled = false; submitBtn.textContent = 'تصحيح الاختبار';
+      btn.disabled = false; btn.innerHTML = 'عرض النتيجة <i class="fas fa-arrow-left"></i>';
     }
   }
+
   function renderResult(result) {
     const percentage = Math.round((result.correctCount / result.totalQuestions) * 100);
     view.innerHTML = `
@@ -3190,7 +3364,6 @@ App.views.quiz = async function quiz({ lectureId }) {
           <div style="font-weight:800;font-size:1rem">${result.correctCount} من ${result.totalQuestions} إجابات صحيحة</div>
           <div class="result-points"><i class="fas fa-star"></i> +${result.pointsEarned} نقطة${result.perfectBonus ? ' (شامل مكافأة العلامة الكاملة 🏆)' : ''}</div>
         </div>
-        <div id="questionsHolder">${renderQuestions(result.results)}</div>
         <div style="display:flex;gap:10px;margin-top:6px">
           <a class="btn btn-outline btn-block" href="#/lecture/${lectureId}">العودة للمحاضرة</a>
           <a class="btn btn-primary btn-block" href="#/leaderboard">لوحة المتصدرين</a>
@@ -3200,8 +3373,8 @@ App.views.quiz = async function quiz({ lectureId }) {
     App.state.updateUser({ pointsTotal: (App.state.getUser().pointsTotal || 0) + result.pointsEarned });
     App.main.refreshHeader();
   }
-  if (!questions.length) { view.innerHTML = App.ui.emptyStateHtml('fa-clipboard-question', 'لا يوجد اختبار متاح حالياً', 'حاول لاحقاً'); return; }
-  renderForm();
+
+  renderQuestion();
 };
 
 App.views.leaderboard = async function leaderboard() {
