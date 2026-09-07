@@ -640,18 +640,33 @@ function deepseek_parse_json(string $text): array
     return $decoded;
 }
 
-function deepseek_generate_curriculum(string $countryName, string $stageName): array
+// يولّد المنهج على مرحلتين بدل نداء واحد ضخم: أولاً قائمة المواد فقط (رد صغير
+// وموثوق)، ثم وحدات/محاضرات كل مادة في نداء منفصل. طلب 5 مواد × 4 وحدات × 6
+// محاضرات دفعة واحدة ينتج رداً كبيراً قد يتجاوز max_tokens فيُقطع في المنتصف
+// ويفشل تحليل JSON — تقسيم النداءات يضمن أن كل رد يبقى صغيراً بما يكفي دائماً.
+function deepseek_generate_subject_list(string $countryName, string $stageName, int $subjectCount = 5): array
 {
-    $system = 'أنت خبير مناهج تعليمية عربية. مهمتك اقتراح هيكل دراسي دقيق ومناسب لعمر ومستوى الطلاب. '
+    $system = 'أنت خبير مناهج تعليمية عربية. أعد النتيجة بصيغة JSON فقط بدون أي شرح إضافي.';
+    $user = "اقترح $subjectCount مواد دراسية رئيسية مناسبة لدولة \"$countryName\" وللمرحلة \"$stageName\"،\n"
+        . "مع اسم مدرّس واحد مقترح لكل مادة وأيقونة Font Awesome مناسبة (اسم الأيقونة فقط مثل fa-atom).\n\n"
+        . 'أعد الناتج بهذا الشكل بالضبط (JSON فقط):'
+        . '{"subjects":[{"name_ar":"اسم المادة","icon":"fa-book","teacher_name":"اسم المدرّس المقترح"}]}';
+
+    $r = deepseek_chat([['role' => 'system', 'content' => $system], ['role' => 'user', 'content' => $user]], 0.5, true, 1200);
+    return deepseek_parse_json($r['content']);
+}
+
+function deepseek_generate_subject_units(string $countryName, string $stageName, string $subjectName, int $unitsCount = 4, int $lecturesPerUnit = 6): array
+{
+    $system = 'أنت خبير مناهج تعليمية عربية متخصص بتصميم محتوى مادة دراسية واحدة بالتفصيل. '
         . 'أعد النتيجة بصيغة JSON فقط بدون أي شرح إضافي.';
-    $user = "اقترح هيكلاً دراسياً لدولة \"$countryName\" للمرحلة \"$stageName\".\n"
-        . "أعد 5 مواد دراسية رئيسية مناسبة، ولكل مادة اقترح اسم مدرّس واحد (teacher_name)،\n"
-        . "ولذلك المدرّس 4 وحدات بترتيب منطقي، ولكل وحدة 6 محاضرات بعناوين ووصف قصير،\n"
+    $user = "صمّم منهج مادة \"$subjectName\" لدولة \"$countryName\" وللمرحلة \"$stageName\".\n"
+        . "أعد $unitsCount وحدات/فصول بترتيب منطقي، ولكل وحدة $lecturesPerUnit محاضرات بعناوين ووصف قصير،\n"
         . "مع اقتراح search_query (عبارة بحث يوتيوب بالعربية) تساعد لاحقاً بإيجاد فيديو تعليمي مناسب لكل محاضرة.\n\n"
         . 'أعد الناتج بهذا الشكل بالضبط (JSON فقط):'
-        . '{"subjects":[{"name_ar":"اسم المادة","icon":"fa-book","teacher_name":"اسم المدرّس المقترح","units":[{"title_ar":"عنوان الوحدة","description":"وصف قصير","lectures":[{"title_ar":"عنوان المحاضرة","description":"وصف قصير","search_query":"عبارة بحث"}]}]}]}';
+        . '{"units":[{"title_ar":"عنوان الوحدة","description":"وصف قصير","lectures":[{"title_ar":"عنوان المحاضرة","description":"وصف قصير","search_query":"عبارة بحث"}]}]}';
 
-    $r = deepseek_chat([['role' => 'system', 'content' => $system], ['role' => 'user', 'content' => $user]], 0.5, true, 4000);
+    $r = deepseek_chat([['role' => 'system', 'content' => $system], ['role' => 'user', 'content' => $user]], 0.5, true, 3000);
     return deepseek_parse_json($r['content']);
 }
 
@@ -908,7 +923,7 @@ function h_generate_curriculum($stageId): void
     $jobId = (int) db()->lastInsertId();
 
     try {
-        $curriculum = deepseek_generate_curriculum($stage['country_name_ar'], $stage['name_ar']);
+        $subjectList = deepseek_generate_subject_list($stage['country_name_ar'], $stage['name_ar']);
     } catch (Throwable $e) {
         q_run(
             "UPDATE ai_generation_jobs SET status='failed', error_message=?, completed_at=CURRENT_TIMESTAMP WHERE id=?",
@@ -922,9 +937,14 @@ function h_generate_curriculum($stageId): void
     $teacherCount = 0;
     $unitCount = 0;
     $lectureCount = 0;
-    $pdo->beginTransaction();
-    try {
-        foreach (($curriculum['subjects'] ?? []) as $sIndex => $subject) {
+    $failedSubjects = [];
+
+    // كل مادة تُعالَج بنداء AI منفصل خاص بها فقط (وليس نداءً واحداً ضخماً لكل
+    // المواد معاً)، كي يبقى كل رد صغيراً وموثوقاً، ولضمان أن فشل توليد محتوى
+    // مادة واحدة لا يُسقط بقية المواد التي نجحت
+    foreach (($subjectList['subjects'] ?? []) as $sIndex => $subject) {
+        $pdo->beginTransaction();
+        try {
             q_run(
                 "INSERT INTO subjects (stage_id, name_ar, icon, order_index, is_ai_generated) VALUES (?,?,?,?,1)",
                 [$stageId, $subject['name_ar'], $subject['icon'] ?? 'fa-book', $sIndex + 1]
@@ -932,7 +952,6 @@ function h_generate_curriculum($stageId): void
             $subjectCount++;
             $subjectId = (int) $pdo->lastInsertId();
 
-            // مدرّس يحمل محتوى هذه المادة المولّد بالذكاء الاصطناعي
             $teacherName = trim($subject['teacher_name'] ?? '') ?: ('فريق ' . $subject['name_ar']);
             q_run(
                 "INSERT INTO teachers (subject_id, name_ar, bio, order_index) VALUES (?,?,?,1)",
@@ -940,8 +959,24 @@ function h_generate_curriculum($stageId): void
             );
             $teacherCount++;
             $teacherId = (int) $pdo->lastInsertId();
+            $pdo->commit();
+        } catch (Throwable $e) {
+            $pdo->rollBack();
+            $failedSubjects[] = $subject['name_ar'] ?? ('مادة #' . ($sIndex + 1));
+            continue;
+        }
 
-            foreach (($subject['units'] ?? []) as $uIndex => $unit) {
+        try {
+            $subjectContent = deepseek_generate_subject_units($stage['country_name_ar'], $stage['name_ar'], $subject['name_ar']);
+        } catch (Throwable $e) {
+            // المادة والمدرّس أُنشئا بنجاح، لكن تعذّر توليد الوحدات/المحاضرات لهما الآن
+            $failedSubjects[] = $subject['name_ar'];
+            continue;
+        }
+
+        $pdo->beginTransaction();
+        try {
+            foreach (($subjectContent['units'] ?? []) as $uIndex => $unit) {
                 q_run(
                     "INSERT INTO units (teacher_id, title_ar, description, order_index, is_ai_generated) VALUES (?,?,?,?,1)",
                     [$teacherId, $unit['title_ar'], $unit['description'] ?? null, $uIndex + 1]
@@ -960,28 +995,40 @@ function h_generate_curriculum($stageId): void
                     $lectureCount++;
                 }
             }
+            $pdo->commit();
+        } catch (Throwable $e) {
+            $pdo->rollBack();
+            $failedSubjects[] = $subject['name_ar'];
         }
+    }
 
-        q_run(
-            "UPDATE ai_generation_jobs SET status='completed', completed_at=CURRENT_TIMESTAMP, response_summary=? WHERE id=?",
-            [json_encode(compact('subjectCount', 'teacherCount', 'unitCount', 'lectureCount')), $jobId]
-        );
-        $pdo->commit();
-    } catch (Throwable $e) {
-        $pdo->rollBack();
-        q_run(
-            "UPDATE ai_generation_jobs SET status='failed', error_message=?, completed_at=CURRENT_TIMESTAMP WHERE id=?",
-            [mb_substr($e->getMessage(), 0, 500), $jobId]
-        );
-        throw $e;
+    $allFailed = $subjectCount === 0 || count($failedSubjects) >= $subjectCount;
+    q_run(
+        "UPDATE ai_generation_jobs SET status=?, completed_at=CURRENT_TIMESTAMP, response_summary=? WHERE id=?",
+        [
+            $allFailed ? 'failed' : 'completed',
+            json_encode(compact('subjectCount', 'teacherCount', 'unitCount', 'lectureCount', 'failedSubjects'), JSON_UNESCAPED_UNICODE),
+            $jobId,
+        ]
+    );
+
+    if ($allFailed) {
+        throw new ApiException(502, 'تعذّر توليد المنهج بالكامل. تحقّق من مفتاح DeepSeek وحاول مجدداً.');
+    }
+
+    $message = 'تم توليد المنهج بنجاح';
+    if ($failedSubjects) {
+        $message .= '. ملاحظة: تعذّر توليد محتوى المواد التالية (أُنشئت المادة والمدرّس فقط، بلا وحدات بعد): '
+            . implode('، ', $failedSubjects);
     }
 
     json_response([
-        'message' => 'تم توليد المنهج بنجاح',
+        'message' => $message,
         'subjectCount' => $subjectCount,
         'teacherCount' => $teacherCount,
         'unitCount' => $unitCount,
         'lectureCount' => $lectureCount,
+        'failedSubjects' => $failedSubjects,
     ], 201);
 }
 
@@ -2186,7 +2233,7 @@ App.views.home = async function home() {
           genBtn.disabled = true; genBtn.innerHTML = '<span class="spinner"></span> جاري التوليد (قد يستغرق دقيقة)...';
           try {
             const result = await App.api.generateCurriculum(selection.stageId);
-            App.ui.toast(`تم توليد ${result.subjectCount} مواد و ${result.teacherCount} مدرّسين و ${result.lectureCount} محاضرة`, 'ok');
+            App.ui.toast(result.message, (result.failedSubjects && result.failedSubjects.length) ? '' : 'ok');
             App.views.home();
           } catch (err) {
             App.ui.toast(err.message, 'err'); genBtn.disabled = false;
