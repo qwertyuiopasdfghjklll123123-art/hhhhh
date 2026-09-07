@@ -380,6 +380,7 @@ function migrate_governorates_if_needed(PDO $pdo): void
 function migrate_schema_if_needed(PDO $pdo): void
 {
     migrate_governorates_if_needed($pdo);
+    migrate_iraq_only_and_full_ladder($pdo);
 
     $hasTeachers = q_one("SELECT name FROM sqlite_master WHERE type='table' AND name='teachers'");
     if (!$hasTeachers) {
@@ -478,24 +479,65 @@ function seed_iraq_governorates(int $iraqId): void
     }
 }
 
+// السلّم الدراسي الكامل في العراق: ابتدائية (١-٦)، متوسطة (١-٣)، ثم إعدادية
+// (رابع عام موحَّد، فخامس وسادس بفرعين علمي/أدبي). كل صف [name_ar, name_en,
+// education_level, level_order]. تُستخدم هذه القائمة عند الزرع الأولي وعند
+// ترقية قاعدة بيانات قديمة كانت تحوي صفوفاً جزئية فقط.
+function iraq_stage_list(): array
+{
+    return [
+        ['الأول ابتدائي', 'Primary 1', 'primary', 1],
+        ['الثاني ابتدائي', 'Primary 2', 'primary', 2],
+        ['الثالث ابتدائي', 'Primary 3', 'primary', 3],
+        ['الرابع ابتدائي', 'Primary 4', 'primary', 4],
+        ['الخامس ابتدائي', 'Primary 5', 'primary', 5],
+        ['السادس ابتدائي', 'Primary 6', 'primary', 6],
+        ['الأول متوسط', 'Intermediate 1', 'intermediate', 1],
+        ['الثاني متوسط', 'Intermediate 2', 'intermediate', 2],
+        ['الثالث متوسط', 'Intermediate 3', 'intermediate', 3],
+        ['الرابع الإعدادي', 'Secondary 4', 'secondary', 4],
+        ['الخامس العلمي', 'Scientific 5th', 'secondary', 5],
+        ['الخامس الأدبي', 'Literary 5th', 'secondary', 5],
+        ['السادس علمي', 'Scientific 6th', 'secondary', 6],
+        ['السادس الأدبي', 'Literary 6th', 'secondary', 6],
+    ];
+}
+
+// يقصر الدول على العراق فقط (تُحذف أي دولة أخرى من نسخة قديمة بأمان عبر
+// CASCADE/SET NULL)، ويضيف أي صف ناقص من السلّم الدراسي الكامل أعلاه لصفوف
+// موجودة مسبقاً. مستقل تماماً عن ترقية units/teachers، ويجب أن يعمل دائماً.
+function migrate_iraq_only_and_full_ladder(PDO $pdo): void
+{
+    $pdo->exec("DELETE FROM countries WHERE code != 'IQ'");
+
+    $iraq = q_one("SELECT id FROM countries WHERE code='IQ'");
+    if (!$iraq) {
+        return;
+    }
+    $iraqId = (int) $iraq['id'];
+    foreach (iraq_stage_list() as $s) {
+        q_run(
+            "INSERT OR IGNORE INTO stages (country_id,name_ar,name_en,education_level,level_order) VALUES (?,?,?,?,?)",
+            [$iraqId, $s[0], $s[1], $s[2], $s[3]]
+        );
+    }
+}
+
 // بيانات تجريبية أولية (دولة + مرحلة + مادة + مدرّس + وحدة + 5 محاضرات + اختبار جاهز)
 // كي يظهر شيء فور أول زيارة قبل تفعيل توليد الذكاء الاصطناعي
 function seed_data(): void
 {
     q_run("INSERT INTO countries (code,name_ar,name_en,flag_emoji) VALUES ('IQ','العراق','Iraq','🇮🇶')");
     $iraqId = (int) db()->lastInsertId();
-    q_run("INSERT INTO countries (code,name_ar,name_en,flag_emoji) VALUES ('EG','مصر','Egypt','🇪🇬')");
-    q_run("INSERT INTO countries (code,name_ar,name_en,flag_emoji) VALUES ('SA','السعودية','Saudi Arabia','🇸🇦')");
 
-    q_run("INSERT INTO stages (country_id,name_ar,name_en,education_level,level_order) VALUES (?,?,?,?,?)",
-        [$iraqId, 'الأول متوسط', 'Intermediate 1', 'intermediate', 1]);
-    q_run("INSERT INTO stages (country_id,name_ar,name_en,education_level,level_order) VALUES (?,?,?,?,?)",
-        [$iraqId, 'الثاني متوسط', 'Intermediate 2', 'intermediate', 2]);
-    q_run("INSERT INTO stages (country_id,name_ar,name_en,education_level,level_order) VALUES (?,?,?,?,?)",
-        [$iraqId, 'الثالث متوسط', 'Intermediate 3', 'intermediate', 3]);
-    $stage3Id = (int) db()->lastInsertId();
-    q_run("INSERT INTO stages (country_id,name_ar,name_en,education_level,level_order) VALUES (?,?,?,?,?)",
-        [$iraqId, 'السادس علمي', 'Scientific 6th', 'secondary', 6]);
+    $stage3Id = null;
+    foreach (iraq_stage_list() as $s) {
+        q_run("INSERT INTO stages (country_id,name_ar,name_en,education_level,level_order) VALUES (?,?,?,?,?)",
+            [$iraqId, $s[0], $s[1], $s[2], $s[3]]);
+        if ($s[0] === 'الثالث متوسط') {
+            $stage3Id = (int) db()->lastInsertId();
+        }
+    }
 
     q_run("INSERT INTO subjects (stage_id,name_ar,name_en,icon,color_hex,order_index) VALUES (?,?,?,?,?,1)",
         [$stage3Id, 'الرياضيات', 'Mathematics', 'fa-square-root-variable', '#00e6bb']);
@@ -775,6 +817,36 @@ function youtube_search_video(string $searchQuery): ?array
         'videoId' => $first['id']['videoId'],
         'thumbnailUrl' => $first['snippet']['thumbnails']['medium']['url'] ?? null,
     ];
+}
+
+// احتياطي بلا أي مفتاح أو تسجيل دخول: يطلب صفحة نتائج بحث يوتيوب العامة تماماً
+// كما يفعل أي زائر غير مسجَّل دخوله، ويستخرج أول معرّف فيديو من الصفحة. هذا
+// ليس رسمياً ولا مضموناً (يعتمد على بنية صفحة يوتيوب الحالية)، لذا يُستخدم
+// فقط عندما لا يوجد مفتاح YouTube API مضبوط أو لم يُعثر عبره على نتيجة، كي
+// تظهر محاضرة بفيديو حقيقي بدل رسالة "قريباً" حتى بلا أي إعداد من الأدمن.
+function youtube_scrape_first_video_id(string $searchQuery): ?string
+{
+    if (!trim($searchQuery)) {
+        return null;
+    }
+    $url = 'https://www.youtube.com/results?search_query=' . urlencode($searchQuery);
+    $ch = curl_init($url);
+    curl_setopt_array($ch, [
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_TIMEOUT => 8,
+        CURLOPT_USERAGENT => 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36',
+        CURLOPT_HTTPHEADER => ['Accept-Language: ar,en;q=0.8'],
+    ]);
+    $html = curl_exec($ch);
+    $status = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    curl_close($ch);
+    if (!$html || $status >= 400) {
+        return null;
+    }
+    if (preg_match('/"videoId":"([a-zA-Z0-9_-]{11})"/', $html, $m)) {
+        return $m[1];
+    }
+    return null;
 }
 
 function youtube_test_connection(): array
@@ -1343,6 +1415,19 @@ function h_lecture_detail($id, ?array $user): void
             $lecture['youtube_url'] = $videoUrl;
             $lecture['is_link_verified'] = 1;
             $lecture['thumbnail_url'] = $found['thumbnailUrl'];
+        } else {
+            // لا مفتاح مضبوط أو لم يُعثر عبره على نتيجة: نحاول احتياطياً بلا
+            // أي مفتاح (بحث عام غير مسجَّل الدخول) بدل ترك المحاضرة بلا فيديو
+            $scrapedId = youtube_scrape_first_video_id($searchQuery);
+            if ($scrapedId) {
+                $videoUrl = 'https://www.youtube.com/watch?v=' . $scrapedId;
+                q_run(
+                    "UPDATE lectures SET youtube_video_id=?, youtube_url=? WHERE id=?",
+                    [$scrapedId, $videoUrl, $lecture['id']]
+                );
+                $lecture['youtube_video_id'] = $scrapedId;
+                $lecture['youtube_url'] = $videoUrl;
+            }
         }
     }
 
@@ -2525,7 +2610,7 @@ App.views.onboarding = async function onboarding() {
       <div class="page-title" style="text-align:center;font-size:1.35rem">اختر بياناتك الدراسية</div>
       <div class="page-sub" style="text-align:center">سنعرض لك المواد والمدرّسين المناسبين لك تلقائياً</div>
       <div class="card" style="max-width:420px;margin:0 auto">
-        <div class="form-group"><label>الدولة</label><select class="form-control" id="obCountry"><option value="">جاري التحميل...</option></select></div>
+        <div class="form-group" id="obCountryGroup"><label>الدولة</label><select class="form-control" id="obCountry"><option value="">جاري التحميل...</option></select></div>
         <div class="form-group" id="obGovernorateGroup" hidden><label>المحافظة</label><select class="form-control" id="obGovernorate" disabled><option value="">اختر الدولة أولاً</option></select></div>
         <div class="form-group"><label>المرحلة</label><select class="form-control" id="obLevel" disabled><option value="">اختر الدولة أولاً</option></select></div>
         <div class="form-group"><label>الصف</label><select class="form-control" id="obGrade" disabled><option value="">اختر المرحلة أولاً</option></select></div>
@@ -2533,6 +2618,7 @@ App.views.onboarding = async function onboarding() {
       </div>
     </div>
   `;
+  const countryGroup = document.getElementById('obCountryGroup');
   const countrySelect = document.getElementById('obCountry');
   const govGroup = document.getElementById('obGovernorateGroup');
   const govSelect = document.getElementById('obGovernorate');
@@ -2600,9 +2686,18 @@ App.views.onboarding = async function onboarding() {
     updateSubmitState();
   }
 
+  let countries = [];
   try {
-    const { countries } = await App.api.getCountries();
-    countrySelect.innerHTML = '<option value="">اختر الدولة...</option>' + countries.map((c) => `<option value="${c.id}">${c.flag_emoji || ''} ${App.ui.escapeHtml(c.name_ar)}</option>`).join('');
+    ({ countries } = await App.api.getCountries());
+    if (countries.length === 1) {
+      // دولة واحدة فقط مدعومة حالياً: لا داعي لإظهار اختيار لا فائدة منه
+      countryGroup.hidden = true;
+      countrySelect.innerHTML = `<option value="${countries[0].id}">${countries[0].flag_emoji || ''} ${App.ui.escapeHtml(countries[0].name_ar)}</option>`;
+      countrySelect.value = String(countries[0].id);
+    } else {
+      countryGroup.hidden = false;
+      countrySelect.innerHTML = '<option value="">اختر الدولة...</option>' + countries.map((c) => `<option value="${c.id}">${c.flag_emoji || ''} ${App.ui.escapeHtml(c.name_ar)}</option>`).join('');
+    }
   } catch (err) { countrySelect.innerHTML = '<option value="">تعذّر تحميل الدول</option>'; App.ui.toast(err.message, 'err'); return; }
 
   countrySelect.addEventListener('change', () => onCountryChange());
@@ -2611,11 +2706,15 @@ App.views.onboarding = async function onboarding() {
   gradeSelect.addEventListener('change', updateSubmitState);
 
   // إن كان للحساب اختيار محفوظ مسبقاً (تعديل لاحق عبر "تغيير المرحلة")، نعبّئ
-  // الحقول به تلقائياً بدل أن يبدأ الطالب من الصفر في كل مرة
+  // الحقول به تلقائياً بدل أن يبدأ الطالب من الصفر في كل مرة. وإن كانت هناك
+  // دولة واحدة فقط فالاختيار تم تلقائياً أعلاه، فنبدأ تحميل بقية الخطوات فوراً
+  // حتى للحساب الجديد الذي لا يملك أي اختيار محفوظ بعد.
   const user = App.state.getUser();
-  if (user && user.countryId) {
+  if (user && user.countryId && countries.some((c) => String(c.id) === String(user.countryId))) {
     countrySelect.value = String(user.countryId);
-    await onCountryChange({ governorateId: user.governorateId, stageId: user.stageId });
+  }
+  if (countrySelect.value) {
+    await onCountryChange({ governorateId: user && user.governorateId, stageId: user && user.stageId });
   }
 
   submitBtn.addEventListener('click', async () => {
