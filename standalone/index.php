@@ -819,6 +819,85 @@ function youtube_search_video(string $searchQuery): ?array
     ];
 }
 
+// يبحث عن قائمة تشغيل حقيقية (بدل فيديو منفرد) لتُستخدم كمصدر محاضرات وحدة
+// كاملة: عدد المحاضرات وترقيمها وعناوينها تصبح مطابقة تماماً لقائمة التشغيل
+// الفعلية على يوتيوب. اختياري تماماً: بلا مفتاح، يستمر النظام بالأسلوب القديم
+// (عناوين يقترحها الذكاء الاصطناعي).
+function youtube_search_playlist(string $query): ?array
+{
+    $apiKey = get_youtube_api_key();
+    if (!$apiKey || !trim($query)) {
+        return null;
+    }
+
+    $url = 'https://www.googleapis.com/youtube/v3/search?' . http_build_query([
+        'key' => $apiKey,
+        'q' => $query,
+        'part' => 'snippet',
+        'type' => 'playlist',
+        'maxResults' => 1,
+        'relevanceLanguage' => 'ar',
+        'safeSearch' => 'strict',
+    ]);
+    $ch = curl_init($url);
+    curl_setopt_array($ch, [CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT => 10]);
+    $response = curl_exec($ch);
+    $status = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    curl_close($ch);
+    if ($response === false || $status >= 400) {
+        return null;
+    }
+
+    $data = json_decode($response, true);
+    $first = $data['items'][0] ?? null;
+    if (!$first) {
+        return null;
+    }
+    return ['playlistId' => $first['id']['playlistId'], 'title' => $first['snippet']['title'] ?? ''];
+}
+
+// فيديوهات قائمة تشغيل حقيقية بترتيبها الأصلي (المحاضرة الأولى، الثانية...)
+function youtube_get_playlist_items(string $playlistId, int $maxItems = 20): array
+{
+    $apiKey = get_youtube_api_key();
+    if (!$apiKey || !trim($playlistId)) {
+        return [];
+    }
+
+    $url = 'https://www.googleapis.com/youtube/v3/playlistItems?' . http_build_query([
+        'key' => $apiKey,
+        'playlistId' => $playlistId,
+        'part' => 'snippet',
+        'maxResults' => max(1, min($maxItems, 50)),
+    ]);
+    $ch = curl_init($url);
+    curl_setopt_array($ch, [CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT => 12]);
+    $response = curl_exec($ch);
+    $status = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    curl_close($ch);
+    if ($response === false || $status >= 400) {
+        return [];
+    }
+
+    $data = json_decode($response, true);
+    $items = [];
+    foreach (($data['items'] ?? []) as $item) {
+        $videoId = $item['snippet']['resourceId']['videoId'] ?? null;
+        $title = $item['snippet']['title'] ?? '';
+        if (!$videoId || $title === '' || $title === 'Private video' || $title === 'Deleted video') {
+            continue; // فيديوهات محذوفة/خاصة لا تظهر في الاستجابة بشكل صالح
+        }
+        $items[] = [
+            'videoId' => $videoId,
+            'title' => $title,
+            'thumbnailUrl' => $item['snippet']['thumbnails']['medium']['url'] ?? ($item['snippet']['thumbnails']['default']['url'] ?? null),
+            'position' => (int) ($item['snippet']['position'] ?? count($items)),
+        ];
+    }
+    usort($items, fn ($a, $b) => $a['position'] <=> $b['position']);
+    return $items;
+}
+
 // احتياطي بلا أي مفتاح أو تسجيل دخول: يطلب صفحة نتائج بحث يوتيوب العامة تماماً
 // كما يفعل أي زائر غير مسجَّل دخوله، ويستخرج أول معرّف فيديو من الصفحة. هذا
 // ليس رسمياً ولا مضموناً (يعتمد على بنية صفحة يوتيوب الحالية)، لذا يُستخدم
@@ -1176,18 +1255,22 @@ function h_subject_detail($subjectId): void
     json_response(['subject' => $s]);
 }
 
+// المدرّسون مرتّبون حسب مجموع مشاهدات محاضراتهم داخل التطبيق تنازلياً (الأكثر
+// مشاهدة أولاً)، ثم ترتيب الإدخال كخيار ثابت للمدرّسين الجدد بلا مشاهدات بعد
 function h_subject_teachers($subjectId): void
 {
     $rows = q_all(
         "SELECT t.id, t.name_ar, t.bio, t.avatar_color, t.order_index,
                 (SELECT COUNT(*) FROM units u WHERE u.teacher_id=t.id) as unit_count,
-                (SELECT COUNT(*) FROM lectures l JOIN units u ON u.id=l.unit_id WHERE u.teacher_id=t.id) as lecture_count
-         FROM teachers t WHERE t.subject_id=? ORDER BY t.order_index, t.name_ar",
+                (SELECT COUNT(*) FROM lectures l JOIN units u ON u.id=l.unit_id WHERE u.teacher_id=t.id) as lecture_count,
+                (SELECT COALESCE(SUM(l.view_count),0) FROM lectures l JOIN units u ON u.id=l.unit_id WHERE u.teacher_id=t.id) as total_views
+         FROM teachers t WHERE t.subject_id=? ORDER BY total_views DESC, t.order_index, t.name_ar",
         [$subjectId]
     );
     foreach ($rows as &$r) {
         $r['unit_count'] = (int) $r['unit_count'];
         $r['lecture_count'] = (int) $r['lecture_count'];
+        $r['total_views'] = (int) $r['total_views'];
     }
     unset($r);
     json_response(['teachers' => $rows]);
@@ -1323,9 +1406,24 @@ function h_generate_curriculum($stageId): void
             continue;
         }
 
+        // نبحث عن قائمة تشغيل حقيقية لكل وحدة *قبل* فتح أي معاملة كتابة، لأن
+        // نداءات الشبكة هذه قد تستغرق ثوانٍ لكل وحدة ويجب ألا تُبقي معاملة
+        // SQLite مفتوحة طوال تلك المدة. بلا مفتاح YouTube تعود القائمة فارغة
+        // فوراً بلا أي نداء شبكة، فيستمر الأسلوب القديم كما هو تماماً.
+        $unitsWithSource = [];
+        foreach (($subjectContent['units'] ?? []) as $uIndex => $unit) {
+            $playlistItems = [];
+            $playlist = youtube_search_playlist(trim($subject['name_ar'] . ' ' . $unit['title_ar'] . ' ' . $teacherName));
+            if ($playlist) {
+                $playlistItems = youtube_get_playlist_items($playlist['playlistId'], 20);
+            }
+            $unitsWithSource[] = ['unit' => $unit, 'playlistItems' => $playlistItems];
+        }
+
         $pdo->beginTransaction();
         try {
-            foreach (($subjectContent['units'] ?? []) as $uIndex => $unit) {
+            foreach ($unitsWithSource as $uIndex => $entry) {
+                $unit = $entry['unit'];
                 q_run(
                     "INSERT INTO units (teacher_id, title_ar, description, order_index, is_ai_generated) VALUES (?,?,?,?,1)",
                     [$teacherId, $unit['title_ar'], $unit['description'] ?? null, $uIndex + 1]
@@ -1333,15 +1431,32 @@ function h_generate_curriculum($stageId): void
                 $unitCount++;
                 $unitId = (int) $pdo->lastInsertId();
 
-                foreach (($unit['lectures'] ?? []) as $lIndex => $lecture) {
-                    $searchQuery = $lecture['search_query'] ?? $lecture['title_ar'];
-                    $fallbackUrl = 'https://www.youtube.com/results?search_query=' . urlencode($searchQuery);
-                    q_run(
-                        "INSERT INTO lectures (unit_id, title_ar, description, youtube_url, is_link_verified, source, order_index)
-                         VALUES (?,?,?,?,0,'ai_curated',?)",
-                        [$unitId, $lecture['title_ar'], $lecture['description'] ?? null, $fallbackUrl, $lIndex + 1]
-                    );
-                    $lectureCount++;
+                if ($entry['playlistItems']) {
+                    // مصدر حقيقي: محاضرة واحدة لكل فيديو في قائمة التشغيل، بنفس
+                    // عناوينها وترتيبها الأصلي على يوتيوب (محاضرة أولى، ثانية...)
+                    foreach ($entry['playlistItems'] as $lIndex => $item) {
+                        $videoUrl = 'https://www.youtube.com/watch?v=' . $item['videoId'];
+                        q_run(
+                            "INSERT INTO lectures (unit_id, title_ar, youtube_video_id, youtube_url, is_link_verified, thumbnail_url, source, order_index)
+                             VALUES (?,?,?,?,1,?,'youtube_playlist',?)",
+                            [$unitId, $item['title'], $item['videoId'], $videoUrl, $item['thumbnailUrl'], $lIndex + 1]
+                        );
+                        $lectureCount++;
+                    }
+                } else {
+                    // لا توجد قائمة تشغيل مطابقة (أو لا مفتاح مضبوط أصلاً): نستخدم
+                    // عناوين اقترحها الذكاء الاصطناعي، ويُحل فيديو كل محاضرة لاحقاً
+                    // عند فتحها لأول مرة (انظر h_lecture_detail)
+                    foreach (($unit['lectures'] ?? []) as $lIndex => $lecture) {
+                        $searchQuery = $lecture['search_query'] ?? $lecture['title_ar'];
+                        $fallbackUrl = 'https://www.youtube.com/results?search_query=' . urlencode($searchQuery);
+                        q_run(
+                            "INSERT INTO lectures (unit_id, title_ar, description, youtube_url, is_link_verified, source, order_index)
+                             VALUES (?,?,?,?,0,'ai_curated',?)",
+                            [$unitId, $lecture['title_ar'], $lecture['description'] ?? null, $fallbackUrl, $lIndex + 1]
+                        );
+                        $lectureCount++;
+                    }
                 }
             }
             $pdo->commit();
@@ -2799,11 +2914,12 @@ App.views.home = async function home() {
       }
       return;
     }
-    holder.innerHTML = `<div class="grid-cards">${subjects.map((s) => `
-      <div class="subject-card an" data-nav="#/subject/${s.id}">
-        <div class="subject-ico" style="${s.color_hex ? `background:${s.color_hex}` : ''}"><i class="fas ${s.icon || 'fa-book'}"></i></div>
-        <h4>${App.ui.escapeHtml(s.name_ar)}</h4><p>${App.ui.escapeHtml(s.name_en || '')}</p>
-      </div>`).join('')}</div>`;
+    holder.innerHTML = subjects.map((s, i) => `
+      <div class="list-row an" data-nav="#/subject/${s.id}" style="animation-delay:${i * 0.05}s">
+        <div class="list-ico" style="${s.color_hex ? `background:${s.color_hex}22;color:${s.color_hex}` : ''}"><i class="fas ${s.icon || 'fa-book'}"></i></div>
+        <div class="list-body"><h4>${App.ui.escapeHtml(s.name_ar)}</h4><p>${App.ui.escapeHtml(s.name_en || '')}</p></div>
+        <i class="fas fa-chevron-left" style="color:var(--muted)"></i>
+      </div>`).join('');
     holder.querySelectorAll('[data-nav]').forEach((el) => el.addEventListener('click', () => (location.hash = el.dataset.nav)));
   } catch (err) { holder.innerHTML = App.ui.emptyStateHtml('fa-triangle-exclamation', 'تعذّر تحميل المواد', err.message); }
 };
@@ -2822,11 +2938,15 @@ App.views.subjectTeachers = async function subjectTeachers({ id }) {
   `;
   const holder = document.getElementById('teachersHolder');
   if (!teachers.length) { holder.innerHTML = App.ui.emptyStateHtml('fa-chalkboard-user', 'لا يوجد مدرّسون بعد', 'سيُضافون قريباً'); return; }
-  holder.innerHTML = `<div class="grid-cards">${teachers.map((t) => `
-    <div class="subject-card an" data-nav="#/teacher/${t.id}">
+  // المدرّسون مرتّبون من الخادم حسب مجموع المشاهدات تنازلياً؛ الأول (إن كان
+  // لديه مشاهدات فعلاً) يُميَّز بشارة "الأعلى مشاهدة"
+  holder.innerHTML = `<div class="grid-cards">${teachers.map((t, i) => `
+    <div class="subject-card an" data-nav="#/teacher/${t.id}" style="position:relative">
+      ${i === 0 && t.total_views > 0 ? '<span class="chip chip-done" style="position:absolute;top:8px;inset-inline-end:8px;font-size:.6rem"><i class="fas fa-fire"></i> الأعلى مشاهدة</span>' : ''}
       <div class="subject-ico round" style="${t.avatar_color ? `background:${t.avatar_color}` : ''}"><i class="fas fa-chalkboard-user"></i></div>
       <h4>${App.ui.escapeHtml(t.name_ar)}</h4>
       <p>${t.lecture_count} محاضرة${t.unit_count ? ' · ' + t.unit_count + ' وحدة' : ''}</p>
+      <p style="margin-top:2px"><i class="fas fa-eye" style="font-size:.65rem"></i> ${t.total_views}</p>
     </div>`).join('')}</div>`;
   holder.querySelectorAll('[data-nav]').forEach((el) => el.addEventListener('click', () => (location.hash = el.dataset.nav)));
 };
