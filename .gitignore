@@ -5,6 +5,7 @@ node_modules/
 .env
 .env.local
 *.env
+public/api/config.php
 
 # Logs
 npm-debug.log*

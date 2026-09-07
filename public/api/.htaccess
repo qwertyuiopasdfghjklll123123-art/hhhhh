@@ -1,0 +1,23 @@
+# توجيه كل الطلبات إلى index.php (نقطة الدخول الوحيدة للـ API)
+RewriteEngine On
+
+# بعض الاستضافات المشتركة (PHP عبر CGI/FastCGI) تُسقط ترويسة Authorization
+# هذا السطر يعيد تمريرها كي تعمل جلسات الدخول (JWT) بشكل صحيح
+RewriteCond %{HTTP:Authorization} .
+RewriteRule .* - [E=HTTP_AUTHORIZATION:%{HTTP:Authorization}]
+
+# لا تُطبّق إعادة التوجيه على ملفات/مجلدات حقيقية موجودة فعلاً
+RewriteCond %{REQUEST_FILENAME} !-f
+RewriteCond %{REQUEST_FILENAME} !-d
+RewriteRule ^(.*)$ index.php [QSA,L]
+
+# امنع أي وصول مباشر لملف الإعدادات الذي يحوي كلمة مرور قاعدة البيانات ومفاتيح التشفير
+<Files "config.php">
+  Require all denied
+</Files>
+<IfModule !mod_authz_core.c>
+  <Files "config.php">
+    Order allow,deny
+    Deny from all
+  </Files>
+</IfModule>
