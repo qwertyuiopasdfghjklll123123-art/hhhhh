@@ -2104,6 +2104,14 @@ body.auth-mode .view{padding:0;min-height:100vh;min-height:100dvh}
 .ud-item i{width:16px;color:var(--cyan)}
 .ud-danger{color:var(--danger)}
 .ud-danger i{color:var(--danger)}
+.notif-dot{position:absolute;top:5px;inset-inline-end:5px;width:9px;height:9px;border-radius:50%;background:var(--danger);border:2px solid var(--bg)}
+.notif-panel{max-height:70vh;overflow-y:auto}
+.notif-empty{padding:24px 16px;text-align:center;color:var(--muted);font-size:.78rem}
+.sheet-overlay{position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:299;opacity:0;pointer-events:none;transition:opacity .2s}
+.sheet-overlay.open{opacity:1;pointer-events:auto}
+.sheet{position:fixed;bottom:0;inset-inline:0;z-index:300;max-width:480px;margin:0 auto;background:var(--card);border-radius:22px 22px 0 0;box-shadow:0 -10px 40px rgba(0,0,0,.25);padding:14px 20px calc(20px + var(--safe-b));transform:translateY(100%);transition:transform .25s ease}
+.sheet.open{transform:translateY(0)}
+.sheet-handle{width:40px;height:4px;border-radius:2px;background:var(--border);margin:0 auto 16px}
 .card{background:var(--card);border-radius:var(--radius-lg);box-shadow:var(--shadow);padding:16px}
 .profile-card{border-radius:var(--radius-lg);padding:22px 18px;background:var(--gradient-primary);color:#04231c;position:relative;overflow:hidden;box-shadow:0 10px 30px rgba(0,230,187,.25);margin-bottom:22px}
 [data-theme="dark"] .profile-card{color:#04231c}
@@ -2192,7 +2200,8 @@ body.auth-mode .view{padding:0;min-height:100vh;min-height:100dvh}
 .form-error{font-size:.72rem;color:var(--danger);margin-top:8px;display:none}
 .form-error.show{display:block}
 .select-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
-.auth-card{max-width:400px;margin:20px auto;padding:24px 20px}
+.auth-card{max-width:400px;width:100%;margin:0 auto;padding:24px 20px}
+body.auth-mode .view:has(> .auth-card){display:flex;align-items:center;justify-content:center;padding:20px 16px}
 .auth-switch{text-align:center;font-size:.78rem;color:var(--muted);margin-top:14px}
 .auth-switch a{color:var(--blue);font-weight:700}
 .key-status{display:flex;align-items:center;gap:8px;padding:10px 14px;border-radius:12px;background:var(--hover-bg);font-size:.75rem;font-weight:700;margin-bottom:16px}
@@ -2236,22 +2245,15 @@ body.auth-mode .view{padding:0;min-height:100vh;min-height:100dvh}
 
   <header class="hdr">
     <a href="#/home" class="logo">ذَكِيّ<span class="logo-dot">.</span></a>
-    <div class="hdr-right">
-      <div class="points-chip" id="pointsChip" hidden>
-        <i class="fas fa-star"></i>
-        <span id="pointsChipValue">0</span>
-      </div>
-      <button class="icon-btn" id="themeBtn" title="تبديل المظهر">
-        <i class="fas fa-moon moon"></i>
-        <i class="fas fa-sun sun"></i>
-      </button>
-      <div class="user-menu" id="userMenu" hidden>
-        <button class="avatar-btn" id="avatarBtn"><i class="fas fa-user"></i></button>
-        <div class="user-dropdown" id="userDropdown">
-          <div class="ud-name" id="udName">—</div>
-          <button class="ud-item" data-nav="#/profile"><i class="fas fa-chart-simple"></i> نقاطي وإنجازاتي</button>
-          <button class="ud-item" id="udSettingsItem" data-nav="#/settings" hidden><i class="fas fa-key"></i> إعدادات الذكاء الاصطناعي</button>
-          <button class="ud-item ud-danger" id="logoutBtn"><i class="fas fa-arrow-right-from-bracket"></i> تسجيل الخروج</button>
+    <div class="hdr-right" id="hdrRight" hidden>
+      <div class="user-menu">
+        <button class="icon-btn" id="notifBtn" title="الإشعارات" style="position:relative">
+          <i class="fas fa-bell"></i>
+          <span class="notif-dot" id="notifDot" hidden></span>
+        </button>
+        <div class="user-dropdown notif-panel" id="notifPanel">
+          <div class="ud-name">الإشعارات</div>
+          <div id="notifList"><div class="notif-empty">لا توجد إشعارات بعد</div></div>
         </div>
       </div>
     </div>
@@ -2262,10 +2264,18 @@ body.auth-mode .view{padding:0;min-height:100vh;min-height:100dvh}
   <nav class="bottom-nav" id="bottomNav" hidden>
     <button class="bn-item" data-nav="#/home"><i class="fas fa-house"></i><span>الرئيسية</span></button>
     <button class="bn-item" data-nav="#/leaderboard"><i class="fas fa-ranking-star"></i><span>المتصدرون</span></button>
-    <button class="bn-item" data-nav="#/profile"><i class="fas fa-medal"></i><span>نقاطي</span></button>
-    <button class="bn-item" id="bnSettings" data-nav="#/settings" hidden><i class="fas fa-gear"></i><span>الإعدادات</span></button>
+    <button class="bn-item" data-nav="#/account"><i class="fas fa-user"></i><span>حسابي</span></button>
   </nav>
 
+</div>
+
+<div class="sheet-overlay" id="sheetOverlay"></div>
+<div class="sheet" id="logoutSheet">
+  <div class="sheet-handle"></div>
+  <div style="text-align:center;font-weight:800;font-size:.95rem;margin-bottom:6px">تسجيل الخروج</div>
+  <div style="text-align:center;color:var(--muted);font-size:.8rem;margin-bottom:18px">هل تريد تسجيل الخروج من حسابك؟</div>
+  <button class="btn btn-outline btn-block" id="confirmLogoutBtn" style="border-color:var(--danger);color:var(--danger);margin-bottom:10px"><i class="fas fa-arrow-right-from-bracket"></i> تسجيل الخروج</button>
+  <button class="btn btn-block" id="cancelLogoutBtn" style="background:var(--hover-bg);color:var(--text)">إلغاء</button>
 </div>
 
 <script>
@@ -2371,7 +2381,7 @@ App.api = (function () {
 })();
 
 App.state = (function () {
-  const KEYS = { token: 'zaki_token', user: 'zaki_user', country: 'zaki_country', governorate: 'zaki_governorate', stage: 'zaki_stage', welcome: 'zaki_seen_welcome' };
+  const KEYS = { token: 'zaki_token', user: 'zaki_user', country: 'zaki_country', governorate: 'zaki_governorate', stage: 'zaki_stage', welcome: 'zaki_seen_welcome', notifSeen: 'zaki_notif_seen_at' };
   function safeGet(key) { try { return localStorage.getItem(key); } catch (err) { return null; } }
   function safeSet(key, value) { try { localStorage.setItem(key, value); } catch (err) {} }
   function safeRemove(key) { try { localStorage.removeItem(key); } catch (err) {} }
@@ -2399,18 +2409,14 @@ App.state = (function () {
     },
     hasSeenWelcome() { return safeGet(KEYS.welcome) === '1'; },
     markWelcomeSeen() { safeSet(KEYS.welcome, '1'); },
+    getNotifSeenAt() { return safeGet(KEYS.notifSeen) || '1970-01-01'; },
+    markNotifSeen() { safeSet(KEYS.notifSeen, new Date().toISOString()); },
   };
 })();
 
 App.theme = {
   init() {
     try { if (localStorage.getItem('zaki_theme') === 'dark') document.documentElement.setAttribute('data-theme', 'dark'); } catch (err) {}
-  },
-  toggle() {
-    const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
-    if (isDark) document.documentElement.removeAttribute('data-theme');
-    else document.documentElement.setAttribute('data-theme', 'dark');
-    try { localStorage.setItem('zaki_theme', isDark ? 'light' : 'dark'); } catch (err) {}
   },
 };
 App.theme.init();
@@ -3080,14 +3086,35 @@ App.views.quiz = async function quiz({ lectureId }) {
 
 App.views.leaderboard = async function leaderboard() {
   const view = document.getElementById('view');
+  const user = App.state.getUser();
   view.innerHTML = `
     <div class="an">
-      <div class="page-title"><i class="fas fa-ranking-star" style="color:var(--gold)"></i> لوحة المتصدرين</div>
-      <div class="page-sub">تنافس مع زملائك واجمع أكبر عدد من النقاط</div>
+      <div class="page-title"><i class="fas fa-ranking-star" style="color:var(--gold)"></i> المتصدرون ونقاطي</div>
+      <div class="profile-card" style="margin-top:10px">
+        <div class="profile-row"><div class="profile-av">${App.ui.initials(user.name)}</div><div class="profile-info"><h2>${App.ui.escapeHtml(user.name)}</h2><p>${App.ui.escapeHtml(user.email)}</p></div></div>
+        <div class="profile-stats"><div class="profile-stat"><b id="profilePoints">${user.pointsTotal || 0}</b><span>مجموع النقاط</span></div></div>
+      </div>
+      <div class="section"><div class="section-head"><h3><i class="fas fa-medal"></i> الأوسمة</h3></div><div id="badgesHolder" class="grid-cards">${App.ui.loadingHtml()}</div></div>
+      <div class="section-head" style="margin-top:22px"><h3><i class="fas fa-clock-rotate-left"></i> سجل النقاط</h3></div>
+      <div id="historyHolder">${App.ui.loadingHtml()}</div>
+
+      <div class="section-head" style="margin-top:22px"><h3><i class="fas fa-ranking-star"></i> لوحة المتصدرين</h3></div>
       <div class="lb-tabs"><button class="lb-tab active" data-scope="global">🌍 عالمياً</button><button class="lb-tab" data-scope="country">🏳️ داخل بلدي</button></div>
       <div id="lbHolder">${App.ui.loadingHtml()}</div>
     </div>
   `;
+  (async () => {
+    try {
+      const { pointsTotal, history, badges } = await App.api.getMyPoints();
+      document.getElementById('profilePoints').textContent = pointsTotal;
+      document.getElementById('badgesHolder').innerHTML = badges.length
+        ? badges.map((b) => `<div class="subject-card"><div class="subject-ico" style="background:var(--gradient-gold);color:#3a2900"><i class="fas ${b.icon || 'fa-medal'}"></i></div><h4>${App.ui.escapeHtml(b.name_ar)}</h4><p>${App.ui.formatDate(b.earned_at)}</p></div>`).join('')
+        : App.ui.emptyStateHtml('fa-medal', 'لا توجد أوسمة بعد', 'أكمل محاضرات واختبارات لكسب أوسمتك الأولى');
+      document.getElementById('historyHolder').innerHTML = history.length
+        ? history.map((h) => `<div class="list-row" style="cursor:default"><div class="list-ico ${h.points > 0 ? '' : 'done'}"><i class="fas ${h.points > 0 ? 'fa-plus' : 'fa-minus'}"></i></div><div class="list-body"><h4>${App.ui.escapeHtml(App.config.POINTS_LABELS[h.reason] || h.reason)}</h4><p>${App.ui.formatDate(h.created_at)}</p></div><span class="chip ${h.points > 0 ? 'chip-done' : ''}">${h.points > 0 ? '+' : ''}${h.points}</span></div>`).join('')
+        : App.ui.emptyStateHtml('fa-inbox', 'لا يوجد سجل نقاط بعد');
+    } catch (err) { App.ui.toast(err.message, 'err'); }
+  })();
   const holder = document.getElementById('lbHolder');
   const tabs = view.querySelectorAll('.lb-tab');
   async function load(scope) {
@@ -3097,7 +3124,7 @@ App.views.leaderboard = async function leaderboard() {
       const { leaderboard: rows, me } = await App.api.getLeaderboard(scope, selection.countryId);
       if (!rows.length) { holder.innerHTML = App.ui.emptyStateHtml('fa-users', 'لا يوجد طلاب بعد', 'كن أول المتصدرين!'); return; }
       const medal = (rank) => (rank === 1 ? 'top1' : rank === 2 ? 'top2' : rank === 3 ? 'top3' : '');
-      const currentUserId = App.state.getUser() ? App.state.getUser().id : null;
+      const currentUserId = user.id;
       holder.innerHTML = rows.map((r) => `
         <div class="lb-row an ${r.user_id === currentUserId ? 'me' : ''}">
           <div class="lb-rank ${medal(r.rank)}">${r.rank <= 3 ? '🏅' : r.rank}</div>
@@ -3115,38 +3142,12 @@ App.views.leaderboard = async function leaderboard() {
   load('global');
 };
 
-App.views.profile = async function profile() {
-  const view = document.getElementById('view');
-  const user = App.state.getUser();
-  view.innerHTML = `
-    <div class="an">
-      <div class="page-title"><i class="fas fa-chart-simple" style="color:var(--cyan)"></i> نقاطي وإنجازاتي</div>
-      <div class="profile-card" style="margin-top:10px">
-        <div class="profile-row"><div class="profile-av">${App.ui.initials(user.name)}</div><div class="profile-info"><h2>${App.ui.escapeHtml(user.name)}</h2><p>${App.ui.escapeHtml(user.email)}</p></div></div>
-        <div class="profile-stats"><div class="profile-stat"><b id="profilePoints">${user.pointsTotal || 0}</b><span>مجموع النقاط</span></div></div>
-      </div>
-      <div class="section"><div class="section-head"><h3><i class="fas fa-medal"></i> الأوسمة</h3></div><div id="badgesHolder" class="grid-cards">${App.ui.loadingHtml()}</div></div>
-      <div class="section"><div class="section-head"><h3><i class="fas fa-clock-rotate-left"></i> سجل النقاط</h3></div><div id="historyHolder">${App.ui.loadingHtml()}</div></div>
-    </div>
-  `;
-  try {
-    const { pointsTotal, history, badges } = await App.api.getMyPoints();
-    document.getElementById('profilePoints').textContent = pointsTotal;
-    const badgesHolder = document.getElementById('badgesHolder');
-    badgesHolder.innerHTML = badges.length
-      ? badges.map((b) => `<div class="subject-card"><div class="subject-ico" style="background:var(--gradient-gold);color:#3a2900"><i class="fas ${b.icon || 'fa-medal'}"></i></div><h4>${App.ui.escapeHtml(b.name_ar)}</h4><p>${App.ui.formatDate(b.earned_at)}</p></div>`).join('')
-      : App.ui.emptyStateHtml('fa-medal', 'لا توجد أوسمة بعد', 'أكمل محاضرات واختبارات لكسب أوسمتك الأولى');
-    const historyHolder = document.getElementById('historyHolder');
-    historyHolder.innerHTML = history.length
-      ? history.map((h) => `<div class="list-row" style="cursor:default"><div class="list-ico ${h.points > 0 ? '' : 'done'}"><i class="fas ${h.points > 0 ? 'fa-plus' : 'fa-minus'}"></i></div><div class="list-body"><h4>${App.ui.escapeHtml(App.config.POINTS_LABELS[h.reason] || h.reason)}</h4><p>${App.ui.formatDate(h.created_at)}</p></div><span class="chip ${h.points > 0 ? 'chip-done' : ''}">${h.points > 0 ? '+' : ''}${h.points}</span></div>`).join('')
-      : App.ui.emptyStateHtml('fa-inbox', 'لا يوجد سجل نقاط بعد');
-  } catch (err) { App.ui.toast(err.message, 'err'); }
-};
-
-App.views.settings = async function settings() {
-  const view = document.getElementById('view');
-  view.innerHTML = `
-    <div class="an" style="max-width:480px;margin:0 auto">
+// يبني نموذج إعدادات الذكاء الاصطناعي (DeepSeek/متوافق + YouTube) داخل أي
+// عنصر حاوٍ يُمرَّر له، بدل الاعتماد دوماً على عنصر الصفحة الكامل مباشرة —
+// كي يمكن تضمينه داخل صفحة "حسابي" للأدمن بدل كونه صفحة مستقلة بمسارها الخاص.
+App.views.renderAiSettings = function renderAiSettings(container) {
+  container.innerHTML = `
+    <div style="max-width:480px;margin:0 auto">
       <div class="page-title"><i class="fas fa-key" style="color:var(--cyan)"></i> إعدادات الذكاء الاصطناعي</div>
       <div class="page-sub">اربط أي مزوّد متوافق مع OpenAI Chat Completions (DeepSeek، أو NVIDIA NIM، أو غيرهما) لتفعيل توليد المناهج، الاختبارات، والمساعد الذكي</div>
       <div id="keyStatus" class="key-status">${App.ui.loadingHtml('جاري التحقق من الحالة...')}</div>
@@ -3257,22 +3258,86 @@ App.views.settings = async function settings() {
   });
 };
 
+App.views.account = async function account() {
+  const view = document.getElementById('view');
+  const user = App.state.getUser();
+  const isAdmin = App.state.isAdmin();
+  view.innerHTML = `
+    <div class="an">
+      <div class="page-title"><i class="fas fa-user" style="color:var(--cyan)"></i> حسابي</div>
+      <div class="profile-card" style="margin-top:10px">
+        <div class="profile-row"><div class="profile-av">${App.ui.initials(user.name)}</div><div class="profile-info"><h2>${App.ui.escapeHtml(user.name)}</h2><p>${App.ui.escapeHtml(user.email)}</p></div></div>
+        <div class="profile-stats">
+          <div class="profile-stat"><b>${user.pointsTotal || 0}</b><span>مجموع النقاط</span></div>
+          <div class="profile-stat"><b>${isAdmin ? 'أدمن' : 'طالب'}</b><span>نوع الحساب</span></div>
+        </div>
+      </div>
+
+      <div class="section-head" style="margin-top:22px"><h3><i class="fas fa-sliders"></i> بيانات الدراسة</h3></div>
+      <div class="card">
+        <div class="list-row" style="cursor:pointer" id="changeStageRow">
+          <div class="list-ico"><i class="fas fa-graduation-cap"></i></div>
+          <div class="list-body"><h4>تغيير المحافظة / المرحلة / الصف</h4><p>يعيد فتح شاشة الاختيار</p></div>
+          <i class="fas fa-chevron-left" style="color:var(--muted)"></i>
+        </div>
+      </div>
+
+      <div class="section-head" style="margin-top:22px"><h3><i class="fas fa-circle-info"></i> تعليمات حول التطبيق</h3></div>
+      <div class="card" style="font-size:.8rem;line-height:2;color:var(--muted)">
+        <p><b style="color:var(--text)">١. اختيار المرحلة:</b> من صفحة الاختيار تحدّد محافظتك، ثم مرحلتك الدراسية، ثم صفك — تظهر بعدها المواد الخاصة بصفّك فقط.</p>
+        <p><b style="color:var(--text)">٢. المسار داخل كل مادة:</b> تختار مدرّساً، ثم وحدة دراسية، ثم محاضرة. كل محاضرة تحتوي فيديو مضمَّن داخل الموقع مباشرة.</p>
+        <p><b style="color:var(--text)">٣. النقاط:</b> تربح نقاطاً عند إكمال مشاهدة محاضرة وعند الإجابة الصحيحة في الاختبارات، وتظهر في قسم "المتصدرون ونقاطي".</p>
+        <p><b style="color:var(--text)">٤. الاختبارات:</b> بعد كل محاضرة يمكنك بدء اختبار قصير يولّده الذكاء الاصطناعي، مع شرح فوري لكل إجابة.</p>
+        <p><b style="color:var(--text)">٥. المساعد الذكي:</b> داخل كل محاضرة زر "المساعد الذكي" يجيب على أسئلتك ويلخّص تلك المحاضرة تحديداً.</p>
+      </div>
+
+      <div id="adminSettingsHolder"></div>
+
+      <button class="btn btn-outline btn-block" id="accountLogoutBtn" style="margin-top:26px;border-color:var(--danger);color:var(--danger)"><i class="fas fa-arrow-right-from-bracket"></i> تسجيل الخروج</button>
+    </div>
+  `;
+  document.getElementById('changeStageRow').addEventListener('click', () => { location.hash = '#/onboarding'; });
+  document.getElementById('accountLogoutBtn').addEventListener('click', () => App.main.openLogoutSheet());
+  if (isAdmin) {
+    const holder = document.getElementById('adminSettingsHolder');
+    holder.innerHTML = '<div class="section-head" style="margin-top:22px"><h3><i class="fas fa-user-shield"></i> إعدادات الأدمن</h3></div><div id="adminSettingsBody"></div>';
+    App.views.renderAiSettings(document.getElementById('adminSettingsBody'));
+  }
+};
+
 App.main = (function () {
+  async function loadNotifications(markSeen) {
+    const list = document.getElementById('notifList');
+    const dot = document.getElementById('notifDot');
+    try {
+      const { history } = await App.api.getMyPoints();
+      const toTime = (s) => new Date(String(s).replace(' ', 'T') + 'Z').getTime();
+      const seenAt = new Date(App.state.getNotifSeenAt()).getTime();
+      if (dot) dot.hidden = !history.some((h) => toTime(h.created_at) > seenAt);
+      if (list) {
+        list.innerHTML = history.length
+          ? history.slice(0, 20).map((h) => `
+            <div class="list-row" style="cursor:default">
+              <div class="list-ico ${h.points > 0 ? '' : 'done'}"><i class="fas ${h.points > 0 ? 'fa-plus' : 'fa-minus'}"></i></div>
+              <div class="list-body"><h4>${App.ui.escapeHtml(App.config.POINTS_LABELS[h.reason] || h.reason)}</h4><p>${App.ui.formatDate(h.created_at)}</p></div>
+              <span class="chip ${h.points > 0 ? 'chip-done' : ''}">${h.points > 0 ? '+' : ''}${h.points}</span>
+            </div>`).join('')
+          : '<div class="notif-empty">لا توجد إشعارات بعد</div>';
+      }
+      if (markSeen) { App.state.markNotifSeen(); if (dot) dot.hidden = true; }
+    } catch (err) { /* الإشعارات ليست حرجة؛ فشل جلبها لا يجب أن يعطّل الواجهة */ }
+  }
   function refreshHeader() {
     const user = App.state.getUser();
-    const pointsChip = document.getElementById('pointsChip');
-    const userMenu = document.getElementById('userMenu');
-    const udName = document.getElementById('udName');
-    const udSettingsItem = document.getElementById('udSettingsItem');
-    const bnSettings = document.getElementById('bnSettings');
+    const hdrRight = document.getElementById('hdrRight');
     const bottomNav = document.getElementById('bottomNav');
     if (user) {
       bottomNav.hidden = false;
-      pointsChip.hidden = false; document.getElementById('pointsChipValue').textContent = user.pointsTotal || 0;
-      userMenu.hidden = false; udName.textContent = user.name;
-      const isAdmin = App.state.isAdmin(); udSettingsItem.hidden = !isAdmin; bnSettings.hidden = !isAdmin;
+      hdrRight.hidden = false;
+      loadNotifications(false);
     } else {
-      bottomNav.hidden = true; pointsChip.hidden = true; userMenu.hidden = true; bnSettings.hidden = true;
+      bottomNav.hidden = true;
+      hdrRight.hidden = true;
     }
   }
   function highlightNav(path) {
@@ -3283,18 +3348,36 @@ App.main = (function () {
       item.classList.toggle('active', active);
     });
   }
+  function openLogoutSheet() {
+    document.getElementById('sheetOverlay').classList.add('open');
+    document.getElementById('logoutSheet').classList.add('open');
+  }
+  function closeLogoutSheet() {
+    document.getElementById('sheetOverlay').classList.remove('open');
+    document.getElementById('logoutSheet').classList.remove('open');
+  }
   function wireStaticHeader() {
-    document.getElementById('themeBtn').addEventListener('click', () => App.theme.toggle());
-    document.querySelectorAll('#bottomNav [data-nav], #userDropdown [data-nav]').forEach((el) => {
-      el.addEventListener('click', () => { location.hash = el.dataset.nav; document.getElementById('userDropdown').classList.remove('open'); });
+    document.querySelectorAll('#bottomNav [data-nav]').forEach((el) => {
+      el.addEventListener('click', () => { location.hash = el.dataset.nav; });
     });
-    document.getElementById('avatarBtn').addEventListener('click', (e) => { e.stopPropagation(); document.getElementById('userDropdown').classList.toggle('open'); });
+    document.getElementById('notifBtn').addEventListener('click', (e) => {
+      e.stopPropagation();
+      const panel = document.getElementById('notifPanel');
+      const willOpen = !panel.classList.contains('open');
+      panel.classList.toggle('open');
+      if (willOpen) loadNotifications(true);
+    });
     document.addEventListener('click', (e) => {
-      const menu = document.getElementById('userMenu');
-      if (menu && !menu.contains(e.target)) document.getElementById('userDropdown').classList.remove('open');
+      const panel = document.getElementById('notifPanel');
+      if (panel && !panel.contains(e.target) && e.target.id !== 'notifBtn' && !document.getElementById('notifBtn').contains(e.target)) {
+        panel.classList.remove('open');
+      }
     });
-    document.getElementById('logoutBtn').addEventListener('click', () => {
-      App.state.clearSession(); refreshHeader(); App.ui.toast('تم تسجيل الخروج'); location.hash = '#/login'; App.router.resolve();
+    document.getElementById('sheetOverlay').addEventListener('click', closeLogoutSheet);
+    document.getElementById('cancelLogoutBtn').addEventListener('click', closeLogoutSheet);
+    document.getElementById('confirmLogoutBtn').addEventListener('click', () => {
+      closeLogoutSheet();
+      App.state.clearSession(); App.state.clearSelection(); refreshHeader(); App.ui.toast('تم تسجيل الخروج'); location.hash = '#/login'; App.router.resolve();
     });
   }
   function registerRoutes() {
@@ -3308,9 +3391,9 @@ App.main = (function () {
     App.router.register('/unit/:id', App.views.unitLectures, { requiresAuth: true });
     App.router.register('/lecture/:id', App.views.lecture, { requiresAuth: true });
     App.router.register('/quiz/:lectureId', App.views.quiz, { requiresAuth: true });
+    App.router.register('/tutor/:lectureId', App.views.tutorPage, { requiresAuth: true });
     App.router.register('/leaderboard', App.views.leaderboard, { requiresAuth: true });
-    App.router.register('/profile', App.views.profile, { requiresAuth: true });
-    App.router.register('/settings', App.views.settings, { requiresAuth: true, requiresAdmin: true });
+    App.router.register('/account', App.views.account, { requiresAuth: true });
   }
   async function init() {
     wireStaticHeader(); refreshHeader(); registerRoutes(); App.router.start();
@@ -3319,7 +3402,7 @@ App.main = (function () {
       catch (err) { if (err.status === 401) { App.state.clearSession(); refreshHeader(); } }
     }
   }
-  return { init, refreshHeader, highlightNav };
+  return { init, refreshHeader, highlightNav, openLogoutSheet };
 })();
 
 App.main.init();
