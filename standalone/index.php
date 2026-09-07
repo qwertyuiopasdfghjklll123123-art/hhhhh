@@ -7,9 +7,14 @@
  * قاعدة البيانات SQLite تُنشأ تلقائياً (ملف واحد بجانب هذا الملف) عند أول زيارة،
  * بدون أي إعداد يدوي: بدون MySQL، بدون phpMyAdmin، بدون ملف config منفصل.
  *
- * التركيب: ارفع هذا الملف (ويُفضّل رفع .htaccess المرافق له أيضاً لحماية
- * قاعدة البيانات) إلى استضافتك، وافتح الرابط. أول من يسجّل حساباً يصبح أدمن
- * تلقائياً ويستطيع إضافة مفتاح DeepSeek من صفحة الإعدادات داخل الموقع.
+ * الهيكل: مادة ← مدرّس ← وحدة ← محاضرة. قبل تسجيل الدخول لا تُعرض إلا شاشة
+ * ترحيبية ثم تسجيل الدخول (بدون أي قائمة أو تنقّل)، وبعد الدخول تظهر بقية
+ * الميزات. أول من يسجّل حساباً يصبح أدمن تلقائياً ويضيف مفتاح DeepSeek من
+ * صفحة الإعدادات داخل الموقع.
+ *
+ * ملاحظة عند التحديث من نسخة سابقة: هذا الإصدار يغيّر بنية قاعدة البيانات
+ * (إضافة جدول المدرّسين). احذف ملف .zaki_secure_data.sqlite القديم قبل
+ * تجربة هذه النسخة كي يُعاد إنشاؤه بالبنية الجديدة تلقائياً.
  * ============================================================================
  */
 
@@ -148,9 +153,21 @@ function install_schema(PDO $pdo): void
             UNIQUE(stage_id, name_ar)
         )",
 
-        "CREATE TABLE units (
+        // المدرّسون: كل مادة يمكن أن تضم عدة مدرّسين، والطالب يختار مدرّساً
+        // قبل أن يصل لوحدات/محاضرات ذلك المدرّس تحديداً
+        "CREATE TABLE teachers (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             subject_id INTEGER NOT NULL REFERENCES subjects(id) ON DELETE CASCADE,
+            name_ar TEXT NOT NULL,
+            bio TEXT,
+            avatar_color TEXT DEFAULT '#00e6bb',
+            order_index INTEGER NOT NULL DEFAULT 0,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )",
+
+        "CREATE TABLE units (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            teacher_id INTEGER NOT NULL REFERENCES teachers(id) ON DELETE CASCADE,
             title_ar TEXT NOT NULL,
             description TEXT,
             order_index INTEGER NOT NULL DEFAULT 0,
@@ -311,7 +328,7 @@ function install_schema(PDO $pdo): void
     }
 }
 
-// بيانات تجريبية أولية (دولة + مرحلة + مادة + وحدة + محاضرتان + اختبار جاهز)
+// بيانات تجريبية أولية (دولة + مرحلة + مادة + مدرّس + وحدة + 5 محاضرات + اختبار جاهز)
 // كي يظهر شيء فور أول زيارة قبل تفعيل توليد الذكاء الاصطناعي
 function seed_data(): void
 {
@@ -338,15 +355,32 @@ function seed_data(): void
     q_run("INSERT INTO subjects (stage_id,name_ar,name_en,icon,color_hex,order_index) VALUES (?,?,?,?,?,3)",
         [$stage3Id, 'اللغة العربية', 'Arabic', 'fa-book-open', '#00e6bb']);
 
-    q_run("INSERT INTO units (subject_id,title_ar,description,order_index) VALUES (?,?,?,1)",
-        [$mathId, 'الفصل الأول: المعادلات الخطية', 'مقدمة في المعادلات الخطية بمتغير واحد وحلولها.']);
+    // مدرّسان لمادة الرياضيات كمثال على تعدد المدرّسين لنفس المادة
+    q_run("INSERT INTO teachers (subject_id,name_ar,bio,avatar_color,order_index) VALUES (?,?,?,?,1)",
+        [$mathId, 'الأستاذ أحمد الرياضي', 'خبرة 12 سنة في تدريس الرياضيات للمرحلة المتوسطة', '#00e6bb']);
+    $teacherId = (int) db()->lastInsertId();
+    q_run("INSERT INTO teachers (subject_id,name_ar,bio,avatar_color,order_index) VALUES (?,?,?,?,2)",
+        [$mathId, 'الأستاذة سارة العزاوي', 'متخصصة في تبسيط المعادلات والهندسة', '#00c4a0']);
+
+    q_run("INSERT INTO units (teacher_id,title_ar,description,order_index) VALUES (?,?,?,1)",
+        [$teacherId, 'الفصل الأول: المعادلات الخطية', 'مقدمة في المعادلات الخطية بمتغير واحد وحلولها.']);
     $unitId = (int) db()->lastInsertId();
 
-    q_run("INSERT INTO lectures (unit_id,title_ar,description,duration_seconds,source,order_index) VALUES (?,?,?,?, 'manual',1)",
-        [$unitId, 'مقدمة في المعادلات الخطية', 'شرح مفهوم المعادلة الخطية وطريقة كتابتها.', 600]);
-    $lecture1Id = (int) db()->lastInsertId();
-    q_run("INSERT INTO lectures (unit_id,title_ar,description,duration_seconds,source,order_index) VALUES (?,?,?,?, 'manual',2)",
-        [$unitId, 'حل المعادلات الخطية بخطوة واحدة', 'أمثلة تطبيقية على حل المعادلات الخطية البسيطة.', 720]);
+    $lectures = [
+        ['مقدمة في المعادلات الخطية', 'شرح مفهوم المعادلة الخطية وطريقة كتابتها.', 600],
+        ['حل المعادلات الخطية بخطوة واحدة', 'أمثلة تطبيقية على حل المعادلات الخطية البسيطة.', 720],
+        ['حل المعادلات الخطية بخطوتين', 'كيفية التعامل مع معادلات تحتاج أكثر من خطوة للحل.', 660],
+        ['المعادلات ذات الكسور', 'حل المعادلات الخطية التي تحتوي على كسور اعتيادية.', 780],
+        ['مسائل تطبيقية على المعادلات الخطية', 'حل مسائل حياتية باستخدام المعادلات الخطية.', 900],
+    ];
+    $lecture1Id = null;
+    foreach ($lectures as $i => $l) {
+        q_run("INSERT INTO lectures (unit_id,title_ar,description,duration_seconds,source,order_index) VALUES (?,?,?,?, 'manual',?)",
+            [$unitId, $l[0], $l[1], $l[2], $i + 1]);
+        if ($i === 0) {
+            $lecture1Id = (int) db()->lastInsertId();
+        }
+    }
 
     q_run("INSERT INTO quizzes (lecture_id,title,generated_by,difficulty) VALUES (?,?, 'manual','easy')",
         [$lecture1Id, 'اختبار: مقدمة في المعادلات الخطية']);
@@ -611,10 +645,11 @@ function deepseek_generate_curriculum(string $countryName, string $stageName): a
     $system = 'أنت خبير مناهج تعليمية عربية. مهمتك اقتراح هيكل دراسي دقيق ومناسب لعمر ومستوى الطلاب. '
         . 'أعد النتيجة بصيغة JSON فقط بدون أي شرح إضافي.';
     $user = "اقترح هيكلاً دراسياً لدولة \"$countryName\" للمرحلة \"$stageName\".\n"
-        . "أعد 5 مواد دراسية رئيسية مناسبة، لكل مادة 4 وحدات بترتيب منطقي، ولكل وحدة 3 محاضرات بعناوين ووصف قصير،\n"
+        . "أعد 5 مواد دراسية رئيسية مناسبة، ولكل مادة اقترح اسم مدرّس واحد (teacher_name)،\n"
+        . "ولذلك المدرّس 4 وحدات بترتيب منطقي، ولكل وحدة 6 محاضرات بعناوين ووصف قصير،\n"
         . "مع اقتراح search_query (عبارة بحث يوتيوب بالعربية) تساعد لاحقاً بإيجاد فيديو تعليمي مناسب لكل محاضرة.\n\n"
         . 'أعد الناتج بهذا الشكل بالضبط (JSON فقط):'
-        . '{"subjects":[{"name_ar":"اسم المادة","icon":"fa-book","units":[{"title_ar":"عنوان الوحدة","description":"وصف قصير","lectures":[{"title_ar":"عنوان المحاضرة","description":"وصف قصير","search_query":"عبارة بحث"}]}]}]}';
+        . '{"subjects":[{"name_ar":"اسم المادة","icon":"fa-book","teacher_name":"اسم المدرّس المقترح","units":[{"title_ar":"عنوان الوحدة","description":"وصف قصير","lectures":[{"title_ar":"عنوان المحاضرة","description":"وصف قصير","search_query":"عبارة بحث"}]}]}]}';
 
     $r = deepseek_chat([['role' => 'system', 'content' => $system], ['role' => 'user', 'content' => $user]], 0.5, true, 4000);
     return deepseek_parse_json($r['content']);
@@ -780,13 +815,43 @@ function h_subject_detail($subjectId): void
     json_response(['subject' => $s]);
 }
 
-function h_subject_units($subjectId): void
+function h_subject_teachers($subjectId): void
+{
+    $rows = q_all(
+        "SELECT t.id, t.name_ar, t.bio, t.avatar_color, t.order_index,
+                (SELECT COUNT(*) FROM units u WHERE u.teacher_id=t.id) as unit_count,
+                (SELECT COUNT(*) FROM lectures l JOIN units u ON u.id=l.unit_id WHERE u.teacher_id=t.id) as lecture_count
+         FROM teachers t WHERE t.subject_id=? ORDER BY t.order_index, t.name_ar",
+        [$subjectId]
+    );
+    foreach ($rows as &$r) {
+        $r['unit_count'] = (int) $r['unit_count'];
+        $r['lecture_count'] = (int) $r['lecture_count'];
+    }
+    unset($r);
+    json_response(['teachers' => $rows]);
+}
+
+function h_teacher_detail($teacherId): void
+{
+    $t = q_one(
+        "SELECT t.id, t.name_ar, t.bio, t.avatar_color, t.subject_id, s.name_ar as subject_name
+         FROM teachers t JOIN subjects s ON s.id=t.subject_id WHERE t.id=?",
+        [$teacherId]
+    );
+    if (!$t) {
+        throw new ApiException(404, 'المدرّس غير موجود');
+    }
+    json_response(['teacher' => $t]);
+}
+
+function h_teacher_units($teacherId): void
 {
     $rows = q_all(
         "SELECT u.id, u.title_ar, u.description, u.order_index,
                 (SELECT COUNT(*) FROM lectures l WHERE l.unit_id=u.id) as lecture_count
-         FROM units u WHERE u.subject_id=? ORDER BY u.order_index",
-        [$subjectId]
+         FROM units u WHERE u.teacher_id=? ORDER BY u.order_index",
+        [$teacherId]
     );
     foreach ($rows as &$r) {
         $r['lecture_count'] = (int) $r['lecture_count'];
@@ -798,8 +863,12 @@ function h_subject_units($subjectId): void
 function h_unit_detail($unitId): void
 {
     $u = q_one(
-        "SELECT u.id, u.title_ar, u.description, u.subject_id, s.name_ar as subject_name
-         FROM units u JOIN subjects s ON s.id=u.subject_id WHERE u.id=?",
+        "SELECT u.id, u.title_ar, u.description, u.teacher_id, t.name_ar as teacher_name,
+                t.subject_id, s.name_ar as subject_name
+         FROM units u
+         JOIN teachers t ON t.id=u.teacher_id
+         JOIN subjects s ON s.id=t.subject_id
+         WHERE u.id=?",
         [$unitId]
     );
     if (!$u) {
@@ -850,6 +919,7 @@ function h_generate_curriculum($stageId): void
 
     $pdo = db();
     $subjectCount = 0;
+    $teacherCount = 0;
     $unitCount = 0;
     $lectureCount = 0;
     $pdo->beginTransaction();
@@ -862,10 +932,19 @@ function h_generate_curriculum($stageId): void
             $subjectCount++;
             $subjectId = (int) $pdo->lastInsertId();
 
+            // مدرّس يحمل محتوى هذه المادة المولّد بالذكاء الاصطناعي
+            $teacherName = trim($subject['teacher_name'] ?? '') ?: ('فريق ' . $subject['name_ar']);
+            q_run(
+                "INSERT INTO teachers (subject_id, name_ar, bio, order_index) VALUES (?,?,?,1)",
+                [$subjectId, $teacherName, 'محتوى تعليمي شامل لمادة ' . $subject['name_ar']]
+            );
+            $teacherCount++;
+            $teacherId = (int) $pdo->lastInsertId();
+
             foreach (($subject['units'] ?? []) as $uIndex => $unit) {
                 q_run(
-                    "INSERT INTO units (subject_id, title_ar, description, order_index, is_ai_generated) VALUES (?,?,?,?,1)",
-                    [$subjectId, $unit['title_ar'], $unit['description'] ?? null, $uIndex + 1]
+                    "INSERT INTO units (teacher_id, title_ar, description, order_index, is_ai_generated) VALUES (?,?,?,?,1)",
+                    [$teacherId, $unit['title_ar'], $unit['description'] ?? null, $uIndex + 1]
                 );
                 $unitCount++;
                 $unitId = (int) $pdo->lastInsertId();
@@ -885,7 +964,7 @@ function h_generate_curriculum($stageId): void
 
         q_run(
             "UPDATE ai_generation_jobs SET status='completed', completed_at=CURRENT_TIMESTAMP, response_summary=? WHERE id=?",
-            [json_encode(compact('subjectCount', 'unitCount', 'lectureCount')), $jobId]
+            [json_encode(compact('subjectCount', 'teacherCount', 'unitCount', 'lectureCount')), $jobId]
         );
         $pdo->commit();
     } catch (Throwable $e) {
@@ -900,6 +979,7 @@ function h_generate_curriculum($stageId): void
     json_response([
         'message' => 'تم توليد المنهج بنجاح',
         'subjectCount' => $subjectCount,
+        'teacherCount' => $teacherCount,
         'unitCount' => $unitCount,
         'lectureCount' => $lectureCount,
     ], 201);
@@ -908,8 +988,12 @@ function h_generate_curriculum($stageId): void
 function h_lecture_detail($id, ?array $user): void
 {
     $lecture = q_one(
-        "SELECT l.*, u.title_ar as unit_title, u.subject_id, s.name_ar as subject_name
-         FROM lectures l JOIN units u ON u.id=l.unit_id JOIN subjects s ON s.id=u.subject_id
+        "SELECT l.*, u.title_ar as unit_title, u.teacher_id, t.name_ar as teacher_name,
+                t.subject_id, s.name_ar as subject_name
+         FROM lectures l
+         JOIN units u ON u.id=l.unit_id
+         JOIN teachers t ON t.id=u.teacher_id
+         JOIN subjects s ON s.id=t.subject_id
          WHERE l.id=?",
         [$id]
     );
@@ -1335,10 +1419,14 @@ function dispatch_api(): void
             h_countries();
         } elseif ($method === 'GET' && preg_match('#^/countries/([^/]+)/stages$#', $route, $m)) {
             h_country_stages($m[1]);
-        } elseif ($method === 'GET' && preg_match('#^/subjects/([^/]+)/units$#', $route, $m)) {
-            h_subject_units($m[1]);
+        } elseif ($method === 'GET' && preg_match('#^/subjects/([^/]+)/teachers$#', $route, $m)) {
+            h_subject_teachers($m[1]);
         } elseif ($method === 'GET' && preg_match('#^/subjects/([^/]+)$#', $route, $m)) {
             h_subject_detail($m[1]);
+        } elseif ($method === 'GET' && preg_match('#^/teachers/([^/]+)/units$#', $route, $m)) {
+            h_teacher_units($m[1]);
+        } elseif ($method === 'GET' && preg_match('#^/teachers/([^/]+)$#', $route, $m)) {
+            h_teacher_detail($m[1]);
         } elseif ($method === 'GET' && preg_match('#^/units/([^/]+)/lectures$#', $route, $m)) {
             h_unit_lectures($m[1]);
         } elseif ($method === 'GET' && preg_match('#^/units/([^/]+)$#', $route, $m)) {
@@ -1489,6 +1577,8 @@ input,select,textarea{font-family:inherit}
 .bn-item i{font-size:1.05rem}
 .bn-item.active{color:var(--blue);background:var(--hover-bg)}
 @media (min-width:1024px){.bottom-nav{display:none !important}.view{padding:24px 8px}}
+body.auth-mode .hdr,body.auth-mode .bottom-nav{display:none !important}
+body.auth-mode .view{padding:0;min-height:100vh;min-height:100dvh}
 .grid-2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
 .grid-cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:12px}
 @media (min-width:1024px){.grid-cards{grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:18px}.grid-2{grid-template-columns:repeat(auto-fill,minmax(320px,1fr))}}
@@ -1547,6 +1637,7 @@ input,select,textarea{font-family:inherit}
 .subject-card:hover{transform:translateY(-3px);box-shadow:var(--shadow-hover)}
 .subject-card:active{transform:scale(.97)}
 .subject-ico{width:48px;height:48px;border-radius:14px;background:var(--gradient-primary);color:#04231c;display:flex;align-items:center;justify-content:center;font-size:1.2rem;margin:0 auto 10px}
+.subject-ico.round{border-radius:50%}
 .subject-card h4{font-size:.82rem;font-weight:700}
 .subject-card p{font-size:.65rem;color:var(--muted);margin-top:2px}
 .list-row{display:flex;align-items:center;gap:12px;background:var(--card);border-radius:16px;padding:13px;margin-bottom:9px;box-shadow:var(--shadow);cursor:pointer;transition:transform .15s,box-shadow .2s}
@@ -1619,7 +1710,7 @@ input,select,textarea{font-family:inherit}
 .form-error{font-size:.72rem;color:var(--danger);margin-top:8px;display:none}
 .form-error.show{display:block}
 .select-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
-.auth-card{max-width:400px;margin:20px auto}
+.auth-card{max-width:400px;margin:20px auto;padding:24px 20px}
 .auth-switch{text-align:center;font-size:.78rem;color:var(--muted);margin-top:14px}
 .auth-switch a{color:var(--blue);font-weight:700}
 .key-status{display:flex;align-items:center;gap:8px;padding:10px 14px;border-radius:12px;background:var(--hover-bg);font-size:.75rem;font-weight:700;margin-bottom:16px}
@@ -1629,6 +1720,27 @@ input,select,textarea{font-family:inherit}
 .toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
 .toast.err{background:var(--danger);color:#fff}
 .toast.ok{background:var(--success);color:#fff}
+
+/* ============================================================
+   شاشة الترحيب (قبل تسجيل الدخول)
+   ============================================================ */
+.welcome-screen{min-height:100vh;min-height:100dvh;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:40px 28px;background:radial-gradient(circle at 30% 15%, rgba(0,230,187,0.28), transparent 55%),linear-gradient(180deg,#04231c,#081210 75%);color:#fff}
+.welcome-hero{position:relative;width:140px;height:140px;margin-bottom:14px;display:flex;align-items:center;justify-content:center}
+.welcome-badge{width:104px;height:104px;border-radius:32px;background:var(--gradient-primary);display:flex;align-items:center;justify-content:center;font-size:2.6rem;color:#04231c;box-shadow:0 24px 60px rgba(0,230,187,.4)}
+.welcome-orbit i{position:absolute;width:36px;height:36px;border-radius:11px;background:rgba(255,255,255,.1);backdrop-filter:blur(6px);display:flex;align-items:center;justify-content:center;font-size:.95rem;color:#7cffe0;box-shadow:0 8px 20px rgba(0,0,0,.25)}
+.welcome-orbit i:nth-child(1){top:-8px;right:-14px}
+.welcome-orbit i:nth-child(2){bottom:2px;left:-20px}
+.welcome-orbit i:nth-child(3){bottom:-14px;right:22px}
+.welcome-logo{font-size:1.05rem;font-weight:900;letter-spacing:.5px;color:#7cffe0;margin-top:6px}
+.welcome-title{font-size:1.55rem;font-weight:900;margin-top:12px;line-height:1.4}
+.welcome-sub{font-size:.85rem;color:rgba(255,255,255,.68);margin-top:10px;line-height:1.9;max-width:340px}
+.welcome-features{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin:30px 0 6px;width:100%;max-width:420px}
+.welcome-feature{display:flex;flex-direction:column;align-items:center;gap:6px}
+.wf-ico{width:46px;height:46px;border-radius:14px;background:rgba(255,255,255,.08);display:flex;align-items:center;justify-content:center;color:#7cffe0;font-size:1.05rem}
+.welcome-feature h5{font-size:.64rem;font-weight:700}
+.welcome-feature p{font-size:.56rem;color:rgba(255,255,255,.5)}
+.welcome-cta{max-width:420px;width:100%;margin-top:26px;padding:14px 20px;font-size:.9rem}
+.welcome-skip{background:none;border:none;color:rgba(255,255,255,.55);font-size:.78rem;font-weight:700;margin-top:16px;cursor:pointer;padding:10px}
 </style>
 </head>
 <body>
@@ -1660,7 +1772,6 @@ input,select,textarea{font-family:inherit}
           <button class="ud-item ud-danger" id="logoutBtn"><i class="fas fa-arrow-right-from-bracket"></i> تسجيل الخروج</button>
         </div>
       </div>
-      <button class="btn btn-sm btn-primary" id="loginNavBtn" data-nav="#/login">دخول</button>
     </div>
   </header>
 
@@ -1744,12 +1855,14 @@ App.api = (function () {
     getStages: (countryId) => request(`/countries/${countryId}/stages`, { auth: false }),
     getSubjects: (stageId) => request(`/stages/${stageId}/subjects`, { auth: false }),
     getSubject: (subjectId) => request(`/subjects/${subjectId}`, { auth: false }),
-    getUnits: (subjectId) => request(`/subjects/${subjectId}/units`, { auth: false }),
+    getTeachers: (subjectId) => request(`/subjects/${subjectId}/teachers`, { auth: false }),
+    getTeacher: (teacherId) => request(`/teachers/${teacherId}`, { auth: false }),
+    getTeacherUnits: (teacherId) => request(`/teachers/${teacherId}/units`, { auth: false }),
     getUnit: (unitId) => request(`/units/${unitId}`, { auth: false }),
     getLectures: (unitId) => request(`/units/${unitId}/lectures`, { auth: false }),
     generateCurriculum: (stageId) => request(`/stages/${stageId}/generate`, { method: 'POST' }),
 
-    getLecture: (id) => request(`/lectures/${id}`, { auth: false }),
+    getLecture: (id) => request(`/lectures/${id}`),
     updateProgress: (id, payload) => request(`/lectures/${id}/progress`, { method: 'POST', body: payload }),
 
     getQuiz: (lectureId) => request(`/lectures/${lectureId}/quiz`),
@@ -1761,7 +1874,7 @@ App.api = (function () {
 
     getMyPoints: () => request('/points/me'),
     getLeaderboard: (scope, countryId) =>
-      request(`/leaderboard?scope=${scope}${countryId ? `&countryId=${countryId}` : ''}`, { auth: false }),
+      request(`/leaderboard?scope=${scope}${countryId ? `&countryId=${countryId}` : ''}`),
 
     getDeepseekSettings: () => request('/settings/deepseek'),
     saveDeepseekSettings: (payload) => request('/settings/deepseek', { method: 'PUT', body: payload }),
@@ -1770,7 +1883,7 @@ App.api = (function () {
 })();
 
 App.state = (function () {
-  const KEYS = { token: 'zaki_token', user: 'zaki_user', country: 'zaki_country', stage: 'zaki_stage' };
+  const KEYS = { token: 'zaki_token', user: 'zaki_user', country: 'zaki_country', stage: 'zaki_stage', welcome: 'zaki_seen_welcome' };
   function safeGet(key) { try { return localStorage.getItem(key); } catch (err) { return null; } }
   function safeSet(key, value) { try { localStorage.setItem(key, value); } catch (err) {} }
   function safeRemove(key) { try { localStorage.removeItem(key); } catch (err) {} }
@@ -1786,6 +1899,8 @@ App.state = (function () {
     getSelection() { return { countryId: safeGet(KEYS.country), stageId: safeGet(KEYS.stage) }; },
     setSelection(countryId, stageId) { safeSet(KEYS.country, String(countryId)); safeSet(KEYS.stage, String(stageId)); },
     clearSelection() { safeRemove(KEYS.country); safeRemove(KEYS.stage); },
+    hasSeenWelcome() { return safeGet(KEYS.welcome) === '1'; },
+    markWelcomeSeen() { safeSet(KEYS.welcome, '1'); },
   };
 })();
 
@@ -1824,21 +1939,25 @@ App.ui = (function () {
   function formatDuration(seconds) { if (!seconds) return ''; const m = Math.floor(seconds / 60); const s = seconds % 60; return `${m}:${String(s).padStart(2, '0')}`; }
   function formatDate(value) { if (!value) return ''; try { return new Date(value).toLocaleDateString('ar-EG', { year: 'numeric', month: 'short', day: 'numeric' }); } catch (err) { return ''; } }
   function initials(name) { if (!name) return '؟'; return name.trim().slice(0, 1).toUpperCase(); }
-  function youtubeEmbedUrl(lecture) { if (lecture.youtube_video_id) return `https://www.youtube.com/embed/${lecture.youtube_video_id}`; return null; }
   function handleAuthError(err) {
     if (err && err.status === 401) {
       App.state.clearSession(); App.main.refreshHeader(); location.hash = '#/login'; toast('يرجى تسجيل الدخول مجدداً', 'err'); return true;
     }
     return false;
   }
-  return { toast, escapeHtml, loadingHtml, emptyStateHtml, formatDuration, formatDate, initials, youtubeEmbedUrl, handleAuthError };
+  return { toast, escapeHtml, loadingHtml, emptyStateHtml, formatDuration, formatDate, initials, handleAuthError };
 })();
 
 App.router = (function () {
   const routes = [];
   function register(pattern, handler, opts = {}) {
     const segments = pattern.split('/').filter(Boolean);
-    routes.push({ pattern, segments, handler, requiresAuth: Boolean(opts.requiresAuth), requiresAdmin: Boolean(opts.requiresAdmin) });
+    routes.push({
+      pattern, segments, handler,
+      requiresAuth: Boolean(opts.requiresAuth),
+      requiresAdmin: Boolean(opts.requiresAdmin),
+      noChrome: Boolean(opts.noChrome),
+    });
   }
   function match(hashPath) {
     const pathSegments = hashPath.split('/').filter(Boolean);
@@ -1860,7 +1979,13 @@ App.router = (function () {
     const found = match(path);
     const view = document.getElementById('view');
     if (!found) { view.innerHTML = App.ui.emptyStateHtml('fa-compass', 'الصفحة غير موجودة', 'تحقق من الرابط أو عد للرئيسية'); return; }
-    if (found.route.requiresAuth && !App.state.isLoggedIn()) { App.ui.toast('يرجى تسجيل الدخول أولاً', 'err'); location.hash = '#/login'; return; }
+
+    document.body.classList.toggle('auth-mode', found.route.noChrome);
+
+    if (found.route.requiresAuth && !App.state.isLoggedIn()) {
+      location.hash = App.state.hasSeenWelcome() ? '#/login' : '#/welcome';
+      return;
+    }
     if (found.route.requiresAdmin && !App.state.isAdmin()) { App.ui.toast('هذه الصفحة للمشرفين فقط', 'err'); location.hash = '#/home'; return; }
     App.main.highlightNav(path);
     view.innerHTML = App.ui.loadingHtml();
@@ -1874,12 +1999,43 @@ App.router = (function () {
 
 App.views = App.views || {};
 
+App.views.welcome = async function welcome() {
+  const view = document.getElementById('view');
+  view.innerHTML = `
+    <div class="welcome-screen an">
+      <div class="welcome-hero">
+        <div class="welcome-badge"><i class="fas fa-graduation-cap"></i></div>
+        <div class="welcome-orbit">
+          <i class="fas fa-robot"></i><i class="fas fa-clipboard-question"></i><i class="fas fa-trophy"></i>
+        </div>
+      </div>
+      <div class="welcome-logo">ذَكِيّ.</div>
+      <h1 class="welcome-title">مرحباً بك في ذَكِيّ</h1>
+      <p class="welcome-sub">منصتك الذكية لإدارة المحاضرات والمواد الدراسية بكل سهولة وتنظيم</p>
+      <div class="welcome-features">
+        <div class="welcome-feature"><div class="wf-ico"><i class="fas fa-robot"></i></div><h5>مساعد ذكي</h5><p>يجيب فوراً</p></div>
+        <div class="welcome-feature"><div class="wf-ico"><i class="fas fa-clipboard-question"></i></div><h5>اختبارات</h5><p>بعد كل محاضرة</p></div>
+        <div class="welcome-feature"><div class="wf-ico"><i class="fas fa-star"></i></div><h5>نقاط</h5><p>لكل إنجاز</p></div>
+        <div class="welcome-feature"><div class="wf-ico"><i class="fas fa-ranking-star"></i></div><h5>تنافس</h5><p>مع طلاب بلدك</p></div>
+      </div>
+      <button class="btn btn-primary welcome-cta" id="welcomeStart">ابدأ الآن <i class="fas fa-arrow-left"></i></button>
+      <button class="welcome-skip" id="welcomeSkip">تخطي</button>
+    </div>
+  `;
+  const goLogin = () => { App.state.markWelcomeSeen(); location.hash = '#/login'; };
+  document.getElementById('welcomeStart').addEventListener('click', goLogin);
+  document.getElementById('welcomeSkip').addEventListener('click', goLogin);
+};
+
 App.views.login = async function login() {
   const view = document.getElementById('view');
   view.innerHTML = `
     <div class="auth-card an">
-      <div class="page-title">مرحباً بعودتك 👋</div>
-      <div class="page-sub">سجّل الدخول لمتابعة رحلتك التعليمية</div>
+      <div style="text-align:center;margin-bottom:18px">
+        <div class="logo" style="font-size:1.6rem">ذَكِيّ<span class="logo-dot">.</span></div>
+      </div>
+      <div class="page-title" style="text-align:center">مرحباً بعودتك 👋</div>
+      <div class="page-sub" style="text-align:center">سجّل الدخول لمتابعة رحلتك التعليمية</div>
       <div class="card">
         <form id="loginForm">
           <div class="form-group"><label>البريد الإلكتروني</label><input class="form-control" type="email" id="loginEmail" required placeholder="example@mail.com"></div>
@@ -1898,8 +2054,9 @@ App.views.login = async function login() {
     errorEl.classList.remove('show'); submitBtn.disabled = true; submitBtn.textContent = 'جاري الدخول...';
     try {
       const { token, user } = await App.api.login({ email: document.getElementById('loginEmail').value.trim(), password: document.getElementById('loginPassword').value });
-      App.state.setSession(token, user); App.main.refreshHeader();
-      App.ui.toast(`أهلاً بك ${user.name}!`, 'ok'); location.hash = '#/home';
+      App.state.setSession(token, user); App.state.markWelcomeSeen(); App.main.refreshHeader();
+      App.ui.toast(`أهلاً بك ${user.name}!`, 'ok');
+      location.hash = (user.countryId && user.stageId) ? '#/home' : '#/onboarding';
     } catch (err) { errorEl.textContent = err.message; errorEl.classList.add('show'); }
     finally { submitBtn.disabled = false; submitBtn.textContent = 'دخول'; }
   });
@@ -1909,8 +2066,11 @@ App.views.register = async function register() {
   const view = document.getElementById('view');
   view.innerHTML = `
     <div class="auth-card an">
-      <div class="page-title">إنشاء حساب جديد ✨</div>
-      <div class="page-sub">انضم وابدأ اجمع النقاط من أول محاضرة</div>
+      <div style="text-align:center;margin-bottom:18px">
+        <div class="logo" style="font-size:1.6rem">ذَكِيّ<span class="logo-dot">.</span></div>
+      </div>
+      <div class="page-title" style="text-align:center">إنشاء حساب جديد ✨</div>
+      <div class="page-sub" style="text-align:center">انضم وابدأ اجمع النقاط من أول محاضرة</div>
       <div class="card">
         <form id="registerForm">
           <div class="form-group"><label>الاسم الكامل</label><input class="form-control" type="text" id="regName" required placeholder="اسمك"></div>
@@ -1949,10 +2109,11 @@ App.views.register = async function register() {
         name: document.getElementById('regName').value.trim(), email: document.getElementById('regEmail').value.trim(),
         password: document.getElementById('regPassword').value, countryId: countrySelect.value || null, stageId: stageSelect.value || null,
       });
-      App.state.setSession(token, user);
+      App.state.setSession(token, user); App.state.markWelcomeSeen();
       if (countrySelect.value && stageSelect.value) App.state.setSelection(countrySelect.value, stageSelect.value);
       App.main.refreshHeader();
-      App.ui.toast(`تم إنشاء حسابك بنجاح، أهلاً بك ${user.name}!`, 'ok'); location.hash = '#/home';
+      App.ui.toast(`تم إنشاء حسابك بنجاح، أهلاً بك ${user.name}!`, 'ok');
+      location.hash = (countrySelect.value && stageSelect.value) ? '#/home' : '#/onboarding';
     } catch (err) { errorEl.textContent = err.message; errorEl.classList.add('show'); }
     finally { submitBtn.disabled = false; submitBtn.textContent = 'إنشاء الحساب'; }
   });
@@ -1963,7 +2124,7 @@ App.views.onboarding = async function onboarding() {
   view.innerHTML = `
     <div class="an" style="padding-top:26px">
       <div class="page-title" style="text-align:center;font-size:1.35rem">اختر بلدك ومرحلتك الدراسية</div>
-      <div class="page-sub" style="text-align:center">سنعرض لك المواد والمحاضرات المناسبة لك تلقائياً</div>
+      <div class="page-sub" style="text-align:center">سنعرض لك المواد والمدرّسين المناسبين لك تلقائياً</div>
       <div class="card" style="max-width:420px;margin:0 auto">
         <div class="form-group"><label>الدولة</label><select class="form-control" id="obCountry"><option value="">جاري التحميل...</option></select></div>
         <div class="form-group"><label>المرحلة الدراسية</label><select class="form-control" id="obStage" disabled><option value="">اختر الدولة أولاً</option></select></div>
@@ -1996,9 +2157,8 @@ App.views.home = async function home() {
   if (!selection.countryId || !selection.stageId) { location.hash = '#/onboarding'; return; }
   const view = document.getElementById('view');
   const user = App.state.getUser();
-  let profileHtml = '';
-  if (user) {
-    profileHtml = `
+  view.innerHTML = `
+    <div class="an">
       <div class="profile-card an">
         <div class="profile-row">
           <div class="profile-av">${App.ui.initials(user.name)}</div>
@@ -2008,28 +2168,17 @@ App.views.home = async function home() {
           <div class="profile-stat"><b id="homePoints">${user.pointsTotal || 0}</b><span>نقطة</span></div>
           <div class="profile-stat"><b><i class="fas fa-arrow-left" style="font-size:.9rem"></i></b><span><a href="#/leaderboard" style="color:inherit">لوحة المتصدرين</a></span></div>
         </div>
-      </div>`;
-  } else {
-    profileHtml = `
-      <div class="card an" style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:20px">
-        <div><div style="font-weight:800;font-size:.85rem">أنت تتصفح كزائر</div><div style="font-size:.7rem;color:var(--muted);margin-top:2px">سجّل دخولك لحفظ تقدمك وجمع النقاط</div></div>
-        <button class="btn btn-primary btn-sm" data-nav="#/login">دخول</button>
-      </div>`;
-  }
-  view.innerHTML = `
-    <div class="an">
-      ${profileHtml}
+      </div>
       <div class="section-head"><h3><i class="fas fa-graduation-cap"></i> المواد الدراسية</h3><a href="#/onboarding" style="font-size:.68rem;color:var(--cyan);font-weight:700">تغيير المرحلة</a></div>
       <div id="subjectsHolder">${App.ui.loadingHtml('جاري تحميل المواد...')}</div>
     </div>
   `;
-  view.querySelectorAll('[data-nav]').forEach((btn) => btn.addEventListener('click', () => (location.hash = btn.dataset.nav)));
   const holder = document.getElementById('subjectsHolder');
   try {
     const { subjects, needsGeneration } = await App.api.getSubjects(selection.stageId);
     if (!subjects.length && needsGeneration) {
       holder.innerHTML = App.state.isAdmin()
-        ? `<div class="center-box"><i class="fas fa-wand-magic-sparkles"></i><div style="font-weight:700;color:var(--text)">لا يوجد منهج بعد لهذه المرحلة</div><div style="font-size:.75rem">يمكنك توليده تلقائياً بالذكاء الاصطناعي الآن</div><button class="btn btn-primary" id="genCurriculumBtn" style="margin-top:10px"><i class="fas fa-sparkles"></i> توليد المنهج بالذكاء الاصطناعي</button></div>`
+        ? `<div class="center-box"><i class="fas fa-wand-magic-sparkles"></i><div style="font-weight:700;color:var(--text)">لا يوجد منهج بعد لهذه المرحلة</div><div style="font-size:.75rem">يمكنك توليده تلقائياً بالذكاء الاصطناعي الآن (مواد، مدرّسون، ومحاضرات)</div><button class="btn btn-primary" id="genCurriculumBtn" style="margin-top:10px"><i class="fas fa-sparkles"></i> توليد المنهج بالذكاء الاصطناعي</button></div>`
         : App.ui.emptyStateHtml('fa-hourglass-half', 'المنهج قيد التحضير', 'يقوم فريقنا بإعداد محتوى هذه المرحلة، عد قريباً');
       const genBtn = document.getElementById('genCurriculumBtn');
       if (genBtn) {
@@ -2037,7 +2186,7 @@ App.views.home = async function home() {
           genBtn.disabled = true; genBtn.innerHTML = '<span class="spinner"></span> جاري التوليد (قد يستغرق دقيقة)...';
           try {
             const result = await App.api.generateCurriculum(selection.stageId);
-            App.ui.toast(`تم توليد ${result.subjectCount} مواد و ${result.lectureCount} محاضرة`, 'ok');
+            App.ui.toast(`تم توليد ${result.subjectCount} مواد و ${result.teacherCount} مدرّسين و ${result.lectureCount} محاضرة`, 'ok');
             App.views.home();
           } catch (err) {
             App.ui.toast(err.message, 'err'); genBtn.disabled = false;
@@ -2056,15 +2205,42 @@ App.views.home = async function home() {
   } catch (err) { holder.innerHTML = App.ui.emptyStateHtml('fa-triangle-exclamation', 'تعذّر تحميل المواد', err.message); }
 };
 
-App.views.subjectUnits = async function subjectUnits({ id }) {
+App.views.subjectTeachers = async function subjectTeachers({ id }) {
   const view = document.getElementById('view');
-  const [subjectRes, unitsRes] = await Promise.all([App.api.getSubject(id), App.api.getUnits(id)]);
-  const subject = subjectRes.subject; const units = unitsRes.units;
+  const [subjectRes, teachersRes] = await Promise.all([App.api.getSubject(id), App.api.getTeachers(id)]);
+  const subject = subjectRes.subject; const teachers = teachersRes.teachers;
   view.innerHTML = `
     <div class="an">
       <div class="breadcrumb"><a href="#/home">الرئيسية</a> <i class="fas fa-chevron-left"></i> <span>${App.ui.escapeHtml(subject.name_ar)}</span></div>
       <div class="page-title"><i class="fas ${subject.icon || 'fa-book'}" style="color:var(--cyan);margin-inline-end:6px"></i>${App.ui.escapeHtml(subject.name_ar)}</div>
-      <div class="page-sub">${units.length} وحدة دراسية</div>
+      <div class="page-sub">اختر المدرّس لعرض محاضراته</div>
+      <div id="teachersHolder"></div>
+    </div>
+  `;
+  const holder = document.getElementById('teachersHolder');
+  if (!teachers.length) { holder.innerHTML = App.ui.emptyStateHtml('fa-chalkboard-user', 'لا يوجد مدرّسون بعد', 'سيُضافون قريباً'); return; }
+  holder.innerHTML = `<div class="grid-cards">${teachers.map((t) => `
+    <div class="subject-card an" data-nav="#/teacher/${t.id}">
+      <div class="subject-ico round" style="${t.avatar_color ? `background:${t.avatar_color}` : ''}"><i class="fas fa-chalkboard-user"></i></div>
+      <h4>${App.ui.escapeHtml(t.name_ar)}</h4>
+      <p>${t.lecture_count} محاضرة${t.unit_count ? ' · ' + t.unit_count + ' وحدة' : ''}</p>
+    </div>`).join('')}</div>`;
+  holder.querySelectorAll('[data-nav]').forEach((el) => el.addEventListener('click', () => (location.hash = el.dataset.nav)));
+};
+
+App.views.teacherUnits = async function teacherUnits({ id }) {
+  const view = document.getElementById('view');
+  const [teacherRes, unitsRes] = await Promise.all([App.api.getTeacher(id), App.api.getTeacherUnits(id)]);
+  const teacher = teacherRes.teacher; const units = unitsRes.units;
+  view.innerHTML = `
+    <div class="an">
+      <div class="breadcrumb">
+        <a href="#/home">الرئيسية</a> <i class="fas fa-chevron-left"></i>
+        <a href="#/subject/${teacher.subject_id}">${App.ui.escapeHtml(teacher.subject_name)}</a> <i class="fas fa-chevron-left"></i>
+        <span>${App.ui.escapeHtml(teacher.name_ar)}</span>
+      </div>
+      <div class="page-title"><i class="fas fa-chalkboard-user" style="color:var(--cyan);margin-inline-end:6px"></i>${App.ui.escapeHtml(teacher.name_ar)}</div>
+      <div class="page-sub">${App.ui.escapeHtml(teacher.bio || '')}</div>
       <div id="unitsHolder"></div>
     </div>
   `;
@@ -2088,6 +2264,7 @@ App.views.unitLectures = async function unitLectures({ id }) {
       <div class="breadcrumb">
         <a href="#/home">الرئيسية</a> <i class="fas fa-chevron-left"></i>
         <a href="#/subject/${unit.subject_id}">${App.ui.escapeHtml(unit.subject_name)}</a> <i class="fas fa-chevron-left"></i>
+        <a href="#/teacher/${unit.teacher_id}">${App.ui.escapeHtml(unit.teacher_name)}</a> <i class="fas fa-chevron-left"></i>
         <span>${App.ui.escapeHtml(unit.title_ar)}</span>
       </div>
       <div class="page-title"><i class="fas fa-layer-group" style="color:var(--cyan);margin-inline-end:6px"></i>${App.ui.escapeHtml(unit.title_ar)}</div>
@@ -2121,26 +2298,25 @@ function loadYouTubeApi() {
 App.views.lecture = async function lecture({ id }) {
   const view = document.getElementById('view');
   const { lecture: lec, progress } = await App.api.getLecture(id);
-  const loggedIn = App.state.isLoggedIn();
   const isCompleted = Boolean(progress && progress.is_completed);
+  // كل محاضرة تُعرض داخل صفحة المحاضرة نفسها (مضمّنة)، ولا يُوجَّه الطالب أبداً إلى يوتيوب مباشرة
   const videoInner = lec.youtube_video_id
     ? `<div id="ytPlayer"></div>`
-    : `<div class="video-fallback"><i class="fas fa-video-slash"></i><div>لم يُعتمد فيديو موثّق لهذه المحاضرة بعد</div>${lec.youtube_url ? `<a class="btn btn-outline btn-sm" href="${lec.youtube_url}" target="_blank" rel="noopener">ابحث عنها في يوتيوب <i class="fas fa-arrow-up-left-from-square"></i></a>` : ''}</div>`;
+    : `<div class="video-fallback"><i class="fas fa-clock"></i><div>سيتم إضافة فيديو هذه المحاضرة قريباً</div></div>`;
   view.innerHTML = `
     <div class="an">
       <div class="breadcrumb">
         <a href="#/home">الرئيسية</a> <i class="fas fa-chevron-left"></i>
         <a href="#/subject/${lec.subject_id}">${App.ui.escapeHtml(lec.subject_name)}</a> <i class="fas fa-chevron-left"></i>
+        <a href="#/teacher/${lec.teacher_id}">${App.ui.escapeHtml(lec.teacher_name)}</a> <i class="fas fa-chevron-left"></i>
         <a href="#/unit/${lec.unit_id}">${App.ui.escapeHtml(lec.unit_title)}</a>
       </div>
       <div class="page-title">${App.ui.escapeHtml(lec.title_ar)}</div>
       <div class="page-sub">${App.ui.escapeHtml(lec.description || '')}</div>
       <div class="video-wrap">${videoInner}</div>
-      ${loggedIn
-        ? `<div class="chip ${isCompleted ? 'chip-done' : ''}" id="completionChip" style="margin-bottom:14px"><i class="fas ${isCompleted ? 'fa-circle-check' : 'fa-clock'}"></i> ${isCompleted ? 'تم إكمال المشاهدة' : 'لم تكتمل بعد'}</div>`
-        : `<div class="card" style="margin-bottom:14px;font-size:.78rem;display:flex;justify-content:space-between;align-items:center;gap:10px"><span>سجّل دخولك لتتبع تقدمك وكسب النقاط</span><button class="btn btn-primary btn-sm" data-nav="#/login">دخول</button></div>`}
+      <div class="chip ${isCompleted ? 'chip-done' : ''}" id="completionChip" style="margin-bottom:14px"><i class="fas ${isCompleted ? 'fa-circle-check' : 'fa-clock'}"></i> ${isCompleted ? 'تم إكمال المشاهدة' : 'لم تكتمل بعد'}</div>
       <div style="display:flex;gap:10px;flex-wrap:wrap">
-        ${loggedIn ? `<button class="btn btn-outline" id="markCompleteBtn" ${isCompleted ? 'disabled' : ''}><i class="fas fa-check"></i> ${isCompleted ? 'تمت المشاهدة' : 'أنهيت المشاهدة'}</button>` : ''}
+        <button class="btn btn-outline" id="markCompleteBtn" ${isCompleted ? 'disabled' : ''}><i class="fas fa-check"></i> ${isCompleted ? 'تمت المشاهدة' : 'أنهيت المشاهدة'}</button>
         <button class="btn btn-primary" id="startQuizBtn"><i class="fas fa-pen-to-square"></i> ابدأ الاختبار</button>
       </div>
     </div>
@@ -2149,14 +2325,14 @@ App.views.lecture = async function lecture({ id }) {
       <div class="tutor-head"><h4><i class="fas fa-robot"></i> المساعد الذكي</h4><button class="icon-btn" id="tutorCloseBtn"><i class="fas fa-xmark"></i></button></div>
       <div class="tutor-body" id="tutorBody"><div class="tutor-msg assistant">أهلاً بك! أنا مساعدك الذكي لهذه المحاضرة. اسألني عن أي نقطة غامضة 🤓</div></div>
       <form class="tutor-input" id="tutorForm">
-        <input type="text" id="tutorInput" placeholder="اكتب سؤالك هنا..." autocomplete="off" ${loggedIn ? '' : 'disabled'}>
-        <button class="tutor-send" type="submit" ${loggedIn ? '' : 'disabled'}><i class="fas fa-paper-plane"></i></button>
+        <input type="text" id="tutorInput" placeholder="اكتب سؤالك هنا..." autocomplete="off">
+        <button class="tutor-send" type="submit"><i class="fas fa-paper-plane"></i></button>
       </form>
     </div>
   `;
   view.querySelectorAll('[data-nav]').forEach((el) => el.addEventListener('click', () => (location.hash = el.dataset.nav)));
   async function markComplete(watchedSeconds) {
-    if (!loggedIn || isCompletedNow) return;
+    if (isCompletedNow) return;
     isCompletedNow = true;
     try {
       const res = await App.api.updateProgress(id, { watchedSeconds: watchedSeconds || 0, completed: true });
@@ -2172,8 +2348,7 @@ App.views.lecture = async function lecture({ id }) {
     } catch (err) { isCompletedNow = false; if (!App.ui.handleAuthError(err)) App.ui.toast(err.message, 'err'); }
   }
   let isCompletedNow = isCompleted;
-  const markBtn = document.getElementById('markCompleteBtn');
-  if (markBtn) markBtn.addEventListener('click', () => markComplete(lec.duration_seconds));
+  document.getElementById('markCompleteBtn').addEventListener('click', () => markComplete(lec.duration_seconds));
   if (lec.youtube_video_id) {
     loadYouTubeApi().then(() => {
       try {
@@ -2182,10 +2357,7 @@ App.views.lecture = async function lecture({ id }) {
       } catch (err) { console.error('YouTube player init failed:', err); }
     });
   }
-  document.getElementById('startQuizBtn').addEventListener('click', () => {
-    if (!loggedIn) { App.ui.toast('يرجى تسجيل الدخول لبدء الاختبار', 'err'); location.hash = '#/login'; return; }
-    location.hash = `#/quiz/${id}`;
-  });
+  document.getElementById('startQuizBtn').addEventListener('click', () => { location.hash = `#/quiz/${id}`; });
   const fab = document.getElementById('tutorFab');
   const panel = document.getElementById('tutorPanel');
   const body = document.getElementById('tutorBody');
@@ -2198,7 +2370,7 @@ App.views.lecture = async function lecture({ id }) {
   }
   fab.addEventListener('click', async () => {
     panel.classList.toggle('open');
-    if (panel.classList.contains('open') && !historyLoaded && loggedIn) {
+    if (panel.classList.contains('open') && !historyLoaded) {
       historyLoaded = true;
       try { const { messages } = await App.api.getTutorHistory(id); messages.forEach((m) => addMessage(m.role, m.message_text)); }
       catch (err) {}
@@ -2207,7 +2379,6 @@ App.views.lecture = async function lecture({ id }) {
   document.getElementById('tutorCloseBtn').addEventListener('click', () => panel.classList.remove('open'));
   form.addEventListener('submit', async (e) => {
     e.preventDefault();
-    if (!loggedIn) { location.hash = '#/login'; return; }
     const text = input.value.trim();
     if (!text) return;
     addMessage('user', text); input.value = ''; input.disabled = true;
@@ -2441,21 +2612,22 @@ App.main = (function () {
   function refreshHeader() {
     const user = App.state.getUser();
     const pointsChip = document.getElementById('pointsChip');
-    const loginBtn = document.getElementById('loginNavBtn');
     const userMenu = document.getElementById('userMenu');
     const udName = document.getElementById('udName');
     const udSettingsItem = document.getElementById('udSettingsItem');
     const bnSettings = document.getElementById('bnSettings');
     const bottomNav = document.getElementById('bottomNav');
-    bottomNav.hidden = false;
     if (user) {
+      bottomNav.hidden = false;
       pointsChip.hidden = false; document.getElementById('pointsChipValue').textContent = user.pointsTotal || 0;
-      loginBtn.hidden = true; userMenu.hidden = false; udName.textContent = user.name;
+      userMenu.hidden = false; udName.textContent = user.name;
       const isAdmin = App.state.isAdmin(); udSettingsItem.hidden = !isAdmin; bnSettings.hidden = !isAdmin;
-    } else { pointsChip.hidden = true; loginBtn.hidden = false; userMenu.hidden = true; bnSettings.hidden = true; }
+    } else {
+      bottomNav.hidden = true; pointsChip.hidden = true; userMenu.hidden = true; bnSettings.hidden = true;
+    }
   }
   function highlightNav(path) {
-    const homeLike = path === '/home' || path === '/onboarding' || path.startsWith('/subject/') || path.startsWith('/unit/') || path.startsWith('/lecture/') || path.startsWith('/quiz/');
+    const homeLike = path === '/home' || path === '/onboarding' || path.startsWith('/subject/') || path.startsWith('/teacher/') || path.startsWith('/unit/') || path.startsWith('/lecture/') || path.startsWith('/quiz/');
     document.querySelectorAll('.bn-item[data-nav]').forEach((item) => {
       const target = item.dataset.nav.replace('#', '');
       const active = target === '/home' ? homeLike : target === path;
@@ -2464,7 +2636,7 @@ App.main = (function () {
   }
   function wireStaticHeader() {
     document.getElementById('themeBtn').addEventListener('click', () => App.theme.toggle());
-    document.querySelectorAll('#bottomNav [data-nav], #userDropdown [data-nav], #loginNavBtn[data-nav]').forEach((el) => {
+    document.querySelectorAll('#bottomNav [data-nav], #userDropdown [data-nav]').forEach((el) => {
       el.addEventListener('click', () => { location.hash = el.dataset.nav; document.getElementById('userDropdown').classList.remove('open'); });
     });
     document.getElementById('avatarBtn').addEventListener('click', (e) => { e.stopPropagation(); document.getElementById('userDropdown').classList.toggle('open'); });
@@ -2473,19 +2645,21 @@ App.main = (function () {
       if (menu && !menu.contains(e.target)) document.getElementById('userDropdown').classList.remove('open');
     });
     document.getElementById('logoutBtn').addEventListener('click', () => {
-      App.state.clearSession(); refreshHeader(); App.ui.toast('تم تسجيل الخروج'); location.hash = '#/home'; App.router.resolve();
+      App.state.clearSession(); refreshHeader(); App.ui.toast('تم تسجيل الخروج'); location.hash = '#/login'; App.router.resolve();
     });
   }
   function registerRoutes() {
-    App.router.register('/login', App.views.login);
-    App.router.register('/register', App.views.register);
-    App.router.register('/onboarding', App.views.onboarding);
-    App.router.register('/home', App.views.home);
-    App.router.register('/subject/:id', App.views.subjectUnits);
-    App.router.register('/unit/:id', App.views.unitLectures);
-    App.router.register('/lecture/:id', App.views.lecture);
+    App.router.register('/welcome', App.views.welcome, { noChrome: true });
+    App.router.register('/login', App.views.login, { noChrome: true });
+    App.router.register('/register', App.views.register, { noChrome: true });
+    App.router.register('/onboarding', App.views.onboarding, { requiresAuth: true });
+    App.router.register('/home', App.views.home, { requiresAuth: true });
+    App.router.register('/subject/:id', App.views.subjectTeachers, { requiresAuth: true });
+    App.router.register('/teacher/:id', App.views.teacherUnits, { requiresAuth: true });
+    App.router.register('/unit/:id', App.views.unitLectures, { requiresAuth: true });
+    App.router.register('/lecture/:id', App.views.lecture, { requiresAuth: true });
     App.router.register('/quiz/:lectureId', App.views.quiz, { requiresAuth: true });
-    App.router.register('/leaderboard', App.views.leaderboard);
+    App.router.register('/leaderboard', App.views.leaderboard, { requiresAuth: true });
     App.router.register('/profile', App.views.profile, { requiresAuth: true });
     App.router.register('/settings', App.views.settings, { requiresAuth: true, requiresAdmin: true });
   }
