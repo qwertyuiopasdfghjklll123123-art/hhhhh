@@ -665,6 +665,86 @@ function mask_key(?string $key): ?string
 }
 
 // ============================================================================
+// خدمة YouTube Data API v3 (اختيارية) — تبحث عن فيديو تعليمي حقيقي لاعتماد
+// رابط "موثوق" للمحاضرة بدل عرض رابط بحث فقط. إن لم يُضبط مفتاحها تبقى كل
+// المحاضرات تعرض رسالة "سيتم إضافة الفيديو قريباً" كما في السابق، بلا أي خطأ.
+// ============================================================================
+
+function get_youtube_api_key(): ?string
+{
+    $row = q_one("SELECT api_key_encrypted FROM api_settings WHERE provider='youtube' LIMIT 1");
+    if (!$row || !$row['api_key_encrypted']) {
+        return null;
+    }
+    return crypto_decrypt($row['api_key_encrypted']);
+}
+
+function youtube_search_video(string $searchQuery): ?array
+{
+    $apiKey = get_youtube_api_key();
+    if (!$apiKey || !trim($searchQuery)) {
+        return null;
+    }
+
+    $url = 'https://www.googleapis.com/youtube/v3/search?' . http_build_query([
+        'key' => $apiKey,
+        'q' => $searchQuery,
+        'part' => 'snippet',
+        'type' => 'video',
+        'maxResults' => 5,
+        'relevanceLanguage' => 'ar',
+        'safeSearch' => 'strict',
+        'videoEmbeddable' => 'true',
+    ]);
+    $ch = curl_init($url);
+    curl_setopt_array($ch, [CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT => 10]);
+    $response = curl_exec($ch);
+    $status = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    curl_close($ch);
+    if ($response === false || $status >= 400) {
+        return null;
+    }
+
+    $data = json_decode($response, true);
+    $first = $data['items'][0] ?? null;
+    if (!$first) {
+        return null;
+    }
+    return [
+        'videoId' => $first['id']['videoId'],
+        'thumbnailUrl' => $first['snippet']['thumbnails']['medium']['url'] ?? null,
+    ];
+}
+
+function youtube_test_connection(): array
+{
+    $apiKey = get_youtube_api_key();
+    if (!$apiKey) {
+        throw new ApiException(412, 'لم يتم ضبط مفتاح YouTube API بعد.');
+    }
+
+    $url = 'https://www.googleapis.com/youtube/v3/search?' . http_build_query([
+        'key' => $apiKey, 'q' => 'شرح تعليمي', 'part' => 'snippet', 'type' => 'video', 'maxResults' => 1,
+    ]);
+    $ch = curl_init($url);
+    curl_setopt_array($ch, [CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT => 15]);
+    $response = curl_exec($ch);
+    $curlError = curl_error($ch);
+    $status = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    curl_close($ch);
+
+    if ($response === false) {
+        throw new ApiException(502, 'تعذّر الوصول إلى YouTube API: ' . $curlError);
+    }
+    $data = json_decode($response, true);
+    if ($status >= 400) {
+        $msg = $data['error']['message'] ?? 'خطأ غير معروف';
+        throw new ApiException(502, "فشل الاتصال بـ YouTube API ($status): $msg");
+    }
+    return ['ok' => true, 'sample' => 'تم العثور على ' . count($data['items'] ?? []) . ' نتيجة تجريبية'];
+}
+
+// ============================================================================
 // خدمة DeepSeek (عبر curl) — توليد المناهج، الاختبارات، والمساعد الذكي
 // ============================================================================
 
@@ -1142,6 +1222,25 @@ function h_lecture_detail($id, ?array $user): void
         throw new ApiException(404, 'المحاضرة غير موجودة');
     }
 
+    // إن لم يكن للمحاضرة فيديو مضبوط بعد (شائع في المحتوى المولَّد آلياً قبل
+    // تفعيل مفتاح YouTube)، نحاول إيجاد فيديو حقيقي الآن ونخزّنه في القاعدة
+    // كي تُعرض المحاضرة مباشرة من غير بحث متكرر في كل مرة تُفتح فيها.
+    if (!$lecture['youtube_video_id']) {
+        $searchQuery = trim($lecture['title_ar'] . ' ' . $lecture['subject_name']);
+        $found = youtube_search_video($searchQuery);
+        if ($found) {
+            $videoUrl = 'https://www.youtube.com/watch?v=' . $found['videoId'];
+            q_run(
+                "UPDATE lectures SET youtube_video_id=?, youtube_url=?, is_link_verified=1, thumbnail_url=? WHERE id=?",
+                [$found['videoId'], $videoUrl, $found['thumbnailUrl'], $lecture['id']]
+            );
+            $lecture['youtube_video_id'] = $found['videoId'];
+            $lecture['youtube_url'] = $videoUrl;
+            $lecture['is_link_verified'] = 1;
+            $lecture['thumbnail_url'] = $found['thumbnailUrl'];
+        }
+    }
+
     $progress = null;
     if ($user) {
         $progress = q_one(
@@ -1515,6 +1614,42 @@ function h_settings_test(): void
     json_response(['ok' => true, 'sample' => $result['content']]);
 }
 
+function h_youtube_settings_get(): void
+{
+    $key = get_youtube_api_key();
+    json_response([
+        'provider' => 'youtube',
+        'hasApiKey' => (bool) $key,
+        'maskedApiKey' => $key ? mask_key($key) : null,
+    ]);
+}
+
+function h_youtube_settings_save(array $body, array $user): void
+{
+    $apiKey = trim($body['apiKey'] ?? '');
+    if (strlen($apiKey) < 10) {
+        throw new ApiException(400, 'مفتاح API غير صالح');
+    }
+    $encrypted = crypto_encrypt($apiKey);
+    q_run(
+        "INSERT INTO api_settings (provider, api_key_encrypted, is_active, updated_by) VALUES ('youtube', ?, 1, ?)
+         ON CONFLICT(provider) DO UPDATE SET api_key_encrypted=excluded.api_key_encrypted, updated_by=excluded.updated_by",
+        [$encrypted, $user['id']]
+    );
+    $key = get_youtube_api_key();
+    json_response([
+        'message' => 'تم حفظ إعدادات YouTube بنجاح',
+        'provider' => 'youtube',
+        'hasApiKey' => (bool) $key,
+        'maskedApiKey' => mask_key($key),
+    ]);
+}
+
+function h_youtube_settings_test(): void
+{
+    json_response(youtube_test_connection());
+}
+
 // ============================================================================
 // أدوات JSON عامة + التوجيه (Router)
 // ============================================================================
@@ -1606,6 +1741,18 @@ function dispatch_api(): void
             $user = require_auth();
             require_admin($user);
             h_settings_test();
+        } elseif ($method === 'GET' && $route === '/settings/youtube') {
+            $user = require_auth();
+            require_admin($user);
+            h_youtube_settings_get();
+        } elseif ($method === 'PUT' && $route === '/settings/youtube') {
+            $user = require_auth();
+            require_admin($user);
+            h_youtube_settings_save($body, $user);
+        } elseif ($method === 'POST' && $route === '/settings/youtube/test') {
+            $user = require_auth();
+            require_admin($user);
+            h_youtube_settings_test();
         } else {
             api_error('المسار المطلوب غير موجود', 404);
         }
@@ -2020,6 +2167,10 @@ App.api = (function () {
     getDeepseekSettings: () => request('/settings/deepseek'),
     saveDeepseekSettings: (payload) => request('/settings/deepseek', { method: 'PUT', body: payload }),
     testDeepseekConnection: () => request('/settings/deepseek/test', { method: 'POST' }),
+
+    getYoutubeSettings: () => request('/settings/youtube'),
+    saveYoutubeSettings: (payload) => request('/settings/youtube', { method: 'PUT', body: payload }),
+    testYoutubeConnection: () => request('/settings/youtube/test', { method: 'POST' }),
   };
 })();
 
@@ -2727,6 +2878,24 @@ App.views.settings = async function settings() {
           </div>
         </form>
       </div>
+
+      <div class="page-title" style="margin-top:26px"><i class="fab fa-youtube" style="color:var(--cyan)"></i> فيديوهات المحاضرات (اختياري)</div>
+      <div class="page-sub">أضف مفتاح YouTube Data API ليبحث النظام تلقائياً عن فيديو تعليمي حقيقي لكل محاضرة ويعرضه هنا مباشرة بدل رسالة "قريباً". بدون هذا المفتاح تبقى المحاضرات تعمل لكن بلا فيديو مضمَّن.</div>
+      <div id="ytKeyStatus" class="key-status">${App.ui.loadingHtml('جاري التحقق من الحالة...')}</div>
+      <div class="card">
+        <form id="ytSettingsForm">
+          <div class="form-group">
+            <label>مفتاح YouTube API</label>
+            <input class="form-control" type="password" id="ytApiKeyInput" placeholder="AIzaSyxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" autocomplete="off">
+            <div class="form-hint">مفتاح مجاني من <a href="https://console.cloud.google.com/apis/library/youtube.googleapis.com" target="_blank" rel="noopener" style="color:var(--cyan);font-weight:700">Google Cloud Console</a> (فعّل YouTube Data API v3 ثم أنشئ API Key). يُخزَّن مشفّراً ولا يُعرض كاملاً بعد الحفظ.</div>
+          </div>
+          <div class="form-error" id="ytSettingsError"></div>
+          <div style="display:flex;gap:10px">
+            <button class="btn btn-primary btn-block" type="submit" id="saveYtSettingsBtn"><i class="fas fa-floppy-disk"></i> حفظ الإعدادات</button>
+            <button class="btn btn-outline" type="button" id="testYtConnBtn"><i class="fas fa-plug"></i> اختبار الاتصال</button>
+          </div>
+        </form>
+      </div>
     </div>
   `;
   const statusEl = document.getElementById('keyStatus');
@@ -2761,6 +2930,40 @@ App.views.settings = async function settings() {
     const btn = document.getElementById('testConnBtn');
     btn.disabled = true; btn.innerHTML = '<span class="spinner"></span> جاري الاختبار...';
     try { await App.api.testDeepseekConnection(); App.ui.toast('الاتصال ناجح! المفتاح يعمل بشكل صحيح ✅', 'ok'); }
+    catch (err) { App.ui.toast(err.message, 'err'); }
+    finally { btn.disabled = false; btn.innerHTML = '<i class="fas fa-plug"></i> اختبار الاتصال'; }
+  });
+
+  const ytStatusEl = document.getElementById('ytKeyStatus');
+  async function loadYtStatus() {
+    try {
+      const s = await App.api.getYoutubeSettings();
+      ytStatusEl.className = `key-status ${s.hasApiKey ? 'ok' : 'missing'}`;
+      ytStatusEl.innerHTML = s.hasApiKey
+        ? `<i class="fas fa-circle-check"></i> مفتاح مضبوط حالياً: ${App.ui.escapeHtml(s.maskedApiKey)}`
+        : `<i class="fas fa-circle-exclamation"></i> لم يتم ضبط أي مفتاح بعد — ستظهر رسالة "قريباً" بدل الفيديو`;
+    } catch (err) { ytStatusEl.className = 'key-status missing'; ytStatusEl.textContent = 'تعذّر جلب حالة الإعدادات: ' + err.message; }
+  }
+  loadYtStatus();
+  document.getElementById('ytSettingsForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const errorEl = document.getElementById('ytSettingsError');
+    const saveBtn = document.getElementById('saveYtSettingsBtn');
+    errorEl.classList.remove('show');
+    const apiKey = document.getElementById('ytApiKeyInput').value.trim();
+    if (!apiKey) { errorEl.textContent = 'يرجى إدخال مفتاح API لحفظه'; errorEl.classList.add('show'); return; }
+    saveBtn.disabled = true; saveBtn.innerHTML = '<span class="spinner"></span> جاري الحفظ...';
+    try {
+      await App.api.saveYoutubeSettings({ apiKey });
+      document.getElementById('ytApiKeyInput').value = '';
+      App.ui.toast('تم حفظ إعدادات YouTube بنجاح', 'ok'); loadYtStatus();
+    } catch (err) { errorEl.textContent = err.message; errorEl.classList.add('show'); }
+    finally { saveBtn.disabled = false; saveBtn.innerHTML = '<i class="fas fa-floppy-disk"></i> حفظ الإعدادات'; }
+  });
+  document.getElementById('testYtConnBtn').addEventListener('click', async () => {
+    const btn = document.getElementById('testYtConnBtn');
+    btn.disabled = true; btn.innerHTML = '<span class="spinner"></span> جاري الاختبار...';
+    try { await App.api.testYoutubeConnection(); App.ui.toast('الاتصال ناجح! المفتاح يعمل بشكل صحيح ✅', 'ok'); }
     catch (err) { App.ui.toast(err.message, 'err'); }
     finally { btn.disabled = false; btn.innerHTML = '<i class="fas fa-plug"></i> اختبار الاتصال'; }
   });
