@@ -126,6 +126,18 @@ function install_schema(PDO $pdo): void
             UNIQUE(country_id, name_ar)
         )",
 
+        // محافظات/أقاليم اختيارية لكل دولة (مثلاً محافظات العراق). دولة بلا
+        // أي صف هنا تعني أن هذه الخطوة تُخطّى تلقائياً في واجهة الاختيار.
+        "CREATE TABLE governorates (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            country_id INTEGER NOT NULL REFERENCES countries(id) ON DELETE CASCADE,
+            name_ar TEXT NOT NULL,
+            order_index INTEGER NOT NULL DEFAULT 0,
+            is_active INTEGER NOT NULL DEFAULT 1,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(country_id, name_ar)
+        )",
+
         "CREATE TABLE users (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             name TEXT NOT NULL,
@@ -133,6 +145,7 @@ function install_schema(PDO $pdo): void
             password_hash TEXT NOT NULL,
             role TEXT NOT NULL DEFAULT 'student' CHECK(role IN ('student','teacher','admin')),
             country_id INTEGER REFERENCES countries(id) ON DELETE SET NULL,
+            governorate_id INTEGER REFERENCES governorates(id) ON DELETE SET NULL,
             stage_id INTEGER REFERENCES stages(id) ON DELETE SET NULL,
             avatar_url TEXT,
             points_total INTEGER NOT NULL DEFAULT 0,
@@ -330,11 +343,44 @@ function install_schema(PDO $pdo): void
     }
 }
 
+// يضيف جدول المحافظات وعمود governorate_id إن كانا مفقودين، بمعزل تام عن
+// حالة ترقية units/teachers أدناه (يجب أن تعمل هذه الخطوة دائماً وألا تُحجب
+// خلف أي return مبكر خاص بترقيات أخرى).
+function migrate_governorates_if_needed(PDO $pdo): void
+{
+    $hasGovernorates = q_one("SELECT name FROM sqlite_master WHERE type='table' AND name='governorates'");
+    if (!$hasGovernorates) {
+        $pdo->exec("CREATE TABLE governorates (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            country_id INTEGER NOT NULL REFERENCES countries(id) ON DELETE CASCADE,
+            name_ar TEXT NOT NULL,
+            order_index INTEGER NOT NULL DEFAULT 0,
+            is_active INTEGER NOT NULL DEFAULT 1,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(country_id, name_ar)
+        )");
+    }
+
+    $userCols = array_column(q_all("PRAGMA table_info(users)"), 'name');
+    if (!in_array('governorate_id', $userCols, true)) {
+        $pdo->exec("ALTER TABLE users ADD COLUMN governorate_id INTEGER REFERENCES governorates(id) ON DELETE SET NULL");
+    }
+
+    // محافظات العراق: تُزرع فقط إن كان العراق موجوداً ولا يملك أي محافظة بعد
+    // (قاعدة بيانات قديمة كانت أُنشئت قبل إضافة هذه الميزة)
+    $iraq = q_one("SELECT id FROM countries WHERE code='IQ'");
+    if ($iraq && !q_one("SELECT id FROM governorates WHERE country_id=?", [$iraq['id']])) {
+        seed_iraq_governorates((int) $iraq['id']);
+    }
+}
+
 // ترقية تلقائية لقاعدة بيانات موجودة من نسخة سابقة إلى البنية الحالية،
 // بدون حذف أي بيانات (حسابات المستخدمين، نقاطهم، إلخ). تُستدعى في كل اتصال
 // على قاعدة بيانات موجودة مسبقاً، ولا تفعل شيئاً إن كانت البنية محدَّثة أصلاً.
 function migrate_schema_if_needed(PDO $pdo): void
 {
+    migrate_governorates_if_needed($pdo);
+
     $hasTeachers = q_one("SELECT name FROM sqlite_master WHERE type='table' AND name='teachers'");
     if (!$hasTeachers) {
         // نسخة سابقة كانت units.subject_id مباشرة (بدون جدول مدرّسين). ننشئ
@@ -415,6 +461,21 @@ function migrate_schema_if_needed(PDO $pdo): void
         throw $e;
     }
     $pdo->exec('PRAGMA foreign_keys = ON');
+}
+
+function seed_iraq_governorates(int $iraqId): void
+{
+    $names = [
+        'بغداد', 'البصرة', 'نينوى', 'أربيل', 'النجف', 'كربلاء', 'الأنبار', 'ذي قار',
+        'بابل', 'ديالى', 'كركوك', 'واسط', 'ميسان', 'القادسية', 'المثنى',
+        'صلاح الدين', 'دهوك', 'السليمانية',
+    ];
+    foreach ($names as $i => $name) {
+        q_run(
+            "INSERT INTO governorates (country_id, name_ar, order_index) VALUES (?,?,?)",
+            [$iraqId, $name, $i + 1]
+        );
+    }
 }
 
 // بيانات تجريبية أولية (دولة + مرحلة + مادة + مدرّس + وحدة + 5 محاضرات + اختبار جاهز)
@@ -767,7 +828,7 @@ function deepseek_chat(array $messages, float $temperature = 0.6, bool $jsonMode
 {
     $config = get_deepseek_config();
     if (!$config['apiKey']) {
-        throw new ApiException(412, 'لم يتم ضبط مفتاح DeepSeek API بعد. أضِفه من صفحة الإعدادات (Settings) في لوحة التحكم.');
+        throw new ApiException(412, 'لم يتم ضبط مفتاح الذكاء الاصطناعي بعد. أضِفه من صفحة الإعدادات (Settings) في لوحة التحكم.');
     }
 
     $payload = ['model' => $config['model'], 'messages' => $messages, 'temperature' => $temperature, 'max_tokens' => $maxTokens];
@@ -906,6 +967,7 @@ function public_user(array $u): array
         'email' => $u['email'],
         'role' => $u['role'],
         'countryId' => $u['country_id'] !== null ? (int) $u['country_id'] : null,
+        'governorateId' => $u['governorate_id'] !== null ? (int) $u['governorate_id'] : null,
         'stageId' => $u['stage_id'] !== null ? (int) $u['stage_id'] : null,
         'avatarUrl' => $u['avatar_url'],
         'pointsTotal' => (int) $u['points_total'],
@@ -930,8 +992,8 @@ function h_register(array $body): void
 
     $hash = password_hash($password, PASSWORD_BCRYPT);
     q_run(
-        "INSERT INTO users (name,email,password_hash,role,country_id,stage_id) VALUES (?,?,?,?,?,?)",
-        [$name, $email, $hash, $role, $body['countryId'] ?? null, $body['stageId'] ?? null]
+        "INSERT INTO users (name,email,password_hash,role,country_id,governorate_id,stage_id) VALUES (?,?,?,?,?,?,?)",
+        [$name, $email, $hash, $role, $body['countryId'] ?? null, $body['governorateId'] ?? null, $body['stageId'] ?? null]
     );
     $id = (int) db()->lastInsertId();
     $user = q_one("SELECT * FROM users WHERE id=?", [$id]);
@@ -979,6 +1041,49 @@ function h_country_stages($countryId): void
         [$countryId]
     );
     json_response(['stages' => $rows]);
+}
+
+// محافظات الدولة (إن وُجدت). قائمة فارغة تعني أن هذه الدولة لا تملك محافظات
+// مضبوطة، فتُخطّى خطوة اختيار المحافظة تلقائياً في واجهة الاختيار.
+function h_country_governorates($countryId): void
+{
+    $rows = q_all(
+        "SELECT id, name_ar, order_index FROM governorates WHERE country_id=? AND is_active=1 ORDER BY order_index, name_ar",
+        [$countryId]
+    );
+    json_response(['governorates' => $rows]);
+}
+
+// يحفظ اختيار الطالب (الدولة/المحافظة/المرحلة) على حسابه مباشرة بدل الاكتفاء
+// بتخزينه محلياً في المتصفح، كي يظهر نفس الاختيار عند الدخول من أي جهاز آخر.
+function h_update_selection(array $body, array $authUser): void
+{
+    $countryId = !empty($body['countryId']) ? (int) $body['countryId'] : null;
+    $stageId = !empty($body['stageId']) ? (int) $body['stageId'] : null;
+    $governorateId = !empty($body['governorateId']) ? (int) $body['governorateId'] : null;
+
+    if ($countryId && !q_one("SELECT id FROM countries WHERE id=?", [$countryId])) {
+        throw new ApiException(400, 'الدولة المحددة غير موجودة');
+    }
+    if ($stageId) {
+        $stage = q_one("SELECT id FROM stages WHERE id=? AND country_id=?", [$stageId, $countryId]);
+        if (!$stage) {
+            throw new ApiException(400, 'المرحلة الدراسية المحددة غير موجودة أو لا تطابق الدولة');
+        }
+    }
+    if ($governorateId) {
+        $gov = q_one("SELECT id FROM governorates WHERE id=? AND country_id=?", [$governorateId, $countryId]);
+        if (!$gov) {
+            throw new ApiException(400, 'المحافظة المحددة غير موجودة أو لا تطابق الدولة');
+        }
+    }
+
+    q_run(
+        "UPDATE users SET country_id=?, governorate_id=?, stage_id=?, updated_at=CURRENT_TIMESTAMP WHERE id=?",
+        [$countryId, $governorateId, $stageId, $authUser['id']]
+    );
+    $user = q_one("SELECT * FROM users WHERE id=?", [$authUser['id']]);
+    json_response(['message' => 'تم حفظ اختيارك بنجاح', 'user' => public_user($user)]);
 }
 
 function h_stage_subjects($stageId): void
@@ -1691,10 +1796,14 @@ function dispatch_api(): void
             h_login($body);
         } elseif ($method === 'GET' && $route === '/auth/me') {
             h_me(require_auth());
+        } elseif ($method === 'PUT' && $route === '/me/selection') {
+            h_update_selection($body, require_auth());
         } elseif ($method === 'GET' && $route === '/countries') {
             h_countries();
         } elseif ($method === 'GET' && preg_match('#^/countries/([^/]+)/stages$#', $route, $m)) {
             h_country_stages($m[1]);
+        } elseif ($method === 'GET' && preg_match('#^/countries/([^/]+)/governorates$#', $route, $m)) {
+            h_country_governorates($m[1]);
         } elseif ($method === 'GET' && preg_match('#^/subjects/([^/]+)/teachers$#', $route, $m)) {
             h_subject_teachers($m[1]);
         } elseif ($method === 'GET' && preg_match('#^/subjects/([^/]+)$#', $route, $m)) {
@@ -2138,9 +2247,11 @@ App.api = (function () {
     register: (payload) => request('/auth/register', { method: 'POST', body: payload, auth: false }),
     login: (payload) => request('/auth/login', { method: 'POST', body: payload, auth: false }),
     me: () => request('/auth/me'),
+    updateSelection: (payload) => request('/me/selection', { method: 'PUT', body: payload }),
 
     getCountries: () => request('/countries', { auth: false }),
     getStages: (countryId) => request(`/countries/${countryId}/stages`, { auth: false }),
+    getGovernorates: (countryId) => request(`/countries/${countryId}/governorates`, { auth: false }),
     getSubjects: (stageId) => request(`/stages/${stageId}/subjects`, { auth: false }),
     getSubject: (subjectId) => request(`/subjects/${subjectId}`, { auth: false }),
     getTeachers: (subjectId) => request(`/subjects/${subjectId}/teachers`, { auth: false }),
@@ -2175,7 +2286,7 @@ App.api = (function () {
 })();
 
 App.state = (function () {
-  const KEYS = { token: 'zaki_token', user: 'zaki_user', country: 'zaki_country', stage: 'zaki_stage', welcome: 'zaki_seen_welcome' };
+  const KEYS = { token: 'zaki_token', user: 'zaki_user', country: 'zaki_country', governorate: 'zaki_governorate', stage: 'zaki_stage', welcome: 'zaki_seen_welcome' };
   function safeGet(key) { try { return localStorage.getItem(key); } catch (err) { return null; } }
   function safeSet(key, value) { try { localStorage.setItem(key, value); } catch (err) {} }
   function safeRemove(key) { try { localStorage.removeItem(key); } catch (err) {} }
@@ -2188,9 +2299,19 @@ App.state = (function () {
     clearSession() { safeRemove(KEYS.token); safeRemove(KEYS.user); },
     isLoggedIn() { return Boolean(this.getToken()); },
     isAdmin() { const user = this.getUser(); return Boolean(user && user.role === 'admin'); },
-    getSelection() { return { countryId: safeGet(KEYS.country), stageId: safeGet(KEYS.stage) }; },
-    setSelection(countryId, stageId) { safeSet(KEYS.country, String(countryId)); safeSet(KEYS.stage, String(stageId)); },
-    clearSelection() { safeRemove(KEYS.country); safeRemove(KEYS.stage); },
+    getSelection() { return { countryId: safeGet(KEYS.country), governorateId: safeGet(KEYS.governorate), stageId: safeGet(KEYS.stage) }; },
+    setSelection(countryId, governorateId, stageId) {
+      safeSet(KEYS.country, String(countryId));
+      if (governorateId) safeSet(KEYS.governorate, String(governorateId)); else safeRemove(KEYS.governorate);
+      safeSet(KEYS.stage, String(stageId));
+    },
+    clearSelection() { safeRemove(KEYS.country); safeRemove(KEYS.governorate); safeRemove(KEYS.stage); },
+    // يزامن اختيار الدولة/المحافظة/المرحلة المخزَّن محلياً مع بيانات الحساب
+    // القادمة من الخادم (بعد تسجيل الدخول مثلاً)، كي يظهر نفس الاختيار على
+    // أي جهاز يسجّل منه الطالب دخوله، لا في متصفح واحد فقط.
+    hydrateSelectionFromUser(user) {
+      if (user && user.countryId && user.stageId) this.setSelection(user.countryId, user.governorateId, user.stageId);
+    },
     hasSeenWelcome() { return safeGet(KEYS.welcome) === '1'; },
     markWelcomeSeen() { safeSet(KEYS.welcome, '1'); },
   };
@@ -2346,7 +2467,7 @@ App.views.login = async function login() {
     errorEl.classList.remove('show'); submitBtn.disabled = true; submitBtn.textContent = 'جاري الدخول...';
     try {
       const { token, user } = await App.api.login({ email: document.getElementById('loginEmail').value.trim(), password: document.getElementById('loginPassword').value });
-      App.state.setSession(token, user); App.state.markWelcomeSeen(); App.main.refreshHeader();
+      App.state.setSession(token, user); App.state.markWelcomeSeen(); App.state.hydrateSelectionFromUser(user); App.main.refreshHeader();
       App.ui.toast(`أهلاً بك ${user.name}!`, 'ok');
       location.hash = (user.countryId && user.stageId) ? '#/home' : '#/onboarding';
     } catch (err) { errorEl.textContent = err.message; errorEl.classList.add('show'); }
@@ -2368,10 +2489,6 @@ App.views.register = async function register() {
           <div class="form-group"><label>الاسم الكامل</label><input class="form-control" type="text" id="regName" required placeholder="اسمك"></div>
           <div class="form-group"><label>البريد الإلكتروني</label><input class="form-control" type="email" id="regEmail" required placeholder="example@mail.com"></div>
           <div class="form-group"><label>كلمة المرور</label><input class="form-control" type="password" id="regPassword" required minlength="6" placeholder="6 محارف على الأقل"></div>
-          <div class="select-grid">
-            <div class="form-group"><label>الدولة</label><select class="form-control" id="regCountry"><option value="">اختر...</option></select></div>
-            <div class="form-group"><label>المرحلة الدراسية</label><select class="form-control" id="regStage" disabled><option value="">اختر الدولة أولاً</option></select></div>
-          </div>
           <div class="form-error" id="regError"></div>
           <button class="btn btn-primary btn-block" type="submit" id="regSubmit">إنشاء الحساب</button>
         </form>
@@ -2379,18 +2496,6 @@ App.views.register = async function register() {
       <div class="auth-switch">لديك حساب بالفعل؟ <a href="#/login">سجّل الدخول</a></div>
     </div>
   `;
-  const countrySelect = document.getElementById('regCountry');
-  const stageSelect = document.getElementById('regStage');
-  try {
-    const { countries } = await App.api.getCountries();
-    countrySelect.innerHTML = '<option value="">اختر...</option>' + countries.map((c) => `<option value="${c.id}">${c.flag_emoji || ''} ${App.ui.escapeHtml(c.name_ar)}</option>`).join('');
-  } catch (err) { App.ui.toast('تعذّر تحميل قائمة الدول', 'err'); }
-  countrySelect.addEventListener('change', async () => {
-    if (!countrySelect.value) { stageSelect.disabled = true; stageSelect.innerHTML = '<option value="">اختر الدولة أولاً</option>'; return; }
-    stageSelect.disabled = false; stageSelect.innerHTML = '<option value="">جاري التحميل...</option>';
-    const { stages } = await App.api.getStages(countrySelect.value);
-    stageSelect.innerHTML = '<option value="">اختر المرحلة...</option>' + stages.map((s) => `<option value="${s.id}">${App.ui.escapeHtml(s.name_ar)}</option>`).join('');
-  });
   document.getElementById('registerForm').addEventListener('submit', async (e) => {
     e.preventDefault();
     const errorEl = document.getElementById('regError');
@@ -2399,49 +2504,133 @@ App.views.register = async function register() {
     try {
       const { token, user } = await App.api.register({
         name: document.getElementById('regName').value.trim(), email: document.getElementById('regEmail').value.trim(),
-        password: document.getElementById('regPassword').value, countryId: countrySelect.value || null, stageId: stageSelect.value || null,
+        password: document.getElementById('regPassword').value,
       });
       App.state.setSession(token, user); App.state.markWelcomeSeen();
-      if (countrySelect.value && stageSelect.value) App.state.setSelection(countrySelect.value, stageSelect.value);
       App.main.refreshHeader();
       App.ui.toast(`تم إنشاء حسابك بنجاح، أهلاً بك ${user.name}!`, 'ok');
-      location.hash = (countrySelect.value && stageSelect.value) ? '#/home' : '#/onboarding';
+      // اختيار الدولة/المحافظة/المرحلة يتم دائماً بعد ذلك من صفحة الاختيار
+      location.hash = '#/onboarding';
     } catch (err) { errorEl.textContent = err.message; errorEl.classList.add('show'); }
     finally { submitBtn.disabled = false; submitBtn.textContent = 'إنشاء الحساب'; }
   });
 };
 
+const EDUCATION_LEVEL_LABELS = { primary: 'الابتدائية', intermediate: 'المتوسطة', secondary: 'الثانوية', other: 'أخرى' };
+
 App.views.onboarding = async function onboarding() {
   const view = document.getElementById('view');
   view.innerHTML = `
     <div class="an" style="padding-top:26px">
-      <div class="page-title" style="text-align:center;font-size:1.35rem">اختر بلدك ومرحلتك الدراسية</div>
+      <div class="page-title" style="text-align:center;font-size:1.35rem">اختر بياناتك الدراسية</div>
       <div class="page-sub" style="text-align:center">سنعرض لك المواد والمدرّسين المناسبين لك تلقائياً</div>
       <div class="card" style="max-width:420px;margin:0 auto">
         <div class="form-group"><label>الدولة</label><select class="form-control" id="obCountry"><option value="">جاري التحميل...</option></select></div>
-        <div class="form-group"><label>المرحلة الدراسية</label><select class="form-control" id="obStage" disabled><option value="">اختر الدولة أولاً</option></select></div>
+        <div class="form-group" id="obGovernorateGroup" hidden><label>المحافظة</label><select class="form-control" id="obGovernorate" disabled><option value="">اختر الدولة أولاً</option></select></div>
+        <div class="form-group"><label>المرحلة</label><select class="form-control" id="obLevel" disabled><option value="">اختر الدولة أولاً</option></select></div>
+        <div class="form-group"><label>الصف</label><select class="form-control" id="obGrade" disabled><option value="">اختر المرحلة أولاً</option></select></div>
         <button class="btn btn-primary btn-block" id="obSubmit" disabled>ابدأ التعلّم <i class="fas fa-arrow-left"></i></button>
       </div>
     </div>
   `;
   const countrySelect = document.getElementById('obCountry');
-  const stageSelect = document.getElementById('obStage');
+  const govGroup = document.getElementById('obGovernorateGroup');
+  const govSelect = document.getElementById('obGovernorate');
+  const levelSelect = document.getElementById('obLevel');
+  const gradeSelect = document.getElementById('obGrade');
   const submitBtn = document.getElementById('obSubmit');
+  let stagesByLevel = {};
+  let governorateRequired = false;
+
+  function updateSubmitState() {
+    const ok = Boolean(countrySelect.value) && (!governorateRequired || govSelect.value) && Boolean(gradeSelect.value);
+    submitBtn.disabled = !ok;
+  }
+
+  async function onCountryChange(prefill) {
+    prefill = prefill || {};
+    submitBtn.disabled = true;
+    govGroup.hidden = true; governorateRequired = false;
+    levelSelect.disabled = true; levelSelect.innerHTML = '<option value="">اختر الدولة أولاً</option>';
+    gradeSelect.disabled = true; gradeSelect.innerHTML = '<option value="">اختر المرحلة أولاً</option>';
+    if (!countrySelect.value) { return; }
+
+    govSelect.disabled = true; govSelect.innerHTML = '<option value="">جاري التحميل...</option>';
+    levelSelect.innerHTML = '<option value="">جاري التحميل...</option>';
+    try {
+      const [{ governorates }, { stages }] = await Promise.all([
+        App.api.getGovernorates(countrySelect.value),
+        App.api.getStages(countrySelect.value),
+      ]);
+
+      if (governorates.length) {
+        governorateRequired = true; govGroup.hidden = false; govSelect.disabled = false;
+        govSelect.innerHTML = '<option value="">اختر المحافظة...</option>' + governorates.map((g) => `<option value="${g.id}">${App.ui.escapeHtml(g.name_ar)}</option>`).join('');
+        if (prefill.governorateId) govSelect.value = String(prefill.governorateId);
+      } else {
+        governorateRequired = false; govGroup.hidden = true; govSelect.innerHTML = '';
+      }
+
+      stagesByLevel = {};
+      stages.forEach((s) => {
+        if (!stagesByLevel[s.education_level]) stagesByLevel[s.education_level] = { minOrder: s.level_order, stages: [] };
+        stagesByLevel[s.education_level].stages.push(s);
+        stagesByLevel[s.education_level].minOrder = Math.min(stagesByLevel[s.education_level].minOrder, s.level_order);
+      });
+      const levels = Object.keys(stagesByLevel).sort((a, b) => stagesByLevel[a].minOrder - stagesByLevel[b].minOrder);
+      levelSelect.disabled = false;
+      levelSelect.innerHTML = '<option value="">اختر المرحلة...</option>' + levels.map((lv) => `<option value="${App.ui.escapeHtml(lv)}">${App.ui.escapeHtml(EDUCATION_LEVEL_LABELS[lv] || lv)}</option>`).join('');
+
+      if (prefill.stageId) {
+        const level = levels.find((lv) => stagesByLevel[lv].stages.some((s) => String(s.id) === String(prefill.stageId)));
+        if (level) { levelSelect.value = level; onLevelChange(prefill.stageId); }
+      }
+    } catch (err) { App.ui.toast(err.message, 'err'); }
+    updateSubmitState();
+  }
+
+  function onLevelChange(prefillStageId) {
+    gradeSelect.disabled = true; gradeSelect.innerHTML = '<option value="">اختر الصف أولاً</option>';
+    const group = stagesByLevel[levelSelect.value];
+    if (!group) { updateSubmitState(); return; }
+    gradeSelect.disabled = false;
+    const sorted = group.stages.slice().sort((a, b) => a.level_order - b.level_order);
+    gradeSelect.innerHTML = '<option value="">اختر الصف...</option>' + sorted.map((s) => `<option value="${s.id}">${App.ui.escapeHtml(s.name_ar)}</option>`).join('');
+    if (prefillStageId) gradeSelect.value = String(prefillStageId);
+    updateSubmitState();
+  }
+
   try {
     const { countries } = await App.api.getCountries();
     countrySelect.innerHTML = '<option value="">اختر الدولة...</option>' + countries.map((c) => `<option value="${c.id}">${c.flag_emoji || ''} ${App.ui.escapeHtml(c.name_ar)}</option>`).join('');
-  } catch (err) { countrySelect.innerHTML = '<option value="">تعذّر تحميل الدول</option>'; App.ui.toast(err.message, 'err'); }
-  countrySelect.addEventListener('change', async () => {
-    submitBtn.disabled = true;
-    if (!countrySelect.value) { stageSelect.disabled = true; stageSelect.innerHTML = '<option value="">اختر الدولة أولاً</option>'; return; }
-    stageSelect.disabled = false; stageSelect.innerHTML = '<option value="">جاري التحميل...</option>';
+  } catch (err) { countrySelect.innerHTML = '<option value="">تعذّر تحميل الدول</option>'; App.ui.toast(err.message, 'err'); return; }
+
+  countrySelect.addEventListener('change', () => onCountryChange());
+  govSelect.addEventListener('change', updateSubmitState);
+  levelSelect.addEventListener('change', () => onLevelChange());
+  gradeSelect.addEventListener('change', updateSubmitState);
+
+  // إن كان للحساب اختيار محفوظ مسبقاً (تعديل لاحق عبر "تغيير المرحلة")، نعبّئ
+  // الحقول به تلقائياً بدل أن يبدأ الطالب من الصفر في كل مرة
+  const user = App.state.getUser();
+  if (user && user.countryId) {
+    countrySelect.value = String(user.countryId);
+    await onCountryChange({ governorateId: user.governorateId, stageId: user.stageId });
+  }
+
+  submitBtn.addEventListener('click', async () => {
+    submitBtn.disabled = true; submitBtn.innerHTML = '<span class="spinner"></span> جاري الحفظ...';
     try {
-      const { stages } = await App.api.getStages(countrySelect.value);
-      stageSelect.innerHTML = '<option value="">اختر المرحلة...</option>' + stages.map((s) => `<option value="${s.id}">${App.ui.escapeHtml(s.name_ar)}</option>`).join('');
-    } catch (err) { App.ui.toast(err.message, 'err'); }
+      const payload = { countryId: countrySelect.value, governorateId: govSelect.value || null, stageId: gradeSelect.value };
+      const { user: updatedUser } = await App.api.updateSelection(payload);
+      App.state.updateUser(updatedUser);
+      App.state.setSelection(payload.countryId, payload.governorateId, payload.stageId);
+      location.hash = '#/home';
+    } catch (err) {
+      App.ui.toast(err.message, 'err');
+      submitBtn.disabled = false; submitBtn.innerHTML = 'ابدأ التعلّم <i class="fas fa-arrow-left"></i>';
+    }
   });
-  stageSelect.addEventListener('change', () => { submitBtn.disabled = !stageSelect.value; });
-  submitBtn.addEventListener('click', () => { App.state.setSelection(countrySelect.value, stageSelect.value); location.hash = '#/home'; });
 };
 
 App.views.home = async function home() {
@@ -2860,14 +3049,14 @@ App.views.settings = async function settings() {
   view.innerHTML = `
     <div class="an" style="max-width:480px;margin:0 auto">
       <div class="page-title"><i class="fas fa-key" style="color:var(--cyan)"></i> إعدادات الذكاء الاصطناعي</div>
-      <div class="page-sub">أضف مفتاح DeepSeek API لتفعيل توليد المناهج، الاختبارات، والمساعد الذكي</div>
+      <div class="page-sub">اربط أي مزوّد متوافق مع OpenAI Chat Completions (DeepSeek، أو NVIDIA NIM، أو غيرهما) لتفعيل توليد المناهج، الاختبارات، والمساعد الذكي</div>
       <div id="keyStatus" class="key-status">${App.ui.loadingHtml('جاري التحقق من الحالة...')}</div>
       <div class="card">
         <form id="settingsForm">
           <div class="form-group">
-            <label>مفتاح DeepSeek API</label>
-            <input class="form-control" type="password" id="apiKeyInput" placeholder="sk-xxxxxxxxxxxxxxxxxxxxxxxx" autocomplete="off">
-            <div class="form-hint">يُخزَّن مشفّراً في قاعدة البيانات ولا يُعرض كاملاً بعد الحفظ. احصل على مفتاحك من <a href="https://platform.deepseek.com" target="_blank" rel="noopener" style="color:var(--cyan);font-weight:700">platform.deepseek.com</a></div>
+            <label>مفتاح API</label>
+            <input class="form-control" type="password" id="apiKeyInput" placeholder="sk-xxxx أو nvapi-xxxx" autocomplete="off">
+            <div class="form-hint">يُخزَّن مشفّراً في قاعدة البيانات ولا يُعرض كاملاً بعد الحفظ. مثال DeepSeek: <a href="https://platform.deepseek.com" target="_blank" rel="noopener" style="color:var(--cyan);font-weight:700">platform.deepseek.com</a> — أو استخدم مفتاح أي مزوّد آخر متوافق مثل build.nvidia.com مع تغيير الرابط الأساسي واسم النموذج أدناه</div>
           </div>
           <div class="form-group"><label>رابط الـ API الأساسي</label><input class="form-control" type="text" id="baseUrlInput" placeholder="https://api.deepseek.com"></div>
           <div class="form-group"><label>اسم النموذج</label><input class="form-control" type="text" id="modelInput" placeholder="deepseek-chat"></div>
