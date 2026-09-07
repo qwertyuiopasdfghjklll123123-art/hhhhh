@@ -336,22 +336,19 @@ function install_schema(PDO $pdo): void
 function migrate_schema_if_needed(PDO $pdo): void
 {
     $hasTeachers = q_one("SELECT name FROM sqlite_master WHERE type='table' AND name='teachers'");
-    if ($hasTeachers) {
-        return;
+    if (!$hasTeachers) {
+        // نسخة سابقة كانت units.subject_id مباشرة (بدون جدول مدرّسين). ننشئ
+        // جدول المدرّسين أولاً؛ تعبئته بمدرّسين افتراضيين تأتي أدناه بحسب حالة units.
+        $pdo->exec("CREATE TABLE teachers (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            subject_id INTEGER NOT NULL REFERENCES subjects(id) ON DELETE CASCADE,
+            name_ar TEXT NOT NULL,
+            bio TEXT,
+            avatar_color TEXT DEFAULT '#00e6bb',
+            order_index INTEGER NOT NULL DEFAULT 0,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )");
     }
-
-    // نسخة سابقة كانت units.subject_id مباشرة (بدون جدول مدرّسين). ننشئ جدول
-    // المدرّسين، ثم ننشئ "مدرّساً" افتراضياً واحداً لكل مادة تملك وحدات فعلاً
-    // وننقل تلك الوحدات إليه، فتبقى كل البيانات القديمة سليمة ومرئية.
-    $pdo->exec("CREATE TABLE teachers (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        subject_id INTEGER NOT NULL REFERENCES subjects(id) ON DELETE CASCADE,
-        name_ar TEXT NOT NULL,
-        bio TEXT,
-        avatar_color TEXT DEFAULT '#00e6bb',
-        order_index INTEGER NOT NULL DEFAULT 0,
-        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-    )");
 
     $hasUnits = q_one("SELECT name FROM sqlite_master WHERE type='table' AND name='units'");
     if (!$hasUnits) {
@@ -359,26 +356,65 @@ function migrate_schema_if_needed(PDO $pdo): void
     }
 
     $unitCols = array_column(q_all("PRAGMA table_info(units)"), 'name');
-    if (!in_array('subject_id', $unitCols, true) || in_array('teacher_id', $unitCols, true)) {
-        return; // بنية units غير متوقعة أو محدَّثة أصلاً؛ لا شيء نفعله
+    $hasSubjectId = in_array('subject_id', $unitCols, true);
+    $hasTeacherId = in_array('teacher_id', $unitCols, true);
+
+    if (!$hasSubjectId) {
+        return; // محدَّثة بالكامل أصلاً (أو بنية غير متوقعة)؛ لا شيء نفعله
     }
 
-    $pdo->exec("ALTER TABLE units ADD COLUMN teacher_id INTEGER REFERENCES teachers(id) ON DELETE CASCADE");
+    if (!$hasTeacherId) {
+        // أول مرة نضيف فيها عمود teacher_id: ننشئ "مدرّساً" افتراضياً واحداً
+        // لكل مادة تملك وحدات فعلاً وننقل تلك الوحدات إليه، فتبقى كل
+        // البيانات القديمة سليمة ومرئية.
+        $pdo->exec("ALTER TABLE units ADD COLUMN teacher_id INTEGER REFERENCES teachers(id) ON DELETE CASCADE");
 
-    $subjectsWithUnits = q_all(
-        "SELECT DISTINCT s.id, s.name_ar FROM subjects s JOIN units u ON u.subject_id = s.id"
-    );
-    foreach ($subjectsWithUnits as $s) {
-        q_run(
-            "INSERT INTO teachers (subject_id, name_ar, bio, order_index) VALUES (?,?,?,1)",
-            [$s['id'], 'فريق ' . $s['name_ar'], 'محتوى منقول تلقائياً من إصدار سابق من التطبيق']
+        $subjectsWithUnits = q_all(
+            "SELECT DISTINCT s.id, s.name_ar FROM subjects s JOIN units u ON u.subject_id = s.id"
         );
-        $teacherId = (int) $pdo->lastInsertId();
-        q_run("UPDATE units SET teacher_id=? WHERE subject_id=?", [$teacherId, $s['id']]);
+        foreach ($subjectsWithUnits as $s) {
+            q_run(
+                "INSERT INTO teachers (subject_id, name_ar, bio, order_index) VALUES (?,?,?,1)",
+                [$s['id'], 'فريق ' . $s['name_ar'], 'محتوى منقول تلقائياً من إصدار سابق من التطبيق']
+            );
+            $teacherId = (int) $pdo->lastInsertId();
+            q_run("UPDATE units SET teacher_id=? WHERE subject_id=?", [$teacherId, $s['id']]);
+        }
     }
-    // عمود subject_id القديم في units يبقى بلا استخدام (بعض إصدارات SQLite لا
-    // تدعم DROP COLUMN بأمان)؛ وجوده غير ضار لأن كل الاستعلامات الحالية تمر
-    // عبر teacher_id.
+
+    // العمود القديم subject_id كان NOT NULL، فترْكه كما هو يمنع أي INSERT جديد
+    // في units (الذي لا يحدّد subject_id أبداً في الكود الحالي) بخطأ
+    // "NOT NULL constraint failed". لذا نعيد بناء الجدول بالكامل بالبنية
+    // الصحيحة الحالية (بدون subject_id إطلاقاً) بدل ترك العمود القديم.
+    // ننفّذ هذه الخطوة دائماً طالما subject_id ما زال موجوداً، سواء كان جدول
+    // المدرّسين/عمود teacher_id قد أُنشئ للتو أعلاه أو كان موجوداً مسبقاً من
+    // محاولة ترقية سابقة لم تكتمل (قاعدة بيانات فيها الجدولان معاً حالياً).
+    $pdo->exec('PRAGMA foreign_keys = OFF');
+    $pdo->beginTransaction();
+    try {
+        $pdo->exec("CREATE TABLE units_rebuilt (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            teacher_id INTEGER NOT NULL REFERENCES teachers(id) ON DELETE CASCADE,
+            title_ar TEXT NOT NULL,
+            description TEXT,
+            order_index INTEGER NOT NULL DEFAULT 0,
+            is_ai_generated INTEGER NOT NULL DEFAULT 0,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )");
+        $pdo->exec(
+            "INSERT INTO units_rebuilt (id, teacher_id, title_ar, description, order_index, is_ai_generated, created_at)
+             SELECT id, teacher_id, title_ar, description, order_index, is_ai_generated, created_at
+             FROM units WHERE teacher_id IS NOT NULL"
+        );
+        $pdo->exec("DROP TABLE units");
+        $pdo->exec("ALTER TABLE units_rebuilt RENAME TO units");
+        $pdo->commit();
+    } catch (Throwable $e) {
+        $pdo->rollBack();
+        $pdo->exec('PRAGMA foreign_keys = ON');
+        throw $e;
+    }
+    $pdo->exec('PRAGMA foreign_keys = ON');
 }
 
 // بيانات تجريبية أولية (دولة + مرحلة + مادة + مدرّس + وحدة + 5 محاضرات + اختبار جاهز)
