@@ -17,11 +17,15 @@
 --   8) لوحة المتصدرين (View)        : leaderboard_view
 -- =====================================================================
 
-CREATE DATABASE IF NOT EXISTS smart_elearning
-  CHARACTER SET utf8mb4
-  COLLATE utf8mb4_unicode_ci;
-
-USE smart_elearning;
+-- ملاحظة حول إنشاء قاعدة البيانات:
+-- على استضافة مشتركة (cPanel) تُنشئ القاعدة عادة من لوحة التحكم (MySQL Databases)
+-- بصيغة مثل cpaneluser_dbname، ولا صلاحية للمستخدم بتنفيذ CREATE DATABASE.
+-- لذا هذا السطر معلَّق افتراضياً كي يعمل الاستيراد مباشرة عبر phpMyAdmin
+-- (الذي يستخدم القاعدة المختارة في الشريط الجانبي تلقائياً) دون أي تعديل.
+--
+-- للتشغيل محلياً (مثلاً على جهازك مع نسخة Node.js)، أزل التعليق عن السطرين التاليين:
+-- CREATE DATABASE IF NOT EXISTS smart_elearning CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+-- USE smart_elearning;
 
 SET NAMES utf8mb4;
 SET FOREIGN_KEY_CHECKS = 0;
