@@ -782,6 +782,76 @@ function get_youtube_api_key(): ?string
     return crypto_decrypt($row['api_key_encrypted']);
 }
 
+// ============================================================================
+// تسجيل الدخول عبر Google (اختياري) — يستخدم Google Identity Services في
+// الواجهة، ويتحقق الخادم من رمز الهوية (ID Token) محلياً بلا أي مكتبة خارجية:
+// جلب شهادات جوجل العامة الرسمية والتحقق من التوقيع عبر openssl مباشرة.
+// معرّف العميل (Client ID) ليس سرياً بطبيعته (يُرسَل للواجهة أصلاً)، لذا يُخزَّن
+// كنص صريح في عمود model_name لصفّ provider='google_oauth' بنفس جدول الإعدادات.
+// ============================================================================
+
+function get_google_client_id(): ?string
+{
+    $row = q_one("SELECT model_name FROM api_settings WHERE provider='google_oauth' AND is_active=1 LIMIT 1");
+    $val = $row ? trim((string) $row['model_name']) : '';
+    return $val !== '' ? $val : null;
+}
+
+function google_verify_id_token(string $idToken, string $expectedClientId): ?array
+{
+    if ($expectedClientId === '') {
+        return null;
+    }
+    $parts = explode('.', $idToken);
+    if (count($parts) !== 3) {
+        return null;
+    }
+    [$headerB64, $payloadB64, $sigB64] = $parts;
+    $header = json_decode(base64url_decode($headerB64), true);
+    $payload = json_decode(base64url_decode($payloadB64), true);
+    $signature = base64url_decode($sigB64);
+    if (!is_array($header) || !is_array($payload) || $signature === false || empty($header['kid'])) {
+        return null;
+    }
+
+    // شهادات جوجل العامة الحالية بصيغة X.509 PEM (جاهزة مباشرة لِـ openssl، بلا
+    // حاجة لبناء مفتاح من JWK يدوياً)
+    $ch = curl_init('https://www.googleapis.com/oauth2/v1/certs');
+    curl_setopt_array($ch, [CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT => 8, CURLOPT_SSL_VERIFYPEER => true]);
+    $certsRaw = curl_exec($ch);
+    curl_close($ch);
+    $certs = $certsRaw ? json_decode($certsRaw, true) : null;
+    if (!is_array($certs) || empty($certs[$header['kid']])) {
+        return null;
+    }
+
+    $publicKey = openssl_pkey_get_public($certs[$header['kid']]);
+    if (!$publicKey) {
+        return null;
+    }
+    $valid = openssl_verify("$headerB64.$payloadB64", $signature, $publicKey, OPENSSL_ALGO_SHA256);
+    if ($valid !== 1) {
+        return null;
+    }
+
+    $aud = (string) ($payload['aud'] ?? '');
+    $iss = (string) ($payload['iss'] ?? '');
+    $exp = (int) ($payload['exp'] ?? 0);
+    if (!hash_equals($expectedClientId, $aud)) {
+        return null;
+    }
+    if ($iss !== 'https://accounts.google.com' && $iss !== 'accounts.google.com') {
+        return null;
+    }
+    if ($exp < time()) {
+        return null;
+    }
+    if (empty($payload['email']) || (isset($payload['email_verified']) && !$payload['email_verified'])) {
+        return null;
+    }
+    return $payload;
+}
+
 function youtube_search_video(string $searchQuery): ?array
 {
     $apiKey = get_youtube_api_key();
@@ -1144,7 +1214,10 @@ function deepseek_generate_quiz(string $title, ?string $description, ?string $tr
 function deepseek_tutor_reply(string $title, ?string $description, ?string $transcript, array $history, string $userMessage): array
 {
     $system = "أنت مدرّس خصوصي ذكي ومحفّز لطالب عربي. أجب فقط ضمن سياق المحاضرة الحالية، بسّط الأفكار المعقدة بأمثلة "
-        . "قريبة من واقع الطالب، وكن مختصراً ومشجعاً.\n\n"
+        . "قريبة من واقع الطالب، وكن مختصراً ومشجعاً.\n"
+        . "نظّم إجابتك دائماً بوضوح حول شرح المادة: افتتح بجملة واحدة تجيب الفكرة الأساسية مباشرة، ثم إن احتاج "
+        . "الشرح لأكثر من نقطة استخدم أسطراً مرقّمة أو نقاطاً منفصلة (سطر جديد لكل نقطة) بدل فقرة واحدة متلاحمة، "
+        . "واختم بجملة تشجيعية قصيرة عند الحاجة فقط.\n\n"
         . "عنوان المحاضرة: $title\nوصف المحاضرة: " . ($description ?: 'غير متوفر')
         . ($transcript ? ("\nملخص محتوى المحاضرة: " . mb_substr($transcript, 0, 4000)) : '');
 
@@ -1154,7 +1227,7 @@ function deepseek_tutor_reply(string $title, ?string $description, ?string $tran
     }
     $messages[] = ['role' => 'user', 'content' => $userMessage];
 
-    $r = deepseek_chat($messages, 0.6, false, 800);
+    $r = deepseek_chat($messages, 0.6, false, 1000);
     return ['reply' => $r['content'], 'usage' => $r['usage']];
 }
 
@@ -1243,6 +1316,48 @@ function h_login(array $body): void
         throw new ApiException(401, 'بيانات الدخول غير صحيحة');
     }
     q_run("UPDATE users SET last_login_at=CURRENT_TIMESTAMP WHERE id=?", [$user['id']]);
+    $token = jwt_sign($user['id'], $user['role'], $user['name']);
+    json_response(['token' => $token, 'user' => public_user($user)]);
+}
+
+function h_google_signin(array $body): void
+{
+    $idToken = trim($body['credential'] ?? '');
+    if (!$idToken) {
+        throw new ApiException(400, 'رمز Google مفقود');
+    }
+    $clientId = get_google_client_id();
+    if (!$clientId) {
+        throw new ApiException(400, 'تسجيل الدخول عبر Google غير مفعّل حالياً');
+    }
+    $payload = google_verify_id_token($idToken, $clientId);
+    if (!$payload) {
+        throw new ApiException(401, 'تعذّر التحقق من حساب Google، حاول مجدداً');
+    }
+    $email = trim((string) ($payload['email'] ?? ''));
+    if (!$email) {
+        throw new ApiException(401, 'تعذّر الحصول على بريد إلكتروني من حساب Google');
+    }
+    $name = trim((string) ($payload['name'] ?? '')) ?: $email;
+
+    $user = q_one("SELECT * FROM users WHERE email=?", [$email]);
+    if ($user) {
+        if (!$user['is_active']) {
+            throw new ApiException(401, 'هذا الحساب معطّل');
+        }
+        q_run("UPDATE users SET last_login_at=CURRENT_TIMESTAMP WHERE id=?", [$user['id']]);
+    } else {
+        $userCount = (int) q_one("SELECT COUNT(*) as c FROM users")['c'];
+        $role = $userCount === 0 ? 'admin' : 'student';
+        $randomPassword = password_hash(bin2hex(random_bytes(24)), PASSWORD_BCRYPT);
+        q_run(
+            "INSERT INTO users (name,email,password_hash,role,avatar_url) VALUES (?,?,?,?,?)",
+            [$name, $email, $randomPassword, $role, $payload['picture'] ?? null]
+        );
+        $id = (int) db()->lastInsertId();
+        $user = q_one("SELECT * FROM users WHERE id=?", [$id]);
+    }
+
     $token = jwt_sign($user['id'], $user['role'], $user['name']);
     json_response(['token' => $token, 'user' => public_user($user)]);
 }
@@ -2169,6 +2284,34 @@ function h_youtube_settings_test(): void
     json_response(youtube_test_connection());
 }
 
+function h_settings_google_get(): void
+{
+    $clientId = get_google_client_id();
+    json_response(['provider' => 'google_oauth', 'hasClientId' => (bool) $clientId, 'clientId' => $clientId]);
+}
+
+function h_settings_google_save(array $body, array $user): void
+{
+    $clientId = trim($body['clientId'] ?? '');
+    if (strlen($clientId) < 10) {
+        throw new ApiException(400, 'معرّف عميل Google (Client ID) غير صالح');
+    }
+    q_run(
+        "INSERT INTO api_settings (provider, model_name, is_active, updated_by) VALUES ('google_oauth', ?, 1, ?)
+         ON CONFLICT(provider) DO UPDATE SET model_name=excluded.model_name, is_active=1, updated_by=excluded.updated_by",
+        [$clientId, $user['id']]
+    );
+    json_response(['message' => 'تم حفظ إعدادات تسجيل الدخول عبر Google بنجاح', 'provider' => 'google_oauth', 'clientId' => $clientId]);
+}
+
+// نقطة عامة بلا مصادقة: شاشة الدخول تستدعيها لمعرفة ما إذا كان تسجيل الدخول
+// عبر Google مفعّلاً وبأي Client ID تُهيَّئ مكتبة Google (وهو ليس سرياً أصلاً)
+function h_settings_google_public(): void
+{
+    $clientId = get_google_client_id();
+    json_response(['enabled' => (bool) $clientId, 'clientId' => $clientId]);
+}
+
 // ============================================================================
 // أدوات JSON عامة + التوجيه (Router)
 // ============================================================================
@@ -2208,6 +2351,8 @@ function dispatch_api(): void
             h_register($body);
         } elseif ($method === 'POST' && $route === '/auth/login') {
             h_login($body);
+        } elseif ($method === 'POST' && $route === '/auth/google') {
+            h_google_signin($body);
         } elseif ($method === 'GET' && $route === '/auth/me') {
             h_me(require_auth());
         } elseif ($method === 'PUT' && $route === '/me/selection') {
@@ -2278,6 +2423,16 @@ function dispatch_api(): void
             $user = require_auth();
             require_admin($user);
             h_youtube_settings_test();
+        } elseif ($method === 'GET' && $route === '/settings/google') {
+            $user = require_auth();
+            require_admin($user);
+            h_settings_google_get();
+        } elseif ($method === 'PUT' && $route === '/settings/google') {
+            $user = require_auth();
+            require_admin($user);
+            h_settings_google_save($body, $user);
+        } elseif ($method === 'GET' && $route === '/settings/google/public') {
+            h_settings_google_public();
         } else {
             api_error('المسار المطلوب غير موجود', 404);
         }
@@ -2481,11 +2636,14 @@ body.auth-mode .view{padding:0;min-height:100vh;min-height:100dvh}
 .progress-track{height:6px;border-radius:100px;background:var(--hover-bg);overflow:hidden;margin:14px 0}
 .progress-fill{height:100%;background:var(--gradient-primary);border-radius:100px;transition:width .4s}
 .tutor-page{display:flex;flex-direction:column;min-height:calc(100dvh - 180px)}
-.tutor-head{display:flex;align-items:center;justify-content:space-between;padding:14px 16px;border-bottom:1px solid var(--border);background:var(--card);border-radius:var(--radius-md) var(--radius-md) 0 0}
-.tutor-head h4{font-size:.88rem;font-weight:800;display:flex;align-items:center;gap:8px}
-.tutor-head h4 i{color:var(--cyan)}
+.tutor-head{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;padding:14px 16px;border-bottom:1px solid var(--border);background:var(--card);border-radius:var(--radius-md) var(--radius-md) 0 0}
+.tutor-head h4{font-size:.88rem;font-weight:800;display:flex;align-items:center;gap:8px;flex:1;min-width:0}
+.tutor-head h4 i{color:var(--cyan);flex-shrink:0}
+.tutor-head-actions{display:flex;gap:8px;flex-shrink:0}
+.tutor-fab-btn{position:fixed;bottom:calc(80px + var(--safe-b));inset-inline-end:18px;z-index:150;width:52px;height:52px;border-radius:50%;background:var(--gradient-primary);color:#04231c;border:none;box-shadow:0 8px 24px rgba(0,230,187,.4);font-size:1.25rem;cursor:pointer;display:flex;align-items:center;justify-content:center}
+@media (min-width:1024px){.tutor-fab-btn{bottom:24px}}
 .tutor-body{flex:1;padding:14px 16px;display:flex;flex-direction:column;gap:10px;background:var(--card)}
-.tutor-msg{max-width:85%;padding:10px 13px;border-radius:14px;font-size:.78rem;line-height:1.7}
+.tutor-msg{max-width:85%;padding:10px 13px;border-radius:14px;font-size:.78rem;line-height:1.7;white-space:pre-wrap}
 .tutor-msg.user{align-self:flex-end;background:var(--gradient-primary);color:#04231c;border-bottom-left-radius:4px;border-bottom-right-radius:14px}
 .tutor-msg.assistant{align-self:flex-start;background:var(--hover-bg);border-bottom-right-radius:4px}
 .tutor-input{display:flex;gap:8px;padding:12px 14px;background:var(--card);border-top:1px solid var(--border);border-radius:0 0 var(--radius-md) var(--radius-md);position:sticky;bottom:calc(70px + var(--safe-b))}
@@ -2542,6 +2700,11 @@ body.auth-mode .view{padding:0;min-height:100vh;min-height:100dvh}
 .auth-card{max-width:400px;width:100%;margin:0 auto;padding:24px 20px}
 body.auth-mode .view:has(> .auth-card){display:flex;align-items:center;justify-content:center;padding:20px 16px}
 .auth-switch{text-align:center;font-size:.78rem;color:var(--muted);margin-top:14px}
+.auth-divider{display:flex;align-items:center;gap:10px;margin:16px 0;color:var(--muted);font-size:.75rem}
+.auth-divider::before,.auth-divider::after{content:'';flex:1;height:1px;background:var(--border)}
+.google-btn-holder{display:flex;justify-content:center;min-height:44px}
+.google-btn-holder > div{width:100% !important}
+.google-btn-holder iframe{margin:0 auto}
 .auth-switch a{color:var(--blue);font-weight:700}
 .key-status{display:flex;align-items:center;gap:8px;padding:10px 14px;border-radius:12px;background:var(--hover-bg);font-size:.75rem;font-weight:700;margin-bottom:16px}
 .key-status.ok{color:var(--success)}
@@ -2674,6 +2837,7 @@ App.api = (function () {
 
     register: (payload) => request('/auth/register', { method: 'POST', body: payload, auth: false }),
     login: (payload) => request('/auth/login', { method: 'POST', body: payload, auth: false }),
+    googleSignIn: (credential) => request('/auth/google', { method: 'POST', body: { credential }, auth: false }),
     me: () => request('/auth/me'),
     updateSelection: (payload) => request('/me/selection', { method: 'PUT', body: payload }),
 
@@ -2711,6 +2875,10 @@ App.api = (function () {
     getYoutubeSettings: () => request('/settings/youtube'),
     saveYoutubeSettings: (payload) => request('/settings/youtube', { method: 'PUT', body: payload }),
     testYoutubeConnection: () => request('/settings/youtube/test', { method: 'POST' }),
+
+    getGoogleSettings: () => request('/settings/google'),
+    saveGoogleSettings: (payload) => request('/settings/google', { method: 'PUT', body: payload }),
+    getGooglePublicConfig: () => request('/settings/google/public', { auth: false }),
   };
 })();
 
@@ -2889,10 +3057,15 @@ App.views.login = async function login() {
           <div class="form-error" id="loginError"></div>
           <button class="btn btn-primary btn-block" type="submit" id="loginSubmit">دخول</button>
         </form>
+        <div id="googleSignInWrap" hidden>
+          <div class="auth-divider"><span>أو</span></div>
+          <div class="google-btn-holder" id="googleSignInBtn"></div>
+        </div>
       </div>
       <div class="auth-switch">ليس لديك حساب؟ <a href="#/register">أنشئ حساباً جديداً</a></div>
     </div>
   `;
+  App.main.initGoogleSignIn('googleSignInBtn', 'googleSignInWrap');
   document.getElementById('loginForm').addEventListener('submit', async (e) => {
     e.preventDefault();
     const errorEl = document.getElementById('loginError');
@@ -3268,9 +3441,9 @@ App.views.lecture = async function lecture({ id }) {
       <div style="display:flex;gap:10px;flex-wrap:wrap">
         <button class="btn btn-outline" id="markCompleteBtn" ${isCompleted ? 'disabled' : ''}><i class="fas fa-check"></i> ${isCompleted ? 'تمت المشاهدة' : 'أنهيت المشاهدة'}</button>
         <button class="btn btn-primary" id="startQuizBtn"><i class="fas fa-pen-to-square"></i> ابدأ الاختبار</button>
-        <button class="btn btn-outline" id="openTutorBtn"><i class="fas fa-robot"></i> المساعد الذكي</button>
       </div>
     </div>
+    <button class="tutor-fab-btn" id="openTutorBtn" title="المساعد الذكي"><i class="fas fa-robot"></i></button>
   `;
   view.querySelectorAll('[data-nav]').forEach((el) => el.addEventListener('click', () => (location.hash = el.dataset.nav)));
   async function markComplete(watchedSeconds) {
@@ -3311,10 +3484,12 @@ App.views.tutorPage = async function tutorPage({ lectureId }) {
   const { lecture: lec } = await App.api.getLecture(lectureId);
   view.innerHTML = `
     <div class="an tutor-page">
-      <div class="breadcrumb"><a href="#/lecture/${lectureId}">العودة للمحاضرة</a></div>
       <div class="tutor-head">
         <h4><i class="fas fa-robot"></i> المساعد الذكي — ${App.ui.escapeHtml(lec.title_ar)}</h4>
-        <button class="btn btn-outline btn-sm" id="summarizeBtn"><i class="fas fa-list"></i> لخّص المحاضرة</button>
+        <div class="tutor-head-actions">
+          <button class="btn btn-outline btn-sm" id="summarizeBtn"><i class="fas fa-list"></i> تلخيص</button>
+          <button class="icon-btn" id="closeTutorBtn" title="إغلاق"><i class="fas fa-xmark"></i></button>
+        </div>
       </div>
       <div class="tutor-body" id="tutorBody"><div class="tutor-msg assistant">أهلاً بك! أنا مساعدك الذكي لهذه المحاضرة تحديداً. اسألني عن أي نقطة غامضة، أو اطلب مني تلخيصها 🤓</div></div>
       <form class="tutor-input" id="tutorForm">
@@ -3323,6 +3498,7 @@ App.views.tutorPage = async function tutorPage({ lectureId }) {
       </form>
     </div>
   `;
+  document.getElementById('closeTutorBtn').addEventListener('click', () => { location.hash = `#/lecture/${lectureId}`; });
   const body = document.getElementById('tutorBody');
   const form = document.getElementById('tutorForm');
   const input = document.getElementById('tutorInput');
@@ -3566,6 +3742,20 @@ App.views.renderAiSettings = function renderAiSettings(container) {
           </div>
         </form>
       </div>
+
+      <div class="page-title" style="margin-top:26px"><i class="fab fa-google" style="color:var(--cyan)"></i> تسجيل الدخول عبر Google (اختياري)</div>
+      <div class="page-sub">أضف Client ID من Google لإظهار زر "تسجيل الدخول عبر Google" في شاشة الدخول. هذا المعرّف علني وليس سرياً (يُستخدم من داخل الواجهة نفسها)؛ احصل عليه من <a href="https://console.cloud.google.com/apis/credentials" target="_blank" rel="noopener" style="color:var(--cyan);font-weight:700">Google Cloud Console</a> بإنشاء "OAuth client ID" من نوع Web application وإضافة نطاق الموقع ضمن Authorized JavaScript origins.</div>
+      <div id="googleKeyStatus" class="key-status">${App.ui.loadingHtml('جاري التحقق من الحالة...')}</div>
+      <div class="card">
+        <form id="googleSettingsForm">
+          <div class="form-group">
+            <label>Google Client ID</label>
+            <input class="form-control" type="text" id="googleClientIdInput" placeholder="xxxxxxxxxx.apps.googleusercontent.com" autocomplete="off">
+          </div>
+          <div class="form-error" id="googleSettingsError"></div>
+          <button class="btn btn-primary btn-block" type="submit" id="saveGoogleSettingsBtn"><i class="fas fa-floppy-disk"></i> حفظ الإعدادات</button>
+        </form>
+      </div>
     </div>
   `;
   const statusEl = document.getElementById('keyStatus');
@@ -3636,6 +3826,33 @@ App.views.renderAiSettings = function renderAiSettings(container) {
     try { await App.api.testYoutubeConnection(); App.ui.toast('الاتصال ناجح! المفتاح يعمل بشكل صحيح ✅', 'ok'); }
     catch (err) { App.ui.toast(err.message, 'err'); }
     finally { btn.disabled = false; btn.innerHTML = '<i class="fas fa-plug"></i> اختبار الاتصال'; }
+  });
+
+  const googleStatusEl = document.getElementById('googleKeyStatus');
+  async function loadGoogleStatus() {
+    try {
+      const s = await App.api.getGoogleSettings();
+      googleStatusEl.className = `key-status ${s.hasClientId ? 'ok' : 'missing'}`;
+      googleStatusEl.innerHTML = s.hasClientId
+        ? `<i class="fas fa-circle-check"></i> مفعّل حالياً — يظهر زر Google في شاشة الدخول`
+        : `<i class="fas fa-circle-exclamation"></i> لم يُضبط بعد — زر Google لا يظهر في شاشة الدخول`;
+      document.getElementById('googleClientIdInput').value = s.clientId || '';
+    } catch (err) { googleStatusEl.className = 'key-status missing'; googleStatusEl.textContent = 'تعذّر جلب حالة الإعدادات: ' + err.message; }
+  }
+  loadGoogleStatus();
+  document.getElementById('googleSettingsForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const errorEl = document.getElementById('googleSettingsError');
+    const saveBtn = document.getElementById('saveGoogleSettingsBtn');
+    errorEl.classList.remove('show');
+    const clientId = document.getElementById('googleClientIdInput').value.trim();
+    if (!clientId) { errorEl.textContent = 'يرجى إدخال Client ID لحفظه'; errorEl.classList.add('show'); return; }
+    saveBtn.disabled = true; saveBtn.innerHTML = '<span class="spinner"></span> جاري الحفظ...';
+    try {
+      await App.api.saveGoogleSettings({ clientId });
+      App.ui.toast('تم حفظ إعدادات تسجيل الدخول عبر Google بنجاح', 'ok'); loadGoogleStatus();
+    } catch (err) { errorEl.textContent = err.message; errorEl.classList.add('show'); }
+    finally { saveBtn.disabled = false; saveBtn.innerHTML = '<i class="fas fa-floppy-disk"></i> حفظ الإعدادات'; }
   });
 };
 
@@ -3777,6 +3994,46 @@ App.main = (function () {
     document.getElementById('sheetOverlay').classList.add('open');
     document.getElementById('logoutSheet').classList.add('open');
   }
+  let gsiScriptPromise = null;
+  function loadGoogleScript() {
+    if (window.google && window.google.accounts && window.google.accounts.id) return Promise.resolve(true);
+    if (gsiScriptPromise) return gsiScriptPromise;
+    gsiScriptPromise = new Promise((resolve) => {
+      const s = document.createElement('script');
+      s.src = 'https://accounts.google.com/gsi/client';
+      s.async = true; s.defer = true;
+      s.onload = () => resolve(true);
+      s.onerror = () => resolve(false);
+      document.head.appendChild(s);
+    });
+    return gsiScriptPromise;
+  }
+  // يُستدعى من شاشة الدخول فقط: يتحقق إن كان تسجيل الدخول عبر Google مفعّلاً من
+  // لوحة الأدمن، ويُظهر زر Google الرسمي فقط عند توفره (بلا أي زر معطّل ظاهر)
+  async function initGoogleSignIn(buttonElId, wrapElId) {
+    const wrap = document.getElementById(wrapElId);
+    const holder = document.getElementById(buttonElId);
+    if (!wrap || !holder) return;
+    try {
+      const { enabled, clientId } = await App.api.getGooglePublicConfig();
+      if (!enabled || !clientId) return;
+      const loaded = await loadGoogleScript();
+      if (!loaded || !window.google) return;
+      google.accounts.id.initialize({
+        client_id: clientId,
+        callback: async (resp) => {
+          try {
+            const { token, user } = await App.api.googleSignIn(resp.credential);
+            App.state.setSession(token, user); App.state.markWelcomeSeen(); App.state.hydrateSelectionFromUser(user); refreshHeader();
+            App.ui.toast(`أهلاً بك ${user.name}!`, 'ok');
+            location.hash = (user.countryId && user.stageId) ? '#/home' : '#/onboarding';
+          } catch (err) { App.ui.toast(err.message, 'err'); }
+        },
+      });
+      wrap.hidden = false;
+      google.accounts.id.renderButton(holder, { theme: 'outline', size: 'large', shape: 'pill', text: 'continue_with', locale: 'ar', width: 320 });
+    } catch (err) { /* لا نعطّل شاشة الدخول العادية إن تعذّرت خدمة Google */ }
+  }
   function closeLogoutSheet() {
     document.getElementById('sheetOverlay').classList.remove('open');
     document.getElementById('logoutSheet').classList.remove('open');
@@ -3815,7 +4072,7 @@ App.main = (function () {
       catch (err) { if (err.status === 401) { App.state.clearSession(); refreshHeader(); } }
     }
   }
-  return { init, refreshHeader, highlightNav, openLogoutSheet };
+  return { init, refreshHeader, highlightNav, openLogoutSheet, initGoogleSignIn };
 })();
 
 App.main.init();
