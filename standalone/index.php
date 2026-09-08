@@ -1102,11 +1102,12 @@ function deepseek_generate_subject_list(string $countryName, string $stageName, 
 {
     $system = 'أنت خبير مناهج تعليمية عربية. أعد النتيجة بصيغة JSON فقط بدون أي شرح إضافي.';
     $user = "اقترح $subjectCount مواد دراسية رئيسية مناسبة لدولة \"$countryName\" وللمرحلة \"$stageName\"،\n"
-        . "مع اسم مدرّس واحد مقترح لكل مادة وأيقونة Font Awesome مناسبة (اسم الأيقونة فقط مثل fa-atom).\n\n"
+        . "مع 4 أسماء مدرّسين مختلفين مقترحين لكل مادة (مدرّسون متنافسون يقدّمون نفس المادة)\n"
+        . "وأيقونة Font Awesome مناسبة (اسم الأيقونة فقط مثل fa-atom).\n\n"
         . 'أعد الناتج بهذا الشكل بالضبط (JSON فقط):'
-        . '{"subjects":[{"name_ar":"اسم المادة","icon":"fa-book","teacher_name":"اسم المدرّس المقترح"}]}';
+        . '{"subjects":[{"name_ar":"اسم المادة","icon":"fa-book","teacher_names":["مدرّس 1","مدرّس 2","مدرّس 3","مدرّس 4"]}]}';
 
-    $r = deepseek_chat([['role' => 'system', 'content' => $system], ['role' => 'user', 'content' => $user]], 0.5, true, 1200);
+    $r = deepseek_chat([['role' => 'system', 'content' => $system], ['role' => 'user', 'content' => $user]], 0.5, true, 1800);
     return deepseek_parse_json($r['content']);
 }
 
@@ -1396,6 +1397,9 @@ function h_unit_detail($unitId): void
     json_response(['unit' => $u]);
 }
 
+// نحاول حلّ فيديو حقيقي لعدد محدود من محاضرات الوحدة التي بلا فيديو بعد (وليس
+// كلها دفعة واحدة، تفادياً لإبطاء فتح الوحدة)، كي تظهر الفيديوهات غالباً من
+// أول فتح للوحدة بدل الاضطرار لفتح كل محاضرة على حدة لحلّها واحدة تلو الأخرى.
 function h_unit_lectures($unitId): void
 {
     $rows = q_all(
@@ -1404,6 +1408,44 @@ function h_unit_lectures($unitId): void
          FROM lectures WHERE unit_id=? ORDER BY order_index",
         [$unitId]
     );
+
+    $unresolvedLimit = 5;
+    $attempts = 0;
+    if ($rows) {
+        $subjectRow = q_one(
+            "SELECT s.name_ar FROM units u JOIN teachers t ON t.id=u.teacher_id JOIN subjects s ON s.id=t.subject_id WHERE u.id=?",
+            [$unitId]
+        );
+        $subjectName = $subjectRow['name_ar'] ?? '';
+        foreach ($rows as &$lecture) {
+            if ($attempts >= $unresolvedLimit) {
+                break;
+            }
+            if ($lecture['youtube_video_id']) {
+                continue;
+            }
+            $attempts++;
+            $searchQuery = trim($lecture['title_ar'] . ' ' . $subjectName);
+            $found = youtube_search_video($searchQuery);
+            $videoId = $found['videoId'] ?? youtube_scrape_first_video_id($searchQuery);
+            if (!$videoId) {
+                continue;
+            }
+            $videoUrl = 'https://www.youtube.com/watch?v=' . $videoId;
+            $thumbnailUrl = $found['thumbnailUrl'] ?? $lecture['thumbnail_url'];
+            $verified = $found ? 1 : 0;
+            q_run(
+                "UPDATE lectures SET youtube_video_id=?, youtube_url=?, is_link_verified=?, thumbnail_url=? WHERE id=?",
+                [$videoId, $videoUrl, $verified, $thumbnailUrl, $lecture['id']]
+            );
+            $lecture['youtube_video_id'] = $videoId;
+            $lecture['youtube_url'] = $videoUrl;
+            $lecture['is_link_verified'] = $verified;
+            $lecture['thumbnail_url'] = $thumbnailUrl;
+        }
+        unset($lecture);
+    }
+
     json_response(['lectures' => $rows]);
 }
 
@@ -1456,14 +1498,6 @@ function h_generate_curriculum($stageId): void
             );
             $subjectCount++;
             $subjectId = (int) $pdo->lastInsertId();
-
-            $teacherName = trim($subject['teacher_name'] ?? '') ?: ('فريق ' . $subject['name_ar']);
-            q_run(
-                "INSERT INTO teachers (subject_id, name_ar, bio, order_index) VALUES (?,?,?,1)",
-                [$subjectId, $teacherName, 'محتوى تعليمي شامل لمادة ' . $subject['name_ar']]
-            );
-            $teacherCount++;
-            $teacherId = (int) $pdo->lastInsertId();
             $pdo->commit();
         } catch (Throwable $e) {
             $pdo->rollBack();
@@ -1475,70 +1509,101 @@ function h_generate_curriculum($stageId): void
         try {
             $subjectContent = deepseek_generate_subject_units($stage['country_name_ar'], $stage['name_ar'], $subject['name_ar']);
         } catch (Throwable $e) {
-            // المادة والمدرّس أُنشئا بنجاح، لكن تعذّر توليد الوحدات/المحاضرات لهما الآن
+            // المادة أُنشئت بنجاح، لكن تعذّر توليد الوحدات/المحاضرات لها الآن
             $failedSubjects[] = $subject['name_ar'];
             $lastError = $e->getMessage();
             continue;
         }
 
-        // نبحث عن قائمة تشغيل حقيقية لكل وحدة *قبل* فتح أي معاملة كتابة، لأن
-        // نداءات الشبكة هذه قد تستغرق ثوانٍ لكل وحدة ويجب ألا تُبقي معاملة
-        // SQLite مفتوحة طوال تلك المدة. بلا مفتاح YouTube تعود القائمة فارغة
-        // فوراً بلا أي نداء شبكة، فيستمر الأسلوب القديم كما هو تماماً.
-        $unitsWithSource = [];
-        foreach (($subjectContent['units'] ?? []) as $uIndex => $unit) {
-            $playlistItems = [];
-            $playlist = youtube_search_playlist(trim($subject['name_ar'] . ' ' . $unit['title_ar'] . ' ' . $teacherName));
-            if ($playlist) {
-                $playlistItems = youtube_get_playlist_items($playlist['playlistId'], 20);
-            }
-            $unitsWithSource[] = ['unit' => $unit, 'playlistItems' => $playlistItems];
+        // عدة مدرّسين متنافسين لكل مادة (وليس مدرّساً واحداً) يتشاركون نفس هيكل
+        // الوحدات، لكن كل واحد منهم يحصل على محتوى فيديو مستقل (قائمة تشغيل
+        // حقيقية مختلفة إن وُجدت)، فيصبح لترتيبهم لاحقاً حسب المشاهدات معنى فعلي
+        $teacherNames = array_values(array_filter(array_map('trim', $subject['teacher_names'] ?? [])));
+        if (!$teacherNames) {
+            $teacherNames = ['فريق ' . $subject['name_ar']];
         }
+        $teacherNames = array_slice($teacherNames, 0, 5);
 
-        $pdo->beginTransaction();
-        try {
-            foreach ($unitsWithSource as $uIndex => $entry) {
-                $unit = $entry['unit'];
+        $subjectHadAnyTeacher = false;
+        foreach ($teacherNames as $tIndex => $teacherName) {
+            $pdo->beginTransaction();
+            try {
                 q_run(
-                    "INSERT INTO units (teacher_id, title_ar, description, order_index, is_ai_generated) VALUES (?,?,?,?,1)",
-                    [$teacherId, $unit['title_ar'], $unit['description'] ?? null, $uIndex + 1]
+                    "INSERT INTO teachers (subject_id, name_ar, bio, order_index) VALUES (?,?,?,?)",
+                    [$subjectId, $teacherName, 'محتوى تعليمي شامل لمادة ' . $subject['name_ar'], $tIndex + 1]
                 );
-                $unitCount++;
-                $unitId = (int) $pdo->lastInsertId();
+                $teacherCount++;
+                $teacherId = (int) $pdo->lastInsertId();
+                $pdo->commit();
+            } catch (Throwable $e) {
+                $pdo->rollBack();
+                $lastError = $e->getMessage();
+                continue;
+            }
 
-                if ($entry['playlistItems']) {
-                    // مصدر حقيقي: محاضرة واحدة لكل فيديو في قائمة التشغيل، بنفس
-                    // عناوينها وترتيبها الأصلي على يوتيوب (محاضرة أولى، ثانية...)
-                    foreach ($entry['playlistItems'] as $lIndex => $item) {
-                        $videoUrl = 'https://www.youtube.com/watch?v=' . $item['videoId'];
-                        q_run(
-                            "INSERT INTO lectures (unit_id, title_ar, youtube_video_id, youtube_url, is_link_verified, thumbnail_url, source, order_index)
-                             VALUES (?,?,?,?,1,?,'youtube_playlist',?)",
-                            [$unitId, $item['title'], $item['videoId'], $videoUrl, $item['thumbnailUrl'], $lIndex + 1]
-                        );
-                        $lectureCount++;
-                    }
-                } else {
-                    // لا توجد قائمة تشغيل مطابقة (أو لا مفتاح مضبوط أصلاً): نستخدم
-                    // عناوين اقترحها الذكاء الاصطناعي، ويُحل فيديو كل محاضرة لاحقاً
-                    // عند فتحها لأول مرة (انظر h_lecture_detail)
-                    foreach (($unit['lectures'] ?? []) as $lIndex => $lecture) {
-                        $searchQuery = $lecture['search_query'] ?? $lecture['title_ar'];
-                        $fallbackUrl = 'https://www.youtube.com/results?search_query=' . urlencode($searchQuery);
-                        q_run(
-                            "INSERT INTO lectures (unit_id, title_ar, description, youtube_url, is_link_verified, source, order_index)
-                             VALUES (?,?,?,?,0,'ai_curated',?)",
-                            [$unitId, $lecture['title_ar'], $lecture['description'] ?? null, $fallbackUrl, $lIndex + 1]
-                        );
-                        $lectureCount++;
+            // نبحث عن قائمة تشغيل حقيقية لكل وحدة *قبل* فتح أي معاملة كتابة، لأن
+            // نداءات الشبكة هذه قد تستغرق ثوانٍ لكل وحدة ويجب ألا تُبقي معاملة
+            // SQLite مفتوحة طوال تلك المدة. بلا مفتاح YouTube تعود القائمة فارغة
+            // فوراً بلا أي نداء شبكة، فيستمر الأسلوب القديم كما هو تماماً.
+            $unitsWithSource = [];
+            foreach (($subjectContent['units'] ?? []) as $uIndex => $unit) {
+                $playlistItems = [];
+                $playlist = youtube_search_playlist(trim($subject['name_ar'] . ' ' . $unit['title_ar'] . ' ' . $teacherName));
+                if ($playlist) {
+                    $playlistItems = youtube_get_playlist_items($playlist['playlistId'], 20);
+                }
+                $unitsWithSource[] = ['unit' => $unit, 'playlistItems' => $playlistItems];
+            }
+
+            $pdo->beginTransaction();
+            try {
+                foreach ($unitsWithSource as $uIndex => $entry) {
+                    $unit = $entry['unit'];
+                    q_run(
+                        "INSERT INTO units (teacher_id, title_ar, description, order_index, is_ai_generated) VALUES (?,?,?,?,1)",
+                        [$teacherId, $unit['title_ar'], $unit['description'] ?? null, $uIndex + 1]
+                    );
+                    $unitCount++;
+                    $unitId = (int) $pdo->lastInsertId();
+
+                    if ($entry['playlistItems']) {
+                        // مصدر حقيقي: محاضرة واحدة لكل فيديو في قائمة التشغيل، بنفس
+                        // عناوينها وترتيبها الأصلي على يوتيوب (محاضرة أولى، ثانية...)
+                        foreach ($entry['playlistItems'] as $lIndex => $item) {
+                            $videoUrl = 'https://www.youtube.com/watch?v=' . $item['videoId'];
+                            q_run(
+                                "INSERT INTO lectures (unit_id, title_ar, youtube_video_id, youtube_url, is_link_verified, thumbnail_url, source, order_index)
+                                 VALUES (?,?,?,?,1,?,'youtube_playlist',?)",
+                                [$unitId, $item['title'], $item['videoId'], $videoUrl, $item['thumbnailUrl'], $lIndex + 1]
+                            );
+                            $lectureCount++;
+                        }
+                    } else {
+                        // لا توجد قائمة تشغيل مطابقة (أو لا مفتاح مضبوط أصلاً): نستخدم
+                        // عناوين اقترحها الذكاء الاصطناعي، ويُحل فيديو كل محاضرة لاحقاً
+                        // عند فتحها لأول مرة (انظر h_lecture_detail)
+                        foreach (($unit['lectures'] ?? []) as $lIndex => $lecture) {
+                            $searchQuery = $lecture['search_query'] ?? $lecture['title_ar'];
+                            $fallbackUrl = 'https://www.youtube.com/results?search_query=' . urlencode($searchQuery);
+                            q_run(
+                                "INSERT INTO lectures (unit_id, title_ar, description, youtube_url, is_link_verified, source, order_index)
+                                 VALUES (?,?,?,?,0,'ai_curated',?)",
+                                [$unitId, $lecture['title_ar'], $lecture['description'] ?? null, $fallbackUrl, $lIndex + 1]
+                            );
+                            $lectureCount++;
+                        }
                     }
                 }
+                $pdo->commit();
+                $subjectHadAnyTeacher = true;
+            } catch (Throwable $e) {
+                $pdo->rollBack();
+                $lastError = $e->getMessage();
             }
-            $pdo->commit();
-        } catch (Throwable $e) {
-            $pdo->rollBack();
+        }
+
+        if (!$subjectHadAnyTeacher) {
             $failedSubjects[] = $subject['name_ar'];
-            $lastError = $e->getMessage();
         }
     }
 
@@ -2370,9 +2435,11 @@ body.auth-mode .view{padding:0;min-height:100vh;min-height:100dvh}
 .ud-item i{width:16px;color:var(--cyan)}
 .ud-danger{color:var(--danger)}
 .ud-danger i{color:var(--danger)}
-.notif-dot{position:absolute;top:5px;inset-inline-end:5px;width:9px;height:9px;border-radius:50%;background:var(--danger);border:2px solid var(--bg)}
-.notif-panel{max-height:70vh;overflow-y:auto}
+.notif-btn-sm{position:relative;width:28px;height:28px;font-size:.7rem}
+.notif-dot{position:absolute;top:2px;inset-inline-end:2px;width:7px;height:7px;border-radius:50%;background:var(--danger);border:1.5px solid var(--bg)}
 .notif-empty{padding:24px 16px;text-align:center;color:var(--muted);font-size:.78rem}
+.notif-row{display:flex;align-items:center;gap:12px;background:var(--card);border-radius:16px;padding:13px;margin-bottom:9px;box-shadow:var(--shadow)}
+.notif-del{width:30px;height:30px;border-radius:50%;background:var(--hover-bg);color:var(--danger);border:none;cursor:pointer;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:.75rem}
 .sheet-overlay{position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:299;opacity:0;pointer-events:none;transition:opacity .2s}
 .sheet-overlay.open{opacity:1;pointer-events:auto}
 .sheet{position:fixed;bottom:0;inset-inline:0;z-index:300;max-width:480px;margin:0 auto;background:var(--card);border-radius:22px 22px 0 0;box-shadow:0 -10px 40px rgba(0,0,0,.25);padding:14px 20px calc(20px + var(--safe-b));transform:translateY(100%);transition:transform .25s ease}
@@ -2454,6 +2521,16 @@ body.auth-mode .view{padding:0;min-height:100vh;min-height:100dvh}
 .lb-info h4{font-size:.8rem;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .lb-info p{font-size:.63rem;color:var(--muted)}
 .lb-points{font-weight:800;color:var(--cyan);font-size:.85rem;flex-shrink:0}
+.podium{display:flex;align-items:flex-end;justify-content:center;gap:10px;margin:16px 0 22px}
+.podium-slot{flex:1;max-width:120px;text-align:center;background:var(--card);border-radius:16px 16px 0 0;box-shadow:var(--shadow);padding:14px 8px 12px}
+.podium-slot.first{padding-top:22px;order:2;box-shadow:0 10px 30px rgba(0,230,187,.25)}
+.podium-slot.second{order:1}
+.podium-slot.third{order:3}
+.podium-av{width:46px;height:46px;border-radius:50%;background:var(--gradient-primary);display:flex;align-items:center;justify-content:center;color:#04231c;font-weight:800;font-size:.85rem;margin:0 auto 8px}
+.podium-slot.first .podium-av{width:58px;height:58px;font-size:1rem}
+.podium-medal{font-size:1.2rem;margin-bottom:4px}
+.podium-name{font-size:.72rem;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.podium-points{font-size:.68rem;color:var(--cyan);font-weight:800;margin-top:2px}
 .form-group{margin-bottom:14px}
 .form-group label{display:block;font-size:.75rem;font-weight:700;margin-bottom:6px;color:var(--muted)}
 .form-control{width:100%;padding:12px 14px;border-radius:12px;border:1.5px solid var(--border);background:var(--card);color:var(--text);font-size:.85rem;outline:none;transition:border-color .15s}
@@ -2508,16 +2585,10 @@ body.auth-mode .view:has(> .auth-card){display:flex;align-items:center;justify-c
   <header class="hdr">
     <a href="#/home" class="logo">ذَكِيّ<span class="logo-dot">.</span></a>
     <div class="hdr-right" id="hdrRight" hidden>
-      <div class="user-menu">
-        <button class="icon-btn" id="notifBtn" title="الإشعارات" style="position:relative">
-          <i class="fas fa-bell"></i>
-          <span class="notif-dot" id="notifDot" hidden></span>
-        </button>
-        <div class="user-dropdown notif-panel" id="notifPanel">
-          <div class="ud-name">الإشعارات</div>
-          <div id="notifList"><div class="notif-empty">لا توجد إشعارات بعد</div></div>
-        </div>
-      </div>
+      <button class="icon-btn notif-btn-sm" id="notifBtn" title="الإشعارات" data-nav="#/notifications">
+        <i class="fas fa-bell"></i>
+        <span class="notif-dot" id="notifDot" hidden></span>
+      </button>
     </div>
   </header>
 
@@ -2644,7 +2715,7 @@ App.api = (function () {
 })();
 
 App.state = (function () {
-  const KEYS = { token: 'zaki_token', user: 'zaki_user', country: 'zaki_country', governorate: 'zaki_governorate', stage: 'zaki_stage', welcome: 'zaki_seen_welcome', notifSeen: 'zaki_notif_seen_at' };
+  const KEYS = { token: 'zaki_token', user: 'zaki_user', country: 'zaki_country', governorate: 'zaki_governorate', stage: 'zaki_stage', welcome: 'zaki_seen_welcome', notifSeen: 'zaki_notif_seen_at', notifDismissed: 'zaki_notif_dismissed' };
   function safeGet(key) { try { return localStorage.getItem(key); } catch (err) { return null; } }
   function safeSet(key, value) { try { localStorage.setItem(key, value); } catch (err) {} }
   function safeRemove(key) { try { localStorage.removeItem(key); } catch (err) {} }
@@ -2674,6 +2745,14 @@ App.state = (function () {
     markWelcomeSeen() { safeSet(KEYS.welcome, '1'); },
     getNotifSeenAt() { return safeGet(KEYS.notifSeen) || '1970-01-01'; },
     markNotifSeen() { safeSet(KEYS.notifSeen, new Date().toISOString()); },
+    // حذف إشعار من القائمة عملية محلية فقط (لا تحذف صف نقاطك الفعلي، كي يبقى
+    // سجل نقاطك في صفحة "المتصدرون ونقاطي" كاملاً ودقيقاً دائماً)
+    getDismissedNotifIds() { try { return JSON.parse(safeGet(KEYS.notifDismissed) || '[]'); } catch (err) { return []; } },
+    dismissNotifId(id) {
+      const ids = this.getDismissedNotifIds();
+      if (!ids.includes(id)) { ids.push(id); safeSet(KEYS.notifDismissed, JSON.stringify(ids)); }
+    },
+    dismissAllNotifIds(ids) { safeSet(KEYS.notifDismissed, JSON.stringify(ids)); },
   };
 })();
 
@@ -3383,23 +3462,23 @@ App.views.leaderboard = async function leaderboard() {
   view.innerHTML = `
     <div class="an">
       <div class="page-title"><i class="fas fa-ranking-star" style="color:var(--gold)"></i> المتصدرون ونقاطي</div>
-      <div class="profile-card" style="margin-top:10px">
-        <div class="profile-row"><div class="profile-av">${App.ui.initials(user.name)}</div><div class="profile-info"><h2>${App.ui.escapeHtml(user.name)}</h2><p>${App.ui.escapeHtml(user.email)}</p></div></div>
-        <div class="profile-stats"><div class="profile-stat"><b id="profilePoints">${user.pointsTotal || 0}</b><span>مجموع النقاط</span></div></div>
+      <div id="podiumHolder">${App.ui.loadingHtml()}</div>
+      <div class="card" style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:18px">
+        <div class="list-ico"><i class="fas fa-star"></i></div>
+        <div class="list-body"><h4 id="profilePoints">${user.pointsTotal || 0} نقطة</h4><p>مجموع نقاطك</p></div>
       </div>
       <div class="section"><div class="section-head"><h3><i class="fas fa-medal"></i> الأوسمة</h3></div><div id="badgesHolder" class="grid-cards">${App.ui.loadingHtml()}</div></div>
       <div class="section-head" style="margin-top:22px"><h3><i class="fas fa-clock-rotate-left"></i> سجل النقاط</h3></div>
       <div id="historyHolder">${App.ui.loadingHtml()}</div>
 
-      <div class="section-head" style="margin-top:22px"><h3><i class="fas fa-ranking-star"></i> لوحة المتصدرين</h3></div>
-      <div class="lb-tabs"><button class="lb-tab active" data-scope="global">🌍 عالمياً</button><button class="lb-tab" data-scope="country">🏳️ داخل بلدي</button></div>
+      <div class="section-head" style="margin-top:22px"><h3><i class="fas fa-ranking-star"></i> كل المتصدرين</h3></div>
       <div id="lbHolder">${App.ui.loadingHtml()}</div>
     </div>
   `;
   (async () => {
     try {
       const { pointsTotal, history, badges } = await App.api.getMyPoints();
-      document.getElementById('profilePoints').textContent = pointsTotal;
+      document.getElementById('profilePoints').textContent = pointsTotal + ' نقطة';
       document.getElementById('badgesHolder').innerHTML = badges.length
         ? badges.map((b) => `<div class="subject-card"><div class="subject-ico" style="background:var(--gradient-gold);color:#3a2900"><i class="fas ${b.icon || 'fa-medal'}"></i></div><h4>${App.ui.escapeHtml(b.name_ar)}</h4><p>${App.ui.formatDate(b.earned_at)}</p></div>`).join('')
         : App.ui.emptyStateHtml('fa-medal', 'لا توجد أوسمة بعد', 'أكمل محاضرات واختبارات لكسب أوسمتك الأولى');
@@ -3408,31 +3487,40 @@ App.views.leaderboard = async function leaderboard() {
         : App.ui.emptyStateHtml('fa-inbox', 'لا يوجد سجل نقاط بعد');
     } catch (err) { App.ui.toast(err.message, 'err'); }
   })();
+
+  const podiumHolder = document.getElementById('podiumHolder');
   const holder = document.getElementById('lbHolder');
-  const tabs = view.querySelectorAll('.lb-tab');
-  async function load(scope) {
-    holder.innerHTML = App.ui.loadingHtml();
-    try {
-      const selection = App.state.getSelection();
-      const { leaderboard: rows, me } = await App.api.getLeaderboard(scope, selection.countryId);
-      if (!rows.length) { holder.innerHTML = App.ui.emptyStateHtml('fa-users', 'لا يوجد طلاب بعد', 'كن أول المتصدرين!'); return; }
-      const medal = (rank) => (rank === 1 ? 'top1' : rank === 2 ? 'top2' : rank === 3 ? 'top3' : '');
-      const currentUserId = user.id;
-      holder.innerHTML = rows.map((r) => `
-        <div class="lb-row an ${r.user_id === currentUserId ? 'me' : ''}">
-          <div class="lb-rank ${medal(r.rank)}">${r.rank <= 3 ? '🏅' : r.rank}</div>
-          <div class="lb-av">${App.ui.initials(r.name)}</div>
-          <div class="lb-info"><h4>${App.ui.escapeHtml(r.name)}</h4><p>${r.country_flag || ''} ${App.ui.escapeHtml(r.country_name_ar || '')}</p></div>
-          <div class="lb-points">${r.points_total}</div>
-        </div>`).join('');
-      if (me && !rows.find((r) => r.user_id === me.user_id)) {
-        const myRank = scope === 'country' ? me.rank_in_country : me.rank_global;
-        holder.innerHTML += `<div class="lb-row me an"><div class="lb-rank">${myRank}</div><div class="lb-av">${App.ui.initials(me.name)}</div><div class="lb-info"><h4>${App.ui.escapeHtml(me.name)} (أنت)</h4></div><div class="lb-points">${me.points_total}</div></div>`;
-      }
-    } catch (err) { holder.innerHTML = App.ui.emptyStateHtml('fa-triangle-exclamation', 'تعذّر تحميل لوحة المتصدرين', err.message); }
-  }
-  tabs.forEach((tab) => tab.addEventListener('click', () => { tabs.forEach((t) => t.classList.remove('active')); tab.classList.add('active'); load(tab.dataset.scope); }));
-  load('global');
+  try {
+    const { leaderboard: rows, me } = await App.api.getLeaderboard('global');
+    if (!rows.length) {
+      podiumHolder.innerHTML = '';
+      holder.innerHTML = App.ui.emptyStateHtml('fa-users', 'لا يوجد طلاب بعد', 'كن أول المتصدرين!');
+      return;
+    }
+    const currentUserId = user.id;
+    const top3 = rows.slice(0, 3);
+    const slotClass = ['first', 'second', 'third'];
+    const medal = ['🥇', '🥈', '🥉'];
+    podiumHolder.innerHTML = top3.length ? `<div class="podium an">${top3.map((r, i) => `
+      <div class="podium-slot ${slotClass[i]}">
+        <div class="podium-medal">${medal[i]}</div>
+        <div class="podium-av">${App.ui.initials(r.name)}</div>
+        <div class="podium-name">${App.ui.escapeHtml(r.name)}</div>
+        <div class="podium-points">${r.points_total} نقطة</div>
+      </div>`).join('')}</div>` : '';
+
+    const medalCls = (rank) => (rank === 1 ? 'top1' : rank === 2 ? 'top2' : rank === 3 ? 'top3' : '');
+    holder.innerHTML = rows.map((r) => `
+      <div class="lb-row an ${r.user_id === currentUserId ? 'me' : ''}">
+        <div class="lb-rank ${medalCls(r.rank)}">${r.rank <= 3 ? '🏅' : r.rank}</div>
+        <div class="lb-av">${App.ui.initials(r.name)}</div>
+        <div class="lb-info"><h4>${App.ui.escapeHtml(r.name)}</h4><p>${r.country_flag || ''} ${App.ui.escapeHtml(r.country_name_ar || '')}</p></div>
+        <div class="lb-points">${r.points_total}</div>
+      </div>`).join('');
+    if (me && !rows.find((r) => r.user_id === me.user_id)) {
+      holder.innerHTML += `<div class="lb-row me an"><div class="lb-rank">${me.rank_global}</div><div class="lb-av">${App.ui.initials(me.name)}</div><div class="lb-info"><h4>${App.ui.escapeHtml(me.name)} (أنت)</h4></div><div class="lb-points">${me.points_total}</div></div>`;
+    }
+  } catch (err) { holder.innerHTML = App.ui.emptyStateHtml('fa-triangle-exclamation', 'تعذّر تحميل لوحة المتصدرين', err.message); }
 };
 
 // يبني نموذج إعدادات الذكاء الاصطناعي (DeepSeek/متوافق + YouTube) داخل أي
@@ -3558,11 +3646,12 @@ App.views.account = async function account() {
   view.innerHTML = `
     <div class="an">
       <div class="page-title"><i class="fas fa-user" style="color:var(--cyan)"></i> حسابي</div>
-      <div class="profile-card" style="margin-top:10px">
-        <div class="profile-row"><div class="profile-av">${App.ui.initials(user.name)}</div><div class="profile-info"><h2>${App.ui.escapeHtml(user.name)}</h2><p>${App.ui.escapeHtml(user.email)}</p></div></div>
-        <div class="profile-stats">
-          <div class="profile-stat"><b>${user.pointsTotal || 0}</b><span>مجموع النقاط</span></div>
-          <div class="profile-stat"><b>${isAdmin ? 'أدمن' : 'طالب'}</b><span>نوع الحساب</span></div>
+      <div class="card" style="margin-top:10px">
+        <div class="profile-row"><div class="profile-av" style="background:var(--gradient-primary);color:#04231c">${App.ui.initials(user.name)}</div><div class="profile-info"><h2 style="color:var(--text)">${App.ui.escapeHtml(user.name)}</h2><p style="color:var(--muted)">${App.ui.escapeHtml(user.email)}</p></div></div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:14px">
+          <span class="chip chip-done"><i class="fas fa-star"></i> ${user.pointsTotal || 0} نقطة</span>
+          <span class="chip"><i class="fas fa-user-shield"></i> ${isAdmin ? 'أدمن' : 'طالب'}</span>
+          <span class="chip"><i class="fas fa-language"></i> العربية</span>
         </div>
       </div>
 
@@ -3598,26 +3687,69 @@ App.views.account = async function account() {
   }
 };
 
+// صفحة إشعارات مستقلة (بدل قائمة صغيرة منسدلة): تعرض أحداث نقاطك الأخيرة،
+// مع زر حذف لكل إشعار وزر لمسح الكل. الحذف محلي فقط (لا يمسّ سجل نقاطك
+// الفعلي في صفحة "المتصدرون ونقاطي"، فقط يخفي العنصر من قائمة الإشعارات).
+App.views.notifications = async function notifications() {
+  const view = document.getElementById('view');
+  view.innerHTML = `
+    <div class="an">
+      <div class="page-title"><i class="fas fa-bell" style="color:var(--cyan)"></i> الإشعارات</div>
+      <div style="display:flex;justify-content:flex-end;margin-bottom:10px">
+        <button class="btn btn-outline btn-sm" id="clearAllNotifBtn"><i class="fas fa-trash"></i> مسح الكل</button>
+      </div>
+      <div id="notifListPage">${App.ui.loadingHtml()}</div>
+    </div>
+  `;
+  App.state.markNotifSeen();
+  const holder = document.getElementById('notifListPage');
+  let items = [];
+  try {
+    const { history } = await App.api.getMyPoints();
+    const dismissed = new Set(App.state.getDismissedNotifIds());
+    items = history.filter((h) => !dismissed.has(h.id));
+  } catch (err) { holder.innerHTML = App.ui.emptyStateHtml('fa-triangle-exclamation', 'تعذّر تحميل الإشعارات', err.message); return; }
+
+  function render() {
+    holder.innerHTML = items.length
+      ? items.map((h) => `
+        <div class="notif-row an" data-id="${h.id}">
+          <div class="list-ico ${h.points > 0 ? '' : 'done'}"><i class="fas ${h.points > 0 ? 'fa-plus' : 'fa-minus'}"></i></div>
+          <div class="list-body"><h4>${App.ui.escapeHtml(App.config.POINTS_LABELS[h.reason] || h.reason)}</h4><p>${App.ui.formatDate(h.created_at)}</p></div>
+          <span class="chip ${h.points > 0 ? 'chip-done' : ''}">${h.points > 0 ? '+' : ''}${h.points}</span>
+          <button class="notif-del" data-del="${h.id}" title="حذف"><i class="fas fa-xmark"></i></button>
+        </div>`).join('')
+      : '<div class="notif-empty">لا توجد إشعارات</div>';
+    holder.querySelectorAll('[data-del]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const id = Number(btn.dataset.del);
+        App.state.dismissNotifId(id);
+        items = items.filter((h) => h.id !== id);
+        render();
+      });
+    });
+  }
+  render();
+  document.getElementById('clearAllNotifBtn').addEventListener('click', () => {
+    const allIds = [...App.state.getDismissedNotifIds(), ...items.map((h) => h.id)];
+    App.state.dismissAllNotifIds(allIds);
+    items = [];
+    render();
+  });
+};
+
 App.main = (function () {
-  async function loadNotifications(markSeen) {
-    const list = document.getElementById('notifList');
+  // يحدّث نقطة التنبيه الحمراء فقط (القائمة الكاملة أصبحت صفحة مستقلة #/notifications)
+  async function refreshNotifDot() {
     const dot = document.getElementById('notifDot');
+    if (!dot) return;
     try {
       const { history } = await App.api.getMyPoints();
+      const dismissed = new Set(App.state.getDismissedNotifIds());
+      const visible = history.filter((h) => !dismissed.has(h.id));
       const toTime = (s) => new Date(String(s).replace(' ', 'T') + 'Z').getTime();
       const seenAt = new Date(App.state.getNotifSeenAt()).getTime();
-      if (dot) dot.hidden = !history.some((h) => toTime(h.created_at) > seenAt);
-      if (list) {
-        list.innerHTML = history.length
-          ? history.slice(0, 20).map((h) => `
-            <div class="list-row" style="cursor:default">
-              <div class="list-ico ${h.points > 0 ? '' : 'done'}"><i class="fas ${h.points > 0 ? 'fa-plus' : 'fa-minus'}"></i></div>
-              <div class="list-body"><h4>${App.ui.escapeHtml(App.config.POINTS_LABELS[h.reason] || h.reason)}</h4><p>${App.ui.formatDate(h.created_at)}</p></div>
-              <span class="chip ${h.points > 0 ? 'chip-done' : ''}">${h.points > 0 ? '+' : ''}${h.points}</span>
-            </div>`).join('')
-          : '<div class="notif-empty">لا توجد إشعارات بعد</div>';
-      }
-      if (markSeen) { App.state.markNotifSeen(); if (dot) dot.hidden = true; }
+      dot.hidden = !visible.some((h) => toTime(h.created_at) > seenAt);
     } catch (err) { /* الإشعارات ليست حرجة؛ فشل جلبها لا يجب أن يعطّل الواجهة */ }
   }
   function refreshHeader() {
@@ -3627,7 +3759,7 @@ App.main = (function () {
     if (user) {
       bottomNav.hidden = false;
       hdrRight.hidden = false;
-      loadNotifications(false);
+      refreshNotifDot();
     } else {
       bottomNav.hidden = true;
       hdrRight.hidden = true;
@@ -3650,21 +3782,8 @@ App.main = (function () {
     document.getElementById('logoutSheet').classList.remove('open');
   }
   function wireStaticHeader() {
-    document.querySelectorAll('#bottomNav [data-nav]').forEach((el) => {
+    document.querySelectorAll('#bottomNav [data-nav], #notifBtn[data-nav]').forEach((el) => {
       el.addEventListener('click', () => { location.hash = el.dataset.nav; });
-    });
-    document.getElementById('notifBtn').addEventListener('click', (e) => {
-      e.stopPropagation();
-      const panel = document.getElementById('notifPanel');
-      const willOpen = !panel.classList.contains('open');
-      panel.classList.toggle('open');
-      if (willOpen) loadNotifications(true);
-    });
-    document.addEventListener('click', (e) => {
-      const panel = document.getElementById('notifPanel');
-      if (panel && !panel.contains(e.target) && e.target.id !== 'notifBtn' && !document.getElementById('notifBtn').contains(e.target)) {
-        panel.classList.remove('open');
-      }
     });
     document.getElementById('sheetOverlay').addEventListener('click', closeLogoutSheet);
     document.getElementById('cancelLogoutBtn').addEventListener('click', closeLogoutSheet);
@@ -3687,6 +3806,7 @@ App.main = (function () {
     App.router.register('/tutor/:lectureId', App.views.tutorPage, { requiresAuth: true });
     App.router.register('/leaderboard', App.views.leaderboard, { requiresAuth: true });
     App.router.register('/account', App.views.account, { requiresAuth: true });
+    App.router.register('/notifications', App.views.notifications, { requiresAuth: true });
   }
   async function init() {
     wireStaticHeader(); refreshHeader(); registerRoutes(); App.router.start();
