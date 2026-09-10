@@ -1,0 +1,870 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<title>FastCrand — شركة برمجيات</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
+<style>
+/* === MOBILE STYLES === */
+*{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html{touch-action:manipulation;-ms-touch-action:manipulation;scroll-behavior:smooth}
+:root{--bg:#f8f6f3;--card:#ffffff;--text:#1a1a2e;--muted:#6b7280;--blue:#00e6bb;--cyan:#00c4a0;--gold:#00e6bb;--pink:#00e6bb;--shadow:0 1px 2px rgba(0,230,187,0.08),0 6px 18px rgba(0,230,187,0.06);--safe-b:env(safe-area-inset-bottom,0px);--border:rgba(0,230,187,0.08);--hover-bg:rgba(0,230,187,0.05);--gradient-primary:linear-gradient(135deg,#00e6bb,#00c4a0);--gradient-secondary:linear-gradient(135deg,#00e6bb,#00a080)}
+[data-theme="dark"]{--bg:#0d0d0d;--card:#1a1a1a;--text:#f0e6d8;--muted:#a09080;--blue:#00ffcc;--cyan:#00e6bb;--gold:#00ffcc;--pink:#00ffcc;--shadow:0 1px 2px rgba(0,0,0,0.5),0 6px 20px rgba(0,0,0,0.6);--border:rgba(0,230,187,0.08);--hover-bg:rgba(0,230,187,0.05);--gradient-primary:linear-gradient(135deg,#00ffcc,#00e6bb);--gradient-secondary:linear-gradient(135deg,#00ffcc,#00ccaa)}
+body{font-family:'IBM Plex Sans Arabic',sans-serif;background:var(--bg);color:var(--text);width:100%;max-width:100%;margin:0;padding:0 0 20px 0;min-height:100vh;min-height:100dvh;overflow-x:hidden;position:relative;-webkit-text-size-adjust:100%;-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility;transition:background 0.3s,color 0.3s;scrollbar-width:none;-ms-overflow-style:none;animation:pageIn 0.5s ease both}
+@keyframes pageIn{from{opacity:0}to{opacity:1}}
+body::-webkit-scrollbar{display:none}
+::selection{background:var(--blue);color:#fff}
+.bg-orb{position:fixed;border-radius:50%;filter:blur(80px);pointer-events:none;z-index:0}
+.bo1{width:300px;height:300px;background:rgba(0,230,187,0.07);top:-100px;right:-80px}
+.bo2{width:200px;height:200px;background:rgba(0,196,160,0.05);bottom:20%;left:-60px}
+[data-theme="dark"] .bo1{background:rgba(0,255,204,0.10)}
+[data-theme="dark"] .bo2{background:rgba(0,230,187,0.08)}
+.z1{position:relative;z-index:1;width:100%;max-width:460px;margin:0 auto}
+.st{height:env(safe-area-inset-top,20px);min-height:20px}
+.hdr{display:flex;align-items:center;justify-content:space-between;padding:10px 16px;position:relative;z-index:100}
+.hdr .logo{font-size:1rem;font-weight:900;letter-spacing:0.5px;background:var(--gradient-primary);-webkit-background-clip:text;-webkit-text-fill-color:transparent;font-family:'IBM Plex Sans Arabic',sans-serif}
+.hdr-right{display:flex;align-items:center;gap:8px}
+.m-theme-btn{width:34px;height:34px;border-radius:50%;background:var(--card);box-shadow:var(--shadow);border:none;cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:0.85rem;color:var(--text);transition:transform 0.15s cubic-bezier(.4,0,.2,1),box-shadow 0.2s;flex-shrink:0;font-family:'IBM Plex Sans Arabic',sans-serif}
+.m-theme-btn:active{transform:scale(0.86) rotate(-8deg);box-shadow:0 1px 6px rgba(0,0,0,0.08)}
+.m-theme-btn .sun{display:none}
+.m-theme-btn .moon{display:inline}
+[data-theme="dark"] .m-theme-btn .sun{display:inline;color:var(--gold)}
+[data-theme="dark"] .m-theme-btn .moon{display:none}
+.lang-btn{display:flex;align-items:center;gap:6px;padding:6px 14px;border-radius:100px;background:var(--card);box-shadow:var(--shadow);border:none;cursor:pointer;font-family:'IBM Plex Sans Arabic',sans-serif;font-size:0.72rem;font-weight:700;color:var(--text);transition:transform 0.15s cubic-bezier(.4,0,.2,1),box-shadow 0.2s}
+.lang-btn:active{transform:scale(0.93)}
+.lang-dropdown{position:absolute;top:100%;left:0;right:auto;margin-top:6px;background:var(--card);border-radius:14px;box-shadow:0 8px 32px rgba(0,0,0,0.12);overflow:hidden;z-index:200;opacity:0;transform:translateY(-8px) scale(0.95);pointer-events:none;transition:all 0.2s;min-width:160px}
+[dir="rtl"] .lang-dropdown{left:auto;right:0}
+.lang-dropdown.open{opacity:1;transform:translateY(0) scale(1);pointer-events:auto}
+.lang-opt{display:flex;align-items:center;gap:10px;padding:11px 16px;font-size:0.75rem;font-weight:600;cursor:pointer;transition:background 0.15s,transform 0.15s cubic-bezier(.4,0,.2,1);border:none;background:none;width:100%;font-family:'IBM Plex Sans Arabic',sans-serif;color:var(--text)}
+.lang-opt:hover{background:rgba(0,230,187,0.06)}
+.lang-opt:active{background:rgba(0,230,187,0.1);transform:scale(0.96)}
+.lang-opt .flag{font-size:1.1rem}
+.lang-opt.active{color:var(--blue)}
+.lang-opt.active::after{content:'✓';margin-right:auto;margin-left:0;color:var(--blue);font-weight:800;font-size:0.7rem}
+[dir="ltr"] .lang-opt.active::after{margin-left:auto;margin-right:0}
+.lang-wrap{position:relative;z-index:200}
+.prof{margin:8px 16px 16px;border-radius:22px;padding:24px 18px;background:var(--gradient-primary);position:relative;overflow:hidden;color:#fff;box-shadow:0 8px 28px rgba(0,230,187,0.25);transition:background 0.3s,box-shadow 0.3s,color 0.3s}
+.prof::before{content:'';position:absolute;top:0;right:0;width:200px;height:200px;background:radial-gradient(circle,rgba(255,255,255,0.1),transparent);pointer-events:none}
+.prof::after{content:'';position:absolute;bottom:-30px;left:-30px;width:120px;height:120px;border-radius:50%;background:rgba(255,255,255,0.06)}
+[data-theme="dark"] .prof{background:var(--card);color:var(--text);box-shadow:var(--shadow)}
+[data-theme="dark"] .prof::before,[data-theme="dark"] .prof::after{display:none}
+[data-theme="dark"] .p-av{background:var(--gradient-primary);border-color:rgba(0,255,204,0.3);backdrop-filter:none}
+[data-theme="dark"] .p-info p{color:var(--muted);opacity:1}
+.p-row{display:flex;align-items:center;gap:14px;position:relative;z-index:1}
+.p-av{width:62px;height:62px;border-radius:20px;background:rgba(255,255,255,0.2);backdrop-filter:blur(10px);display:flex;align-items:center;justify-content:center;flex-shrink:0;border:2px solid rgba(255,255,255,0.3);overflow:hidden;padding:0;position:relative;box-shadow:0 0 0 4px rgba(255,255,255,0.12),0 8px 20px rgba(0,0,0,0.18)}
+[data-theme="dark"] .p-av{box-shadow:0 0 0 4px rgba(0,255,204,0.15),0 8px 20px rgba(0,0,0,0.3)}
+.p-av img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;display:block}
+.p-av i{font-size:1.5rem;color:#fff}
+.p-info h2{font-size:1.05rem;font-weight:800;letter-spacing:-0.2px;margin-bottom:2px;font-family:'IBM Plex Sans Arabic',sans-serif}
+.p-info p{font-size:0.68rem;opacity:0.9;font-family:'IBM Plex Sans Arabic',sans-serif}
+.p-info .online{display:inline-flex;align-items:center;gap:4px;font-size:0.58rem;color:#b8ffb8;margin-top:4px;font-family:'IBM Plex Sans Arabic',sans-serif}
+.p-info .online .dot{width:5px;height:5px;border-radius:50%;background:#80ff80;animation:blink 2s infinite}
+@keyframes blink{0%,100%{opacity:1}50%{opacity:0.3}}
+.shimmer{position:relative;overflow:hidden}
+.shimmer::after{content:'';position:absolute;top:0;left:-100%;width:60%;height:100%;background:linear-gradient(90deg,transparent,rgba(0,230,187,0.05),rgba(255,255,255,0.35),rgba(0,230,187,0.05),transparent);pointer-events:none;z-index:2;opacity:0}
+[data-theme="dark"] .shimmer::after{background:linear-gradient(90deg,transparent,rgba(240,230,216,0.04),rgba(240,230,216,0.12),rgba(240,230,216,0.04),transparent)}
+.shimmer.shimmer-go::after{opacity:1;animation:shimmer 1s ease-in-out forwards;animation-delay:var(--sd,0s)}
+@keyframes shimmer{0%{left:-100%}100%{left:150%}}
+.prof.shimmer::after{background:linear-gradient(90deg,transparent,rgba(255,255,255,0.08),rgba(255,255,255,0.25),rgba(255,255,255,0.08),transparent)}
+.sec{margin-bottom:20px}
+.sh{display:flex;align-items:center;justify-content:space-between;padding:0 16px;margin-bottom:10px}
+.sh h3{font-size:0.85rem;font-weight:800;display:flex;align-items:center;gap:8px;letter-spacing:0.1px;font-family:'IBM Plex Sans Arabic',sans-serif}
+.sh h3 i{width:24px;height:24px;display:inline-flex;align-items:center;justify-content:center;background:var(--hover-bg);border-radius:8px;font-size:0.78em;flex-shrink:0}
+.sh .al{font-size:0.65rem;color:var(--blue);font-weight:600;font-family:'IBM Plex Sans Arabic',sans-serif}
+.abt{margin:0 16px;background:var(--card);border-radius:18px;padding:16px;font-size:0.8rem;line-height:1.9;color:var(--muted);box-shadow:var(--shadow);font-family:'IBM Plex Sans Arabic',sans-serif}
+.wks{padding:0 16px}
+.wk{display:flex;gap:12px;align-items:center;background:var(--card);border-radius:16px;padding:12px;margin-bottom:8px;box-shadow:var(--shadow);transition:transform 0.15s cubic-bezier(.4,0,.2,1),box-shadow 0.2s;cursor:pointer;font-family:'IBM Plex Sans Arabic',sans-serif}
+.wk:active{transform:scale(0.96);box-shadow:0 1px 6px rgba(0,0,0,0.06)}
+.wk-i{width:44px;height:44px;border-radius:14px;display:flex;align-items:center;justify-content:center;font-size:1rem;color:#fff;flex-shrink:0}
+.wk-t{flex:1;min-width:0}
+.wk-t h4{font-size:0.8rem;font-weight:700;margin-bottom:1px;font-family:'IBM Plex Sans Arabic',sans-serif}
+.wk-t p{font-size:0.65rem;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-family:'IBM Plex Sans Arabic',sans-serif}
+.wk .st-b{padding:3px 8px;border-radius:6px;font-size:0.5rem;font-weight:700;flex-shrink:0;font-family:'IBM Plex Sans Arabic',sans-serif}
+.st-on{background:linear-gradient(135deg,rgba(0,196,160,0.18),rgba(0,196,160,0.05));color:var(--cyan);border:1px solid rgba(0,196,160,0.2);box-shadow:0 0 8px rgba(0,196,160,0.15)}
+.st-dv{background:linear-gradient(135deg,rgba(0,230,187,0.18),rgba(0,230,187,0.05));color:var(--gold);border:1px solid rgba(0,230,187,0.2)}
+.wk .cv{color:#d0d4e0;font-size:0.6rem;flex-shrink:0}
+[data-theme="dark"] .wk .cv{color:var(--muted);opacity:0.5}
+.art-list{padding:0 16px}
+.b-art{background:var(--card);border-radius:18px;padding:16px;margin-bottom:10px;box-shadow:var(--shadow);position:relative;overflow:hidden;cursor:pointer;transition:transform 0.15s cubic-bezier(.4,0,.2,1),box-shadow 0.2s;font-family:'IBM Plex Sans Arabic',sans-serif}
+.b-art:active{transform:scale(0.97);box-shadow:0 1px 6px rgba(0,0,0,0.06)}
+.b-art-top{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px}
+.b-art-badge{font-size:0.55rem;padding:4px 10px;border-radius:8px;font-weight:700;font-family:'IBM Plex Sans Arabic',sans-serif}
+.bb-bl{background:linear-gradient(135deg,rgba(0,230,187,0.16),rgba(0,230,187,0.04));color:var(--blue);border:1px solid rgba(0,230,187,0.18)}.bb-pk{background:linear-gradient(135deg,rgba(0,230,187,0.16),rgba(0,230,187,0.04));color:var(--pink);border:1px solid rgba(0,230,187,0.18)}.bb-cn{background:linear-gradient(135deg,rgba(0,196,160,0.16),rgba(0,196,160,0.04));color:var(--cyan);border:1px solid rgba(0,196,160,0.18)}
+.b-art-date{font-size:0.58rem;color:var(--muted);display:flex;align-items:center;gap:4px;font-family:'IBM Plex Sans Arabic',sans-serif}
+.b-art h4{font-size:0.85rem;font-weight:700;margin-bottom:6px;line-height:1.5;font-family:'IBM Plex Sans Arabic',sans-serif}
+.b-art p{font-size:0.72rem;color:var(--muted);line-height:1.6;font-family:'IBM Plex Sans Arabic',sans-serif}
+.b-art-footer{display:flex;align-items:center;justify-content:space-between;margin-top:12px;padding-top:10px;border-top:1px solid rgba(0,0,0,0.04)}
+[data-theme="dark"] .b-art-footer{border-top-color:var(--border)}
+.b-art-read{font-size:0.65rem;color:var(--blue);font-weight:700;display:flex;align-items:center;gap:4px;font-family:'IBM Plex Sans Arabic',sans-serif}
+.b-art-time{font-size:0.55rem;color:var(--muted);display:flex;align-items:center;gap:3px;font-family:'IBM Plex Sans Arabic',sans-serif}
+.sk-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;padding:0 16px}
+.sk-card{background:var(--card);border-radius:14px;padding:12px;box-shadow:var(--shadow);display:flex;align-items:center;gap:10px;font-family:'IBM Plex Sans Arabic',sans-serif}
+.sk-ico{width:38px;height:38px;border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:0.9rem;color:#fff;flex-shrink:0}
+.sk-info{flex:1;min-width:0}
+.sk-info .sk-name{font-size:0.72rem;font-weight:700;margin-bottom:4px;font-family:'IBM Plex Sans Arabic',sans-serif}
+.sk-bar{height:3px;background:rgba(0,0,0,0.06);border-radius:3px;overflow:hidden}
+[data-theme="dark"] .sk-bar{background:rgba(240,230,216,0.08)}
+.sk-fill{height:100%;border-radius:3px;background:var(--gradient-primary);box-shadow:0 0 8px rgba(0,230,187,0.5)}
+.ct-card{margin:0 16px;background:var(--card);border-radius:18px;box-shadow:var(--shadow);padding:14px 16px;display:flex;align-items:center;justify-content:center;gap:10px;transition:background 0.3s}
+.ct-icons{display:flex;gap:10px;justify-content:center;flex-wrap:wrap}
+.ct-btn{width:auto;padding:10px 24px;border-radius:12px;background:var(--gradient-primary);display:flex;align-items:center;justify-content:center;gap:8px;font-size:0.85rem;color:#fff;text-decoration:none;font-weight:700;transition:transform 0.15s cubic-bezier(.4,0,.2,1),box-shadow 0.2s;box-shadow:0 4px 14px rgba(0,230,187,0.25);border:none;cursor:pointer;font-family:'IBM Plex Sans Arabic',sans-serif}
+.ct-btn:active{transform:scale(0.88);box-shadow:0 4px 14px rgba(0,230,187,0.15)}
+.ct-btn i{font-size:1rem}
+.ct-btn-whatsapp{background:#25D366;box-shadow:0 4px 14px rgba(37,211,102,0.3)}
+.ct-btn-whatsapp:active{box-shadow:0 4px 14px rgba(37,211,102,0.15)}
+.ct-btn-outline{background:transparent;border:2px solid var(--blue);color:var(--blue);box-shadow:none}
+.ct-btn-outline:active{background:var(--blue);color:#fff}
+.ct-btn-instagram{background:linear-gradient(135deg,#f09433,#e6683c,#dc2743,#c13584,#833ab4,#5851db);box-shadow:0 4px 14px rgba(225,48,108,0.3);color:#fff}
+.ct-btn-instagram:active{box-shadow:0 4px 14px rgba(225,48,108,0.15)}
+.footer{text-align:center;padding:16px;font-size:0.58rem;color:var(--muted);font-family:'IBM Plex Sans Arabic',sans-serif}
+.color-map-blue{background:var(--gradient-primary)}
+.color-map-pink{background:linear-gradient(135deg,#00e6bb,#00c4a0)}
+.color-map-cyan{background:linear-gradient(135deg,#00c4a0,#00a080)}
+.color-map-gold{background:linear-gradient(135deg,#00e6bb,#00c4a0)}
+.color-map-green{background:linear-gradient(135deg,#22c55e,#16a34a)}
+.color-map-purple{background:linear-gradient(135deg,#8b5cf6,#7c3aed)}
+.loading{text-align:center;padding:40px;color:var(--muted);font-size:0.8rem;font-family:'IBM Plex Sans Arabic',sans-serif}
+@keyframes fadeUp{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:translateY(0)}}
+.an{animation:fadeUp 0.5s cubic-bezier(.22,1,.36,1) both;animation-delay:var(--ad,0s)}
+.tw-cursor::after{content:'';display:inline-block;width:2px;height:0.9em;margin-inline-start:2px;background:currentColor;vertical-align:-0.1em;animation:twBlink 0.8s steps(1) infinite;font-family:'IBM Plex Sans Arabic',sans-serif}
+@keyframes twBlink{0%,49%{opacity:1}50%,100%{opacity:0}}
+.desktop-only{display:none}
+
+/* صفحة التفاصيل */
+.page-overlay{position:fixed;top:0;left:0;right:0;bottom:0;z-index:999;background:var(--bg);padding:20px;overflow-y:auto;display:none}
+.page-overlay.open{display:block}
+.page-overlay .close-btn{position:sticky;top:0;z-index:10;background:var(--bg);padding:10px 0;display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid var(--border)}
+.page-overlay .close-btn button{background:none;border:none;font-size:1.2rem;color:var(--text);cursor:pointer;padding:8px 12px;font-family:'IBM Plex Sans Arabic',sans-serif}
+.page-overlay .close-btn span{font-weight:700;font-size:0.9rem;font-family:'IBM Plex Sans Arabic',sans-serif}
+.page-overlay .page-content{padding:16px 0;max-width:460px;margin:0 auto}
+.page-overlay .page-content h2{font-size:1.2rem;font-weight:800;margin-bottom:12px;color:var(--text);font-family:'IBM Plex Sans Arabic',sans-serif}
+.page-overlay .page-content p{font-size:0.85rem;line-height:1.8;color:var(--muted);font-family:'IBM Plex Sans Arabic',sans-serif}
+.page-overlay .page-content .meta{font-size:0.7rem;color:var(--muted);margin-bottom:16px;display:flex;gap:12px;flex-wrap:wrap;font-family:'IBM Plex Sans Arabic',sans-serif}
+.page-overlay .page-content .article-section{margin:16px 0;padding:14px 16px;background:var(--hover-bg);border-radius:12px;border-right:3px solid var(--blue)}
+.page-overlay .page-content .article-section h4{font-size:0.9rem;font-weight:700;color:var(--text);margin-bottom:6px;font-family:'IBM Plex Sans Arabic',sans-serif}
+.page-overlay .page-content .article-section p{font-size:0.8rem;color:var(--muted);font-family:'IBM Plex Sans Arabic',sans-serif}
+.page-overlay .page-content .article-tags{display:flex;gap:8px;flex-wrap:wrap;margin:12px 0}
+.page-overlay .page-content .article-tags span{padding:4px 12px;border-radius:100px;font-size:0.6rem;font-weight:600;background:var(--hover-bg);color:var(--muted);border:1px solid var(--border);font-family:'IBM Plex Sans Arabic',sans-serif}
+.page-overlay .page-content .article-author{display:flex;align-items:center;gap:10px;padding:12px 0;border-top:1px solid var(--border);margin-top:16px}
+.page-overlay .page-content .article-author .avatar{width:36px;height:36px;border-radius:50%;background:var(--gradient-primary);display:flex;align-items:center;justify-content:center;color:#fff;font-weight:700;font-size:0.7rem;font-family:'IBM Plex Sans Arabic',sans-serif}
+.page-overlay .page-content .article-author .info{font-size:0.75rem;font-family:'IBM Plex Sans Arabic',sans-serif}
+.page-overlay .page-content .article-author .info strong{color:var(--text);font-family:'IBM Plex Sans Arabic',sans-serif}
+.page-overlay .page-content .article-author .info span{color:var(--muted);font-family:'IBM Plex Sans Arabic',sans-serif}
+
+/* صفحة إنستغرام - معطل */
+.instagram-card{text-align:center;background:var(--card);border-radius:20px;padding:40px 24px;box-shadow:var(--shadow);margin-top:12px}
+.instagram-card .ig-logo{font-size:80px;background:linear-gradient(135deg,#f09433,#e6683c,#dc2743,#c13584,#833ab4,#5851db);-webkit-background-clip:text;-webkit-text-fill-color:transparent;display:inline-block;margin-bottom:16px}
+.instagram-card .ig-title{font-size:1.5rem;font-weight:800;color:var(--text);margin-bottom:8px;font-family:'IBM Plex Sans Arabic',sans-serif}
+.instagram-card .ig-status{display:inline-block;padding:6px 20px;border-radius:100px;background:#dc2743;color:#fff;font-weight:700;font-size:0.85rem;margin:12px 0 16px;font-family:'IBM Plex Sans Arabic',sans-serif}
+.instagram-card .ig-message{color:var(--muted);font-size:0.95rem;line-height:1.8;font-family:'IBM Plex Sans Arabic',sans-serif}
+.instagram-card .ig-username{display:inline-block;margin-top:12px;padding:8px 24px;border-radius:12px;background:var(--hover-bg);color:var(--text);font-weight:700;font-size:0.9rem;border:1px solid var(--border);font-family:'IBM Plex Sans Arabic',sans-serif}
+.instagram-card .ig-username i{color:#c13584;margin-inline-end:6px}
+
+/* === DESKTOP STYLES (فوق 1024px فقط) === */
+@media (min-width:1024px){
+  .mobile-only{display:none !important}
+  .desktop-only{display:block}
+  :root{--shadow-hover:0 12px 32px rgba(0,230,187,0.12);--orb1:rgba(0,230,187,0.07);--orb2:rgba(0,196,160,0.05);--orb3:rgba(0,230,187,0.04);--nav-bg:rgba(248,246,243,0.85)}
+  [data-theme="dark"]{--shadow-hover:0 12px 32px rgba(0,255,204,0.15);--orb1:rgba(0,255,204,0.12);--orb2:rgba(0,230,187,0.10);--orb3:rgba(0,255,204,0.08);--nav-bg:rgba(13,13,13,0.95)}
+  body{padding:0;scrollbar-width:none;-ms-overflow-style:none}
+  body::-webkit-scrollbar{display:none}
+  .bo1{width:500px;height:500px;background:var(--orb1);top:-200px;right:-100px}
+  .bo2{width:400px;height:400px;background:var(--orb2);bottom:10%;left:-150px}
+  .bo3{width:300px;height:300px;background:var(--orb3);top:40%;right:30%;display:block}
+  .navbar{position:sticky;top:0;z-index:100;backdrop-filter:blur(20px);background:var(--nav-bg);border-bottom:1px solid var(--border);padding:14px 0;transition:background 0.3s,border 0.3s}
+  .nav-wrap{max-width:1280px;margin:0 auto;padding:0 32px;display:flex;align-items:center;justify-content:space-between;gap:24px}
+  .nav-logo{font-size:1.3rem;font-weight:900;letter-spacing:0.5px;background:var(--gradient-primary);-webkit-background-clip:text;-webkit-text-fill-color:transparent;font-family:'IBM Plex Sans Arabic',sans-serif}
+  .nav-links{display:flex;gap:6px;align-items:center}
+  .nav-link{padding:8px 16px;border-radius:100px;font-size:0.85rem;font-weight:600;color:var(--muted);text-decoration:none;transition:transform 0.15s cubic-bezier(.4,0,.2,1),background 0.2s,color 0.2s,box-shadow 0.2s;cursor:pointer;display:inline-block;font-family:'IBM Plex Sans Arabic',sans-serif}
+  .nav-link:hover{background:var(--card);color:var(--text);box-shadow:var(--shadow)}
+  .nav-link:active{transform:scale(0.93)}
+  .nav-controls{display:flex;align-items:center;gap:10px;position:relative}
+  .d-lang-btn,.theme-btn{display:flex;align-items:center;gap:8px;padding:8px 14px;border-radius:100px;background:var(--card);box-shadow:var(--shadow);border:1px solid transparent;cursor:pointer;font-family:'IBM Plex Sans Arabic',sans-serif;font-size:0.78rem;font-weight:700;color:var(--text);transition:transform 0.15s cubic-bezier(.4,0,.2,1),box-shadow 0.2s,border-color 0.25s}
+  .d-lang-btn:hover,.theme-btn:hover{transform:translateY(-1px);box-shadow:var(--shadow-hover);border-color:rgba(0,230,187,0.25)}
+  .d-lang-btn:active,.theme-btn:active{transform:scale(0.92);box-shadow:var(--shadow)}
+  .theme-btn{width:38px;height:38px;padding:0;justify-content:center;font-size:0.95rem;font-family:'IBM Plex Sans Arabic',sans-serif}
+  .theme-btn .sun{display:none}
+  .theme-btn .moon{display:inline}
+  [data-theme="dark"] .theme-btn .sun{display:inline;color:var(--gold)}
+  [data-theme="dark"] .theme-btn .moon{display:none}
+  .d-lang-wrap{position:relative}
+  .d-lang-dropdown{position:absolute;top:100%;left:0;right:auto;margin-top:8px;background:var(--card);border-radius:14px;box-shadow:0 8px 32px rgba(0,0,0,0.12);overflow:hidden;z-index:200;opacity:0;transform:translateY(-8px) scale(0.95);pointer-events:none;transition:all 0.2s;min-width:170px}
+  [dir="rtl"] .d-lang-dropdown{left:auto;right:0}
+  .d-lang-dropdown.open{opacity:1;transform:translateY(0) scale(1);pointer-events:auto}
+  .d-container{position:relative;z-index:1;max-width:1280px;margin:0 auto;padding:32px;display:grid;grid-template-columns:340px 1fr;gap:32px;align-items:start}
+  .d-sidebar{display:flex;flex-direction:column;gap:20px}
+  .d-prof{padding:0;margin:0;background:none;box-shadow:none;color:inherit}
+  .d-prof::before,.d-prof::after{display:none}
+  .d-pav{width:100%;aspect-ratio:1;border-radius:22px;background:var(--card);border:2px dashed var(--border);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;overflow:hidden;box-shadow:var(--shadow);transition:transform 0.2s cubic-bezier(.4,0,.2,1),border-color 0.25s,background 0.25s;cursor:pointer;backdrop-filter:none;padding:0}
+  .d-pav:hover{border-color:var(--blue);background:var(--hover-bg)}
+  .d-pav:active{transform:scale(0.98)}
+  .d-pav i{font-size:3.5rem;color:var(--muted);opacity:0.5;transition:all 0.25s}
+  .d-pav:hover i{color:var(--blue);opacity:0.7;transform:scale(1.05)}
+  .d-pav .ph-text{font-size:0.78rem;color:var(--muted);font-weight:600;letter-spacing:0.3px;transition:color 0.3s;font-family:'IBM Plex Sans Arabic',sans-serif}
+  .d-pav img{width:100%;height:100%;object-fit:cover}
+  .d-pav.has-img{border-style:solid;border-color:transparent;box-shadow:0 0 0 3px var(--card),0 0 0 6px rgba(0,230,187,0.35),var(--shadow-hover)}
+  .d-pav.has-img i,.d-pav.has-img .ph-text{display:none}
+  .d-name-strip{background:var(--card);border-radius:18px;padding:16px 20px;text-align:center;box-shadow:var(--shadow);transition:background 0.3s}
+  .d-name-strip h2{font-size:1.3rem;font-weight:800;color:var(--text);letter-spacing:-0.3px;transition:color 0.3s;margin:0;font-family:'IBM Plex Sans Arabic',sans-serif}
+  .d-name-strip .role{font-size:0.72rem;color:var(--muted);font-weight:600;margin-top:4px;transition:color 0.3s;font-family:'IBM Plex Sans Arabic',sans-serif}
+  .d-name-strip .online{display:inline-flex;align-items:center;gap:5px;font-size:0.62rem;color:#22c55e;background:rgba(34,197,94,0.1);padding:3px 10px;border-radius:100px;margin-top:8px;font-weight:700;font-family:'IBM Plex Sans Arabic',sans-serif}
+  .d-name-strip .online .dot{width:5px;height:5px;border-radius:50%;background:#22c55e;animation:blink 2s infinite}
+  .d-side-card{background:var(--card);border-radius:18px;padding:18px;box-shadow:var(--shadow);transition:background 0.3s,box-shadow 0.3s}
+  .d-side-title{display:flex;align-items:center;gap:10px;font-size:0.85rem;font-weight:700;margin-bottom:14px;color:var(--text);transition:color 0.3s;font-family:'IBM Plex Sans Arabic',sans-serif}
+  .d-side-title i{width:28px;height:28px;display:inline-flex;align-items:center;justify-content:center;background:var(--hover-bg);border-radius:9px;font-size:0.85em;flex-shrink:0}
+  .d-sk-list{display:flex;flex-direction:column;gap:12px}
+  .d-sk-row{display:flex;align-items:center;gap:10px}
+  .d-sk-ico{width:36px;height:36px;border-radius:10px;display:flex;align-items:center;justify-content:center;color:#fff;font-size:0.95rem;flex-shrink:0}
+  .d-sk-meta{flex:1;min-width:0}
+  .d-sk-name{font-size:0.78rem;font-weight:700;display:flex;justify-content:space-between;margin-bottom:4px;color:var(--text);transition:color 0.3s;font-family:'IBM Plex Sans Arabic',sans-serif}
+  .d-sk-name span{color:var(--muted);font-weight:600;font-size:0.7rem;transition:color 0.3s;font-family:'IBM Plex Sans Arabic',sans-serif}
+  .d-sk-bar{height:4px;background:var(--hover-bg);border-radius:100px;overflow:hidden}
+  .d-sk-fill{height:100%;background:var(--gradient-primary);border-radius:100px;transition:width 1s;box-shadow:0 0 10px rgba(0,230,187,0.5)}
+  .d-main{display:flex;flex-direction:column;gap:32px}
+  .d-main>section{scroll-margin-top:90px}
+  .d-sec-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:16px}
+  .d-sec-head h3{font-size:1.05rem;font-weight:800;display:flex;align-items:center;gap:10px;color:var(--text);transition:color 0.3s;font-family:'IBM Plex Sans Arabic',sans-serif}
+  .d-sec-head h3 i{width:32px;height:32px;display:inline-flex;align-items:center;justify-content:center;background:var(--hover-bg);border-radius:10px;font-size:0.85em;flex-shrink:0}
+  .d-sec-head .all{font-size:0.78rem;color:var(--blue);font-weight:700;cursor:pointer;text-decoration:none;display:inline-block;transition:transform 0.15s cubic-bezier(.4,0,.2,1);font-family:'IBM Plex Sans Arabic',sans-serif}
+  .d-sec-head .all:hover{text-decoration:underline}
+  .d-sec-head .all:active{transform:scale(0.92)}
+  .d-abt{background:var(--card);border-radius:20px;padding:24px;font-size:0.92rem;line-height:1.95;color:var(--muted);box-shadow:var(--shadow);transition:background 0.3s,color 0.3s;margin:0;font-family:'IBM Plex Sans Arabic',sans-serif}
+  .d-wks-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+  .d-wk{display:flex;gap:14px;align-items:center;background:var(--card);border-radius:18px;padding:18px;box-shadow:var(--shadow);transition:transform 0.2s cubic-bezier(.4,0,.2,1),box-shadow 0.25s,border-color 0.25s;cursor:pointer;border:1px solid transparent;margin:0;font-family:'IBM Plex Sans Arabic',sans-serif}
+  .d-wk:hover{transform:translateY(-3px);box-shadow:var(--shadow-hover);border-color:rgba(0,230,187,0.15)}
+  .d-wk:active{transform:translateY(-1px) scale(0.98);box-shadow:var(--shadow)}
+  .d-wk-i{width:54px;height:54px;border-radius:16px;display:flex;align-items:center;justify-content:center;font-size:1.25rem;color:#fff;flex-shrink:0}
+  .d-wk-t{flex:1;min-width:0}
+  .d-wk-t h4{font-size:0.92rem;font-weight:700;margin-bottom:3px;color:var(--text);transition:color 0.3s;font-family:'IBM Plex Sans Arabic',sans-serif}
+  .d-wk-t p{font-size:0.72rem;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;transition:color 0.3s;font-family:'IBM Plex Sans Arabic',sans-serif}
+  .d-st-b{padding:4px 10px;border-radius:6px;font-size:0.55rem;font-weight:700;flex-shrink:0;font-family:'IBM Plex Sans Arabic',sans-serif}
+  .d-cv{color:var(--muted);font-size:0.7rem;flex-shrink:0;opacity:0.5}
+  .d-art-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+  .d-bart{background:var(--card);border-radius:20px;padding:22px;box-shadow:var(--shadow);cursor:pointer;transition:transform 0.2s cubic-bezier(.4,0,.2,1),box-shadow 0.25s,border-color 0.25s;border:1px solid transparent;margin:0;overflow:visible;font-family:'IBM Plex Sans Arabic',sans-serif}
+  .d-bart:hover{transform:translateY(-3px);box-shadow:var(--shadow-hover);border-color:rgba(0,230,187,0.15)}
+  .d-bart:active{transform:translateY(-1px) scale(0.98);box-shadow:var(--shadow)}
+  .d-bart-top{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px}
+  .d-bart-badge{font-size:0.6rem;padding:5px 12px;border-radius:8px;font-weight:700;display:inline-flex;align-items:center;gap:4px;font-family:'IBM Plex Sans Arabic',sans-serif}
+  .d-bart-date{font-size:0.65rem;color:var(--muted);display:flex;align-items:center;gap:5px;transition:color 0.3s;font-family:'IBM Plex Sans Arabic',sans-serif}
+  .d-bart h4{font-size:0.95rem;font-weight:700;margin-bottom:8px;line-height:1.5;color:var(--text);transition:color 0.3s;font-family:'IBM Plex Sans Arabic',sans-serif}
+  .d-bart p{font-size:0.78rem;color:var(--muted);line-height:1.7;transition:color 0.3s;font-family:'IBM Plex Sans Arabic',sans-serif}
+  .d-bart-footer{display:flex;align-items:center;justify-content:space-between;margin-top:14px;padding-top:12px;border-top:1px solid var(--border);transition:border 0.3s}
+  .d-bart-read{font-size:0.7rem;color:var(--blue);font-weight:700;display:flex;align-items:center;gap:5px;font-family:'IBM Plex Sans Arabic',sans-serif}
+  .d-bart-time{font-size:0.6rem;color:var(--muted);display:flex;align-items:center;gap:4px;transition:color 0.3s;font-family:'IBM Plex Sans Arabic',sans-serif}
+  .site-footer{margin-top:40px;border-top:1px solid var(--border);background:var(--card);transition:background 0.3s,border 0.3s;position:relative;z-index:1}
+  .footer-wrap{max-width:1280px;margin:0 auto;padding:22px 32px;display:flex;align-items:center;justify-content:space-between;gap:24px;flex-wrap:wrap}
+  .footer-left{display:flex;align-items:center;gap:18px;flex-wrap:wrap}
+  .footer-loc{font-size:0.78rem;color:var(--muted);font-weight:600;display:flex;align-items:center;gap:6px;transition:color 0.3s;font-family:'IBM Plex Sans Arabic',sans-serif}
+  .footer-loc i{color:var(--blue)}
+  .footer-icons{display:flex;gap:8px}
+  .footer-ic{width:auto;padding:8px 20px;border-radius:12px;background:var(--gradient-primary);display:flex;align-items:center;justify-content:center;gap:8px;color:#fff;font-size:0.85rem;font-weight:700;text-decoration:none;transition:transform 0.15s cubic-bezier(.4,0,.2,1),box-shadow 0.2s;box-shadow:0 4px 14px rgba(0,230,187,0.25);border:none;cursor:pointer;font-family:'IBM Plex Sans Arabic',sans-serif}
+  .footer-ic:hover{transform:translateY(-2px);box-shadow:0 6px 18px rgba(0,230,187,0.35)}
+  .footer-ic:active{transform:scale(0.9)}
+  .footer-ic-whatsapp{background:#25D366;box-shadow:0 4px 14px rgba(37,211,102,0.3)}
+  .footer-ic-instagram{background:linear-gradient(135deg,#f09433,#e6683c,#dc2743,#c13584,#833ab4,#5851db);box-shadow:0 4px 14px rgba(225,48,108,0.3)}
+  .footer-right{font-size:0.75rem;color:var(--muted);font-weight:600;letter-spacing:0.3px;transition:color 0.3s;font-family:'IBM Plex Sans Arabic',sans-serif}
+  [data-theme="dark"] .shimmer::after{background:linear-gradient(90deg,transparent,rgba(240,230,216,0.04),rgba(240,230,216,0.12),rgba(240,230,216,0.04),transparent)}
+}
+</style>
+
+    <!-- Open Graph / Facebook -->
+    <meta property="og:type" content="website">
+    <meta property="og:url" content="https://fastcrand.com/">
+    <meta property="og:title" content="FastCrand — شركة برمجيات">
+    <meta property="og:description" content="مجموعة مطورين مواقع وتطبيقات بجميع لغات البرمجة">
+    <meta property="og:image" content="https://fastcrand.com/static/og-default.png">
+    <meta property="og:image:width" content="1200">
+    <meta property="og:image:height" content="630">
+    <meta property="og:image:alt" content="FastCrand">
+    <meta property="og:locale" content="ar_IQ">
+    <meta property="og:site_name" content="FastCrand">
+    <!-- Twitter Card -->
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:title" content="FastCrand — شركة برمجيات">
+    <meta name="twitter:description" content="مجموعة مطورين مواقع وتطبيقات بجميع لغات البرمجة">
+    <meta name="twitter:image" content="https://fastcrand.com/static/og-default.png">
+    <meta name="twitter:image:alt" content="FastCrand">
+    <!-- General Meta -->
+    <meta name="description" content="مجموعة مطورين مواقع وتطبيقات بجميع لغات البرمجة — نقدم حلولاً برمجية متكاملة لعملائنا.">
+    <meta name="author" content="FastCrand">
+    <meta name="robots" content="index, follow, max-image-preview:large">
+    <link rel="canonical" href="https://fastcrand.com/">
+    <link rel="icon" type="image/png" href="https://fastcrand.com/static/og-default.png">
+
+    <!-- Schema.org JSON-LD -->
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@type": "Organization",
+      "name": "FastCrand",
+      "url": "https://fastcrand.com",
+      "image": "https://fastcrand.com/static/og-default.png",
+      "description": "مجموعة مطورين مواقع وتطبيقات بجميع لغات البرمجة",
+      "knowsAbout": ["Python", "JavaScript", "PHP", "HTML", "CSS", "React", "Vue", "Node.js", "Flask", "Django", "Mobile Apps"]
+    }
+    </script>
+</head>
+<body>
+
+<div class="bg-orb bo1"></div>
+<div class="bg-orb bo2"></div>
+<div class="bg-orb bo3" style="display:none"></div>
+
+<!-- ===== OVERLAY: تفاصيل المقال ===== -->
+<div class="page-overlay" id="articleOverlay">
+    <div class="close-btn">
+        <button onclick="closeOverlay('articleOverlay')"><i class="fas fa-arrow-right"></i> <span class="tw-btn-back">رجوع</span></button>
+        <span style="font-weight:700;font-size:0.9rem;" class="tw-overlay-title">📄 تفاصيل المقال</span>
+    </div>
+    <div class="page-content" id="articleDetailContent"></div>
+</div>
+
+<!-- ===== OVERLAY: إنستغرام - معطل ===== -->
+<div class="page-overlay" id="instagramOverlay">
+    <div class="close-btn">
+        <button onclick="closeOverlay('instagramOverlay')"><i class="fas fa-arrow-right"></i> <span class="tw-btn-back">رجوع</span></button>
+        <span style="font-weight:700;font-size:0.9rem;" class="tw-overlay-title">📸 إنستغرام</span>
+    </div>
+    <div class="page-content">
+        <div class="instagram-card">
+            <div class="ig-logo"><i class="fab fa-instagram"></i></div>
+            <h2 class="ig-title">@FastCrand</h2>
+            <div class="ig-status"><i class="fas fa-circle-exclamation"></i> <span class="tw-ig-status">الحساب معطل حالياً</span></div>
+            <p class="ig-message tw-ig-message">
+                نأسف للإزعاج، حسابنا على إنستغرام معطل حالياً بسبب مشكلة تقنية.<br>
+                نعمل على حل المشكلة في أقرب وقت ممكن.<br>
+                يمكنك متابعة آخر مستجداتنا عبر قنوات التواصل الأخرى.
+            </p>
+            <div class="ig-username"><i class="fas fa-user"></i> fastcrand_official</div>
+            <p style="font-size:0.75rem;color:var(--muted);margin-top:16px;font-family:'IBM Plex Sans Arabic',sans-serif;" class="tw-ig-update">🕐 آخر تحديث: <?php echo date('Y-m-d H:i'); ?></p>
+        </div>
+    </div>
+</div>
+
+<!-- ===== MOBILE LAYOUT ===== -->
+<div class="z1 mobile-only">
+  <div class="st"></div>
+  <div class="hdr an">
+    <span class="logo">FastCrand</span>
+    <div class="hdr-right">
+      <div class="lang-wrap">
+        <button class="lang-btn" onclick="toggleDD('m')"><i class="fas fa-language" style="font-size:1.1rem;color:var(--blue)"></i><span id="m-curL">العربية</span><i class="fas fa-chevron-down" style="font-size:0.6rem;color:var(--muted)"></i></button>
+        <div class="lang-dropdown" id="m-ld">
+          <button class="lang-opt active" data-lang="ar" onclick="setL('ar')"><span class="flag">🇮🇶</span> العربية</button>
+          <button class="lang-opt" data-lang="en" onclick="setL('en')"><span class="flag">🇬🇧</span> English</button>
+        </div>
+      </div>
+      <button class="m-theme-btn" onclick="toggleTheme()" title="تبديل الثيم"><i class="fas fa-moon moon"></i><i class="fas fa-sun sun"></i></button>
+    </div>
+  </div>
+  <div id="app"><div class="loading"><i class="fas fa-spinner fa-spin"></i> <span class="tw-loading">جاري التحميل...</span></div></div>
+</div>
+
+<!-- ===== DESKTOP LAYOUT ===== -->
+<div class="desktop-only">
+  <nav class="navbar an">
+    <div class="nav-wrap">
+      <span class="nav-logo">FastCrand</span>
+      <div class="nav-links">
+        <a class="nav-link" href="#d-works" id="d-nl-works">أعمالنا</a>
+        <a class="nav-link" href="#d-about" id="d-nl-about">من نحن</a>
+        <a class="nav-link" href="#d-articles" id="d-nl-articles">مقالاتنا</a>
+        <a class="nav-link" href="#d-footer" id="d-nl-contact">تواصل</a>
+      </div>
+      <div class="nav-controls">
+        <div class="d-lang-wrap">
+          <button class="d-lang-btn" onclick="toggleDD('d')"><i class="fas fa-language" style="color:var(--blue)"></i><span id="d-curL">العربية</span><i class="fas fa-chevron-down" style="font-size:0.6rem;color:var(--muted)"></i></button>
+          <div class="d-lang-dropdown" id="d-ld">
+            <button class="lang-opt active" data-lang="ar" onclick="setL('ar')"><span class="flag">🇮🇶</span> العربية</button>
+            <button class="lang-opt" data-lang="en" onclick="setL('en')"><span class="flag">🇬🇧</span> English</button>
+          </div>
+        </div>
+        <button class="theme-btn" onclick="toggleTheme()" title="تبديل الثيم"><i class="fas fa-moon moon"></i><i class="fas fa-sun sun"></i></button>
+      </div>
+    </div>
+  </nav>
+
+  <div class="d-container">
+    <aside class="d-sidebar">
+      <div class="d-prof an" style="--ad:.1s">
+        <div class="d-pav" id="d-photoFrame"><i class="fas fa-code"></i><span class="ph-text" id="d-photoText">شعار الشركة</span></div>
+      </div>
+      <div class="d-name-strip an" id="d-nameStrip" style="--ad:.18s"><h2 id="d-userName">FastCrand</h2></div>
+      <div id="d-sidebarSkills"></div>
+    </aside>
+    <main class="d-main" id="d-mainContent"><div class="loading"><i class="fas fa-spinner fa-spin"></i> <span class="tw-loading">جاري التحميل...</span></div></main>
+  </div>
+
+  <footer class="site-footer" id="d-footer">
+    <div class="footer-wrap">
+      <div class="footer-left">
+        <span class="footer-loc"><i class="fas fa-location-dot"></i> <span id="d-locText">العراق · البصرة</span></span>
+        <div class="footer-icons" id="d-footerIcons"></div>
+      </div>
+      <div class="footer-right" id="d-copyText">© FastCrand — 2026</div>
+    </div>
+  </footer>
+</div>
+
+<script>
+document.addEventListener('gesturestart',e=>e.preventDefault());
+document.addEventListener('touchmove',e=>{if(e.touches.length>1)e.preventDefault()},{passive:false});
+
+// ===== دوال فتح وإغلاق الصفحات المنبثقة =====
+function openOverlay(id, content){
+    const overlay = document.getElementById(id);
+    if(!overlay) return;
+    if(content){
+        const contentEl = document.getElementById(id === 'articleOverlay' ? 'articleDetailContent' : null);
+        if(contentEl) contentEl.innerHTML = content;
+    }
+    overlay.classList.add('open');
+    document.body.style.overflow = 'hidden';
+}
+
+function closeOverlay(id){
+    const overlay = document.getElementById(id);
+    if(!overlay) return;
+    overlay.classList.remove('open');
+    document.body.style.overflow = '';
+}
+
+function showArticleDetail(title, description, badge, date, readTime, fullContent, author){
+    const L = LANGS[CL];
+    const content = `
+        <h2>${title}</h2>
+        <div class="meta">
+            <span><i class="far fa-calendar"></i> ${date}</span>
+            <span><i class="far fa-clock"></i> ${readTime} ${L.min}</span>
+            <span class="b-art-badge ${BADGE_C[badge] || 'bb-bl'}"><i class="fas fa-star"></i> ${badge}</span>
+        </div>
+
+        <div class="article-section">
+            <h4>${L.intro || '📌 مقدمة'}</h4>
+            <p>${description}</p>
+        </div>
+
+        <div class="article-section">
+            <h4>${L.content_section || '📖 محتوى المقال'}</h4>
+            <p>${fullContent || description + ' — ' + (L.content_extra || 'هذا المقال يغطي جوانب متعددة حول ') + title + (L.content_extra2 || '، ويقدم معلومات قيمة للمطورين والمهتمين بمجال البرمجة وتطوير التطبيقات.')}</p>
+        </div>
+
+        <div class="article-section" style="border-right-color:var(--gold)">
+            <h4>${L.summary || '💡 خلاصة'}</h4>
+            <p>${L.summary_text || 'يعد '}${title} ${L.summary_text2 || 'من المواضيع المهمة في مجال البرمجة، حيث يساعد المطورين على تحسين مهاراتهم وبناء مشاريع أفضل. ننصح بالاطلاع على المصادر الإضافية لتعميق الفهم.'}</p>
+        </div>
+
+        <div class="article-tags">
+            <span>#${L.tag_programming || 'برمجة'}</span>
+            <span>#${L.tag_development || 'تطوير'}</span>
+            <span>#${badge}</span>
+            <span>#${L.tag_tech || 'تقنية'}</span>
+        </div>
+
+        <div class="article-author">
+            <div class="avatar">FC</div>
+            <div class="info">
+                <strong>${author || L.team || 'فريق FastCrand'}</strong><br>
+                <span>${L.published_on || 'نُشر في'} ${date}</span>
+            </div>
+        </div>
+    `;
+    openOverlay('articleOverlay', content);
+}
+
+function showInstagramStatus(){
+    openOverlay('instagramOverlay');
+}
+
+// ===== إغلاق الأوفيرلاي عند الضغط على الخلفية =====
+document.querySelectorAll('.page-overlay').forEach(el => {
+    el.addEventListener('click', function(e){
+        if(e.target === this) closeOverlay(this.id);
+    });
+});
+
+const COLORS={blue:'var(--gradient-primary)',pink:'linear-gradient(135deg,#00e6bb,#00c4a0)',cyan:'linear-gradient(135deg,#00c4a0,#00a080)',gold:'linear-gradient(135deg,#00e6bb,#00c4a0)',green:'linear-gradient(135deg,#22c55e,#16a34a)',purple:'linear-gradient(135deg,#8b5cf6,#7c3aed)'};
+const BADGE_C={blue:'bb-bl',pink:'bb-pk',cyan:'bb-cn',gold:'bb-gold',green:'bb-green',purple:'bb-purple'};
+
+// ===== الترجمة الكاملة مع النصوص العربية الصحيحة =====
+const LANGS = {
+  ar: {
+    dir: 'rtl',
+    label: 'العربية',
+    about: 'من نحن',
+    works: 'أعمالنا',
+    all: 'الكل ←',
+    articles: 'مقالاتنا',
+    skills: 'مهاراتنا',
+    contact: 'تواصل معنا',
+    read: 'اقرأ المزيد',
+    min: 'دقائق قراءة',
+    avail: 'نعمل الآن',
+    loc: 'العراق · البصرة',
+    copy: '© FastCrand — 2026',
+    photo: 'شعار الشركة',
+    loading: 'جاري التحميل...',
+    back: 'رجوع',
+    overlay_title: '📄 تفاصيل المقال',
+    ig_status: 'الحساب معطل حالياً',
+    ig_message: 'نأسف للإزعاج، حسابنا على إنستغرام معطل حالياً بسبب مشكلة تقنية.\nنعمل على حل المشكلة في أقرب وقت ممكن.\nيمكنك متابعة آخر مستجداتنا عبر قنوات التواصل الأخرى.',
+    ig_update: '🕐 آخر تحديث:',
+    intro: '📌 مقدمة',
+    content_section: '📖 محتوى المقال',
+    content_extra: 'هذا المقال يغطي جوانب متعددة حول ',
+    content_extra2: '، ويقدم معلومات قيمة للمطورين والمهتمين بمجال البرمجة وتطوير التطبيقات.',
+    summary: '💡 خلاصة',
+    summary_text: 'يعد ',
+    summary_text2: 'من المواضيع المهمة في مجال البرمجة، حيث يساعد المطورين على تحسين مهاراتهم وبناء مشاريع أفضل. ننصح بالاطلاع على المصادر الإضافية لتعميق الفهم.',
+    tag_programming: 'برمجة',
+    tag_development: 'تطوير',
+    tag_tech: 'تقنية',
+    team: 'فريق FastCrand',
+    published_on: 'نُشر في',
+    whatsapp: 'واتساب',
+    instagram: 'إنستغرام',
+    profile_role: 'مجموعة مطورين مواقع وتطبيقات بجميع لغات البرمجة',
+    profile_about: 'نحن مجموعة من المطورين المحترفين المتخصصين في بناء المواقع والتطبيقات بكافة لغات البرمجة. نقدم حلولاً برمجية متكاملة لعملائنا بجودة عالية وأسعار تنافسية.',
+    works_titles: ['صار', 'بوتي تي في', 'SMM DSM', 'FastCrand', 'الملا', 'Tok Mart'],
+    works_descs: ['منصة بيع VPS واستضافة سحابية', 'نظام إدارة حملات واتساب تلقائية', 'موقع متخصص في بيع خدمات السوشيل ميديا', 'بيع خدمات سوشيل ميديا وشتراكات متنوعة', 'نظام بيع سيراميك وإدارة الطلبات', 'متجر متكامل لبيع المنتجات المنزلية'],
+    articles_titles: ['أفضل ممارسات تطوير الويب 2026', 'دليل اختيار لغة البرمجة المناسبة', 'تصميم تطبيقات الجوال UX'],
+    articles_descs: ['نصائح وإرشادات لتطوير مواقع ويب بجودة عالية.', 'كيف تختار اللغة المناسبة لمشروعك البرمجي.', 'أساسيات تجربة المستخدم في تطبيقات الجوال.'],
+    articles_badges: ['تطوير', 'برمجة', 'تصميم'],
+    articles_full: [
+      'تطوير الويب هو مجال ديناميكي يتطور باستمرار، ويحتاج المطورون إلى مواكبة أحدث الممارسات لضمان جودة وكفاءة المواقع. تشمل الممارسات الأساسية استخدام إطار عمل مناسب، كتابة كود نظيف وقابل للصيانة، تحسين أداء الموقع، واعتماد معايير الأمان الحديثة مثل HTTPS وCORS.',
+      'اختيار لغة البرمجة المناسبة يعتمد على عدة عوامل منها نوع المشروع، حجم الفريق، وقت التطوير، والميزانية. للويب: JavaScript وPython هي خيارات شائعة، لتطبيقات الجوال: Swift (iOS) وKotlin (Android) أو استخدام أطر مثل Flutter وReact Native. للأنظمة المضمنة: C++ وRust.',
+      'تصميم تجربة المستخدم (UX) هو عامل حاسم في نجاح أي تطبيق جوال. يجب أن يكون التصميم بديهياً وسهل الاستخدام مع التركيز على احتياجات المستخدم. من أهم مبادئ UX: تبسيط التنقل، تحسين سرعة التطبيق، تصميم واجهات متناسبة مع مختلف أحجام الشاشات، واستخدام ألوان وخطوط مريحة للعين.'
+    ],
+    articles_authors: ['أحمد محمد', 'سارة علي', 'نور إبراهيم']
+  },
+  en: {
+    dir: 'ltr',
+    label: 'English',
+    about: 'About Us',
+    works: 'Our Work',
+    all: 'View All →',
+    articles: 'Our Articles',
+    skills: 'Our Skills',
+    contact: 'Contact Us',
+    read: 'Read More',
+    min: 'min read',
+    avail: 'Available Now',
+    loc: 'Iraq · Basrah',
+    copy: '© FastCrand — 2026',
+    photo: 'Company Logo',
+    loading: 'Loading...',
+    back: 'Back',
+    overlay_title: '📄 Article Details',
+    ig_status: 'Account Currently Disabled',
+    ig_message: 'We apologize for the inconvenience, our Instagram account is currently disabled due to a technical issue.\nWe are working to resolve the issue as soon as possible.\nYou can follow our latest updates through other communication channels.',
+    ig_update: '🕐 Last updated:',
+    intro: '📌 Introduction',
+    content_section: '📖 Article Content',
+    content_extra: 'This article covers multiple aspects of ',
+    content_extra2: ', providing valuable information for developers and those interested in programming and application development.',
+    summary: '💡 Summary',
+    summary_text: '',
+    summary_text2: 'is an important topic in the field of programming, helping developers improve their skills and build better projects. We recommend exploring additional resources to deepen understanding.',
+    tag_programming: 'Programming',
+    tag_development: 'Development',
+    tag_tech: 'Tech',
+    team: 'FastCrand Team',
+    published_on: 'Published on',
+    whatsapp: 'WhatsApp',
+    instagram: 'Instagram',
+    profile_role: 'A team of developers building websites and applications with all programming languages',
+    profile_about: 'We are a team of professional developers specialized in building websites and applications using all programming languages. We provide integrated software solutions for our clients with high quality and competitive prices.',
+    works_titles: ['Sar', 'Boti TV', 'SMM DSM', 'FastCrand', 'Almulla', 'Tok Mart'],
+    works_descs: ['VPS hosting and cloud services platform', 'Automated WhatsApp advertising campaigns system', 'Social media services marketplace', 'Social media services and various subscriptions', 'Ceramic sales and order management system', 'Integrated home products e-commerce store'],
+    articles_titles: ['Best Web Development Practices 2026', 'Guide to Choosing the Right Programming Language', 'Mobile App UX Design'],
+    articles_descs: ['Tips and guidelines for developing high-quality websites.', 'How to choose the right programming language for your project.', 'User experience fundamentals in mobile applications.'],
+    articles_badges: ['Development', 'Programming', 'Design'],
+    articles_full: [
+      'Web development is a dynamic field that constantly evolves, requiring developers to keep up with the latest practices to ensure quality and efficiency. Core practices include using appropriate frameworks, writing clean and maintainable code, optimizing website performance, and adopting modern security standards like HTTPS and CORS.',
+      'Choosing the right programming language depends on factors like project type, team size, development time, and budget. For web development: JavaScript and Python are popular choices. For mobile apps: Swift (iOS) and Kotlin (Android) or using frameworks like Flutter and React Native. For embedded systems: C++ and Rust.',
+      'User Experience (UX) design is a critical factor in the success of any mobile app. The design should be intuitive and user-friendly with focus on user needs. Key UX principles include: simplifying navigation, improving app speed, designing responsive interfaces for different screen sizes, and using comfortable colors and fonts.'
+    ],
+    articles_authors: ['Ahmed Mohammed', 'Sara Ali', 'Noor Ibrahim']
+  }
+};
+
+let DATA=null,CL='ar';
+const LANG_MAP={ar:'ar',en:'en'};
+
+// ===== البيانات الأساسية =====
+const FALLBACK_DATA = {
+  profile: {
+    name: 'FastCrand',
+    role: LANGS.ar.profile_role,
+    about: LANGS.ar.profile_about,
+    available: true,
+    photo: null
+  },
+  works: [
+    {title:'صار',description:'منصة بيع VPS واستضافة سحابية',icon:'fas fa-server',color:'blue',status:'live',url:'https://sarvps.store'},
+    {title:'بوتي تي في',description:'نظام إدارة حملات واتساب تلقائية',icon:'fab fa-whatsapp',color:'cyan',status:'live',url:'http://botiyetv.site:7000'},
+    {title:'SMM DSM',description:'موقع متخصص في بيع خدمات السوشيل ميديا',icon:'fas fa-share-nodes',color:'gold',status:'live',url:'https://smmdsm.com'},
+    {title:'FastCrand',description:'بيع خدمات سوشيل ميديا وشتراكات متنوعة',icon:'fas fa-rocket',color:'pink',status:'live',url:'https://fastcrand.com'},
+    {title:'الملا',description:'نظام بيع سيراميك وإدارة الطلبات',icon:'fas fa-store',color:'green',status:'live',url:'https://almulla.shop'},
+    {title:'Tok Mart',description:'متجر متكامل لبيع المنتجات المنزلية',icon:'fas fa-basket-shopping',color:'purple',status:'live',url:'https://tokmart.site'}
+  ],
+  articles: [
+    {title:'أفضل ممارسات تطوير الويب 2026',description:'نصائح وإرشادات لتطوير مواقع ويب بجودة عالية.',badge:'تطوير',badge_color:'blue',date:'2026-01-15',read_time:5,full:'تطوير الويب هو مجال ديناميكي يتطور باستمرار، ويحتاج المطورون إلى مواكبة أحدث الممارسات لضمان جودة وكفاءة المواقع. تشمل الممارسات الأساسية استخدام إطار عمل مناسب، كتابة كود نظيف وقابل للصيانة، تحسين أداء الموقع، واعتماد معايير الأمان الحديثة مثل HTTPS وCORS.',author:'أحمد محمد'},
+    {title:'دليل اختيار لغة البرمجة المناسبة',description:'كيف تختار اللغة المناسبة لمشروعك البرمجي.',badge:'برمجة',badge_color:'cyan',date:'2026-01-10',read_time:4,full:'اختيار لغة البرمجة المناسبة يعتمد على عدة عوامل منها نوع المشروع، حجم الفريق، وقت التطوير، والميزانية. للويب: JavaScript وPython هي خيارات شائعة، لتطبيقات الجوال: Swift (iOS) وKotlin (Android) أو استخدام أطر مثل Flutter وReact Native. للأنظمة المضمنة: C++ وRust.',author:'سارة علي'},
+    {title:'تصميم تطبيقات الجوال UX',description:'أساسيات تجربة المستخدم في تطبيقات الجوال.',badge:'تصميم',badge_color:'pink',date:'2026-01-05',read_time:3,full:'تصميم تجربة المستخدم (UX) هو عامل حاسم في نجاح أي تطبيق جوال. يجب أن يكون التصميم بديهياً وسهل الاستخدام مع التركيز على احتياجات المستخدم. من أهم مبادئ UX: تبسيط التنقل، تحسين سرعة التطبيق، تصميم واجهات متناسبة مع مختلف أحجام الشاشات، واستخدام ألوان وخطوط مريحة للعين.',author:'نور إبراهيم'}
+  ],
+  skills: [
+    {name:'Python',icon:'fab fa-python',color:'var(--gradient-primary)',percentage:95},
+    {name:'JavaScript',icon:'fab fa-js',color:'linear-gradient(135deg,#00e6bb,#00c4a0)',percentage:92},
+    {name:'PHP',icon:'fab fa-php',color:'linear-gradient(135deg,#8b5cf6,#7c3aed)',percentage:88},
+    {name:'HTML & CSS',icon:'fab fa-html5',color:'linear-gradient(135deg,#00e6bb,#00c4a0)',percentage:96},
+    {name:'React / Vue',icon:'fab fa-react',color:'linear-gradient(135deg,#22c55e,#16a34a)',percentage:85},
+    {name:'Flask / Django',icon:'fas fa-flask',color:'linear-gradient(135deg,#00c4a0,#00a080)',percentage:90}
+  ],
+  social: [
+    {icon:'fab fa-whatsapp',url:'https://wa.me/9647763835403',platform:'واتساب',type:'whatsapp'},
+    {icon:'fab fa-instagram',url:'#',platform:'إنستغرام',type:'instagram',action:'showInstagramStatus'}
+  ]
+};
+
+function isDesktop(){return window.innerWidth>=1024}
+
+function toggleDD(p){
+  const el=document.getElementById(p+'-ld');
+  if(el)el.classList.toggle('open');
+}
+document.addEventListener('click',e=>{
+  if(!e.target.closest('.lang-wrap')&&!e.target.closest('.d-lang-wrap')){
+    const m=document.getElementById('m-ld');if(m)m.classList.remove('open');
+    const d=document.getElementById('d-ld');if(d)d.classList.remove('open');
+  }
+});
+
+function toggleTheme(){
+  const cur=document.documentElement.getAttribute('data-theme');
+  const next=cur==='dark'?'light':'dark';
+  if(next==='dark')document.documentElement.setAttribute('data-theme','dark');
+  else document.documentElement.removeAttribute('data-theme');
+  try{localStorage.setItem('theme',next)}catch(e){}
+}
+(function(){try{if(localStorage.getItem('theme')==='dark')document.documentElement.setAttribute('data-theme','dark')}catch(e){}})();
+
+async function loadData(){
+  try{
+    const lp=LANG_MAP[CL]||CL;
+    const r=await fetch('/api/data?lang='+lp);
+    if(!r.ok)throw new Error('bad response');
+    DATA=await r.json();
+  }catch(e){
+    DATA=FALLBACK_DATA;
+  }
+  render();
+}
+
+function setL(l){
+  CL=l;
+  const langData = LANGS[l];
+  document.documentElement.dir=langData.dir;
+  document.documentElement.lang=l;
+  const lbl=langData.label;
+  const mc=document.getElementById('m-curL');if(mc)mc.textContent=lbl;
+  const dc=document.getElementById('d-curL');if(dc)dc.textContent=lbl;
+  document.querySelectorAll('.lang-opt').forEach(o=>o.classList.toggle('active',o.dataset.lang===l));
+  const m=document.getElementById('m-ld');if(m)m.classList.remove('open');
+  const d=document.getElementById('d-ld');if(d)d.classList.remove('open');
+  
+  // تحديث النصوص الثابتة في الصفحات المنبثقة
+  document.querySelectorAll('.tw-btn-back').forEach(el => el.textContent = langData.back);
+  document.querySelectorAll('.tw-overlay-title').forEach(el => el.textContent = '📄 ' + langData.overlay_title.replace('📄 ', ''));
+  document.querySelectorAll('.tw-ig-status').forEach(el => el.textContent = langData.ig_status);
+  document.querySelectorAll('.tw-ig-message').forEach(el => el.textContent = langData.ig_message);
+  document.querySelectorAll('.tw-ig-update').forEach(el => el.textContent = langData.ig_update + ' ' + new Date().toLocaleString());
+  document.querySelectorAll('.tw-loading').forEach(el => el.textContent = langData.loading);
+  
+  // تحديث الروابط في الناف بار
+  const navAbout = document.getElementById('d-nl-about');
+  const navWorks = document.getElementById('d-nl-works');
+  const navArticles = document.getElementById('d-nl-articles');
+  const navContact = document.getElementById('d-nl-contact');
+  if(navAbout) navAbout.textContent = langData.about;
+  if(navWorks) navWorks.textContent = langData.works;
+  if(navArticles) navArticles.textContent = langData.articles;
+  if(navContact) navContact.textContent = langData.contact;
+  
+  // تحديث اسم الشركة في الفوتر
+  const copyText = document.getElementById('d-copyText');
+  if(copyText) copyText.textContent = langData.copy;
+  
+  // تحديث الموقع
+  const locText = document.getElementById('d-locText');
+  if(locText) locText.textContent = langData.loc;
+  
+  // تحديث الصورة النصية
+  const photoText = document.getElementById('d-photoText');
+  if(photoText) photoText.textContent = langData.photo;
+  
+  // تحديث البيانات مع النصوص الصحيحة حسب اللغة
+  if(DATA) {
+    DATA.profile.role = langData.profile_role;
+    DATA.profile.about = langData.profile_about;
+    
+    // تحديث الأعمال
+    DATA.works.forEach((w, i) => {
+      if(langData.works_titles[i]) w.title = langData.works_titles[i];
+      if(langData.works_descs[i]) w.description = langData.works_descs[i];
+    });
+    
+    // تحديث المقالات
+    DATA.articles.forEach((a, i) => {
+      if(langData.articles_titles[i]) a.title = langData.articles_titles[i];
+      if(langData.articles_descs[i]) a.description = langData.articles_descs[i];
+      if(langData.articles_badges[i]) a.badge = langData.articles_badges[i];
+      if(langData.articles_full[i]) a.full = langData.articles_full[i];
+      if(langData.articles_authors[i]) a.author = langData.articles_authors[i];
+    });
+  }
+  
+  const ld='<div class="loading"><i class="fas fa-spinner fa-spin"></i> '+langData.loading+'</div>';
+  const a=document.getElementById('app');if(a)a.innerHTML=ld;
+  const mc2=document.getElementById('d-mainContent');if(mc2)mc2.innerHTML=ld;
+  loadData();
+}
+
+function render(){
+  if(!DATA)return;
+  if(isDesktop())renderDesktop();
+  else renderMobile();
+  setupShimmer();
+}
+
+function renderMobile(){
+  const P=DATA.profile,W=DATA.works,A=DATA.articles,S=DATA.skills,SC=DATA.social;
+  const L=LANGS[CL];
+  const av=P.photo?'<img src="/uploads/'+P.photo+'">':'<i class="fas fa-code"></i>';
+  let h='<div class="prof shimmer an" style="--sd:0.3s;--ad:.06s"><div class="p-row"><div class="p-av">'+av+'</div><div class="p-info"><h2>'+(P.name||'FastCrand')+'</h2><p>'+(P.role||'')+'</p>'+(P.available?'<div class="online"><span class="dot"></span> '+L.avail+'</div>':'')+'</div></div></div>';
+  h+='<div class="sec an" style="--ad:.14s"><div class="sh"><h3><i class="fas fa-briefcase" style="color:var(--cyan)"></i> <span class="tw" data-full="'+L.works+'"></span></h3><span class="al">'+L.all+'</span></div><div class="wks">';
+  W.forEach((w,i)=>{const link=w.url?' onclick="window.open(\''+w.url+'\',\'_blank\')" style="--sd:'+(i*0.4)+'s;cursor:pointer"':' style="--sd:'+(i*0.4)+'s"';h+='<div class="wk shimmer"'+link+'><div class="wk-i" style="background:'+(COLORS[w.color]||COLORS.blue)+'"><i class="'+w.icon+'"></i></div><div class="wk-t"><h4>'+w.title+'</h4><p>'+w.description+'</p></div><span class="st-b '+(w.status==='live'?'st-on':'st-dv')+'">'+w.status.toUpperCase()+'</span><i class="fas fa-chevron-left cv"></i></div>';});
+  h+='</div></div>';
+  h+='<div class="sec an" style="--ad:.22s"><div class="sh"><h3><i class="fas fa-user" style="color:var(--blue)"></i> <span class="tw" data-full="'+L.about+'"></span></h3></div><div class="abt shimmer tw-block" style="--sd:0s">'+(P.about||'')+'</div></div>';
+  h+='<div class="sec an" style="--ad:.3s"><div class="sh"><h3><i class="fas fa-newspaper" style="color:var(--gold)"></i> <span class="tw" data-full="'+L.articles+'"></span></h3></div><div class="art-list">';
+  A.forEach((a,i)=>{h+='<div class="b-art shimmer" style="--sd:'+(i*0.5)+'s" onclick="showArticleDetail(\''+a.title+'\',\''+a.description+'\',\''+a.badge+'\',\''+a.date+'\','+a.read_time+',\''+(a.full||'')+'\',\''+(a.author||'')+'\')"><div class="b-art-top"><span class="b-art-badge '+(BADGE_C[a.badge_color]||'bb-bl')+'"><i class="fas fa-star"></i> '+a.badge+'</span><span class="b-art-date"><i class="far fa-calendar"></i> '+a.date+'</span></div><h4>'+a.title+'</h4><p>'+a.description+'</p><div class="b-art-footer"><span class="b-art-read">'+L.read+' <i class="fas fa-arrow-left"></i></span><span class="b-art-time"><i class="far fa-clock"></i> '+a.read_time+' '+L.min+'</span></div></div>';});
+  h+='</div></div>';
+  h+='<div class="sec an" style="--ad:.38s"><div class="sh"><h3><i class="fas fa-bolt" style="color:var(--pink)"></i> <span class="tw" data-full="'+L.skills+'"></span></h3></div><div class="sk-grid">';
+  S.forEach((s,i)=>{h+='<div class="sk-card shimmer" style="--sd:'+(i*0.3)+'s"><div class="sk-ico" style="background:'+s.color+'"><i class="'+s.icon+'"></i></div><div class="sk-info"><div class="sk-name">'+s.name+'</div><div class="sk-bar"><div class="sk-fill" style="width:'+s.percentage+'%"></div></div></div></div>';});
+  h+='</div></div>';
+  h+='<div class="sec an" style="--ad:.46s"><div class="sh"><h3><i class="fas fa-paper-plane" style="color:var(--blue)"></i> <span class="tw" data-full="'+L.contact+'"></span></h3></div><div class="ct-card shimmer" style="--sd:0.5s"><div class="ct-icons">';
+  SC.forEach(s=>{
+    if(s.type === 'instagram'){
+      h+='<button class="ct-btn ct-btn-instagram" onclick="showInstagramStatus()"><i class="'+s.icon+'"></i> '+L.instagram+'</button>';
+    } else if(s.type === 'whatsapp'){
+      h+='<a class="ct-btn ct-btn-whatsapp" href="'+s.url+'" target="_blank"><i class="'+s.icon+'"></i> '+L.whatsapp+'</a>';
+    } else {
+      h+='<a class="ct-btn" href="'+s.url+'" target="_blank"><i class="'+s.icon+'"></i> '+s.platform+'</a>';
+    }
+  });
+  h+='</div></div></div>';
+  document.getElementById('app').innerHTML=h;
+}
+
+function renderDesktop(){
+  const P=DATA.profile,W=DATA.works,A=DATA.articles,S=DATA.skills,SC=DATA.social;
+  const L=LANGS[CL];
+  document.getElementById('d-nl-about').textContent=L.about;
+  document.getElementById('d-nl-works').textContent=L.works;
+  document.getElementById('d-nl-articles').textContent=L.articles;
+  document.getElementById('d-nl-contact').textContent=L.contact;
+  const pf=document.getElementById('d-photoFrame');
+  if(P.photo){
+    pf.classList.add('has-img');
+    pf.innerHTML='<img src="/uploads/'+P.photo+'" alt="'+P.name+'">';
+  }else{
+    pf.classList.remove('has-img');
+    pf.innerHTML='<i class="fas fa-code"></i><span class="ph-text">'+L.photo+'</span>';
+  }
+  let ns='<h2>'+(P.name||'FastCrand')+'</h2>';
+  if(P.role)ns+='<div class="role">'+P.role+'</div>';
+  if(P.available)ns+='<div class="online"><span class="dot"></span> '+L.avail+'</div>';
+  document.getElementById('d-nameStrip').innerHTML=ns;
+  let sk='<div class="d-side-card shimmer an" style="--sd:0.2s;--ad:.26s"><div class="d-side-title"><i class="fas fa-bolt" style="color:var(--pink)"></i> <span class="tw" data-full="'+L.skills+'"></span></div><div class="d-sk-list">';
+  S.forEach(s=>{sk+='<div class="d-sk-row"><div class="d-sk-ico" style="background:'+s.color+'"><i class="'+s.icon+'"></i></div><div class="d-sk-meta"><div class="d-sk-name">'+s.name+' <span>'+s.percentage+'%</span></div><div class="d-sk-bar"><div class="d-sk-fill" style="width:'+s.percentage+'%"></div></div></div></div>';});
+  sk+='</div></div>';
+  document.getElementById('d-sidebarSkills').innerHTML=sk;
+  let h='';
+  h+='<section id="d-works" class="an" style="--ad:.1s"><div class="d-sec-head"><h3><i class="fas fa-briefcase" style="color:var(--cyan)"></i> <span class="tw" data-full="'+L.works+'"></span></h3><a class="all" href="#">'+L.all+'</a></div><div class="d-wks-grid">';
+  W.forEach((w,i)=>{const link=w.url?' onclick="window.open(\''+w.url+'\',\'_blank\')"':'';h+='<div class="d-wk shimmer"'+link+' style="--sd:'+(i*0.15)+'s"><div class="d-wk-i" style="background:'+(COLORS[w.color]||COLORS.blue)+'"><i class="'+w.icon+'"></i></div><div class="d-wk-t"><h4>'+w.title+'</h4><p>'+w.description+'</p></div><span class="d-st-b '+(w.status==='live'?'st-on':'st-dv')+'">'+w.status.toUpperCase()+'</span><i class="fas fa-chevron-left d-cv"></i></div>';});
+  h+='</div></section>';
+  h+='<section id="d-about" class="an" style="--ad:.2s"><div class="d-sec-head"><h3><i class="fas fa-user" style="color:var(--blue)"></i> <span class="tw" data-full="'+L.about+'"></span></h3></div><div class="d-abt shimmer tw-block" style="--sd:0s">'+(P.about||'')+'</div></section>';
+  h+='<section id="d-articles" class="an" style="--ad:.3s"><div class="d-sec-head"><h3><i class="fas fa-newspaper" style="color:var(--gold)"></i> <span class="tw" data-full="'+L.articles+'"></span></h3></div><div class="d-art-grid">';
+  A.forEach((a,i)=>{h+='<div class="d-bart shimmer" style="--sd:'+(i*0.2)+'s" onclick="showArticleDetail(\''+a.title+'\',\''+a.description+'\',\''+a.badge+'\',\''+a.date+'\','+a.read_time+',\''+(a.full||'')+'\',\''+(a.author||'')+'\')"><div class="d-bart-top"><span class="d-bart-badge '+(BADGE_C[a.badge_color]||'bb-bl')+'"><i class="fas fa-star"></i> '+a.badge+'</span><span class="d-bart-date"><i class="far fa-calendar"></i> '+a.date+'</span></div><h4>'+a.title+'</h4><p>'+a.description+'</p><div class="d-bart-footer"><span class="d-bart-read">'+L.read+' <i class="fas fa-arrow-left"></i></span><span class="d-bart-time"><i class="far fa-clock"></i> '+a.read_time+' '+L.min+'</span></div></div>';});
+  h+='</div></section>';
+  document.getElementById('d-mainContent').innerHTML=h;
+  let fi='';
+  SC.forEach(s=>{
+    if(s.type === 'instagram'){
+      fi+='<button class="footer-ic footer-ic-instagram" onclick="showInstagramStatus()"><i class="'+s.icon+'"></i> '+L.instagram+'</button>';
+    } else if(s.type === 'whatsapp'){
+      fi+='<a class="footer-ic footer-ic-whatsapp" href="'+s.url+'" target="_blank"><i class="'+s.icon+'"></i> '+L.whatsapp+'</a>';
+    } else {
+      fi+='<a class="footer-ic" href="'+s.url+'" target="_blank"><i class="'+s.icon+'"></i> '+s.platform+'</a>';
+    }
+  });
+  document.getElementById('d-footerIcons').innerHTML=fi;
+  document.getElementById('d-locText').textContent=L.loc;
+  document.getElementById('d-copyText').textContent=L.copy;
+}
+
+function typeText(el){
+  if(el.dataset.typed)return;
+  const full=el.dataset.full;
+  if(!full){el.dataset.typed='1';return}
+  el.dataset.typed='1';
+  el.textContent='';
+  el.classList.add('tw-cursor');
+  const delay=Math.max(8,Math.min(32,900/full.length));
+  let i=0;
+  (function step(){
+    i++;
+    el.textContent=full.slice(0,i);
+    if(i<full.length)setTimeout(step,delay);
+    else el.classList.remove('tw-cursor');
+  })();
+}
+
+function prepareTypewriters(){
+  document.querySelectorAll('.tw-block').forEach(el=>{
+    if(el.dataset.full===undefined){
+      el.dataset.full=el.textContent;
+      el.textContent='';
+    }
+  });
+}
+
+function setupShimmer(){
+  prepareTypewriters();
+  const obs=new IntersectionObserver(es=>{es.forEach(e=>{
+    if(!e.isIntersecting)return;
+    const t=e.target;
+    if(t.classList.contains('shimmer')){
+      t.classList.add('shimmer-go');
+      const d=parseFloat(getComputedStyle(t).getPropertyValue('--sd'))||0;
+      setTimeout(()=>t.classList.remove('shimmer-go'),1000+d*1000);
+    }
+    if(t.classList.contains('tw-block')){
+      typeText(t);
+    }else{
+      const tw=t.querySelector('.tw');
+      if(tw)typeText(tw);
+    }
+  })},{threshold:0.3});
+  document.querySelectorAll('.shimmer,.tw-block,.sh,.d-sec-head,.d-side-title').forEach(el=>obs.observe(el));
+}
+
+let _lastDesktop=isDesktop();
+window.addEventListener('resize',()=>{const cur=isDesktop();if(cur!==_lastDesktop){_lastDesktop=cur;render();}});
+
+loadData();
+</script>
+</body>
+</html>
