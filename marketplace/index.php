@@ -1537,6 +1537,7 @@ function full_document(string $title, string $inner): void {
 </head>
 <body>
 <div class="bg-orb bo1"></div><div class="bg-orb bo2"></div>
+<div class="offline-banner" id="offlineBanner" hidden><i class="fas fa-wifi"></i> <span>لا يوجد اتصال بالإنترنت — تتصفح نسخة محفوظة مؤقتاً</span></div>
 <div id="app-root"><?= $inner ?></div>
 <script>window.APP_CONFIG = <?= json_encode(['siteName' => site_name(), 'googleClientId' => GOOGLE_CLIENT_ID], JSON_UNESCAPED_UNICODE) ?>;</script>
 <script src="assets/app.js"></script>

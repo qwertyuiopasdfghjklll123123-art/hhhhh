@@ -13,9 +13,21 @@ function applySwap(data){
   else doSwap();
 }
 
-/* ===== تثبيت التطبيق (PWA) ===== */
+/* ===== شعار انقطاع الإنترنت — يظهر/يختفي تلقائياً حسب حالة الاتصال الحقيقية ===== */
+function updateOfflineBanner(){
+  const b = document.getElementById('offlineBanner');
+  if (b) b.hidden = navigator.onLine;
+}
+window.addEventListener('online', updateOfflineBanner);
+window.addEventListener('offline', updateOfflineBanner);
+updateOfflineBanner();
+
+/* ===== تثبيت التطبيق (PWA) + تصفح بلا إنترنت للصفحات المفتوحة سابقاً ===== */
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', function(){ navigator.serviceWorker.register('sw.js').catch(function(){}); });
+}
+function clearOfflineCache(){
+  navigator.serviceWorker?.getRegistration().then(function(reg){ reg?.active?.postMessage('clear-dynamic-cache'); }).catch(function(){});
 }
 let _deferredInstall = null;
 window.addEventListener('beforeinstallprompt', function(e){
@@ -72,12 +84,15 @@ async function navigateTo(url){
 }
 
 async function submitPost(form){
+  if (!navigator.onLine) return; // إرسال بيانات (طلب، دفع، تسجيل...) يحتاج اتصالاً فعلياً؛ شعار الانقطاع أعلى الصفحة يوضّح السبب
   setLoading(true);
   try {
     const fd = new FormData(form);
+    const actionName = fd.get('action');
     const r = await fetch('index.php', {method:'POST', body: fd, headers:{'X-Requested-With':'fetch'}, credentials:'same-origin'});
     if (!r.ok) throw new Error('bad response');
     applySwap(await r.json());
+    if (['login', 'logout', 'register', 'google_login'].includes(actionName)) clearOfflineCache();
   } catch (err) {
     form.submit();
   }
