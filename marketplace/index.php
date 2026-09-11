@@ -1171,6 +1171,7 @@ if ($action !== '') {
                     flash('err', $err);
                 } else {
                     file_put_contents(DB_CONFIG_FILE, json_encode(['host'=>$host,'name'=>$name,'user'=>$user,'pass'=>$pass], JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT), LOCK_EX);
+                    @unlink(DATA_DIR . '/.mysql_ready'); // قد تكون قاعدة البيانات الجديدة مختلفة (جدول غير موجود بعد)، فيلزم إعادة فحص الإنشاء/الهجرة مرة واحدة لها
                     flash('ok', 'تم اختبار الاتصال وحفظه');
                 }
             }
@@ -2366,7 +2367,7 @@ function page_ai(): string {
     <div id="aiComplaintView" class="an" hidden>
         <button type="button" class="ai-back" onclick="aiShow('aiIntent')"><i class="fas fa-arrow-right"></i> رجوع</button>
         <?php if (!$orders): ?>
-            <div class="empty-state"><i class="fas fa-receipt"></i><p>ما عندك طلبات بعد لترفع شكوى عليها</p></div>
+            <div class="empty-state"><i class="fas fa-receipt"></i><p>ما عندك طلبات بعد لترفع شكوى عليها — الشكوى لازم تكون مرتبطة بطلب سابق</p><a class="btn" style="width:auto;display:inline-flex;margin-top:14px" href="index.php?page=stores">تصفح المتاجر</a></div>
         <?php else: ?>
         <form method="post">
             <input type="hidden" name="action" value="submit_complaint">

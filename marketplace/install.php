@@ -30,6 +30,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['form'] ?? '') === 'mysql')
         if ($dbError === null) {
             $dbConfig = ['host' => $host, 'name' => $name, 'user' => $user, 'pass' => $pass];
             file_put_contents($dbConfigFile, json_encode($dbConfig, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT), LOCK_EX);
+            @unlink(DATA_DIR . '/.mysql_ready');
             /* ثوابت DB_HOST/DB_NAME/... تحمل القيم القديمة (عُرّفت أول تحميل
                للطلب قبل هذا الحفظ) ولا يمكن إعادة تعريفها بنفس الطلب — نعيد
                تحميل الصفحة بطلب جديد كي تُقرأ القيم المحفوظة توّاً من جديد. */

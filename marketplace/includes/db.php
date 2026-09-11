@@ -42,9 +42,18 @@ function db_connect(): ?mysqli {
     $c = @mysqli_connect(DB_HOST, DB_USER, DB_PASS, DB_NAME);
     if (!$c) return null;
     $c->set_charset('utf8mb4');
-    $c->query("CREATE TABLE IF NOT EXISTS kv_store (name VARCHAR(64) PRIMARY KEY, data LONGTEXT NOT NULL, updated_at INT NOT NULL) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
     $conn = $c;
-    db_migrate_json_to_mysql($conn);
+    /* CREATE TABLE IF NOT EXISTS وفحص الهجرة كلاهما استعلامان زائدان بلا
+       فائدة بعد أول طلب ناجح بحياة الموقع (الجدول لن يختفي ولن يعود فارغاً).
+       نتحقق من ملف محلي بدل تكرارهما مع كل طلب — يوفّر رحلة شبكة كاملة إلى
+       MySQL في كل صفحة يفتحها أي زائر، وهذا محسوس خصوصاً إن كانت قاعدة
+       البيانات على خادم منفصل (استضافة MySQL خارجية). */
+    $readyFile = DATA_DIR . '/.mysql_ready';
+    if (!file_exists($readyFile)) {
+        $c->query("CREATE TABLE IF NOT EXISTS kv_store (name VARCHAR(64) PRIMARY KEY, data LONGTEXT NOT NULL, updated_at INT NOT NULL) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+        db_migrate_json_to_mysql($conn);
+        @file_put_contents($readyFile, (string)time());
+    }
     return $conn;
 }
 
