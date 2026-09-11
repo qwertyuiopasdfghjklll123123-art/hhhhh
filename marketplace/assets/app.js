@@ -8,6 +8,8 @@ function applySwap(data){
     window.scrollTo(0, 0);
     showInstallBanner();
     renderGoogleButton();
+    if (document.getElementById('orderSuccessTrigger')) openSheet('orderSuccessSheet');
+    if (document.getElementById('onboardTrigger')) { openSheet('onboardSheet'); markOnboardSeen(); }
   };
   if (document.startViewTransition) document.startViewTransition(doSwap);
   else doSwap();
@@ -51,14 +53,31 @@ function showInstallBanner(){
   const b = document.getElementById('installBanner');
   if (b && !dismissed) b.hidden = false;
 }
+function triggerInstall(){
+  if (_deferredInstall) { _deferredInstall.prompt(); _deferredInstall.userChoice.finally(() => { _deferredInstall = null; }); }
+}
 document.addEventListener('click', function(e){
   if (e.target.closest('#installBtn')) {
     document.getElementById('installBanner')?.setAttribute('hidden', '');
-    if (_deferredInstall) { _deferredInstall.prompt(); _deferredInstall.userChoice.finally(() => { _deferredInstall = null; }); }
+    triggerInstall();
   } else if (e.target.closest('#installDismiss')) {
     document.getElementById('installBanner')?.setAttribute('hidden', '');
     try { sessionStorage.setItem('installDismissed', '1'); } catch (err) {}
+  } else if (e.target.closest('#onboardInstallBtn')) {
+    triggerInstall();
+    closeSheets();
+  } else if (e.target.closest('#onboardNotifBtn')) {
+    if ('Notification' in window && Notification.requestPermission) Notification.requestPermission();
+    closeSheets();
   }
+});
+function markOnboardSeen(){
+  const fd = new FormData();
+  fd.append('action', 'dismiss_onboarding');
+  fetch('index.php', {method:'POST', body: fd, headers:{'X-Requested-With':'fetch'}, credentials:'same-origin'}).catch(function(){});
+}
+document.addEventListener('DOMContentLoaded', function(){
+  if (document.getElementById('onboardTrigger')) { openSheet('onboardSheet'); markOnboardSeen(); }
 });
 
 /* ===== تسجيل الدخول عبر Google (يعمل فقط إن كان مفتاح Google مضبوطاً من الأدمن) ===== */
@@ -113,7 +132,13 @@ document.addEventListener('click', function(e){
   const a = e.target.closest('a[href]');
   if (!a || !a.closest('#app-root')) return;
   const href = a.getAttribute('href');
-  if (!href || !href.startsWith('index.php') || a.target === '_blank') return;
+  if (!href) return;
+  if (href.startsWith('#')) {
+    e.preventDefault();
+    document.querySelector(href)?.scrollIntoView({behavior:'smooth', block:'start'});
+    return;
+  }
+  if (!href.startsWith('index.php') || a.target === '_blank') return;
   e.preventDefault();
   navigateTo(href);
 });
@@ -123,12 +148,24 @@ document.addEventListener('submit', function(e){
   if (!form.closest('#app-root')) return;
   e.preventDefault();
   if (form.id === 'aiChatForm') { handleAiChatSubmit(form); return; }
+  if (form.id === 'checkoutForm') {
+    if (!form.reportValidity()) return;
+    window._pendingCheckoutForm = form;
+    openSheet('checkoutConfirmSheet');
+    return;
+  }
   if ((form.getAttribute('method') || 'get').toLowerCase() === 'get') {
     const qs = new URLSearchParams(new FormData(form)).toString();
     navigateTo((form.getAttribute('action') || 'index.php') + '?' + qs);
   } else {
     submitPost(form);
   }
+});
+document.addEventListener('click', function(e){
+  if (!e.target.closest('#checkoutConfirmBtn')) return;
+  closeSheets();
+  if (window._pendingCheckoutForm) submitPost(window._pendingCheckoutForm);
+  window._pendingCheckoutForm = null;
 });
 
 async function handleAiChatSubmit(form){

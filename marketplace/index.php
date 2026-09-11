@@ -14,7 +14,7 @@ define('ADMIN_SEED_PASSWORD', 'Admin@12345');     // غيّرها قبل الن�
 define('DEEPSEEK_API_KEY', '');       // ضع مفتاح DeepSeek هنا لتفعيل الذكاء الاصطناعي الحقيقي
 define('DEEPSEEK_API_URL', 'https://api.deepseek.com/chat/completions');
 define('DEEPSEEK_MODEL', 'deepseek-chat');
-define('GOOGLE_CLIENT_ID', ''); // Client ID من Google Cloud Console (OAuth) — زر "الدخول عبر Google" يظهر فقط بعد تعبئته
+// Client ID من Google Cloud Console (OAuth) يُضبط الآن من لوحة الأدمن (الإعدادات) لا كثابت بالكود — راجع دالة google_client_id() أدناه
 define('DATA_DIR', __DIR__ . '/data');
 define('UPLOAD_DIR', __DIR__ . '/uploads');
 define('UPLOAD_URL', 'uploads');
@@ -361,7 +361,8 @@ function is_admin_user(): bool {
 /* التحقق من ID token الخاص بـ Google Identity Services عبر endpoint الرسمي —
    أبسط طريقة تعمل بدون أي مكتبة JWT، مناسبة لملف واحد بدون Composer. */
 function google_verify_id_token(string $idToken): ?array {
-    if (GOOGLE_CLIENT_ID === '' || $idToken === '') return null;
+    $clientId = google_client_id();
+    if ($clientId === '' || $idToken === '') return null;
     $ch = curl_init('https://oauth2.googleapis.com/tokeninfo?id_token=' . urlencode($idToken));
     curl_setopt_array($ch, [CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT => 10]);
     $res = curl_exec($ch);
@@ -370,7 +371,7 @@ function google_verify_id_token(string $idToken): ?array {
     if ($res === false || $code !== 200) return null;
     $claims = json_decode($res, true);
     if (!is_array($claims)) return null;
-    if (($claims['aud'] ?? '') !== GOOGLE_CLIENT_ID) return null;
+    if (($claims['aud'] ?? '') !== $clientId) return null;
     if (($claims['email_verified'] ?? 'false') !== 'true') return null;
     if (empty($claims['email'])) return null;
     return $claims;
@@ -484,7 +485,7 @@ if ($action !== '') {
     }
 
     // من هنا تحتاج المستخدم مسجّل دخول
-    $needsUser = ['add_to_cart','remove_from_cart','checkout','apply_vendor','toggle_favorite','update_profile','submit_complaint','request_topup','complaint_reply','request_withdraw','submit_review'];
+    $needsUser = ['add_to_cart','remove_from_cart','checkout','apply_vendor','toggle_favorite','update_profile','submit_complaint','request_topup','complaint_reply','request_withdraw','submit_review','dismiss_onboarding'];
     if (in_array($action, $needsUser, true) && !current_user()) redirect('index.php');
 
     if ($action === 'submit_review') {
@@ -591,7 +592,7 @@ if ($action !== '') {
         $_SESSION['cart'] = [];
         unset($_SESSION['cart_coupon']);
         flash('ok', 'تم إنشاء طلبك بنجاح، يمكنك متابعته من صفحة طلباتي');
-        redirect('index.php?page=orders');
+        redirect('index.php?page=orders&justOrdered=1');
     }
 
     if ($action === 'toggle_favorite') {
@@ -608,6 +609,15 @@ if ($action !== '') {
         unset($u);
         db_write('users', $users);
         redirect($_POST['back'] ?? 'index.php');
+    }
+
+    if ($action === 'dismiss_onboarding') {
+        $users = db_read('users');
+        $user = current_user();
+        foreach ($users as &$u) if ($u['id'] === $user['id']) $u['onboarded'] = true;
+        unset($u);
+        db_write('users', $users);
+        redirect('index.php');
     }
 
     if ($action === 'update_profile') {
@@ -712,7 +722,12 @@ if ($action !== '') {
             'created_at'=>time(),
         ];
         db_write('stores', $stores);
-        add_notification('admin', 'طلب انضمام جديد', $user['name'] . ' قدّم طلب انضمام كتاجر (' . trim((string)($_POST['name'] ?? '')) . ')', 'index.php?page=admin&section=applications', 'store');
+        $notifBody = $user['name'] . ' (' . $user['phone'] . ') قدّم طلب انضمام كتاجر' . "\n"
+            . 'اسم المتجر: ' . trim((string)($_POST['name'] ?? '')) . "\n"
+            . 'التصنيف: ' . trim((string)($_POST['category'] ?? '')) . "\n"
+            . 'الوصف: ' . trim((string)($_POST['description'] ?? '')) . "\n"
+            . 'هاتف المتجر: ' . trim((string)($_POST['contact_phone'] ?? '')) . ' — واتساب: ' . trim((string)($_POST['contact_whatsapp'] ?? ''));
+        add_notification('admin', 'طلب انضمام جديد', $notifBody, 'index.php?page=admin&section=applications', 'store');
         flash('ok', 'تم إرسال طلبك بنجاح، سيتم مراجعته من قبل الإدارة قريباً');
         redirect('index.php?page=account');
     }
@@ -763,7 +778,7 @@ if ($action !== '') {
     }
 
     // إجراءات التاجر
-    $vendorActions = ['vendor_add_product','vendor_edit_product','vendor_delete_product','vendor_update_order','vendor_save_theme','vendor_save_info','vendor_add_section','vendor_rename_section','vendor_delete_section','vendor_move_section'];
+    $vendorActions = ['vendor_add_product','vendor_edit_product','vendor_delete_product','vendor_update_order','vendor_save_theme','vendor_save_info','vendor_add_section','vendor_rename_section','vendor_delete_section','vendor_move_section','vendor_renew_subscription'];
     if (in_array($action, $vendorActions, true)) {
         $store = my_store();
         if (!$store) redirect('index.php');
@@ -894,6 +909,25 @@ if ($action !== '') {
             redirect('index.php?page=vendor&section=orders');
         }
 
+        if ($action === 'vendor_renew_subscription') {
+            if (!empty($store['suspended'])) { flash('err', 'متجرك معلّق من قبل الإدارة، تواصل معها لإعادة التفعيل'); redirect('index.php?page=vendor'); }
+            $fee = (float)get_settings()['monthly_fee'];
+            if ((float)($store['earnings'] ?? 0) < $fee) { flash('err', 'رصيدك المتاح بالمتجر لا يكفي لتجديد الاشتراك (' . money($fee) . ')'); redirect('index.php?page=vendor'); }
+            $stores = db_read('stores');
+            foreach ($stores as &$s) if ($s['id'] === $store['id']) {
+                $s['earnings'] = (float)$s['earnings'] - $fee;
+                $s['earnings_log'][] = ['amount'=>-$fee, 'note'=>'رسم اشتراك شهري (تجديد ذاتي)', 'at'=>time()];
+                $s['last_fee_at'] = time();
+                $base = max((int)time(), (int)($s['subscription_expires_at'] ?? 0));
+                $s['subscription_expires_at'] = $base + 86400 * SUBSCRIPTION_DAYS;
+                $s['suspended'] = false;
+            }
+            unset($s);
+            db_write('stores', $stores);
+            flash('ok', 'تم تجديد اشتراك متجرك ' . SUBSCRIPTION_DAYS . ' يوم إضافي');
+            redirect('index.php?page=vendor');
+        }
+
         if ($action === 'vendor_save_theme') {
             $stores = db_read('stores');
             foreach ($stores as &$s) {
@@ -931,7 +965,7 @@ if ($action !== '') {
     }
 
     // إجراءات الأدمن
-    $adminActions = ['admin_approve','admin_reject','admin_topup','admin_toggle_featured','admin_collect_fee','admin_update_fee','admin_update_branding','admin_update_ai_key','admin_add_payment_method','admin_delete_payment_method','admin_approve_topup','admin_reject_topup','admin_approve_withdraw','admin_reject_withdraw','admin_resolve_complaint','admin_toggle_suspend','admin_add_category','admin_delete_category','admin_toggle_admin','admin_broadcast','admin_add_coupon','admin_delete_coupon','admin_update_backup','admin_backup_now','admin_update_db_config'];
+    $adminActions = ['admin_approve','admin_reject','admin_topup','admin_toggle_featured','admin_collect_fee','admin_update_fee','admin_update_branding','admin_update_ai_key','admin_update_google_key','admin_add_payment_method','admin_delete_payment_method','admin_approve_topup','admin_reject_topup','admin_approve_withdraw','admin_reject_withdraw','admin_resolve_complaint','admin_toggle_suspend','admin_add_category','admin_delete_category','admin_toggle_admin','admin_broadcast','admin_add_coupon','admin_delete_coupon','admin_update_backup','admin_backup_now','admin_update_db_config'];
     if (in_array($action, $adminActions, true)) {
         if (!is_admin_user()) redirect('index.php');
 
@@ -1102,6 +1136,13 @@ if ($action !== '') {
             $settings['ai_api_key'] = trim((string)($_POST['ai_api_key'] ?? ''));
             db_write('settings', $settings);
             flash('ok', 'تم تحديث مفتاح المساعد الذكي');
+            redirect('index.php?page=admin&section=settings');
+        }
+        if ($action === 'admin_update_google_key') {
+            $settings = get_settings();
+            $settings['google_client_id'] = trim((string)($_POST['google_client_id'] ?? ''));
+            db_write('settings', $settings);
+            flash('ok', 'تم تحديث مفتاح تسجيل الدخول عبر Google');
             redirect('index.php?page=admin&section=settings');
         }
         if ($action === 'admin_update_backup') {
@@ -1328,6 +1369,10 @@ function ai_api_key(): string {
     return $k !== '' ? $k : DEEPSEEK_API_KEY;
 }
 
+function google_client_id(): string {
+    return trim((string)(get_settings()['google_client_id'] ?? ''));
+}
+
 function ai_call_deepseek(array $messages): ?string {
     if (ai_api_key() === '') return null;
     $ch = curl_init(DEEPSEEK_API_URL);
@@ -1352,8 +1397,8 @@ function render_store_card(array $s): string {
     $img = $s['logo'] ? UPLOAD_URL . '/' . basename($s['logo']) : '';
     ob_start(); ?>
     <a class="store-card an" href="index.php?page=store&id=<?= $s['id'] ?>">
-        <div class="store-card-logo" style="background:<?= $img ? 'transparent' : 'var(--gradient)' ?>">
-            <?php if ($img): ?><img src="<?= h($s['logo']) ?>" alt=""><?php else: ?><i class="fas <?= category_icon($s['category']) ?>"></i><?php endif; ?>
+        <div class="store-card-logo" style="background:<?= $img ? 'var(--hover-bg)' : 'var(--gradient)' ?>">
+            <?php if ($img): ?><img src="<?= h($s['logo']) ?>" alt="" loading="lazy" decoding="async"><?php else: ?><i class="fas <?= category_icon($s['category']) ?>"></i><?php endif; ?>
         </div>
         <div class="store-card-info">
             <h4><?= h($s['name']) ?><?php if ($s['status']==='approved'): ?> <i class="fas fa-circle-check verified" title="متجر معتمد"></i><?php endif; ?></h4>
@@ -1369,7 +1414,7 @@ function render_store_tile(array $s): string {
     ob_start(); ?>
     <a class="store-tile an" href="index.php?page=store&id=<?= $s['id'] ?>">
         <div class="store-tile-icon" style="background:<?= $img ? 'transparent' : 'var(--gradient)' ?>">
-            <?php if ($img): ?><img src="<?= h($s['logo']) ?>" alt=""><?php else: ?><i class="fas <?= category_icon($s['category']) ?>"></i><?php endif; ?>
+            <?php if ($img): ?><img src="<?= h($s['logo']) ?>" alt="" loading="lazy" decoding="async"><?php else: ?><i class="fas <?= category_icon($s['category']) ?>"></i><?php endif; ?>
         </div>
         <span class="store-tile-name"><?= h($s['name']) ?></span>
     </a>
@@ -1384,7 +1429,7 @@ function render_product_card(array $p): string {
     ob_start(); ?>
     <a class="prod-card an" href="index.php?page=product&id=<?= $p['id'] ?>">
         <div class="prod-card-img">
-            <?php if ($img): ?><img src="<?= h($img) ?>" alt=""><?php else: ?><i class="fas <?= category_icon($p['category']) ?>"></i><?php endif; ?>
+            <?php if ($img): ?><img src="<?= h($img) ?>" alt="" loading="lazy" decoding="async"><?php else: ?><i class="fas <?= category_icon($p['category']) ?>"></i><?php endif; ?>
             <?php if ($hasDiscount): ?><span class="prod-badge">-<?= $pct ?>%</span><?php endif; ?>
         </div>
         <div class="prod-card-info">
@@ -1409,8 +1454,8 @@ function render_product_row(array $p): string {
     $hasDiscount = !empty($p['discount_price']) && $p['discount_price'] < $p['price'];
     ob_start(); ?>
     <a class="store-card an" href="index.php?page=product&id=<?= $p['id'] ?>">
-        <div class="store-card-logo" style="background:<?= $img ? 'transparent' : 'var(--gradient)' ?>">
-            <?php if ($img): ?><img src="<?= h($img) ?>" alt=""><?php else: ?><i class="fas <?= category_icon($p['category']) ?>"></i><?php endif; ?>
+        <div class="store-card-logo" style="background:<?= $img ? 'var(--hover-bg)' : 'var(--gradient)' ?>">
+            <?php if ($img): ?><img src="<?= h($img) ?>" alt="" loading="lazy" decoding="async"><?php else: ?><i class="fas <?= category_icon($p['category']) ?>"></i><?php endif; ?>
         </div>
         <div class="store-card-info">
             <h4><?= h($p['name']) ?></h4>
@@ -1449,10 +1494,12 @@ function order_stepper(string $status): string {
     <?php return ob_get_clean();
 }
 
-function app_shell_inner(string $body, ?string $activeTab = 'home'): string {
+function app_shell_inner(string $body, ?string $activeTab = 'home', string $extraSheets = ''): string {
     $cartCount = array_sum($_SESSION['cart'] ?? []);
     $unreadCount = count(array_filter(my_notifications(), fn($n) => !$n['read']));
     $flashes = take_flashes();
+    $shellUser = current_user();
+    $showOnboard = $shellUser !== null && empty($shellUser['onboarded'] ?? false);
     ob_start();
     ?>
 <header class="topbar an">
@@ -1493,6 +1540,20 @@ function app_shell_inner(string $body, ?string $activeTab = 'home'): string {
         <form method="post" style="width:100%"><input type="hidden" name="action" value="logout"><button class="btn btn-danger" type="submit">تسجيل الخروج</button></form>
     </div>
 </div>
+<?php if ($showOnboard): ?>
+<div id="onboardTrigger" hidden></div>
+<div class="confirm-sheet" id="onboardSheet" style="text-align:center">
+    <i class="fas fa-bell" style="font-size:1.8rem;color:var(--accent);margin-bottom:8px"></i>
+    <h4>خلّك على اطلاع دائم</h4>
+    <p style="font-size:.78rem;color:var(--muted);margin:6px 0 14px">فعّل إشعارات المتصفح وثبّت التطبيق على جهازك حتى تلاحق طلباتك وعروضنا بسرعة</p>
+    <div class="confirm-actions" style="flex-direction:column;gap:8px">
+        <button class="btn" type="button" id="onboardNotifBtn"><i class="fas fa-bell"></i> تفعيل إشعارات المتصفح</button>
+        <button class="btn btn-outline" type="button" id="onboardInstallBtn"><i class="fas fa-mobile-screen-button"></i> تثبيت التطبيق</button>
+        <button class="btn btn-outline" type="button" onclick="closeSheets()" style="border-color:transparent;color:var(--muted)">ليس الآن</button>
+    </div>
+</div>
+<?php endif; ?>
+<?= $extraSheets ?>
 <?= admin_sidebar_html() ?>
     <?php
     return ob_get_clean();
@@ -1514,14 +1575,14 @@ function full_document(string $title, string $inner): void {
 <link rel="icon" href="<?= h(site_logo_url() ?? 'assets/icon-192.png') ?>">
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
-<?php if (GOOGLE_CLIENT_ID !== ''): ?><script src="https://accounts.google.com/gsi/client" async defer></script><?php endif; ?>
+<?php if (google_client_id() !== ''): ?><script src="https://accounts.google.com/gsi/client" async defer></script><?php endif; ?>
 <link rel="stylesheet" href="assets/style.css">
 </head>
 <body>
 <div class="bg-orb bo1"></div><div class="bg-orb bo2"></div>
 <div class="offline-banner" id="offlineBanner" hidden><i class="fas fa-wifi"></i> <span>لا يوجد اتصال بالإنترنت — تتصفح نسخة محفوظة مؤقتاً</span></div>
 <div id="app-root"><?= $inner ?></div>
-<script>window.APP_CONFIG = <?= json_encode(['siteName' => site_name(), 'googleClientId' => GOOGLE_CLIENT_ID], JSON_UNESCAPED_UNICODE) ?>;</script>
+<script>window.APP_CONFIG = <?= json_encode(['siteName' => site_name(), 'googleClientId' => google_client_id()], JSON_UNESCAPED_UNICODE) ?>;</script>
 <script src="assets/app.js"></script>
 </body>
 </html>
@@ -1574,7 +1635,7 @@ function render_captcha(): string {
 }
 
 function render_google_button(): string {
-    if (GOOGLE_CLIENT_ID === '') return '';
+    if (google_client_id() === '') return '';
     ob_start(); ?>
     <div class="auth-divider an"><span>أو</span></div>
     <div id="googleBtnContainer" class="google-btn-wrap"></div>
@@ -1620,7 +1681,7 @@ function welcome_inner(): string {
   <p class="auth-heading-sub an">كل المتاجر والمنتجات بمكان واحد، بتجربة سلسة وسريعة</p>
   <div class="auth-dots an"><span class="active"></span><span></span><span></span></div>
   <div style="flex:1"></div>
-  <a href="index.php?page=register" class="btn an" style="max-width:360px;margin:0 auto;display:flex"><i class="fas fa-arrow-left"></i> ابدأ الآن</a>
+  <a href="index.php?page=login" class="btn an" style="max-width:360px;margin:0 auto;display:flex"><i class="fas fa-arrow-left"></i> ابدأ الآن</a>
 </div>
     <?php return ob_get_clean();
 }
@@ -1640,8 +1701,8 @@ function login_inner(): string {
   <div class="login-card an" style="--ad:.1s;margin:0 auto">
     <form method="post">
       <input type="hidden" name="action" value="login">
-      <div class="field field-icon-wrap"><label>البريد الإلكتروني أو رقم الجوال</label><input type="text" name="identifier" placeholder="البريد الإلكتروني أو رقم الجوال" required autofocus><i class="fas fa-envelope field-ic"></i></div>
-      <div class="field field-icon-wrap"><label>كلمة المرور</label><input type="password" name="password" required><button type="button" class="pw-toggle"><i class="fas fa-eye-slash"></i></button></div>
+      <div class="field"><label>البريد الإلكتروني أو رقم الجوال</label><div class="input-icon-wrap"><input type="text" name="identifier" placeholder="البريد الإلكتروني أو رقم الجوال" required autofocus><i class="fas fa-envelope field-ic"></i></div></div>
+      <div class="field"><label>كلمة المرور</label><div class="input-icon-wrap"><input type="password" name="password" required><button type="button" class="pw-toggle"><i class="fas fa-eye-slash"></i></button></div></div>
       <details><summary class="auth-forgot">نسيت كلمة المرور؟</summary><p class="auth-forgot-note">تواصل مع إدارة <?= h(site_name()) ?> لإعادة تعيين كلمة المرور.</p></details>
       <button class="btn" type="submit"><i class="fas fa-arrow-left"></i> تسجيل الدخول</button>
     </form>
@@ -1670,10 +1731,10 @@ function register_inner(): string {
   <div class="login-card an" style="--ad:.1s;margin:0 auto">
     <form method="post">
       <input type="hidden" name="action" value="register">
-      <div class="field field-icon-wrap"><label>الاسم الكامل</label><input type="text" name="name" value="<?= h($old['name'] ?? '') ?>" placeholder="أدخل اسمك الكامل" required><i class="fas fa-user field-ic"></i></div>
-      <div class="field field-icon-wrap"><label>البريد الإلكتروني</label><input type="email" name="email" value="<?= h($old['email'] ?? '') ?>" placeholder="example@domain.com" required><i class="fas fa-envelope field-ic"></i></div>
-      <div class="field field-icon-wrap"><label>رقم الهاتف</label><input type="tel" name="phone" value="<?= h($old['phone'] ?? '') ?>" placeholder="أدخل رقم هاتفك" required><i class="fas fa-phone field-ic"></i></div>
-      <div class="field field-icon-wrap"><label>كلمة المرور</label><input type="password" name="password" minlength="6" placeholder="أدخل كلمة مرور قوية" required><button type="button" class="pw-toggle"><i class="fas fa-eye-slash"></i></button></div>
+      <div class="field"><label>الاسم الكامل</label><div class="input-icon-wrap"><input type="text" name="name" value="<?= h($old['name'] ?? '') ?>" placeholder="أدخل اسمك الكامل" required><i class="fas fa-user field-ic"></i></div></div>
+      <div class="field"><label>البريد الإلكتروني</label><div class="input-icon-wrap"><input type="email" name="email" value="<?= h($old['email'] ?? '') ?>" placeholder="example@domain.com" required><i class="fas fa-envelope field-ic"></i></div></div>
+      <div class="field"><label>رقم الهاتف</label><div class="input-icon-wrap"><input type="tel" name="phone" value="<?= h($old['phone'] ?? '') ?>" placeholder="أدخل رقم هاتفك" required><i class="fas fa-phone field-ic"></i></div></div>
+      <div class="field"><label>كلمة المرور</label><div class="input-icon-wrap"><input type="password" name="password" minlength="6" placeholder="أدخل كلمة مرور قوية" required><button type="button" class="pw-toggle"><i class="fas fa-eye-slash"></i></button></div></div>
       <div class="field">
         <label>كود التحقق</label>
         <?= render_captcha() ?>
@@ -1884,10 +1945,10 @@ function page_product(): string {
 }
 
 /* ===================== السلة ===================== */
-function page_cart(): string {
+function page_cart(): array {
     $user = current_user();
     $cart = $_SESSION['cart'] ?? [];
-    if (!$cart) return '<div class="empty-state an"><i class="fas fa-cart-shopping"></i><p>سلتك فارغة</p><a class="btn" style="width:auto;display:inline-flex;margin-top:14px" href="index.php?page=stores">تصفح المتاجر</a></div>';
+    if (!$cart) return ['<div class="empty-state an"><i class="fas fa-cart-shopping"></i><p>سلتك فارغة</p><a class="btn" style="width:auto;display:inline-flex;margin-top:14px" href="index.php?page=stores">تصفح المتاجر</a></div>', ''];
 
     $products = db_read('products');
     $byStore = [];
@@ -1925,7 +1986,7 @@ function page_cart(): string {
     </form>
     <div class="cart-total an"><span>الإجمالي</span><span><?= money($total) ?></span></div>
     <div class="an" style="font-size:.72rem;color:var(--muted);margin-bottom:14px">رصيدك الحالي: <?= money($user['wallet']) ?></div>
-    <form method="post" class="an">
+    <form method="post" class="an" id="checkoutForm">
         <input type="hidden" name="action" value="checkout">
         <div class="card" style="margin-bottom:14px">
             <h3 style="font-size:.85rem;font-weight:800;margin-bottom:12px"><i class="fas fa-truck" style="color:var(--accent)"></i> معلومات التوصيل</h3>
@@ -1940,17 +2001,30 @@ function page_cart(): string {
         <button class="btn" type="submit" <?= $total > (float)$user['wallet'] ? 'disabled style="opacity:.5"' : '' ?>><i class="fas fa-check"></i> إتمام الشراء</button>
     </form>
     <?php if ($total > (float)$user['wallet']): ?><p class="an" style="font-size:.7rem;color:var(--danger);margin-top:8px;text-align:center">رصيدك غير كافٍ — تواصل مع الإدارة لشحن رصيدك</p><?php endif; ?>
-    <?php return ob_get_clean();
+    <?php $body = ob_get_clean();
+    ob_start(); ?>
+    <div class="confirm-sheet" id="checkoutConfirmSheet" style="text-align:center">
+        <h4>تأكيد الطلب</h4>
+        <p style="font-size:.78rem;color:var(--muted);margin:-6px 0 16px">متأكد من إتمام الشراء؟ سيتم خصم <strong style="color:var(--accent)"><?= money($total) ?></strong> من محفظتك</p>
+        <div class="confirm-actions">
+            <button class="btn btn-outline" type="button" onclick="closeSheets()">إلغاء</button>
+            <button class="btn" type="button" id="checkoutConfirmBtn">تأكيد الطلب</button>
+        </div>
+    </div>
+    <?php $sheets = ob_get_clean();
+    return [$body, $sheets];
 }
 
 /* ===================== طلباتي ===================== */
-function page_orders(): string {
+function page_orders(): array {
     $user = current_user();
     $orders = array_values(array_filter(db_read('orders'), fn($o) => $o['buyer_id'] === $user['id']));
     usort($orders, fn($a,$b) => $b['created_at'] <=> $a['created_at']);
-    if (!$orders) return '<div class="empty-state an"><i class="fas fa-receipt"></i><p>لا توجد طلبات بعد</p></div>';
+    if (!$orders) return ['<div class="empty-state an"><i class="fas fa-receipt"></i><p>لا توجد طلبات بعد</p></div>', ''];
+    $justOrdered = ($_GET['justOrdered'] ?? '') === '1';
     ob_start(); ?>
     <h2 style="font-size:1.05rem;font-weight:800;margin:6px 0 16px" class="an">طلباتي</h2>
+    <?php if ($justOrdered): ?><div id="orderSuccessTrigger" hidden></div><?php endif; ?>
     <?php $isDelivered = fn($o) => $o['status'] === ORDER_STAGES[count(ORDER_STAGES) - 1];
     foreach ($orders as $o): $store = find_store($o['store_id']); ?>
     <div class="order-card an">
@@ -1989,7 +2063,19 @@ function page_orders(): string {
         </details>
     </div>
     <?php endforeach;
-    return ob_get_clean();
+    $body = ob_get_clean();
+    $sheets = '';
+    if ($justOrdered) {
+        ob_start(); ?>
+        <div class="confirm-sheet" id="orderSuccessSheet" style="text-align:center">
+            <div class="success-check-circle"><i class="fas fa-check"></i></div>
+            <h4>تم إنشاء طلبك بنجاح</h4>
+            <p style="font-size:.78rem;color:var(--muted);margin:6px 0 16px">طلبك الآن قيد التقدم، تابع حالته من هذي الصفحة</p>
+            <button class="btn" type="button" onclick="closeSheets()">تمام</button>
+        </div>
+        <?php $sheets = ob_get_clean();
+    }
+    return [$body, $sheets];
 }
 
 /* ===================== حسابي ===================== */
@@ -2047,12 +2133,6 @@ function page_account(): string {
         <i class="fas fa-chevron-left" style="color:var(--muted)"></i>
     </a>
 
-    <a href="index.php?page=notifications" class="nav-row an">
-        <i class="fas fa-bell lead"></i>
-        <div class="t"><strong>الإشعارات</strong><span>كل التحديثات والتنبيهات</span></div>
-        <i class="fas fa-chevron-left" style="color:var(--muted)"></i>
-    </a>
-
     <div class="nav-row an">
         <i class="fas fa-moon lead"></i>
         <div class="t"><strong>الوضع الليلي</strong><span>يتذكّر اختيارك بهذا الجهاز</span></div>
@@ -2062,12 +2142,6 @@ function page_account(): string {
     <a href="index.php?page=account-edit" class="nav-row an">
         <i class="fas fa-user-pen lead"></i>
         <div class="t"><strong>تعديل معلومات الحساب</strong><span>الاسم، البريد، الهاتف، وكلمة المرور</span></div>
-        <i class="fas fa-chevron-left" style="color:var(--muted)"></i>
-    </a>
-
-    <a href="index.php?page=ai" class="nav-row an">
-        <i class="fas fa-sparkles lead"></i>
-        <div class="t"><strong>المساعد الذكي</strong><span>اسأل عن طلباتك أو منتج تحتاجه</span></div>
         <i class="fas fa-chevron-left" style="color:var(--muted)"></i>
     </a>
 
@@ -2357,8 +2431,23 @@ function page_vendor(): string {
     ob_start();
     echo '<h2 style="font-size:1.05rem;font-weight:800;margin:6px 0 14px" class="an"><i class="fas fa-shop"></i> ' . h($store['name']) . '</h2>';
     if (!is_store_live($store)) {
-        $why = !empty($store['suspended']) ? 'معلّق مؤقتاً من قبل الإدارة' : 'انتهى اشتراكك الشهري';
-        echo '<div class="flash flash-err an">⚠️ متجرك ' . h($why) . ' وما يظهر حالياً بالسوق للمشترين. تواصل مع الإدارة لتجديد الاشتراك أو إعادة التفعيل.</div>';
+        $suspendedByAdmin = !empty($store['suspended']);
+        $why = $suspendedByAdmin ? 'معلّق مؤقتاً من قبل الإدارة' : 'انتهى اشتراكك الشهري';
+        echo '<div class="flash flash-err an">⚠️ متجرك ' . h($why) . ' وما يظهر حالياً بالسوق للمشترين. ' . ($suspendedByAdmin ? 'تواصل مع الإدارة لإعادة التفعيل.' : '') . '</div>';
+        if (!$suspendedByAdmin) {
+            $fee = (float)get_settings()['monthly_fee'];
+            $canRenew = (float)($store['earnings'] ?? 0) >= $fee;
+            ?>
+            <div class="card an" style="margin-bottom:14px">
+                <div class="row-between"><span style="font-size:.8rem">رصيدك المتاح بالمتجر</span><strong style="color:var(--accent)"><?= money($store['earnings'] ?? 0) ?></strong></div>
+                <form method="post" style="margin-top:10px">
+                    <input type="hidden" name="action" value="vendor_renew_subscription">
+                    <button class="btn btn-sm" type="submit" <?= $canRenew ? '' : 'disabled style="opacity:.5"' ?>><i class="fas fa-calendar-check"></i> تجديد الاشتراك (<?= money($fee) ?>)</button>
+                </form>
+                <?php if (!$canRenew): ?><p style="font-size:.7rem;color:var(--danger);margin-top:8px">رصيدك المتاح لا يكفي — انتظر توفّر رصيد من طلباتك أو تواصل مع الإدارة</p><?php endif; ?>
+            </div>
+            <?php
+        }
     } elseif (($store['subscription_expires_at'] ?? null) && $store['subscription_expires_at'] - time() < 86400 * 5) {
         echo '<div class="flash flash-ok an">⏳ اشتراكك ينتهي بتاريخ ' . date('Y-m-d', $store['subscription_expires_at']) . ' — تواصل مع الإدارة للتجديد.</div>';
     }
@@ -2921,6 +3010,15 @@ function page_admin(): string {
             </form>
         </div>
         <div class="card an" style="margin-bottom:16px">
+            <h3 style="font-size:.88rem;font-weight:800;margin-bottom:14px"><i class="fab fa-google" style="color:var(--accent)"></i> تسجيل الدخول عبر Google</h3>
+            <form method="post">
+                <input type="hidden" name="action" value="admin_update_google_key">
+                <div class="field"><label>Google Client ID</label><input type="text" name="google_client_id" value="<?= h($settings['google_client_id']) ?>" placeholder="xxxx.apps.googleusercontent.com" autocomplete="off"></div>
+                <p style="font-size:.68rem;color:var(--muted);margin:-8px 0 12px">من Google Cloud Console — OAuth Client ID. اتركه فارغاً لإخفاء زر "الدخول عبر Google".</p>
+                <button class="btn btn-sm" type="submit">حفظ</button>
+            </form>
+        </div>
+        <div class="card an" style="margin-bottom:16px">
             <form method="post">
                 <input type="hidden" name="action" value="admin_update_fee">
                 <div class="field"><label>قيمة الرسم الشهري لكل متجر (<?= CURRENCY ?>)</label><input type="number" name="monthly_fee" value="<?= (float)$settings['monthly_fee'] ?>"></div>
@@ -3044,8 +3142,8 @@ function resolve_view(): array {
         case 'stores': return ['المتاجر', app_shell_inner(page_stores(), 'stores')];
         case 'store': return ['المتجر', app_shell_inner(page_store(), 'stores')];
         case 'product': return ['المنتج', app_shell_inner(page_product(), 'stores')];
-        case 'cart': return ['السلة', app_shell_inner(page_cart(), null)];
-        case 'orders': return ['طلباتي', app_shell_inner(page_orders(), 'orders')];
+        case 'cart': [$cartBody, $cartSheets] = page_cart(); return ['السلة', app_shell_inner($cartBody, null, $cartSheets)];
+        case 'orders': [$ordersBody, $ordersSheets] = page_orders(); return ['طلباتي', app_shell_inner($ordersBody, 'orders', $ordersSheets)];
         case 'account': return ['حسابي', app_shell_inner(page_account(), 'account')];
         case 'account-wallet': return ['المحفظة', app_shell_inner(page_account_wallet(), 'account')];
         case 'account-edit': return ['تعديل الحساب', app_shell_inner(page_account_edit(), 'account')];

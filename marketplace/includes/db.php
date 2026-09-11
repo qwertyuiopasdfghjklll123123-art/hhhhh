@@ -161,7 +161,7 @@ function db_test_connection(string $host, string $name, string $user, string $pa
    أعلاه، لذا تبقى صحيحة سواء استُخدمت من index.php أو install.php أو
    manifest.php وسواء كان التخزين JSON أو MySQL. */
 function get_settings(): array {
-    $defaults = ['monthly_fee'=>0, 'categories'=>[], 'payment_methods'=>[], 'site_name'=>APP_NAME, 'site_logo'=>'', 'ai_api_key'=>'', 'coupons'=>[], 'telegram_bot_token'=>'', 'telegram_chat_id'=>'', 'last_backup_at'=>0];
+    $defaults = ['monthly_fee'=>0, 'categories'=>[], 'payment_methods'=>[], 'site_name'=>APP_NAME, 'site_logo'=>'', 'ai_api_key'=>'', 'google_client_id'=>'', 'coupons'=>[], 'telegram_bot_token'=>'', 'telegram_chat_id'=>'', 'last_backup_at'=>0];
     return db_read('settings', $defaults) + $defaults;
 }
 function get_categories(): array { return get_settings()['categories'] ?? []; }
