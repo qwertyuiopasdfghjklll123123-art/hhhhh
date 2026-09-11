@@ -285,6 +285,11 @@ document.addEventListener('click', function(e){
   wrap.closest('form').querySelector('.rate-input-val').value = v;
 });
 
+document.addEventListener('change', function(e){
+  if (e.target.name !== 'method' || e.target.type !== 'radio') return;
+  document.querySelectorAll('.pm-detail').forEach(function(p){ p.hidden = p.dataset.method !== e.target.value; });
+});
+
 function openLightbox(src){
   let lb=document.querySelector('.lightbox');
   if(!lb){lb=document.createElement('div');lb.className='lightbox';lb.innerHTML='<img>';lb.onclick=()=>lb.classList.remove('open');document.body.appendChild(lb);}

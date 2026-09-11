@@ -123,7 +123,6 @@ button,input,select,textarea{font-family:inherit;color:inherit}
 .auth-blob{position:absolute;border-radius:50%;z-index:-1}
 .auth-blob-tl{width:230px;height:230px;background:var(--accent2);top:-100px;left:-100px;opacity:.4}
 .auth-blob-br{width:260px;height:260px;background:var(--accent2);bottom:-120px;right:-120px;opacity:.35}
-.auth-skip{align-self:flex-start;font-size:.78rem;font-weight:700;color:var(--text);display:flex;align-items:center;gap:6px;text-decoration:none}
 .auth-hero{position:relative;display:flex;align-items:center;justify-content:center;margin:22px auto 14px;width:100%;max-width:250px;height:300px}
 .auth-hero.sm{max-width:170px;height:190px;margin:8px auto 16px}
 .auth-hero-bubble{position:absolute;width:50px;height:50px;border-radius:16px;background:var(--card);box-shadow:var(--shadow);display:flex;align-items:center;justify-content:center;font-size:1.15rem;color:var(--accent);z-index:2}

@@ -1583,6 +1583,7 @@ function full_document(string $title, string $inner): void {
 <div class="offline-banner" id="offlineBanner" hidden><i class="fas fa-wifi"></i> <span>لا يوجد اتصال بالإنترنت — تتصفح نسخة محفوظة مؤقتاً</span></div>
 <div id="app-root"><?= $inner ?></div>
 <script>window.APP_CONFIG = <?= json_encode(['siteName' => site_name(), 'googleClientId' => google_client_id()], JSON_UNESCAPED_UNICODE) ?>;</script>
+<script>try { history.replaceState(null, '', <?= json_encode(current_user() ? 'app' : '/') ?>); } catch (e) {}</script>
 <script src="assets/app.js"></script>
 </body>
 </html>
@@ -1675,7 +1676,6 @@ function welcome_inner(): string {
 <div class="auth-page">
   <div class="auth-blob auth-blob-tl"></div>
   <div class="auth-blob auth-blob-br"></div>
-  <a href="index.php?page=login" class="auth-skip an">تخطي <i class="fas fa-arrow-left"></i></a>
   <?= render_auth_hero(false) ?>
   <h1 class="auth-heading an">تسوق من متاجرك المفضلة واكتشف أفضل المتاجر</h1>
   <p class="auth-heading-sub an">كل المتاجر والمنتجات بمكان واحد، بتجربة سلسة وسريعة</p>
@@ -1738,7 +1738,7 @@ function register_inner(): string {
       <div class="field">
         <label>كود التحقق</label>
         <?= render_captcha() ?>
-        <input type="text" name="captcha" placeholder="اكتب الكود اللي فوق" required autocomplete="off" style="margin-top:8px">
+        <input type="text" name="captcha" placeholder="اكتب الكود اللي فوق" required autocomplete="off" autocapitalize="characters" autocorrect="off" spellcheck="false" style="margin-top:8px">
       </div>
       <button class="btn" type="submit"><i class="fas fa-arrow-left"></i> إنشاء الحساب</button>
     </form>
@@ -2219,9 +2219,15 @@ function page_account_wallet(): string {
         <form method="post" enctype="multipart/form-data">
             <input type="hidden" name="action" value="request_topup">
             <div class="field"><label>طريقة الدفع</label>
-                <select name="method" required onchange="document.querySelectorAll('.pm-detail').forEach(function(p){p.hidden = p.dataset.method !== this.value}, this)">
-                    <?php foreach ($settings['payment_methods'] as $m): ?><option value="<?= h($m['name']) ?>"><?= h($m['name']) ?></option><?php endforeach; ?>
-                </select>
+                <div class="pick-list" style="margin-bottom:0">
+                    <?php foreach ($settings['payment_methods'] as $i => $m): ?>
+                    <label class="pick-card">
+                        <input type="radio" name="method" value="<?= h($m['name']) ?>" <?= $i===0?'checked':'' ?> required>
+                        <?php if (!empty($m['logo'])): ?><img src="<?= h($m['logo']) ?>" alt="" style="width:26px;height:26px;border-radius:8px;object-fit:cover;vertical-align:middle;margin-inline-end:8px"><?php endif; ?>
+                        <span class="t"><?= h($m['name']) ?></span>
+                    </label>
+                    <?php endforeach; ?>
+                </div>
             </div>
             <?php foreach ($settings['payment_methods'] as $i => $m): ?>
                 <div class="pm-detail" style="margin:-4px 0 14px;padding:12px;background:var(--hover-bg);border-radius:12px;display:flex;gap:10px;align-items:center" data-method="<?= h($m['name']) ?>" <?= $i===0?'':'hidden' ?>>
