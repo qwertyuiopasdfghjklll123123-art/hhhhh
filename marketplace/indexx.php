@@ -107,12 +107,14 @@ function ensure_seed_data(): void {
         'monthly_fee' => 15000,
         'categories' => ['ملابس', 'إلكترونيات', 'تجميل ومكياج', 'منزل ومطبخ', 'أطفال وألعاب', 'رياضة ولياقة', 'أخرى'],
         'payment_methods' => [
-            ['id'=>1, 'name'=>'زين كاش', 'details'=>'حوّل إلى الرقم 0770-000-0000 ثم ارفع صورة الوصل'],
-            ['id'=>2, 'name'=>'آسيا حوالة', 'details'=>'حوّل باسم إدارة ' . APP_NAME . ' وارفع صورة الوصل'],
-            ['id'=>3, 'name'=>'تسليم نقدي بالمكتب', 'details'=>'راجع مكتب الإدارة وسلّم المبلغ نقداً'],
+            ['id'=>1, 'name'=>'زين كاش', 'transfer_number'=>'0770-000-0000', 'agent_name'=>'إدارة ' . APP_NAME, 'logo'=>'', 'qr_code'=>'', 'details'=>'حوّل إلى الرقم ثم ارفع صورة الوصل'],
+            ['id'=>2, 'name'=>'آسيا حوالة', 'transfer_number'=>'0770-111-1111', 'agent_name'=>'إدارة ' . APP_NAME, 'logo'=>'', 'qr_code'=>'', 'details'=>'حوّل باسم الوكيل وارفع صورة الوصل'],
+            ['id'=>3, 'name'=>'تسليم نقدي بالمكتب', 'transfer_number'=>'', 'agent_name'=>'إدارة ' . APP_NAME, 'logo'=>'', 'qr_code'=>'', 'details'=>'راجع مكتب الإدارة وسلّم المبلغ نقداً'],
         ],
         'site_name' => APP_NAME,
         'site_logo' => '',
+        'ai_api_key' => '',
+        'coupons' => [],
     ]);
 }
 ensure_seed_data();
@@ -197,12 +199,24 @@ function store_pending_earnings(array $store): float {
 }
 
 function get_settings(): array {
-    $defaults = ['monthly_fee'=>0, 'categories'=>[], 'payment_methods'=>[], 'site_name'=>APP_NAME, 'site_logo'=>''];
+    $defaults = ['monthly_fee'=>0, 'categories'=>[], 'payment_methods'=>[], 'site_name'=>APP_NAME, 'site_logo'=>'', 'ai_api_key'=>'', 'coupons'=>[]];
     return db_read('settings', $defaults) + $defaults;
 }
 function get_categories(): array { return get_settings()['categories'] ?? []; }
 function site_name(): string { $n = trim((string)(get_settings()['site_name'] ?? '')); return $n !== '' ? $n : APP_NAME; }
 function site_logo_url(): ?string { $l = get_settings()['site_logo'] ?? ''; return $l ? $l : null; }
+
+function find_coupon_for_product(int $productId): ?array {
+    $code = $_SESSION['cart_coupon'] ?? null;
+    if (!$code) return null;
+    foreach (get_settings()['coupons'] as $c) if ($c['code'] === $code && $c['product_id'] === $productId) return $c;
+    return null;
+}
+
+function coupon_price(int $productId, float $price): float {
+    $c = find_coupon_for_product($productId);
+    return $c ? round($price * (1 - $c['percent'] / 100), 2) : $price;
+}
 
 function is_store_live(array $s): bool {
     if ($s['status'] !== 'approved' || !empty($s['suspended'])) return false;
@@ -487,6 +501,21 @@ if ($action !== '') {
         redirect('indexx.php?page=cart');
     }
 
+    if ($action === 'apply_coupon') {
+        $code = strtoupper(trim((string)($_POST['coupon_code'] ?? '')));
+        $cart = $_SESSION['cart'] ?? [];
+        $matched = false;
+        foreach (get_settings()['coupons'] as $c) if ($c['code'] === $code && isset($cart[$c['product_id']])) { $matched = true; break; }
+        if ($code === '' || !$matched) {
+            unset($_SESSION['cart_coupon']);
+            flash('err', $code === '' ? 'تم إلغاء الكوبون' : 'هذا الكود غير صالح أو لا ينطبق على منتج بسلتك');
+        } else {
+            $_SESSION['cart_coupon'] = $code;
+            flash('ok', 'تم تطبيق الكوبون');
+        }
+        redirect('indexx.php?page=cart');
+    }
+
     if ($action === 'checkout') {
         $cart = $_SESSION['cart'] ?? [];
         if (empty($cart)) redirect('indexx.php?page=cart');
@@ -502,7 +531,7 @@ if ($action !== '') {
         foreach ($cart as $pid => $qty) {
             $p = null; foreach ($products as $pp) if ($pp['id'] === (int)$pid) { $p = $pp; break; }
             if (!$p) continue;
-            $price = $p['discount_price'] ?? $p['price'];
+            $price = coupon_price($p['id'], $p['discount_price'] ?? $p['price']);
             $byStore[$p['store_id']][] = ['product_id'=>$p['id'], 'name'=>$p['name'], 'price'=>$price, 'qty'=>$qty];
             $total += $price * $qty;
         }
@@ -533,6 +562,7 @@ if ($action !== '') {
         unset($u);
         db_write('users', $users);
         $_SESSION['cart'] = [];
+        unset($_SESSION['cart_coupon']);
         flash('ok', 'تم إنشاء طلبك بنجاح، يمكنك متابعته من صفحة طلباتي');
         redirect('indexx.php?page=orders');
     }
@@ -556,8 +586,25 @@ if ($action !== '') {
     if ($action === 'update_profile') {
         $users = db_read('users');
         $user = current_user();
+        $newEmail = mb_strtolower(trim((string)($_POST['email'] ?? $user['email'])));
+        $newPassword = (string)($_POST['password'] ?? '');
+        if (!filter_var($newEmail, FILTER_VALIDATE_EMAIL)) {
+            flash('err', 'البريد الإلكتروني غير صحيح');
+            redirect('indexx.php?page=account');
+        }
+        foreach ($users as $u) if ($u['id'] !== $user['id'] && mb_strtolower($u['email'] ?? '') === $newEmail) {
+            flash('err', 'هذا البريد مستخدم من حساب آخر');
+            redirect('indexx.php?page=account');
+        }
+        if ($newPassword !== '' && strlen($newPassword) < 6) {
+            flash('err', 'كلمة المرور الجديدة لازم لا تقل عن 6 خانات');
+            redirect('indexx.php?page=account');
+        }
         foreach ($users as &$u) if ($u['id'] === $user['id']) {
             $u['name'] = trim((string)($_POST['name'] ?? $u['name']));
+            $u['email'] = $newEmail;
+            $u['phone'] = trim((string)($_POST['phone'] ?? $u['phone']));
+            if ($newPassword !== '') $u['password_hash'] = password_hash($newPassword, PASSWORD_DEFAULT);
         }
         unset($u);
         db_write('users', $users);
@@ -822,7 +869,7 @@ if ($action !== '') {
     }
 
     // إجراءات الأدمن
-    $adminActions = ['admin_approve','admin_reject','admin_topup','admin_toggle_featured','admin_collect_fee','admin_cashout','admin_update_fee','admin_update_branding','admin_add_payment_method','admin_delete_payment_method','admin_approve_topup','admin_reject_topup','admin_resolve_complaint','admin_toggle_suspend','admin_add_category','admin_delete_category','admin_toggle_admin','admin_broadcast'];
+    $adminActions = ['admin_approve','admin_reject','admin_topup','admin_toggle_featured','admin_collect_fee','admin_cashout','admin_update_fee','admin_update_branding','admin_update_ai_key','admin_add_payment_method','admin_delete_payment_method','admin_approve_topup','admin_reject_topup','admin_resolve_complaint','admin_toggle_suspend','admin_add_category','admin_delete_category','admin_toggle_admin','admin_broadcast','admin_add_coupon','admin_delete_coupon'];
     if (in_array($action, $adminActions, true)) {
         if (!is_admin_user()) redirect('indexx.php');
 
@@ -973,10 +1020,48 @@ if ($action !== '') {
             flash('ok', 'تم تحديث اسم وشعار الموقع');
             redirect('indexx.php?page=admin&section=settings');
         }
+        if ($action === 'admin_update_ai_key') {
+            $settings = get_settings();
+            $settings['ai_api_key'] = trim((string)($_POST['ai_api_key'] ?? ''));
+            db_write('settings', $settings);
+            flash('ok', 'تم تحديث مفتاح المساعد الذكي');
+            redirect('indexx.php?page=admin&section=settings');
+        }
+        if ($action === 'admin_add_coupon') {
+            $settings = get_settings();
+            $code = strtoupper(trim((string)($_POST['code'] ?? '')));
+            $pid = (int)($_POST['product_id'] ?? 0);
+            $percent = max(1, min(90, (float)($_POST['percent'] ?? 0)));
+            if ($code === '' || !find_product($pid)) {
+                flash('err', 'الرجاء اختيار منتج وكتابة كود صحيح');
+                redirect('indexx.php?page=admin&section=settings');
+            }
+            $coupons = $settings['coupons'];
+            $coupons[] = ['id'=>next_id($coupons), 'code'=>$code, 'product_id'=>$pid, 'percent'=>$percent];
+            $settings['coupons'] = $coupons;
+            db_write('settings', $settings);
+            flash('ok', 'تمت إضافة الكوبون');
+            redirect('indexx.php?page=admin&section=settings');
+        }
+        if ($action === 'admin_delete_coupon') {
+            $settings = get_settings();
+            $cid = (int)($_POST['coupon_id'] ?? 0);
+            $settings['coupons'] = array_values(array_filter($settings['coupons'], fn($c) => $c['id'] !== $cid));
+            db_write('settings', $settings);
+            flash('ok', 'تم حذف الكوبون');
+            redirect('indexx.php?page=admin&section=settings');
+        }
         if ($action === 'admin_add_payment_method') {
             $settings = get_settings();
             $methods = $settings['payment_methods'];
-            $methods[] = ['id'=>next_id($methods), 'name'=>trim((string)$_POST['name']), 'details'=>trim((string)$_POST['details'])];
+            $methods[] = [
+                'id' => next_id($methods), 'name' => trim((string)$_POST['name']),
+                'transfer_number' => trim((string)($_POST['transfer_number'] ?? '')),
+                'agent_name' => trim((string)($_POST['agent_name'] ?? '')),
+                'logo' => handle_upload('logo') ?? '',
+                'qr_code' => handle_upload('qr_code') ?? '',
+                'details' => trim((string)($_POST['details'] ?? '')),
+            ];
             $settings['payment_methods'] = $methods;
             db_write('settings', $settings);
             flash('ok', 'تمت إضافة طريقة الدفع');
@@ -1060,12 +1145,59 @@ if ($action !== '') {
 /* ===================== المساعد الذكي (DeepSeek) ===================== */
 function ai_system_prompt(): string {
     $stores = db_read('stores');
-    $names = array_map(fn($s) => $s['name'] . ' (' . $s['category'] . ')', array_filter($stores, 'is_store_live'));
+    $liveStores = array_filter($stores, 'is_store_live');
+    $liveStoreIds = array_column($liveStores, 'id');
+    $names = array_map(fn($s) => $s['name'] . ' (' . $s['category'] . ')', $liveStores);
     $cats = implode('، ', get_categories());
-    return "أنت المساعد الذكي لتطبيق \"" . APP_NAME . "\" وهو سوق رقمي إلكتروني يضم عدة متاجر مستقلة. "
+
+    $products = array_values(array_filter(db_read('products'), fn($p) => in_array($p['store_id'], $liveStoreIds, true)));
+    $sampleProducts = array_map(fn($p) => $p['name'] . ' — ' . money($p['discount_price'] ?? $p['price']), array_slice($products, 0, 25));
+
+    $prompt = "أنت المساعد الذكي لتطبيق \"" . site_name() . "\" وهو سوق رقمي إلكتروني يضم عدة متاجر مستقلة. "
         . "أقسام المنتجات المتوفرة: {$cats}. المتاجر المتوفرة حالياً: " . implode('، ', $names) . ". "
+        . "أمثلة من المنتجات المتوفرة فعلياً الآن (اذكر فقط منتجات من هذه القائمة إن سُئلت عن منتج محدد، ولا تختلق منتجات غير موجودة): " . implode('، ', $sampleProducts) . ". "
         . "المستخدم يشتري عبر محفظة داخلية (رصيد) يضيفه له الأدمن، والطلب يمر بأربع مراحل: " . implode(' ← ', ORDER_STAGES) . ". "
         . "أجب باختصار ووضوح باللهجة العربية الفصحى المبسطة، وساعد المستخدم بخصوص التسوق والمتاجر والطلبات وكيفية التسجيل كتاجر.";
+
+    $u = current_user();
+    if ($u) {
+        $myOrders = array_values(array_filter(db_read('orders'), fn($o) => $o['buyer_id'] === $u['id']));
+        usort($myOrders, fn($a, $b) => $b['created_at'] <=> $a['created_at']);
+        $orderLines = array_map(function ($o) use ($stores) {
+            $store = null; foreach ($stores as $s) if ($s['id'] === $o['store_id']) { $store = $s; break; }
+            return 'طلب #' . $o['id'] . ' من ' . ($store['name'] ?? 'متجر') . ' بقيمة ' . money($o['total']) . ' — الحالة: ' . $o['status'];
+        }, array_slice($myOrders, 0, 5));
+        $prompt .= "\n\nبيانات المستخدم الحالي (فقط — لا تفصح عن بيانات أي مستخدم آخر مطلقاً): الاسم: " . $u['name'] . '. رصيد محفظته الحالي: ' . money($u['wallet']) . '. '
+            . ($orderLines ? 'آخر طلباته: ' . implode(' | ', $orderLines) . '.' : 'ليس لديه أي طلبات بعد.');
+    }
+    return $prompt;
+}
+
+/* بحث بسيط بالكلمات المفتاحية عن أقرب منتج حقيقي لسؤال المستخدم، لإرفاقه كبطاقة
+   منتج قابلة للضغط بالمحادثة بدل الاكتفاء برد نصي فقط. */
+function ai_find_product(string $msg): ?array {
+    $msg = mb_strtolower(trim($msg));
+    if (mb_strlen($msg) < 2) return null;
+    $liveStoreIds = array_column(array_filter(db_read('stores'), 'is_store_live'), 'id');
+    $best = null; $bestScore = 0;
+    foreach (db_read('products') as $p) {
+        if (!in_array($p['store_id'], $liveStoreIds, true)) continue;
+        $name = mb_strtolower($p['name']);
+        $cat = mb_strtolower($p['category'] ?? '');
+        $score = 0;
+        if (mb_strpos($msg, $name) !== false) $score = 3;
+        if ($cat !== '' && mb_strpos($msg, $cat) !== false) $score = max($score, 1);
+        foreach (preg_split('/\s+/u', $name) ?: [] as $word) {
+            if (mb_strlen($word) >= 3 && mb_strpos($msg, mb_strtolower($word)) !== false) $score = max($score, 2);
+        }
+        if ($score > $bestScore) { $bestScore = $score; $best = $p; }
+    }
+    if ($bestScore < 2 || !$best) return null;
+    return [
+        'id' => $best['id'], 'name' => $best['name'],
+        'price' => money($best['discount_price'] ?? $best['price']),
+        'image' => $best['images'][0] ?? '',
+    ];
 }
 
 function ai_fallback_reply(string $msg): string {
@@ -1082,14 +1214,19 @@ function ai_fallback_reply(string $msg): string {
     return 'ما فهمت قصدك بالضبط 🙂 تكدر تسألني عن المتاجر، المنتجات، الرصيد، الطلبات، أو كيفية التسجيل كتاجر.';
 }
 
+function ai_api_key(): string {
+    $k = trim((string)(get_settings()['ai_api_key'] ?? ''));
+    return $k !== '' ? $k : DEEPSEEK_API_KEY;
+}
+
 function ai_call_deepseek(array $messages): ?string {
-    if (DEEPSEEK_API_KEY === '') return null;
+    if (ai_api_key() === '') return null;
     $ch = curl_init(DEEPSEEK_API_URL);
     curl_setopt_array($ch, [
         CURLOPT_RETURNTRANSFER => true,
         CURLOPT_POST => true,
         CURLOPT_TIMEOUT => 20,
-        CURLOPT_HTTPHEADER => ['Content-Type: application/json', 'Authorization: Bearer ' . DEEPSEEK_API_KEY],
+        CURLOPT_HTTPHEADER => ['Content-Type: application/json', 'Authorization: Bearer ' . ai_api_key()],
         CURLOPT_POSTFIELDS => json_encode(['model'=>DEEPSEEK_MODEL, 'messages'=>$messages, 'stream'=>false], JSON_UNESCAPED_UNICODE),
     ]);
     $res = curl_exec($ch);
@@ -1103,6 +1240,7 @@ function ai_call_deepseek(array $messages): ?string {
 /* ===================== CSS و JS المشتركة ===================== */
 function render_css(): void { ?>
 *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+[hidden]{display:none!important}
 html{scroll-behavior:smooth}
 :root{--bg:#f8f6f3;--card:#fff;--text:#1a1a2e;--muted:#6b7280;--accent:#f2b100;--accent2:#ffcf40;--shadow:0 1px 2px rgba(242,177,0,.08),0 6px 18px rgba(242,177,0,.08);--border:rgba(242,177,0,.14);--hover-bg:rgba(242,177,0,.07);--gradient:linear-gradient(135deg,#f2b100,#ffcf40);--danger:#e5484d;--success:#2f9e5c;--radius:16px}
 [data-theme="dark"]{--bg:#0d0d0d;--card:#1a1a1a;--text:#f0ece0;--muted:#a89f8e;--accent:#ffcf40;--accent2:#ffe27a;--shadow:0 1px 2px rgba(0,0,0,.5),0 6px 20px rgba(0,0,0,.6);--border:rgba(255,207,64,.14);--hover-bg:rgba(255,207,64,.08);--gradient:linear-gradient(135deg,#ffcf40,#ffe27a)}
@@ -1222,15 +1360,27 @@ button,input,select,textarea{font-family:inherit;color:inherit}
 .auth-blob-tl{width:230px;height:230px;background:var(--accent2);top:-100px;left:-100px;opacity:.4}
 .auth-blob-br{width:260px;height:260px;background:var(--accent2);bottom:-120px;right:-120px;opacity:.35}
 .auth-skip{align-self:flex-start;font-size:.78rem;font-weight:700;color:var(--text);display:flex;align-items:center;gap:6px;text-decoration:none}
-.auth-hero{position:relative;display:flex;align-items:center;justify-content:center;margin:20px auto 10px;width:100%;max-width:230px;aspect-ratio:1}
-.auth-hero.sm{max-width:150px;margin:6px auto 14px}
-.auth-hero-main{width:54%;height:54%;border-radius:30px;background:var(--gradient);display:flex;align-items:center;justify-content:center;font-size:2.4rem;color:#1a1a2e;box-shadow:0 18px 36px rgba(242,177,0,.28);overflow:hidden}
-.auth-hero-bubble{position:absolute;width:50px;height:50px;border-radius:16px;background:var(--card);box-shadow:var(--shadow);display:flex;align-items:center;justify-content:center;font-size:1.1rem;color:var(--accent)}
+.auth-hero{position:relative;display:flex;align-items:center;justify-content:center;margin:22px auto 14px;width:100%;max-width:250px;height:300px}
+.auth-hero.sm{max-width:170px;height:190px;margin:8px auto 16px}
+.auth-hero-bubble{position:absolute;width:50px;height:50px;border-radius:16px;background:var(--card);box-shadow:var(--shadow);display:flex;align-items:center;justify-content:center;font-size:1.15rem;color:var(--accent);z-index:2}
 .auth-hero.sm .auth-hero-bubble{width:34px;height:34px;border-radius:11px;font-size:.85rem}
-.auth-hero-bubble.b1{top:2%;left:2%}
-.auth-hero-bubble.b2{top:6%;right:0}
-.auth-hero-bubble.b3{bottom:6%;left:0}
-.auth-hero-bubble.b4{bottom:2%;right:4%}
+.auth-hero-bubble.b1{top:6%;left:-4%}
+.auth-hero-bubble.b2{top:2%;right:-6%}
+.auth-hero-bubble.b3{bottom:22%;left:-8%}
+.auth-hero-bubble.b4{bottom:4%;right:-4%}
+.phone-mock{width:64%;height:94%;background:#1a1a2e;border-radius:32px;padding:8px;box-shadow:0 22px 44px rgba(0,0,0,.22);position:relative}
+.auth-hero.sm .phone-mock{border-radius:22px;padding:5px}
+.phone-mock::before{content:'';position:absolute;top:8px;left:50%;transform:translateX(-50%);width:34%;height:14px;background:#1a1a2e;border-radius:0 0 10px 10px;z-index:2}
+.phone-mock-screen{width:100%;height:100%;background:var(--card);border-radius:24px;overflow:hidden;padding:14px 8px 8px;display:flex;flex-direction:column;gap:6px}
+.auth-hero.sm .phone-mock-screen{border-radius:16px;padding:9px 6px 6px;gap:4px}
+.phone-mock-brand{font-size:.6rem;font-weight:900;text-align:center;color:var(--accent);margin-bottom:2px}
+.auth-hero.sm .phone-mock-brand{font-size:.5rem}
+.phone-mock-search{height:16px;border-radius:8px;background:var(--hover-bg);display:flex;align-items:center;padding:0 6px;color:var(--muted);font-size:.5rem}
+.phone-mock-cats{display:flex;gap:5px;justify-content:center}
+.phone-mock-cats span{flex:1;aspect-ratio:1;border-radius:8px;background:var(--gradient);display:flex;align-items:center;justify-content:center;font-size:.5rem;color:#1a1a2e;max-width:24px}
+.phone-mock-row{font-size:.48rem;font-weight:800;color:var(--text);margin-top:2px}
+.phone-mock-cards{display:flex;gap:5px;flex:1}
+.phone-mock-cards span{flex:1;border-radius:8px;background:var(--hover-bg);display:flex;align-items:center;justify-content:center;color:var(--accent);font-size:.6rem}
 .auth-heading{font-size:1.2rem;font-weight:900;text-align:center;margin:4px 0 6px;line-height:1.5}
 .auth-heading-sub{font-size:.78rem;color:var(--muted);text-align:center;margin-bottom:18px;line-height:1.7}
 .auth-dots{display:flex;gap:6px;justify-content:center;margin:16px 0 4px}
@@ -1318,6 +1468,12 @@ button,input,select,textarea{font-family:inherit;color:inherit}
 .ai-msg{max-width:80%;padding:9px 12px;border-radius:14px;font-size:.78rem;line-height:1.6}
 .ai-bot{background:var(--hover-bg);align-self:flex-start;border-bottom-left-radius:4px}
 .ai-user{background:var(--gradient);color:#1a1a2e;align-self:flex-end;border-bottom-right-radius:4px;font-weight:600}
+.ai-product-card{display:flex;align-items:center;gap:10px;background:var(--card);border:1px solid var(--border);border-radius:14px;padding:8px;max-width:80%;align-self:flex-start;text-decoration:none;color:inherit}
+.ai-product-img{width:42px;height:42px;border-radius:10px;background:var(--hover-bg);display:flex;align-items:center;justify-content:center;flex-shrink:0;overflow:hidden;color:var(--accent)}
+.ai-product-img img{width:100%;height:100%;object-fit:cover}
+.ai-product-info{flex:1;min-width:0}
+.ai-product-info h5{font-size:.74rem;font-weight:800;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ai-product-info span{font-size:.68rem;color:var(--accent);font-weight:700}
 #aiChatForm{display:flex;gap:6px;padding:10px;border-top:1px solid var(--border)}
 #aiChatForm input{flex:1;border:1px solid var(--border);border-radius:100px;padding:10px 14px;background:var(--bg);font-size:.8rem;outline:none}
 #aiChatForm button{width:38px;height:38px;border-radius:50%;background:var(--gradient);border:none;color:#1a1a2e;cursor:pointer;flex-shrink:0}
@@ -1496,6 +1652,13 @@ async function handleAiChatSubmit(form){
     box.insertAdjacentHTML('beforeend', '<div class="ai-msg ai-bot"></div>');
     box.lastElementChild.textContent = data.reply;
     window._aiHistory.push({role:'assistant', content: data.reply});
+    if (data.product) {
+      const p = data.product;
+      box.insertAdjacentHTML('beforeend', '<a href="indexx.php?page=product&id=' + encodeURIComponent(p.id) + '" class="ai-product-card"><div class="ai-product-img">' + (p.image ? '<img src="' + p.image + '" alt="">' : '<i class="fas fa-box"></i>') + '</div><div class="ai-product-info"><h5></h5><span></span></div><i class="fas fa-arrow-left"></i></a>');
+      const cardEl = box.lastElementChild;
+      cardEl.querySelector('h5').textContent = p.name;
+      cardEl.querySelector('span').textContent = p.price;
+    }
   } catch (err) {
     document.getElementById('aiTyping')?.remove();
     box.insertAdjacentHTML('beforeend', '<div class="ai-msg ai-bot">صار خطأ بالاتصال، حاول مرة ثانية.</div>');
@@ -1516,9 +1679,20 @@ function useMyLocation(){
   if (!navigator.geolocation) { status.textContent = 'المتصفح ما يدعم تحديد الموقع'; return; }
   status.textContent = 'جاري التحديد...';
   navigator.geolocation.getCurrentPosition(function(pos){
-    const lat = pos.coords.latitude.toFixed(6), lng = pos.coords.longitude.toFixed(6);
-    document.getElementById('deliveryLocation').value = 'إحداثيات GPS: ' + lat + ', ' + lng;
-    status.textContent = 'تم تحديد موقعك ✅';
+    const lat = pos.coords.latitude, lng = pos.coords.longitude;
+    document.getElementById('deliveryLocation').value = 'إحداثيات GPS: ' + lat.toFixed(6) + ', ' + lng.toFixed(6);
+    status.textContent = 'جارٍ تحديد اسم الموقع...';
+    fetch('https://nominatim.openstreetmap.org/reverse?format=json&lat=' + lat + '&lon=' + lng + '&accept-language=ar&zoom=18')
+      .then(r => r.json())
+      .then(data => {
+        if (data && data.display_name) {
+          document.getElementById('deliveryLocation').value = data.display_name;
+          status.textContent = 'تم تحديد موقعك ✅';
+        } else {
+          status.textContent = 'تم تحديد إحداثياتك، تعذّر إيجاد اسم للمكان';
+        }
+      })
+      .catch(() => { status.textContent = 'تم تحديد إحداثياتك، تعذّر إيجاد اسم للمكان'; });
   }, function(){
     status.textContent = 'تعذّر تحديد الموقع، اكتبه يدوياً';
   });
@@ -1840,7 +2014,8 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === 'chat') {
         db_write('ai_logs', $logs);
     }
 
-    echo json_encode(['reply'=>$reply, 'source'=>$source], JSON_UNESCAPED_UNICODE);
+    $product = ai_find_product($userMsg);
+    echo json_encode(['reply'=>$reply, 'source'=>$source, 'product'=>$product], JSON_UNESCAPED_UNICODE);
     exit;
 }
 
@@ -1874,7 +2049,15 @@ function render_auth_hero(bool $small = false): string {
     $icons = ['fa-shirt', 'fa-mobile-screen', 'fa-wand-magic-sparkles', 'fa-kitchen-set'];
     ob_start(); ?>
     <div class="auth-hero<?= $small ? ' sm' : '' ?> an">
-        <div class="auth-hero-main"><?php if (site_logo_url()): ?><img src="<?= h(site_logo_url()) ?>" alt="" style="width:100%;height:100%;object-fit:cover"><?php else: ?><i class="fas fa-bag-shopping"></i><?php endif; ?></div>
+        <div class="phone-mock">
+            <div class="phone-mock-screen">
+                <div class="phone-mock-brand"><?php if (site_logo_url()): ?><img src="<?= h(site_logo_url()) ?>" alt="" style="width:14px;height:14px;border-radius:4px;object-fit:cover;vertical-align:middle;margin-left:3px"><?php endif; ?> <?= h(site_name()) ?></div>
+                <div class="phone-mock-search"><i class="fas fa-magnifying-glass" style="font-size:.5rem"></i></div>
+                <div class="phone-mock-cats"><span><i class="fas fa-shirt"></i></span><span><i class="fas fa-mobile-screen"></i></span><span><i class="fas fa-wand-magic-sparkles"></i></span><span><i class="fas fa-kitchen-set"></i></span></div>
+                <div class="phone-mock-row">أفضل المتاجر</div>
+                <div class="phone-mock-cards"><span><i class="fas fa-store"></i></span><span><i class="fas fa-store"></i></span></div>
+            </div>
+        </div>
         <?php foreach ($icons as $i => $ic): ?>
         <div class="auth-hero-bubble b<?= $i + 1 ?>"><i class="fas <?= $ic ?>"></i></div>
         <?php endforeach; ?>
@@ -2167,25 +2350,34 @@ function page_cart(): string {
     foreach ($cart as $pid => $qty) {
         $p = null; foreach ($products as $pp) if ($pp['id'] === (int)$pid) { $p = $pp; break; }
         if (!$p) continue;
-        $price = $p['discount_price'] ?? $p['price'];
-        $byStore[$p['store_id']][] = ['p'=>$p, 'qty'=>$qty, 'price'=>$price];
+        $basePrice = $p['discount_price'] ?? $p['price'];
+        $price = coupon_price($p['id'], $basePrice);
+        $byStore[$p['store_id']][] = ['p'=>$p, 'qty'=>$qty, 'price'=>$price, 'base_price'=>$basePrice];
         $total += $price * $qty;
     }
+    $appliedCoupon = $_SESSION['cart_coupon'] ?? '';
     ob_start(); ?>
     <h2 style="font-size:1.05rem;font-weight:800;margin:6px 0 16px" class="an">سلة المشتريات</h2>
     <?php foreach ($byStore as $storeId => $items): $store = find_store($storeId); $subtotal = array_sum(array_map(fn($it)=>$it['price']*$it['qty'], $items)); ?>
     <div class="cart-store-group an">
         <div class="cart-store-title"><i class="fas fa-shop" style="color:var(--accent)"></i> <?= h($store['name'] ?? '') ?></div>
-        <?php foreach ($items as $it): ?>
+        <?php foreach ($items as $it): $hasDiscount = $it['price'] < $it['base_price']; ?>
         <div class="cart-item">
             <div class="cart-item-img"><?php if ($it['p']['images'][0] ?? null): ?><img src="<?= h($it['p']['images'][0]) ?>"><?php else: ?><i class="fas <?= category_icon($it['p']['category']) ?>" style="color:var(--accent)"></i><?php endif; ?></div>
-            <div class="cart-item-info"><?= h($it['p']['name']) ?><span><?= money($it['price']) ?> × <?= $it['qty'] ?></span></div>
+            <div class="cart-item-info"><?= h($it['p']['name']) ?>
+                <span><?php if ($hasDiscount): ?><s style="color:var(--muted);margin-left:4px"><?= money($it['base_price']) ?></s><i class="fas fa-tag" style="color:var(--accent);font-size:.6rem"></i> <?php endif; ?><?= money($it['price']) ?> × <?= $it['qty'] ?></span>
+            </div>
             <form method="post"><input type="hidden" name="action" value="remove_from_cart"><input type="hidden" name="product_id" value="<?= $it['p']['id'] ?>"><button class="cart-remove"><i class="fas fa-trash"></i></button></form>
         </div>
         <?php endforeach; ?>
         <div style="text-align:left;font-size:.75rem;font-weight:700;color:var(--muted)">مجموع هذا المتجر: <?= money($subtotal) ?></div>
     </div>
     <?php endforeach; ?>
+    <form method="post" class="an" style="display:flex;gap:8px;margin-bottom:14px">
+        <input type="hidden" name="action" value="apply_coupon">
+        <div class="field" style="flex:1;margin-bottom:0"><input type="text" name="coupon_code" value="<?= h($appliedCoupon) ?>" placeholder="كود الخصم (اختياري)" style="text-transform:uppercase"></div>
+        <button class="btn btn-sm" type="submit" style="width:auto"><i class="fas fa-tag"></i> تطبيق</button>
+    </form>
     <div class="cart-total an"><span>الإجمالي</span><span><?= money($total) ?></span></div>
     <div class="an" style="font-size:.72rem;color:var(--muted);margin-bottom:14px">رصيدك الحالي: <?= money($user['wallet']) ?></div>
     <form method="post" class="an">
@@ -2305,9 +2497,12 @@ function page_account(): string {
     </div>
 
     <details class="nav-row an" style="display:block">
-        <summary style="display:flex;align-items:center;gap:12px;cursor:pointer;list-style:none"><i class="fas fa-user-pen lead"></i><div class="t"><strong>تعديل الاسم</strong><span><?= h($user['name']) ?></span></div></summary>
+        <summary style="display:flex;align-items:center;gap:12px;cursor:pointer;list-style:none"><i class="fas fa-user-pen lead"></i><div class="t"><strong>تعديل معلومات الحساب</strong><span><?= h($user['name']) ?></span></div></summary>
         <form method="post" style="margin-top:14px"><input type="hidden" name="action" value="update_profile">
             <div class="field"><label>الاسم</label><input type="text" name="name" value="<?= h($user['name']) ?>"></div>
+            <div class="field"><label>البريد الإلكتروني</label><input type="email" name="email" value="<?= h($user['email'] ?? '') ?>"></div>
+            <div class="field"><label>رقم الهاتف</label><input type="tel" name="phone" value="<?= h($user['phone'] ?? '') ?>"></div>
+            <div class="field"><label>كلمة مرور جديدة (اتركه فارغاً إذا لا تريد تغييرها)</label><input type="password" name="password" autocomplete="new-password"></div>
             <button class="btn btn-sm" type="submit">حفظ التعديل</button>
         </form>
     </details>
@@ -2359,7 +2554,15 @@ function page_account_wallet(): string {
                 </select>
             </div>
             <?php foreach ($settings['payment_methods'] as $i => $m): ?>
-                <p class="pm-detail" style="font-size:.68rem;color:var(--muted);margin:-8px 0 12px" data-method="<?= h($m['name']) ?>" <?= $i===0?'':'hidden' ?>><?= h($m['details']) ?></p>
+                <div class="pm-detail" style="margin:-4px 0 14px;padding:12px;background:var(--hover-bg);border-radius:12px;display:flex;gap:10px;align-items:center" data-method="<?= h($m['name']) ?>" <?= $i===0?'':'hidden' ?>>
+                    <?php if (!empty($m['logo'])): ?><img src="<?= h($m['logo']) ?>" alt="" style="width:40px;height:40px;border-radius:11px;object-fit:cover;flex-shrink:0"><?php endif; ?>
+                    <div style="flex:1;font-size:.72rem;line-height:1.8">
+                        <?php if (!empty($m['transfer_number'])): ?><div><strong>رقم التحويل:</strong> <?= h($m['transfer_number']) ?></div><?php endif; ?>
+                        <?php if (!empty($m['agent_name'])): ?><div><strong>اسم الوكيل:</strong> <?= h($m['agent_name']) ?></div><?php endif; ?>
+                        <?php if (!empty($m['details'])): ?><div style="color:var(--muted)"><?= h($m['details']) ?></div><?php endif; ?>
+                    </div>
+                    <?php if (!empty($m['qr_code'])): ?><img src="<?= h($m['qr_code']) ?>" alt="" style="width:56px;height:56px;object-fit:cover;border-radius:8px;flex-shrink:0"><?php endif; ?>
+                </div>
             <?php endforeach; ?>
             <div class="field"><label>المبلغ (<?= CURRENCY ?>)</label><input type="number" name="amount" min="1" required></div>
             <div class="field"><label>صورة وصل التحويل</label><input type="file" name="receipt" accept="image/*" required></div>
@@ -3007,6 +3210,15 @@ function page_admin(): string {
             </form>
         </div>
         <div class="card an" style="margin-bottom:16px">
+            <h3 style="font-size:.88rem;font-weight:800;margin-bottom:14px"><i class="fas fa-sparkles" style="color:var(--accent)"></i> مفتاح المساعد الذكي (DeepSeek)</h3>
+            <form method="post">
+                <input type="hidden" name="action" value="admin_update_ai_key">
+                <div class="field"><label>API Key</label><input type="text" name="ai_api_key" value="<?= h($settings['ai_api_key']) ?>" placeholder="sk-..." autocomplete="off"></div>
+                <p style="font-size:.68rem;color:var(--muted);margin:-8px 0 12px">اتركه فارغاً لتعطيل الذكاء الاصطناعي الحقيقي (يعمل برد احتياطي بسيط بدون مفتاح).</p>
+                <button class="btn btn-sm" type="submit">حفظ</button>
+            </form>
+        </div>
+        <div class="card an" style="margin-bottom:16px">
             <form method="post">
                 <input type="hidden" name="action" value="admin_update_fee">
                 <div class="field"><label>قيمة الرسم الشهري لكل متجر (<?= CURRENCY ?>)</label><input type="number" name="monthly_fee" value="<?= (float)$settings['monthly_fee'] ?>"></div>
@@ -3032,18 +3244,58 @@ function page_admin(): string {
         <?php foreach ($settings['payment_methods'] as $m): ?>
             <div class="table-card an">
                 <div class="row-between">
-                    <h5><?= h($m['name']) ?></h5>
+                    <div style="display:flex;align-items:center;gap:8px">
+                        <?php if (!empty($m['logo'])): ?><img src="<?= h($m['logo']) ?>" alt="" style="width:32px;height:32px;border-radius:9px;object-fit:cover"><?php endif; ?>
+                        <h5><?= h($m['name']) ?></h5>
+                    </div>
                     <form method="post" onsubmit="return confirm('حذف طريقة الدفع؟')"><input type="hidden" name="action" value="admin_delete_payment_method"><input type="hidden" name="method_id" value="<?= $m['id'] ?>"><button class="cart-remove"><i class="fas fa-trash"></i></button></form>
                 </div>
-                <div class="meta"><?= h($m['details']) ?></div>
+                <?php if (!empty($m['transfer_number'])): ?><div class="meta">رقم التحويل: <?= h($m['transfer_number']) ?></div><?php endif; ?>
+                <?php if (!empty($m['agent_name'])): ?><div class="meta">اسم الوكيل: <?= h($m['agent_name']) ?></div><?php endif; ?>
+                <?php if (!empty($m['details'])): ?><div class="meta"><?= h($m['details']) ?></div><?php endif; ?>
+                <?php if (!empty($m['qr_code'])): ?><img src="<?= h($m['qr_code']) ?>" alt="" style="width:70px;height:70px;object-fit:cover;border-radius:10px;margin-top:6px"><?php endif; ?>
             </div>
         <?php endforeach; ?>
         <details class="card an" style="margin-top:10px">
             <summary style="font-weight:800;font-size:.8rem;cursor:pointer"><i class="fas fa-plus"></i> إضافة طريقة دفع</summary>
-            <form method="post" style="margin-top:14px">
+            <form method="post" enctype="multipart/form-data" style="margin-top:14px">
                 <input type="hidden" name="action" value="admin_add_payment_method">
                 <div class="field"><label>الاسم</label><input type="text" name="name" required placeholder="مثال: زين كاش"></div>
-                <div class="field"><label>تفاصيل التحويل</label><textarea name="details" required placeholder="رقم الحساب أو التعليمات"></textarea></div>
+                <div class="field"><label>رقم التحويل</label><input type="text" name="transfer_number" required placeholder="0770-000-0000"></div>
+                <div class="field"><label>اسم الوكيل</label><input type="text" name="agent_name" required placeholder="اسم مستلم الحوالة"></div>
+                <div class="field"><label>شعار طريقة الدفع</label><input type="file" name="logo" accept="image/*"></div>
+                <div class="field"><label>باركود التحويل (اختياري)</label><input type="file" name="qr_code" accept="image/*"></div>
+                <div class="field"><label>تفاصيل إضافية (اختياري)</label><textarea name="details" placeholder="أي تعليمات إضافية"></textarea></div>
+                <button class="btn btn-sm" type="submit">إضافة</button>
+            </form>
+        </details>
+
+        <h3 style="font-size:.88rem;font-weight:800;margin:22px 0 10px">كوبونات الخصم</h3>
+        <?php $allProducts = db_read('products'); if (!$settings['coupons']): ?>
+            <p style="font-size:.72rem;color:var(--muted);margin-bottom:10px">لا توجد كوبونات بعد</p>
+        <?php else: foreach ($settings['coupons'] as $cp):
+            $cpProduct = null; foreach ($allProducts as $pp) if ($pp['id'] === $cp['product_id']) { $cpProduct = $pp; break; } ?>
+            <div class="table-card an">
+                <div class="row-between">
+                    <h5><?= h($cp['code']) ?> <span style="color:var(--accent);font-weight:700">-<?= (int)$cp['percent'] ?>%</span></h5>
+                    <form method="post" onsubmit="return confirm('حذف الكوبون؟')"><input type="hidden" name="action" value="admin_delete_coupon"><input type="hidden" name="coupon_id" value="<?= $cp['id'] ?>"><button class="cart-remove"><i class="fas fa-trash"></i></button></form>
+                </div>
+                <div class="meta">على منتج: <?= h($cpProduct['name'] ?? 'منتج محذوف') ?></div>
+            </div>
+        <?php endforeach; endif; ?>
+        <details class="card an" style="margin-top:10px">
+            <summary style="font-weight:800;font-size:.8rem;cursor:pointer"><i class="fas fa-plus"></i> إضافة كوبون خصم</summary>
+            <form method="post" style="margin-top:14px">
+                <input type="hidden" name="action" value="admin_add_coupon">
+                <div class="field"><label>الكود</label><input type="text" name="code" required placeholder="مثال: SALE20" style="text-transform:uppercase"></div>
+                <div class="field"><label>المنتج</label>
+                    <select name="product_id" required>
+                        <?php foreach ($allProducts as $pp): $ps = find_store($pp['store_id']); ?>
+                        <option value="<?= $pp['id'] ?>"><?= h($pp['name']) ?> — <?= h($ps['name'] ?? '') ?></option>
+                        <?php endforeach; ?>
+                    </select>
+                </div>
+                <div class="field"><label>نسبة الخصم %</label><input type="number" name="percent" min="1" max="90" required placeholder="20"></div>
                 <button class="btn btn-sm" type="submit">إضافة</button>
             </form>
         </details>
