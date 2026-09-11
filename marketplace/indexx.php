@@ -192,6 +192,63 @@ function release_matured_earnings(): void {
 }
 release_matured_earnings();
 
+/* نسخ احتياطي عبر بوت تيليجرام كل 6 ساعات — بلا cron حقيقي، فالفحص كسول
+   (يشتغل فقط ضمن طلبات الأدمن حتى لا يبطئ تصفح المشترين العاديين) ويُنفَّذ
+   الأرشفة الفعلية فقط عند مرور المدة. */
+define('BACKUP_INTERVAL_SECONDS', 6 * 3600);
+
+function run_backup_now(): array {
+    $settings = get_settings();
+    $token = trim((string)($settings['telegram_bot_token'] ?? ''));
+    $chatId = trim((string)($settings['telegram_chat_id'] ?? ''));
+    if ($token === '' || $chatId === '') return ['ok' => false, 'msg' => 'الرجاء إدخال توكن البوت ومعرف المحادثة أولاً'];
+    if (!class_exists('ZipArchive')) return ['ok' => false, 'msg' => 'امتداد ZipArchive غير مفعّل على هذه الاستضافة'];
+
+    $files = glob(DATA_DIR . '/*.json');
+    if (!$files) return ['ok' => false, 'msg' => 'لا توجد بيانات لنسخها احتياطياً بعد'];
+
+    $zipPath = sys_get_temp_dir() . '/souq_backup_' . time() . '.zip';
+    $zip = new ZipArchive();
+    if ($zip->open($zipPath, ZipArchive::CREATE | ZipArchive::OVERWRITE) !== true) {
+        return ['ok' => false, 'msg' => 'تعذّر إنشاء ملف الأرشيف'];
+    }
+    foreach ($files as $f) $zip->addFile($f, 'data/' . basename($f));
+    $zip->close();
+
+    $ch = curl_init('https://api.telegram.org/bot' . $token . '/sendDocument');
+    curl_setopt_array($ch, [
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_TIMEOUT => 40,
+        CURLOPT_POST => true,
+        CURLOPT_POSTFIELDS => [
+            'chat_id' => $chatId,
+            'caption' => site_name() . ' — نسخة احتياطية ' . date('Y-m-d H:i'),
+            'document' => new CURLFile($zipPath, 'application/zip', 'backup_' . date('Y-m-d_H-i') . '.zip'),
+        ],
+    ]);
+    $res = curl_exec($ch);
+    $err = curl_error($ch);
+    $code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    curl_close($ch);
+    @unlink($zipPath);
+
+    $settings = get_settings();
+    $settings['last_backup_at'] = time();
+    db_write('settings', $settings);
+
+    if ($res === false || $code !== 200) return ['ok' => false, 'msg' => 'فشل الإرسال عبر تيليجرام: ' . ($err ?: 'HTTP ' . $code)];
+    return ['ok' => true, 'msg' => 'تم إرسال النسخة الاحتياطية بنجاح'];
+}
+
+function maybe_run_backup(): void {
+    if (!is_admin_user()) return;
+    $settings = get_settings();
+    if (trim((string)($settings['telegram_bot_token'] ?? '')) === '' || trim((string)($settings['telegram_chat_id'] ?? '')) === '') return;
+    if (time() - (int)($settings['last_backup_at'] ?? 0) < BACKUP_INTERVAL_SECONDS) return;
+    run_backup_now();
+}
+maybe_run_backup();
+
 function store_pending_earnings(array $store): float {
     $sum = 0;
     foreach ($store['earnings_log'] as $e) if (!empty($e['release_at']) && empty($e['released'])) $sum += $e['amount'];
@@ -199,7 +256,7 @@ function store_pending_earnings(array $store): float {
 }
 
 function get_settings(): array {
-    $defaults = ['monthly_fee'=>0, 'categories'=>[], 'payment_methods'=>[], 'site_name'=>APP_NAME, 'site_logo'=>'', 'ai_api_key'=>'', 'coupons'=>[]];
+    $defaults = ['monthly_fee'=>0, 'categories'=>[], 'payment_methods'=>[], 'site_name'=>APP_NAME, 'site_logo'=>'', 'ai_api_key'=>'', 'coupons'=>[], 'telegram_bot_token'=>'', 'telegram_chat_id'=>'', 'last_backup_at'=>0];
     return db_read('settings', $defaults) + $defaults;
 }
 function get_categories(): array { return get_settings()['categories'] ?? []; }
@@ -482,7 +539,7 @@ if ($action !== '') {
     }
 
     // من هنا تحتاج المستخدم مسجّل دخول
-    $needsUser = ['add_to_cart','remove_from_cart','checkout','apply_vendor','toggle_favorite','update_profile','submit_complaint','request_topup','complaint_reply'];
+    $needsUser = ['add_to_cart','remove_from_cart','checkout','apply_vendor','toggle_favorite','update_profile','submit_complaint','request_topup','complaint_reply','request_withdraw'];
     if (in_array($action, $needsUser, true) && !current_user()) redirect('indexx.php');
 
     if ($action === 'add_to_cart') {
@@ -627,6 +684,34 @@ if ($action !== '') {
         add_notification('admin', 'طلب شحن جديد', $user['name'] . ' طلب شحن ' . money($amount) . ' عبر ' . $method, 'indexx.php?page=admin&section=topups', 'wallet');
         flash('ok', 'تم إرسال طلب الشحن، بانتظار مراجعة الإدارة');
         redirect('indexx.php?page=account');
+    }
+
+    if ($action === 'request_withdraw') {
+        $store = my_store();
+        if (!$store) redirect('indexx.php?page=vendor');
+        $amount = (float)($store['earnings'] ?? 0);
+        $method = trim((string)($_POST['method'] ?? ''));
+        $accountNumber = trim((string)($_POST['account_number'] ?? ''));
+        $accountName = trim((string)($_POST['account_name'] ?? ''));
+        if ($amount <= 0 || $method === '' || $accountNumber === '' || $accountName === '') {
+            flash('err', 'الرجاء تعبئة كل الحقول، والتأكد من وجود رصيد متاح');
+            redirect('indexx.php?page=vendor&section=withdraw');
+        }
+        $existing = array_filter(db_read('withdraw_requests'), fn($r) => $r['store_id'] === $store['id'] && $r['status'] === 'pending');
+        if ($existing) {
+            flash('err', 'لديك طلب سحب قيد المراجعة بالفعل');
+            redirect('indexx.php?page=vendor&section=withdraw');
+        }
+        $requests = db_read('withdraw_requests');
+        $requests[] = [
+            'id' => next_id($requests), 'store_id' => $store['id'], 'owner_user_id' => $store['owner_user_id'],
+            'amount' => $amount, 'method' => $method, 'account_number' => $accountNumber, 'account_name' => $accountName,
+            'status' => 'pending', 'created_at' => time(),
+        ];
+        db_write('withdraw_requests', $requests);
+        add_notification('admin', 'طلب سحب رصيد جديد', $store['name'] . ' طلب سحب ' . money($amount) . ' عبر ' . $method, 'indexx.php?page=admin&section=withdrawals', 'wallet');
+        flash('ok', 'تم إرسال طلب السحب، بانتظار مراجعة الإدارة');
+        redirect('indexx.php?page=vendor&section=withdraw');
     }
 
     if ($action === 'apply_vendor') {
@@ -869,7 +954,7 @@ if ($action !== '') {
     }
 
     // إجراءات الأدمن
-    $adminActions = ['admin_approve','admin_reject','admin_topup','admin_toggle_featured','admin_collect_fee','admin_cashout','admin_update_fee','admin_update_branding','admin_update_ai_key','admin_add_payment_method','admin_delete_payment_method','admin_approve_topup','admin_reject_topup','admin_resolve_complaint','admin_toggle_suspend','admin_add_category','admin_delete_category','admin_toggle_admin','admin_broadcast','admin_add_coupon','admin_delete_coupon'];
+    $adminActions = ['admin_approve','admin_reject','admin_topup','admin_toggle_featured','admin_collect_fee','admin_update_fee','admin_update_branding','admin_update_ai_key','admin_add_payment_method','admin_delete_payment_method','admin_approve_topup','admin_reject_topup','admin_approve_withdraw','admin_reject_withdraw','admin_resolve_complaint','admin_toggle_suspend','admin_add_category','admin_delete_category','admin_toggle_admin','admin_broadcast','admin_add_coupon','admin_delete_coupon','admin_update_backup','admin_backup_now'];
     if (in_array($action, $adminActions, true)) {
         if (!is_admin_user()) redirect('indexx.php');
 
@@ -987,21 +1072,36 @@ if ($action !== '') {
             flash('ok', 'تم تحصيل الرسم وتجديد الاشتراك ' . SUBSCRIPTION_DAYS . ' يوم');
             redirect('indexx.php?page=admin&section=stores');
         }
-        if ($action === 'admin_cashout') {
-            $sid = (int)$_POST['store_id'];
-            $stores = db_read('stores');
-            $owner = null; $amt = 0;
-            foreach ($stores as &$s) if ($s['id'] === $sid) {
-                $amt = (float)$s['earnings'];
-                $s['earnings_log'][] = ['amount'=>-$amt, 'note'=>'تصفية وسحب نقدي' . (trim((string)($_POST['note'] ?? '')) !== '' ? ' — ' . trim((string)$_POST['note']) : ''), 'at'=>time()];
-                $s['earnings'] = 0;
-                $owner = $s['owner_user_id'];
+        if ($action === 'admin_approve_withdraw') {
+            $rid = (int)($_POST['request_id'] ?? 0);
+            $requests = db_read('withdraw_requests');
+            $req = null;
+            foreach ($requests as &$r) if ($r['id'] === $rid && $r['status'] === 'pending') { $r['status'] = 'approved'; $req = $r; }
+            unset($r);
+            if ($req) {
+                db_write('withdraw_requests', $requests);
+                $stores = db_read('stores');
+                foreach ($stores as &$s) if ($s['id'] === $req['store_id']) {
+                    $s['earnings'] = max(0, (float)$s['earnings'] - $req['amount']);
+                    $s['earnings_log'][] = ['amount'=>-$req['amount'], 'note'=>'سحب نقدي معتمد عبر ' . $req['method'] . ' — ' . $req['account_name'] . ' (' . $req['account_number'] . ')', 'at'=>time()];
+                }
+                unset($s);
+                db_write('stores', $stores);
+                add_notification($req['owner_user_id'], 'تم قبول طلب سحبك', 'تم تحويل ' . money($req['amount']) . ' لحسابك عبر ' . $req['method'] . '.', 'indexx.php?page=vendor&section=withdraw', 'wallet');
             }
-            unset($s);
-            db_write('stores', $stores);
-            if ($owner) add_notification($owner, 'تصفية رصيدك', 'تم تسليمك ' . money($amt) . ' نقداً وتصفير رصيد أرباح متجرك.', 'indexx.php?page=vendor', 'wallet');
-            flash('ok', 'تم تصفير رصيد المتجر وتسجيله كمسحوب نقداً');
-            redirect('indexx.php?page=admin&section=stores');
+            flash('ok', 'تم اعتماد طلب السحب');
+            redirect('indexx.php?page=admin&section=withdrawals');
+        }
+        if ($action === 'admin_reject_withdraw') {
+            $rid = (int)($_POST['request_id'] ?? 0);
+            $requests = db_read('withdraw_requests');
+            $uid = null;
+            foreach ($requests as &$r) if ($r['id'] === $rid && $r['status'] === 'pending') { $r['status'] = 'rejected'; $uid = $r['owner_user_id']; }
+            unset($r);
+            db_write('withdraw_requests', $requests);
+            if ($uid) add_notification($uid, 'تم رفض طلب سحبك', 'للأسف تمت مراجعة طلب السحب ولم تتم الموافقة عليه.', 'indexx.php?page=vendor&section=withdraw', 'wallet');
+            flash('ok', 'تم رفض طلب السحب');
+            redirect('indexx.php?page=admin&section=withdrawals');
         }
         if ($action === 'admin_update_fee') {
             $settings = get_settings();
@@ -1026,6 +1126,19 @@ if ($action !== '') {
             db_write('settings', $settings);
             flash('ok', 'تم تحديث مفتاح المساعد الذكي');
             redirect('indexx.php?page=admin&section=settings');
+        }
+        if ($action === 'admin_update_backup') {
+            $settings = get_settings();
+            $settings['telegram_bot_token'] = trim((string)($_POST['telegram_bot_token'] ?? ''));
+            $settings['telegram_chat_id'] = trim((string)($_POST['telegram_chat_id'] ?? ''));
+            db_write('settings', $settings);
+            flash('ok', 'تم حفظ إعدادات النسخ الاحتياطي');
+            redirect('indexx.php?page=admin&section=backup');
+        }
+        if ($action === 'admin_backup_now') {
+            $result = run_backup_now();
+            flash($result['ok'] ? 'ok' : 'err', $result['msg']);
+            redirect('indexx.php?page=admin&section=backup');
         }
         if ($action === 'admin_add_coupon') {
             $settings = get_settings();
@@ -1433,6 +1546,13 @@ button,input,select,textarea{font-family:inherit;color:inherit}
 .section-tabs::-webkit-scrollbar{display:none}
 .section-tabs a{flex-shrink:0;padding:9px 16px;border-radius:100px;background:var(--card);box-shadow:var(--shadow);font-size:.72rem;font-weight:700;color:var(--muted)}
 .section-tabs a.active{background:var(--gradient);color:#1a1a2e}
+.admin-topbar{display:flex;align-items:center;gap:12px;margin-bottom:16px}
+.admin-topbar strong{font-size:.95rem;font-weight:800}
+.admin-sidebar{position:fixed;top:0;bottom:0;right:0;width:78%;max-width:280px;background:var(--card);z-index:120;transform:translateX(100%);transition:transform .25s cubic-bezier(.22,1,.36,1);overflow-y:auto;padding:10px 0 calc(10px + env(safe-area-inset-bottom,0px))}
+.admin-sidebar.open{transform:translateX(0)}
+.admin-sidebar-head{display:flex;justify-content:space-between;align-items:center;padding:8px 16px 14px;border-bottom:1px solid var(--border);margin-bottom:8px;font-weight:800;font-size:.85rem}
+.admin-sidebar a{display:block;padding:13px 16px;font-size:.8rem;font-weight:700;color:var(--text);text-decoration:none;border-right:3px solid transparent}
+.admin-sidebar a.active{color:var(--accent);border-right-color:var(--accent);background:var(--hover-bg)}
 .stat-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:18px}
 .stat-box{background:var(--card);border-radius:16px;padding:14px;box-shadow:var(--shadow);text-align:center}
 .stat-box .num{font-size:1.3rem;font-weight:900;color:var(--accent)}
@@ -1758,7 +1878,7 @@ function qtyChange(delta){
 }
 
 function openSheet(id){document.getElementById(id).classList.add('open');document.getElementById('sheetBackdrop').classList.add('open');}
-function closeSheets(){document.querySelectorAll('.confirm-sheet').forEach(s=>s.classList.remove('open'));document.getElementById('sheetBackdrop')?.classList.remove('open');}
+function closeSheets(){document.querySelectorAll('.confirm-sheet, .admin-sidebar').forEach(s=>s.classList.remove('open'));document.getElementById('sheetBackdrop')?.classList.remove('open');}
 
 document.addEventListener('click', function(e){
   const btn = e.target.closest('.pw-toggle');
@@ -1926,6 +2046,7 @@ function app_shell_inner(string $body, ?string $activeTab = 'home'): string {
         <form method="post" style="width:100%"><input type="hidden" name="action" value="logout"><button class="btn btn-danger" type="submit">تسجيل الخروج</button></form>
     </div>
 </div>
+<?= admin_sidebar_html() ?>
     <?php
     return ob_get_clean();
 }
@@ -1942,16 +2063,17 @@ function full_document(string $title, string $inner): void {
 <meta name="theme-color" content="#f2b100">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="<?= h(site_name()) ?>">
-<?php if (site_logo_url()): ?><link rel="apple-touch-icon" href="<?= h(site_logo_url()) ?>"><link rel="icon" href="<?= h(site_logo_url()) ?>"><?php endif; ?>
+<link rel="apple-touch-icon" href="<?= h(site_logo_url() ?? 'indexx.php?asset=icon&size=192') ?>">
+<link rel="icon" href="<?= h(site_logo_url() ?? 'indexx.php?asset=icon&size=192') ?>">
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
 <?php if (GOOGLE_CLIENT_ID !== ''): ?><script src="https://accounts.google.com/gsi/client" async defer></script><?php endif; ?>
-<style><?php render_css(); ?></style>
+<link rel="stylesheet" href="indexx.php?asset=style.css">
 </head>
 <body>
 <div class="bg-orb bo1"></div><div class="bg-orb bo2"></div>
 <div id="app-root"><?= $inner ?></div>
-<script><?php render_js(); ?></script>
+<script src="indexx.php?asset=app.js"></script>
 </body>
 </html>
     <?php
@@ -1961,9 +2083,10 @@ function full_document(string $title, string $inner): void {
 if (isset($_GET['asset']) && $_GET['asset'] === 'manifest') {
     header('Content-Type: application/manifest+json; charset=utf-8');
     $logo = site_logo_url();
+    $iconType = function_exists('imagecreatetruecolor') ? 'image/png' : 'image/svg+xml';
     $icons = $logo
         ? [['src'=>$logo, 'sizes'=>'192x192', 'type'=>'image/png', 'purpose'=>'any'], ['src'=>$logo, 'sizes'=>'512x512', 'type'=>'image/png', 'purpose'=>'any']]
-        : [['src'=>'indexx.php?asset=icon', 'sizes'=>'512x512', 'type'=>'image/svg+xml', 'purpose'=>'any']];
+        : [['src'=>'indexx.php?asset=icon&size=192', 'sizes'=>'192x192', 'type'=>$iconType, 'purpose'=>'any'], ['src'=>'indexx.php?asset=icon&size=512', 'sizes'=>'512x512', 'type'=>$iconType, 'purpose'=>'any']];
     echo json_encode([
         'name' => site_name(),
         'short_name' => site_name(),
@@ -1979,14 +2102,49 @@ if (isset($_GET['asset']) && $_GET['asset'] === 'manifest') {
     exit;
 }
 if (isset($_GET['asset']) && $_GET['asset'] === 'icon') {
+    $size = (int)($_GET['size'] ?? 512);
+    if (!in_array($size, [192, 512], true)) $size = 512;
+    /* لا يوجد ملف خط TTF متاح برفقة هذا الملف الواحد لرسم أول حرف من الاسم
+       (عربي غالباً) بامتداد GD، فنرسم أيقونة حقيبة تسوّق بسيطة بأشكال هندسية
+       بدل النص — تعمل بأي لغة وتبقى مقروءة بأصغر حجم. PNG حقيقي أفضل لمعايير
+       تثبيت PWA على أندرويد من SVG وحدها؛ SVG تبقى احتياطاً إن كان GD معطّلاً. */
+    if (function_exists('imagecreatetruecolor')) {
+        header('Content-Type: image/png');
+        $im = imagecreatetruecolor($size, $size);
+        $bg = imagecolorallocate($im, 0xf2, 0xb1, 0x00);
+        imagefill($im, 0, 0, $bg);
+        $white = imagecolorallocate($im, 255, 255, 255);
+        $m = (int)($size * 0.24);
+        $bodyTop = (int)($size * 0.44);
+        $bodyBottom = (int)($size * 0.8);
+        imagefilledrectangle($im, $m, $bodyTop, $size - $m, $bodyBottom, $white);
+        imagesetthickness($im, max(2, (int)($size * 0.045)));
+        $handleW = (int)($size * 0.34);
+        imagearc($im, (int)($size / 2), $bodyTop, $handleW, (int)($handleW * 1.15), 180, 360, $white);
+        imagepng($im);
+        imagedestroy($im);
+        exit;
+    }
     header('Content-Type: image/svg+xml; charset=utf-8');
-    echo '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><rect width="512" height="512" rx="96" fill="#f2b100"/><text x="256" y="320" font-size="260" text-anchor="middle" font-family="sans-serif">' . h(mb_substr(site_name(), 0, 1)) . '</text></svg>';
+    echo '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><rect width="512" height="512" fill="#f2b100"/><rect x="123" y="225" width="266" height="184" fill="#fff"/><path d="M190 225a66 66 0 0 1 132 0" fill="none" stroke="#fff" stroke-width="22"/></svg>';
     exit;
 }
 if (isset($_GET['asset']) && $_GET['asset'] === 'sw') {
     header('Content-Type: application/javascript; charset=utf-8');
     header('Service-Worker-Allowed: ./');
     echo "self.addEventListener('install',e=>self.skipWaiting());self.addEventListener('activate',e=>self.clients.claim());self.addEventListener('fetch',e=>{});";
+    exit;
+}
+if (isset($_GET['asset']) && $_GET['asset'] === 'style.css') {
+    header('Content-Type: text/css; charset=utf-8');
+    header('Cache-Control: public, max-age=300');
+    render_css();
+    exit;
+}
+if (isset($_GET['asset']) && $_GET['asset'] === 'app.js') {
+    header('Content-Type: application/javascript; charset=utf-8');
+    header('Cache-Control: public, max-age=300');
+    render_js();
     exit;
 }
 
@@ -2740,7 +2898,7 @@ function page_apply_vendor(): string {
 
 /* ===================== لوحة تحكم التاجر ===================== */
 function vendor_tabs(string $active): string {
-    $tabs = ['overview'=>'نظرة عامة','products'=>'المنتجات','sections'=>'الأقسام','orders'=>'الطلبات','theme'=>'تخصيص المتجر','info'=>'معلومات المتجر'];
+    $tabs = ['overview'=>'نظرة عامة','products'=>'المنتجات','sections'=>'الأقسام','orders'=>'الطلبات','theme'=>'تخصيص المتجر','info'=>'معلومات المتجر','withdraw'=>'سحب الرصيد'];
     ob_start(); ?>
     <div class="section-tabs">
         <?php foreach ($tabs as $k=>$label): ?>
@@ -2966,19 +3124,84 @@ function page_vendor(): string {
         <?php
     }
 
+    if ($section === 'withdraw') {
+        $settings = get_settings();
+        $myRequests = array_values(array_filter(db_read('withdraw_requests'), fn($r) => $r['store_id'] === $store['id']));
+        usort($myRequests, fn($a, $b) => $b['created_at'] <=> $a['created_at']);
+        $pendingRequest = null;
+        foreach ($myRequests as $r) if ($r['status'] === 'pending') { $pendingRequest = $r; break; }
+        $statusLabel = ['pending'=>'بانتظار المراجعة', 'approved'=>'تم التحويل', 'rejected'=>'مرفوض'];
+        ?>
+        <div class="card an" style="margin-bottom:14px">
+            <div class="row-between"><span style="font-size:.8rem">رصيدك المتاح للسحب</span><strong style="color:var(--accent)"><?= money($store['earnings'] ?? 0) ?></strong></div>
+        </div>
+        <?php if ($pendingRequest): ?>
+        <div class="card an" style="margin-bottom:14px"><i class="fas fa-hourglass-half" style="color:var(--accent)"></i> طلب سحب <?= money($pendingRequest['amount']) ?> عبر <?= h($pendingRequest['method']) ?> بانتظار مراجعة الإدارة.</div>
+        <?php elseif (!$settings['payment_methods']): ?>
+        <div class="empty-state an"><i class="fas fa-triangle-exclamation"></i><p>لا توجد طرق دفع مضافة من الإدارة بعد</p></div>
+        <?php elseif ((float)($store['earnings'] ?? 0) <= 0): ?>
+        <div class="empty-state an"><i class="fas fa-wallet"></i><p>لا يوجد رصيد متاح للسحب حالياً</p></div>
+        <?php else: ?>
+        <form method="post" class="card an" style="margin-bottom:16px">
+            <input type="hidden" name="action" value="request_withdraw">
+            <div class="field"><label>طريقة الدفع</label>
+                <select name="method" required>
+                    <?php foreach ($settings['payment_methods'] as $m): ?><option value="<?= h($m['name']) ?>"><?= h($m['name']) ?></option><?php endforeach; ?>
+                </select>
+            </div>
+            <div class="field"><label>رقم حسابك على طريقة الدفع هذه</label><input type="text" name="account_number" required placeholder="رقم الهاتف أو الحساب"></div>
+            <div class="field"><label>الاسم المسجّل على الحساب</label><input type="text" name="account_name" required placeholder="اسمك الكامل"></div>
+            <button class="btn" type="submit"><i class="fas fa-hand-holding-dollar"></i> إرسال طلب السحب</button>
+        </form>
+        <?php endif; ?>
+        <?php if ($myRequests): ?>
+        <h3 style="font-size:.85rem;font-weight:800;margin-bottom:10px">سجل طلبات السحب</h3>
+        <?php foreach ($myRequests as $r): ?>
+        <div class="table-card an">
+            <div class="row-between"><h5><?= money($r['amount']) ?> عبر <?= h($r['method']) ?></h5><span style="font-size:.7rem;color:var(--muted)"><?= h($statusLabel[$r['status']] ?? $r['status']) ?></span></div>
+            <div class="meta"><?= date('Y-m-d H:i', $r['created_at']) ?></div>
+        </div>
+        <?php endforeach; ?>
+        <?php endif; ?>
+        <?php
+    }
+
     return ob_get_clean();
 }
 
 /* ===================== قالب لوحة الإدارة (بدون شريط المشتري) ===================== */
 /* ===================== لوحة تحكم الأدمن ===================== */
+function admin_section_labels(): array {
+    return ['overview'=>'نظرة عامة','orders'=>'الطلبات','applications'=>'طلبات الانضمام','stores'=>'المتاجر','users'=>'المستخدمون والأرصدة','topups'=>'طلبات الشحن','withdrawals'=>'طلبات السحب','complaints'=>'الشكاوى','ai_logs'=>'محادثات AI','broadcast'=>'إشعار جماعي','backup'=>'النسخ الاحتياطي','settings'=>'الإعدادات'];
+}
+
 function admin_tabs(string $active): string {
-    $tabs = ['overview'=>'نظرة عامة','orders'=>'الطلبات','applications'=>'طلبات الانضمام','stores'=>'المتاجر','users'=>'المستخدمون والأرصدة','topups'=>'طلبات الشحن','complaints'=>'الشكاوى','ai_logs'=>'محادثات AI','broadcast'=>'إشعار جماعي','settings'=>'الإعدادات'];
+    $tabs = admin_section_labels();
+    $current = $tabs[$active] ?? 'لوحة الإدارة';
     ob_start(); ?>
-    <div class="section-tabs">
-        <?php foreach ($tabs as $k=>$label): ?>
-            <a class="<?= $active===$k?'active':'' ?>" href="indexx.php?page=admin&section=<?= $k ?>"><?= $label ?></a>
-        <?php endforeach; ?>
+    <div class="admin-topbar an">
+        <button type="button" class="icon-btn" onclick="openSheet('adminSidebar')"><i class="fas fa-bars"></i></button>
+        <strong><?= h($current) ?></strong>
     </div>
+    <?php return ob_get_clean();
+}
+
+/* المنيو الجانبي نفسه يُرسم من app_shell_inner() لا من هنا، لأن page_admin()
+   يُضمَّن داخل .content التي تملك سياق تكديس (z-index) خاصاً بها — أي عنصر
+   position:fixed بداخلها يبقى محبوساً ضمن ذلك السياق ولا يقدر يتفوق فعلياً
+   على شريط التنقل السفلي مهما رفعنا z-index له (نفس خلل بطاقة تسجيل الخروج
+   المُكتشف والمُصلح سابقاً). لذلك المنيو الجانبي يُرسم كشقيق مباشر لـ .content
+   و.tabbar، لا كابن متداخل بداخلهما. */
+function admin_sidebar_html(): string {
+    if (!is_admin_user()) return '';
+    $active = ($_GET['page'] ?? '') === 'admin' ? ($_GET['section'] ?? 'overview') : '';
+    ob_start(); ?>
+    <nav class="admin-sidebar" id="adminSidebar">
+        <div class="admin-sidebar-head"><span><i class="fas fa-user-shield"></i> لوحة الإدارة</span><button type="button" class="icon-btn" onclick="closeSheets()"><i class="fas fa-xmark"></i></button></div>
+        <?php foreach (admin_section_labels() as $k => $label): ?>
+            <a class="<?= $active === $k ? 'active' : '' ?>" href="indexx.php?page=admin&section=<?= $k ?>"><?= h($label) ?></a>
+        <?php endforeach; ?>
+    </nav>
     <?php return ob_get_clean();
 }
 
@@ -3051,7 +3274,6 @@ function page_admin(): string {
                 </div>
                 <div style="display:flex;gap:8px;margin-top:10px">
                     <form method="post" style="width:100%" onsubmit="return confirm('تحصيل <?= h((string)$fee) ?> د.ع وتجديد الاشتراك <?= SUBSCRIPTION_DAYS ?> يوم؟')"><input type="hidden" name="action" value="admin_collect_fee"><input type="hidden" name="store_id" value="<?= $s['id'] ?>"><button class="btn btn-sm btn-outline" type="submit"><i class="fas fa-calendar-check"></i> تحصيل وتجديد الاشتراك</button></form>
-                    <form method="post" style="width:100%" onsubmit="return confirm('تصفية الرصيد كامل وتسجيله كمسحوب نقداً؟')"><input type="hidden" name="action" value="admin_cashout"><input type="hidden" name="store_id" value="<?= $s['id'] ?>"><button class="btn btn-sm btn-danger" type="submit"><i class="fas fa-hand-holding-dollar"></i> تصفية وسحب نقدي</button></form>
                 </div>
                 <form method="post" style="margin-top:8px"><input type="hidden" name="action" value="admin_toggle_suspend"><input type="hidden" name="store_id" value="<?= $s['id'] ?>">
                     <button class="btn btn-sm <?= !empty($s['suspended']) ? '' : 'btn-outline' ?>" style="<?= !empty($s['suspended']) ? '' : 'border-color:var(--danger);color:var(--danger)' ?>" type="submit"><i class="fas fa-power-off"></i> <?= !empty($s['suspended']) ? 'إعادة تفعيل المتجر' : 'تعليق المتجر يدوياً' ?></button>
@@ -3153,6 +3375,23 @@ function page_admin(): string {
         <?php }
     }
 
+    if ($section === 'withdrawals') {
+        $wRequests = array_reverse(db_read('withdraw_requests'));
+        $pendingW = array_values(array_filter($wRequests, fn($r) => $r['status'] === 'pending'));
+        if (!$pendingW) echo '<div class="empty-state an"><i class="fas fa-circle-check"></i><p>لا توجد طلبات سحب معلّقة</p></div>';
+        foreach ($pendingW as $r) {
+            $s = null; foreach ($stores as $ss) if ($ss['id'] === $r['store_id']) $s = $ss; ?>
+            <div class="table-card an">
+                <div class="row-between"><h5><?= h($s['name'] ?? '؟') ?></h5><strong style="color:var(--accent)"><?= money($r['amount']) ?></strong></div>
+                <div class="meta">عبر <?= h($r['method']) ?> — <?= h($r['account_name']) ?> (<?= h($r['account_number']) ?>) — <?= date('Y-m-d H:i', $r['created_at']) ?></div>
+                <div style="display:flex;gap:8px;margin-top:10px">
+                    <form method="post" style="width:100%"><input type="hidden" name="action" value="admin_approve_withdraw"><input type="hidden" name="request_id" value="<?= $r['id'] ?>"><button class="btn btn-sm" type="submit"><i class="fas fa-check"></i> تم التحويل</button></form>
+                    <form method="post" style="width:100%"><input type="hidden" name="action" value="admin_reject_withdraw"><input type="hidden" name="request_id" value="<?= $r['id'] ?>"><button class="btn btn-sm btn-danger" type="submit"><i class="fas fa-xmark"></i> رفض</button></form>
+                </div>
+            </div>
+        <?php }
+    }
+
     if ($section === 'complaints') {
         $complaints = array_reverse(db_read('complaints'));
         $openId = isset($_GET['id']) ? (int)$_GET['id'] : null;
@@ -3195,6 +3434,31 @@ function page_admin(): string {
                 </a>
             <?php }
         }
+    }
+
+    if ($section === 'backup') {
+        $settings = get_settings();
+        $lastBackup = (int)($settings['last_backup_at'] ?? 0);
+        ?>
+        <div class="card an" style="margin-bottom:16px">
+            <h3 style="font-size:.88rem;font-weight:800;margin-bottom:10px"><i class="fab fa-telegram" style="color:var(--accent)"></i> ربط بوت تيليجرام</h3>
+            <p style="font-size:.7rem;color:var(--muted);margin-bottom:14px">أنشئ بوت عبر <strong>@BotFather</strong>، وخذ التوكن، ثم أرسل أي رسالة للبوت وخذ chat_id من رابط <span style="direction:ltr;display:inline-block">api.telegram.org/bot&lt;TOKEN&gt;/getUpdates</span></p>
+            <form method="post">
+                <input type="hidden" name="action" value="admin_update_backup">
+                <div class="field"><label>توكن البوت</label><input type="text" name="telegram_bot_token" value="<?= h($settings['telegram_bot_token']) ?>" placeholder="123456:ABC-DEF..." autocomplete="off" style="direction:ltr;text-align:left"></div>
+                <div class="field"><label>معرف المحادثة (chat_id)</label><input type="text" name="telegram_chat_id" value="<?= h($settings['telegram_chat_id']) ?>" placeholder="123456789" autocomplete="off" style="direction:ltr;text-align:left"></div>
+                <button class="btn btn-sm" type="submit">حفظ</button>
+            </form>
+        </div>
+        <div class="card an">
+            <div class="row-between" style="margin-bottom:12px">
+                <span style="font-size:.78rem">آخر نسخة احتياطية</span>
+                <strong style="font-size:.78rem"><?= $lastBackup ? date('Y-m-d H:i', $lastBackup) : 'لم تُرسل بعد' ?></strong>
+            </div>
+            <p style="font-size:.68rem;color:var(--muted);margin-bottom:12px">تُرسل نسخة تلقائياً كل 6 ساعات طالما البوت مرتبط، أو اضغط الزر لإرسالها فوراً.</p>
+            <form method="post"><input type="hidden" name="action" value="admin_backup_now"><button class="btn btn-sm btn-outline" type="submit"><i class="fas fa-cloud-arrow-up"></i> نسخ احتياطي الآن</button></form>
+        </div>
+        <?php
     }
 
     if ($section === 'settings') {
