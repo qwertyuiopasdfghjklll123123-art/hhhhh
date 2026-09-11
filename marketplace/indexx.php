@@ -14,6 +14,7 @@ define('ADMIN_SEED_PASSWORD', 'Admin@12345');     // غيّرها قبل الن�
 define('DEEPSEEK_API_KEY', '');       // ضع مفتاح DeepSeek هنا لتفعيل الذكاء الاصطناعي الحقيقي
 define('DEEPSEEK_API_URL', 'https://api.deepseek.com/chat/completions');
 define('DEEPSEEK_MODEL', 'deepseek-chat');
+define('GOOGLE_CLIENT_ID', ''); // Client ID من Google Cloud Console (OAuth) — زر "الدخول عبر Google" يظهر فقط بعد تعبئته
 define('DATA_DIR', __DIR__ . '/data');
 define('UPLOAD_DIR', __DIR__ . '/uploads');
 define('UPLOAD_URL', 'uploads');
@@ -110,6 +111,8 @@ function ensure_seed_data(): void {
             ['id'=>2, 'name'=>'آسيا حوالة', 'details'=>'حوّل باسم إدارة ' . APP_NAME . ' وارفع صورة الوصل'],
             ['id'=>3, 'name'=>'تسليم نقدي بالمكتب', 'details'=>'راجع مكتب الإدارة وسلّم المبلغ نقداً'],
         ],
+        'site_name' => APP_NAME,
+        'site_logo' => '',
     ]);
 }
 ensure_seed_data();
@@ -194,9 +197,12 @@ function store_pending_earnings(array $store): float {
 }
 
 function get_settings(): array {
-    return db_read('settings', ['monthly_fee'=>0, 'categories'=>[], 'payment_methods'=>[]]);
+    $defaults = ['monthly_fee'=>0, 'categories'=>[], 'payment_methods'=>[], 'site_name'=>APP_NAME, 'site_logo'=>''];
+    return db_read('settings', $defaults) + $defaults;
 }
 function get_categories(): array { return get_settings()['categories'] ?? []; }
+function site_name(): string { $n = trim((string)(get_settings()['site_name'] ?? '')); return $n !== '' ? $n : APP_NAME; }
+function site_logo_url(): ?string { $l = get_settings()['site_logo'] ?? ''; return $l ? $l : null; }
 
 function is_store_live(array $s): bool {
     if ($s['status'] !== 'approved' || !empty($s['suspended'])) return false;
@@ -229,10 +235,21 @@ function render_stars(float $rating): string {
 }
 
 /* ===================== الإشعارات ===================== */
-function add_notification($recipient, string $title, string $body, ?string $link = null): void {
+function add_notification($recipient, string $title, string $body, ?string $link = null, string $type = 'info'): void {
     $notifs = db_read('notifications');
-    $notifs[] = ['id'=>next_id($notifs), 'recipient'=>$recipient, 'title'=>$title, 'body'=>$body, 'link'=>$link, 'read'=>false, 'created_at'=>time()];
+    $notifs[] = ['id'=>next_id($notifs), 'recipient'=>$recipient, 'title'=>$title, 'body'=>$body, 'link'=>$link, 'type'=>$type, 'read'=>false, 'created_at'=>time()];
     db_write('notifications', $notifs);
+}
+
+function notif_icon(string $type): array {
+    return match ($type) {
+        'order' => ['fa-bag-shopping', '#2f8fd8'],
+        'wallet' => ['fa-wallet', '#3fa66a'],
+        'store' => ['fa-store', '#f2b100'],
+        'complaint' => ['fa-comment-dots', '#e0559a'],
+        'broadcast' => ['fa-bullhorn', '#8a5cf6'],
+        default => ['fa-bell', '#8a92a6'],
+    };
 }
 
 function my_notif_recipient() {
@@ -325,6 +342,24 @@ function is_admin_user(): bool {
     return $u !== null && !empty($u['is_admin']);
 }
 
+/* التحقق من ID token الخاص بـ Google Identity Services عبر endpoint الرسمي —
+   أبسط طريقة تعمل بدون أي مكتبة JWT، مناسبة لملف واحد بدون Composer. */
+function google_verify_id_token(string $idToken): ?array {
+    if (GOOGLE_CLIENT_ID === '' || $idToken === '') return null;
+    $ch = curl_init('https://oauth2.googleapis.com/tokeninfo?id_token=' . urlencode($idToken));
+    curl_setopt_array($ch, [CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT => 10]);
+    $res = curl_exec($ch);
+    $code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    curl_close($ch);
+    if ($res === false || $code !== 200) return null;
+    $claims = json_decode($res, true);
+    if (!is_array($claims)) return null;
+    if (($claims['aud'] ?? '') !== GOOGLE_CLIENT_ID) return null;
+    if (($claims['email_verified'] ?? 'false') !== 'true') return null;
+    if (empty($claims['email'])) return null;
+    return $claims;
+}
+
 function my_store(): ?array {
     $u = current_user();
     if (!$u) return null;
@@ -398,6 +433,29 @@ if ($action !== '') {
         redirect('indexx.php');
     }
 
+    if ($action === 'google_login') {
+        $claims = google_verify_id_token((string)($_POST['credential'] ?? ''));
+        if ($claims === null) { flash('err', 'تعذّر التحقق من حساب Google، حاول مرة ثانية'); redirect('indexx.php?page=login'); }
+        $email = mb_strtolower((string)$claims['email']);
+        $users = db_read('users');
+        $found = null;
+        foreach ($users as $u) if (mb_strtolower($u['email'] ?? '') === $email) { $found = $u; break; }
+        if ($found) {
+            $_SESSION['user_id'] = $found['id'];
+        } else {
+            $newUser = [
+                'id' => next_id($users), 'name' => trim((string)($claims['name'] ?? 'مستخدم Google')),
+                'email' => $email, 'password_hash' => password_hash(bin2hex(random_bytes(16)), PASSWORD_DEFAULT),
+                'phone' => '', 'wallet' => 0, 'wallet_log' => [], 'favorites' => ['stores'=>[],'products'=>[]],
+                'is_admin' => false, 'created_at' => time(),
+            ];
+            $users[] = $newUser;
+            db_write('users', $users);
+            $_SESSION['user_id'] = $newUser['id'];
+        }
+        redirect('indexx.php');
+    }
+
     if ($action === 'logout') {
         unset($_SESSION['user_id']);
         $_SESSION['cart'] = [];
@@ -456,7 +514,7 @@ if ($action !== '') {
             $orders[] = ['id'=>$oid, 'buyer_id'=>$user['id'], 'store_id'=>$storeId, 'items'=>$items, 'total'=>$subtotal, 'status'=>ORDER_STAGES[0], 'delivery_phone'=>$deliveryPhone, 'delivery_location'=>$deliveryLocation, 'created_at'=>time(), 'updated_at'=>time()];
             foreach ($stores as &$s) if ($s['id'] === $storeId) {
                 $s['earnings_log'][] = ['amount'=>$subtotal, 'note'=>'قيمة طلب جديد (معلّقة ' . EARNINGS_HOLD_HOURS . ' ساعة)', 'at'=>time(), 'release_at'=>time() + 3600 * EARNINGS_HOLD_HOURS, 'released'=>false];
-                if ($s['owner_user_id']) add_notification($s['owner_user_id'], 'طلب جديد #' . $oid, $user['name'] . ' طلب منتجات بقيمة ' . money($subtotal) . ' — راح تتوفر بالرصيد بعد ' . EARNINGS_HOLD_HOURS . ' ساعة', 'indexx.php?page=vendor&section=orders');
+                if ($s['owner_user_id']) add_notification($s['owner_user_id'], 'طلب جديد #' . $oid, $user['name'] . ' طلب منتجات بقيمة ' . money($subtotal) . ' — راح تتوفر بالرصيد بعد ' . EARNINGS_HOLD_HOURS . ' ساعة', 'indexx.php?page=vendor&section=orders', 'order');
             }
             unset($s);
         }
@@ -514,7 +572,7 @@ if ($action !== '') {
         $requests = db_read('topup_requests');
         $requests[] = ['id'=>next_id($requests), 'user_id'=>$user['id'], 'method'=>$method, 'amount'=>$amount, 'receipt'=>$receipt, 'status'=>'pending', 'created_at'=>time()];
         db_write('topup_requests', $requests);
-        add_notification('admin', 'طلب شحن جديد', $user['name'] . ' طلب شحن ' . money($amount) . ' عبر ' . $method, 'indexx.php?page=admin&section=topups');
+        add_notification('admin', 'طلب شحن جديد', $user['name'] . ' طلب شحن ' . money($amount) . ' عبر ' . $method, 'indexx.php?page=admin&section=topups', 'wallet');
         flash('ok', 'تم إرسال طلب الشحن، بانتظار مراجعة الإدارة');
         redirect('indexx.php?page=account');
     }
@@ -540,7 +598,7 @@ if ($action !== '') {
             'created_at'=>time(),
         ];
         db_write('stores', $stores);
-        add_notification('admin', 'طلب انضمام جديد', $user['name'] . ' قدّم طلب انضمام كتاجر (' . trim((string)($_POST['name'] ?? '')) . ')', 'indexx.php?page=admin&section=applications');
+        add_notification('admin', 'طلب انضمام جديد', $user['name'] . ' قدّم طلب انضمام كتاجر (' . trim((string)($_POST['name'] ?? '')) . ')', 'indexx.php?page=admin&section=applications', 'store');
         flash('ok', 'تم إرسال طلبك بنجاح، سيتم مراجعته من قبل الإدارة قريباً');
         redirect('indexx.php?page=account');
     }
@@ -562,7 +620,7 @@ if ($action !== '') {
             'status'=>'open', 'created_at'=>time(),
         ];
         db_write('complaints', $complaints);
-        add_notification('admin', 'شكوى جديدة #' . $cid, $user['name'] . ' رفع شكوى على الطلب #' . $orderId . ' (' . $reason . ')', 'indexx.php?page=admin&section=complaints');
+        add_notification('admin', 'شكوى جديدة #' . $cid, $user['name'] . ' رفع شكوى على الطلب #' . $orderId . ' (' . $reason . ')', 'indexx.php?page=admin&section=complaints', 'complaint');
         redirect('indexx.php?page=ai');
     }
 
@@ -584,8 +642,8 @@ if ($action !== '') {
         unset($c);
         if ($target) {
             db_write('complaints', $complaints);
-            if (is_admin_user()) add_notification($target['buyer_id'], 'رد جديد على شكواك #' . $cid, $text, 'indexx.php?page=ai');
-            else add_notification('admin', 'رد جديد على الشكوى #' . $cid, $user['name'] . ': ' . $text, 'indexx.php?page=admin&section=complaints');
+            if (is_admin_user()) add_notification($target['buyer_id'], 'رد جديد على شكواك #' . $cid, $text, 'indexx.php?page=ai', 'complaint');
+            else add_notification('admin', 'رد جديد على الشكوى #' . $cid, $user['name'] . ': ' . $text, 'indexx.php?page=admin&section=complaints', 'complaint');
         }
         redirect(is_admin_user() ? 'indexx.php?page=admin&section=complaints&id=' . $cid : 'indexx.php?page=ai');
     }
@@ -718,7 +776,7 @@ if ($action !== '') {
             }
             unset($o);
             db_write('orders', $orders);
-            if ($buyerId) add_notification($buyerId, 'تحديث طلبك #' . $oid, 'طلبك صار: ' . $newStatus, 'indexx.php?page=orders');
+            if ($buyerId) add_notification($buyerId, 'تحديث طلبك #' . $oid, 'طلبك صار: ' . $newStatus, 'indexx.php?page=orders', 'order');
             redirect('indexx.php?page=vendor&section=orders');
         }
 
@@ -759,7 +817,7 @@ if ($action !== '') {
     }
 
     // إجراءات الأدمن
-    $adminActions = ['admin_approve','admin_reject','admin_topup','admin_toggle_featured','admin_collect_fee','admin_cashout','admin_update_fee','admin_add_payment_method','admin_delete_payment_method','admin_approve_topup','admin_reject_topup','admin_resolve_complaint','admin_toggle_suspend','admin_add_category','admin_delete_category','admin_toggle_admin','admin_broadcast'];
+    $adminActions = ['admin_approve','admin_reject','admin_topup','admin_toggle_featured','admin_collect_fee','admin_cashout','admin_update_fee','admin_update_branding','admin_add_payment_method','admin_delete_payment_method','admin_approve_topup','admin_reject_topup','admin_resolve_complaint','admin_toggle_suspend','admin_add_category','admin_delete_category','admin_toggle_admin','admin_broadcast'];
     if (in_array($action, $adminActions, true)) {
         if (!is_admin_user()) redirect('indexx.php');
 
@@ -773,7 +831,7 @@ if ($action !== '') {
             }
             unset($s);
             db_write('stores', $stores);
-            if ($owner) add_notification($owner, 'تم قبول متجرك 🎉', 'تهانينا! متجرك فعّال الحين بالمنصة، اشتراكك يمتد ' . SUBSCRIPTION_DAYS . ' يوم.', 'indexx.php?page=vendor');
+            if ($owner) add_notification($owner, 'تم قبول متجرك 🎉', 'تهانينا! متجرك فعّال الحين بالمنصة، اشتراكك يمتد ' . SUBSCRIPTION_DAYS . ' يوم.', 'indexx.php?page=vendor', 'store');
             flash('ok', 'تم قبول طلب التاجر');
             redirect('indexx.php?page=admin&section=applications');
         }
@@ -783,7 +841,7 @@ if ($action !== '') {
             foreach ($stores as &$s) if ($s['id'] === (int)$_POST['store_id']) { $s['status'] = 'rejected'; $owner = $s['owner_user_id']; }
             unset($s);
             db_write('stores', $stores);
-            if ($owner) add_notification($owner, 'تم رفض طلب متجرك', 'للأسف تمت مراجعة طلبك كتاجر ولم تتم الموافقة عليه.', 'indexx.php?page=account');
+            if ($owner) add_notification($owner, 'تم رفض طلب متجرك', 'للأسف تمت مراجعة طلبك كتاجر ولم تتم الموافقة عليه.', 'indexx.php?page=account', 'store');
             flash('ok', 'تم رفض الطلب');
             redirect('indexx.php?page=admin&section=applications');
         }
@@ -818,7 +876,7 @@ if ($action !== '') {
             }
             unset($s);
             db_write('stores', $stores);
-            if ($owner) add_notification($owner, $nowSuspended ? 'تم تعليق متجرك' : 'تم تفعيل متجرك', $nowSuspended ? 'قامت الإدارة بتعليق متجرك مؤقتاً، وما راح يظهر بالسوق لحد ما يتفعّل.' : 'رجع متجرك يظهر بالسوق من جديد.', 'indexx.php?page=vendor');
+            if ($owner) add_notification($owner, $nowSuspended ? 'تم تعليق متجرك' : 'تم تفعيل متجرك', $nowSuspended ? 'قامت الإدارة بتعليق متجرك مؤقتاً، وما راح يظهر بالسوق لحد ما يتفعّل.' : 'رجع متجرك يظهر بالسوق من جديد.', 'indexx.php?page=vendor', 'store');
             flash('ok', $nowSuspended ? 'تم تعليق المتجر' : 'تم إعادة تفعيل المتجر');
             redirect('indexx.php?page=admin&section=stores');
         }
@@ -852,7 +910,7 @@ if ($action !== '') {
             $title = trim((string)($_POST['title'] ?? ''));
             $body = trim((string)($_POST['body'] ?? ''));
             if ($title !== '' && $body !== '') {
-                foreach (db_read('users') as $u) add_notification($u['id'], $title, $body);
+                foreach (db_read('users') as $u) add_notification($u['id'], $title, $body, null, 'broadcast');
                 flash('ok', 'تم إرسال الإشعار لكل المستخدمين');
             }
             redirect('indexx.php?page=admin&section=broadcast');
@@ -873,7 +931,7 @@ if ($action !== '') {
             }
             unset($s);
             db_write('stores', $stores);
-            if ($owner) add_notification($owner, 'تجديد الاشتراك', 'تم تحصيل ' . money($fee) . ' وتجديد اشتراك متجرك ' . SUBSCRIPTION_DAYS . ' يوم إضافي.', 'indexx.php?page=vendor');
+            if ($owner) add_notification($owner, 'تجديد الاشتراك', 'تم تحصيل ' . money($fee) . ' وتجديد اشتراك متجرك ' . SUBSCRIPTION_DAYS . ' يوم إضافي.', 'indexx.php?page=vendor', 'store');
             flash('ok', 'تم تحصيل الرسم وتجديد الاشتراك ' . SUBSCRIPTION_DAYS . ' يوم');
             redirect('indexx.php?page=admin&section=stores');
         }
@@ -889,7 +947,7 @@ if ($action !== '') {
             }
             unset($s);
             db_write('stores', $stores);
-            if ($owner) add_notification($owner, 'تصفية رصيدك', 'تم تسليمك ' . money($amt) . ' نقداً وتصفير رصيد أرباح متجرك.', 'indexx.php?page=vendor');
+            if ($owner) add_notification($owner, 'تصفية رصيدك', 'تم تسليمك ' . money($amt) . ' نقداً وتصفير رصيد أرباح متجرك.', 'indexx.php?page=vendor', 'wallet');
             flash('ok', 'تم تصفير رصيد المتجر وتسجيله كمسحوب نقداً');
             redirect('indexx.php?page=admin&section=stores');
         }
@@ -898,6 +956,16 @@ if ($action !== '') {
             $settings['monthly_fee'] = (float)($_POST['monthly_fee'] ?? 0);
             db_write('settings', $settings);
             flash('ok', 'تم تحديث قيمة الرسم الشهري');
+            redirect('indexx.php?page=admin&section=settings');
+        }
+        if ($action === 'admin_update_branding') {
+            $settings = get_settings();
+            $name = trim((string)($_POST['site_name'] ?? ''));
+            if ($name !== '') $settings['site_name'] = $name;
+            $logo = handle_upload('site_logo');
+            if ($logo) $settings['site_logo'] = $logo;
+            db_write('settings', $settings);
+            flash('ok', 'تم تحديث اسم وشعار الموقع');
             redirect('indexx.php?page=admin&section=settings');
         }
         if ($action === 'admin_add_payment_method') {
@@ -932,7 +1000,7 @@ if ($action !== '') {
                 }
                 unset($u);
                 db_write('users', $users);
-                add_notification($req['user_id'], 'تم قبول طلب شحنك', 'تمت إضافة ' . money($req['amount']) . ' لرصيدك.', 'indexx.php?page=account');
+                add_notification($req['user_id'], 'تم قبول طلب شحنك', 'تمت إضافة ' . money($req['amount']) . ' لرصيدك.', 'indexx.php?page=account', 'wallet');
                 flash('ok', 'تم قبول طلب الشحن وإضافة الرصيد');
             }
             redirect('indexx.php?page=admin&section=topups');
@@ -944,7 +1012,7 @@ if ($action !== '') {
             foreach ($requests as &$r) if ($r['id'] === $rid && $r['status'] === 'pending') { $r['status'] = 'rejected'; $uid = $r['user_id']; }
             unset($r);
             db_write('topup_requests', $requests);
-            if ($uid) add_notification($uid, 'تم رفض طلب شحنك', 'للأسف تمت مراجعة طلب الشحن ولم تتم الموافقة عليه.', 'indexx.php?page=account');
+            if ($uid) add_notification($uid, 'تم رفض طلب شحنك', 'للأسف تمت مراجعة طلب الشحن ولم تتم الموافقة عليه.', 'indexx.php?page=account', 'wallet');
             flash('ok', 'تم رفض طلب الشحن');
             redirect('indexx.php?page=admin&section=topups');
         }
@@ -955,7 +1023,7 @@ if ($action !== '') {
             foreach ($complaints as &$c) if ($c['id'] === $cid) { $c['status'] = 'resolved'; $buyerId = $c['buyer_id']; $orderId = $c['order_id']; }
             unset($c);
             db_write('complaints', $complaints);
-            if ($buyerId) add_notification($buyerId, 'تمت معالجة شكواك', 'تمت معالجة شكواك على الطلب #' . $orderId . '.', 'indexx.php?page=orders');
+            if ($buyerId) add_notification($buyerId, 'تمت معالجة شكواك', 'تمت معالجة شكواك على الطلب #' . $orderId . '.', 'indexx.php?page=orders', 'complaint');
             redirect('indexx.php?page=admin&section=complaints');
         }
     }
@@ -1046,6 +1114,9 @@ a{color:inherit;text-decoration:none}
 button,input,select,textarea{font-family:inherit;color:inherit}
 .topbar{display:flex;align-items:center;justify-content:space-between;padding:14px 16px;position:sticky;top:0;z-index:50;background:var(--bg);backdrop-filter:blur(10px)}
 .logo{font-size:1.2rem;font-weight:900;display:flex;align-items:center;gap:8px;background:var(--gradient);-webkit-background-clip:text;-webkit-text-fill-color:transparent}
+.logo-img{width:24px;height:24px;border-radius:8px;object-fit:cover}
+.install-banner{display:flex;align-items:center;gap:10px;background:var(--gradient);color:#1a1a2e;font-size:.72rem;font-weight:700;padding:9px 14px;position:sticky;top:56px;z-index:45}
+.install-banner span{flex:1}
 .topbar-right{display:flex;gap:8px}
 .icon-btn{position:relative;width:38px;height:38px;border-radius:50%;background:var(--card);box-shadow:var(--shadow);border:none;display:flex;align-items:center;justify-content:center;cursor:pointer;font-size:.95rem;color:var(--text);transition:transform .15s}
 .icon-btn:active{transform:scale(.88)}
@@ -1095,13 +1166,12 @@ button,input,select,textarea{font-family:inherit;color:inherit}
 .stars{color:#f5b400;font-size:.7rem;letter-spacing:1px}
 .stars-num{font-size:.68rem;color:var(--muted);font-weight:700}
 .cv{color:var(--muted);font-size:.65rem;opacity:.5}
-.store-tile{display:block;background:var(--card);border-radius:16px;overflow:hidden;box-shadow:var(--shadow);transition:transform .15s}
-.store-tile:active{transform:scale(.97)}
-.store-tile-img{aspect-ratio:1.4;background:var(--hover-bg);display:flex;align-items:center;justify-content:center;font-size:1.6rem;color:#1a1a2e}
-.store-tile-img img{width:100%;height:100%;object-fit:cover}
-.store-tile-info{padding:10px}
-.store-tile-info h4{font-size:.78rem;font-weight:700;margin-bottom:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.store-tile-info p{font-size:.65rem;color:var(--muted)}
+.store-grid6{display:grid;grid-template-columns:repeat(6,1fr);gap:10px 4px}
+.store-tile{display:flex;flex-direction:column;align-items:center;gap:5px;text-align:center;transition:transform .15s}
+.store-tile:active{transform:scale(.94)}
+.store-tile-icon{width:100%;aspect-ratio:1;border-radius:18px;background:var(--hover-bg);display:flex;align-items:center;justify-content:center;font-size:1.2rem;color:#1a1a2e;overflow:hidden;box-shadow:var(--shadow)}
+.store-tile-icon img{width:100%;height:100%;object-fit:cover}
+.store-tile-name{font-size:.62rem;font-weight:700;color:var(--text);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;line-height:1.3;word-break:break-word}
 .hgrid{display:flex;gap:10px;overflow-x:auto;scrollbar-width:none;padding-bottom:4px}
 .hgrid::-webkit-scrollbar{display:none}
 .hgrid .prod-card{min-width:150px}
@@ -1135,9 +1205,13 @@ button,input,select,textarea{font-family:inherit;color:inherit}
 .field input[type=color]{padding:4px;height:44px;cursor:pointer}
 .login-wrap{min-height:100vh;min-height:100dvh;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:24px;position:relative;z-index:1}
 .login-logo{font-size:2rem;font-weight:900;display:flex;align-items:center;gap:10px;background:var(--gradient);-webkit-background-clip:text;-webkit-text-fill-color:transparent;margin-bottom:6px}
+.login-logo-img{width:40px;height:40px;border-radius:12px;object-fit:cover}
 .login-sub{font-size:.78rem;color:var(--muted);margin-bottom:26px;text-align:center}
 .login-card{width:100%;max-width:360px;background:var(--card);border-radius:22px;padding:24px;box-shadow:var(--shadow)}
 .login-admin-link{margin-top:18px;font-size:.7rem;color:var(--muted);text-align:center}
+.auth-divider{display:flex;align-items:center;gap:10px;margin:16px 0;font-size:.68rem;color:var(--muted)}
+.auth-divider::before,.auth-divider::after{content:'';flex:1;height:1px;background:var(--border)}
+.google-btn-wrap{display:flex;justify-content:center;min-height:40px}
 .captcha-box{display:flex;gap:10px;justify-content:center;padding:14px 10px;background:repeating-linear-gradient(135deg,var(--hover-bg),var(--hover-bg) 6px,transparent 6px,transparent 12px);border-radius:12px;border:1px dashed var(--border);user-select:none;-webkit-user-select:none;-moz-user-select:none;pointer-events:none}
 .captcha-box span{font-size:1.3rem;font-weight:900;font-family:monospace;letter-spacing:2px;color:var(--text);display:inline-block}
 .stepper{display:flex;justify-content:space-between;position:relative;margin:18px 0 6px}
@@ -1198,8 +1272,6 @@ button,input,select,textarea{font-family:inherit;color:inherit}
 .sheet-backdrop.open{display:block}
 .confirm-sheet h4{font-size:.92rem;margin-bottom:14px;text-align:center}
 .confirm-actions{display:flex;gap:10px}
-.confirm-modal{left:16px;right:16px;bottom:auto;top:50%;border-radius:22px;max-width:340px;margin:0 auto;transform:translateY(-50%) scale(.85);opacity:0;transition:transform .22s cubic-bezier(.22,1,.36,1),opacity .22s;pointer-events:none}
-.confirm-modal.open{transform:translateY(-50%) scale(1);opacity:1;pointer-events:auto}
 .theme-toggle-btn{width:38px;height:38px;border-radius:50%;background:var(--bg);box-shadow:var(--shadow);border:none;cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:.9rem;color:var(--text);flex-shrink:0}
 .theme-toggle-btn .sun{display:none}
 [data-theme="dark"] .theme-toggle-btn .sun{display:inline;color:var(--accent)}
@@ -1231,6 +1303,7 @@ button,input,select,textarea{font-family:inherit;color:inherit}
 .notif-wrap{position:relative;overflow:hidden;border-radius:16px;margin-bottom:8px}
 .notif-row{display:flex;align-items:center;gap:8px;background:var(--card);box-shadow:var(--shadow);border-radius:16px;padding:12px;touch-action:pan-y;position:relative;z-index:1}
 .notif-row.unread{border-right:3px solid var(--accent)}
+.notif-icon{width:38px;height:38px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:.9rem;flex-shrink:0}
 .notif-body{flex:1;min-width:0;color:inherit;text-decoration:none}
 .notif-body strong{font-size:.8rem;display:block;margin-bottom:2px}
 .notif-body p{font-size:.72rem;color:var(--muted);margin-bottom:4px;line-height:1.6}
@@ -1253,6 +1326,10 @@ button,input,select,textarea{font-family:inherit;color:inherit}
   .grid2{grid-template-columns:repeat(4,1fr)}
   .grid3{grid-template-columns:repeat(5,1fr)}
   .hgrid .prod-card{min-width:190px}
+  .store-grid6{grid-template-columns:repeat(8,1fr);gap:16px 8px}
+}
+@media (max-width:360px){
+  .store-grid6{grid-template-columns:repeat(4,1fr)}
 }
 <?php }
 
@@ -1261,10 +1338,65 @@ function render_js(): void { ?>
 function setLoading(v){ document.getElementById('app-root')?.classList.toggle('nav-loading', v); }
 
 function applySwap(data){
-  document.getElementById('app-root').innerHTML = data.html;
-  document.title = data.title + ' — <?= h(APP_NAME) ?>';
-  window.scrollTo(0, 0);
+  const doSwap = () => {
+    document.getElementById('app-root').innerHTML = data.html;
+    document.title = data.title + ' — <?= h(site_name()) ?>';
+    window.scrollTo(0, 0);
+    showInstallBanner();
+    renderGoogleButton();
+  };
+  if (document.startViewTransition) document.startViewTransition(doSwap);
+  else doSwap();
 }
+
+/* ===== تثبيت التطبيق (PWA) ===== */
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', function(){ navigator.serviceWorker.register('indexx.php?asset=sw').catch(function(){}); });
+}
+let _deferredInstall = null;
+window.addEventListener('beforeinstallprompt', function(e){
+  e.preventDefault();
+  _deferredInstall = e;
+  showInstallBanner();
+});
+function showInstallBanner(){
+  if (!_deferredInstall) return;
+  let dismissed = false;
+  try { dismissed = sessionStorage.getItem('installDismissed') === '1'; } catch (err) {}
+  const b = document.getElementById('installBanner');
+  if (b && !dismissed) b.hidden = false;
+}
+document.addEventListener('click', function(e){
+  if (e.target.closest('#installBtn')) {
+    document.getElementById('installBanner')?.setAttribute('hidden', '');
+    if (_deferredInstall) { _deferredInstall.prompt(); _deferredInstall.userChoice.finally(() => { _deferredInstall = null; }); }
+  } else if (e.target.closest('#installDismiss')) {
+    document.getElementById('installBanner')?.setAttribute('hidden', '');
+    try { sessionStorage.setItem('installDismissed', '1'); } catch (err) {}
+  }
+});
+
+function renderGoogleButton(){}
+<?php if (GOOGLE_CLIENT_ID !== ''): ?>
+/* ===== تسجيل الدخول عبر Google ===== */
+function handleGoogleCredential(response){
+  setLoading(true);
+  const fd = new FormData();
+  fd.append('action', 'google_login');
+  fd.append('credential', response.credential);
+  fetch('indexx.php', {method:'POST', body: fd, headers:{'X-Requested-With':'fetch'}, credentials:'same-origin'})
+    .then(r => r.json()).then(applySwap).catch(() => { window.location.href = 'indexx.php'; })
+    .finally(() => setLoading(false));
+}
+function renderGoogleButton(){
+  const box = document.getElementById('googleBtnContainer');
+  if (!box || !window.google?.accounts?.id) return;
+  google.accounts.id.initialize({client_id: '<?= h(GOOGLE_CLIENT_ID) ?>', callback: handleGoogleCredential});
+  box.innerHTML = '';
+  google.accounts.id.renderButton(box, {type:'standard', theme:'outline', size:'large', shape:'pill', locale:'ar'});
+}
+window.addEventListener('load', renderGoogleButton);
+<?php endif; ?>
 
 async function navigateTo(url){
   setLoading(true);
@@ -1455,13 +1587,10 @@ function render_store_tile(array $s): string {
     $img = $s['logo'] ? UPLOAD_URL . '/' . basename($s['logo']) : '';
     ob_start(); ?>
     <a class="store-tile an" href="indexx.php?page=store&id=<?= $s['id'] ?>">
-        <div class="store-tile-img" style="background:<?= $img ? 'transparent' : 'var(--gradient)' ?>">
+        <div class="store-tile-icon" style="background:<?= $img ? 'transparent' : 'var(--gradient)' ?>">
             <?php if ($img): ?><img src="<?= h($s['logo']) ?>" alt=""><?php else: ?><i class="fas <?= category_icon($s['category']) ?>"></i><?php endif; ?>
         </div>
-        <div class="store-tile-info">
-            <h4><?= h($s['name']) ?></h4>
-            <p><?= h($s['category']) ?></p>
-        </div>
+        <span class="store-tile-name"><?= h($s['name']) ?></span>
     </a>
     <?php return ob_get_clean();
 }
@@ -1545,12 +1674,19 @@ function app_shell_inner(string $body, ?string $activeTab = 'home'): string {
     ob_start();
     ?>
 <header class="topbar an">
-  <a href="indexx.php" class="logo"><i class="fas fa-store"></i> <?= h(APP_NAME) ?></a>
+  <a href="indexx.php" class="logo"><?php if (site_logo_url()): ?><img src="<?= h(site_logo_url()) ?>" alt="" class="logo-img"><?php else: ?><i class="fas fa-store"></i><?php endif; ?> <?= h(site_name()) ?></a>
   <div class="topbar-right">
     <a class="icon-btn" href="indexx.php?page=notifications" title="الإشعارات"><i class="fas fa-bell"></i><?php if ($unreadCount): ?><span class="badge"><?= $unreadCount ?></span><?php endif; ?></a>
     <a class="icon-btn" href="indexx.php?page=cart" title="السلة"><i class="fas fa-cart-shopping"></i><?php if ($cartCount): ?><span class="badge"><?= $cartCount ?></span><?php endif; ?></a>
   </div>
 </header>
+
+<div class="install-banner" id="installBanner" hidden>
+  <i class="fas fa-mobile-screen-button"></i>
+  <span>ثبّت تطبيق <?= h(site_name()) ?> على جهازك لتصفح أسرع</span>
+  <button class="btn btn-sm" id="installBtn" type="button" style="width:auto">تثبيت</button>
+  <button class="icon-btn" id="installDismiss" type="button" style="width:28px;height:28px"><i class="fas fa-xmark"></i></button>
+</div>
 
 <main class="content z1">
   <?php foreach ($flashes as $f): ?>
@@ -1566,6 +1702,15 @@ function app_shell_inner(string $body, ?string $activeTab = 'home'): string {
   <a class="tab <?= $activeTab==='orders'?'active':'' ?>" href="indexx.php?page=orders"><i class="fas fa-receipt"></i><span>طلباتي</span></a>
   <a class="tab <?= $activeTab==='account'?'active':'' ?>" href="indexx.php?page=account"><i class="fas fa-user"></i><span>حسابي</span></a>
 </nav>
+
+<div class="sheet-backdrop" id="sheetBackdrop" onclick="closeSheets()"></div>
+<div class="confirm-sheet" id="logoutSheet">
+    <h4>متأكد إنك تريد تسجيل الخروج؟</h4>
+    <div class="confirm-actions">
+        <button class="btn btn-outline" onclick="closeSheets()">إلغاء</button>
+        <form method="post" style="width:100%"><input type="hidden" name="action" value="logout"><button class="btn btn-danger" type="submit">تسجيل الخروج</button></form>
+    </div>
+</div>
     <?php
     return ob_get_clean();
 }
@@ -1577,9 +1722,15 @@ function full_document(string $title, string $inner): void {
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-<title><?= h($title) ?> — <?= h(APP_NAME) ?></title>
+<title><?= h($title) ?> — <?= h(site_name()) ?></title>
+<link rel="manifest" href="indexx.php?asset=manifest">
+<meta name="theme-color" content="#f2b100">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="<?= h(site_name()) ?>">
+<?php if (site_logo_url()): ?><link rel="apple-touch-icon" href="<?= h(site_logo_url()) ?>"><link rel="icon" href="<?= h(site_logo_url()) ?>"><?php endif; ?>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
+<?php if (GOOGLE_CLIENT_ID !== ''): ?><script src="https://accounts.google.com/gsi/client" async defer></script><?php endif; ?>
 <style><?php render_css(); ?></style>
 </head>
 <body>
@@ -1589,6 +1740,39 @@ function full_document(string $title, string $inner): void {
 </body>
 </html>
     <?php
+}
+
+/* ===================== PWA: مانيفست وservice worker من نفس الملف (بلا ملفات إضافية) ===================== */
+if (isset($_GET['asset']) && $_GET['asset'] === 'manifest') {
+    header('Content-Type: application/manifest+json; charset=utf-8');
+    $logo = site_logo_url();
+    $icons = $logo
+        ? [['src'=>$logo, 'sizes'=>'192x192', 'type'=>'image/png', 'purpose'=>'any'], ['src'=>$logo, 'sizes'=>'512x512', 'type'=>'image/png', 'purpose'=>'any']]
+        : [['src'=>'indexx.php?asset=icon', 'sizes'=>'512x512', 'type'=>'image/svg+xml', 'purpose'=>'any']];
+    echo json_encode([
+        'name' => site_name(),
+        'short_name' => site_name(),
+        'start_url' => 'indexx.php',
+        'scope' => './',
+        'display' => 'standalone',
+        'background_color' => '#ffffff',
+        'theme_color' => '#f2b100',
+        'dir' => 'rtl',
+        'lang' => 'ar',
+        'icons' => $icons,
+    ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+    exit;
+}
+if (isset($_GET['asset']) && $_GET['asset'] === 'icon') {
+    header('Content-Type: image/svg+xml; charset=utf-8');
+    echo '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><rect width="512" height="512" rx="96" fill="#f2b100"/><text x="256" y="320" font-size="260" text-anchor="middle" font-family="sans-serif">' . h(mb_substr(site_name(), 0, 1)) . '</text></svg>';
+    exit;
+}
+if (isset($_GET['asset']) && $_GET['asset'] === 'sw') {
+    header('Content-Type: application/javascript; charset=utf-8');
+    header('Service-Worker-Allowed: ./');
+    echo "self.addEventListener('install',e=>self.skipWaiting());self.addEventListener('activate',e=>self.clients.claim());self.addEventListener('fetch',e=>{});";
+    exit;
 }
 
 if (isset($_GET['ajax']) && $_GET['ajax'] === 'chat') {
@@ -1635,12 +1819,20 @@ function render_captcha(): string {
     <?php return ob_get_clean();
 }
 
+function render_google_button(): string {
+    if (GOOGLE_CLIENT_ID === '') return '';
+    ob_start(); ?>
+    <div class="auth-divider an"><span>أو</span></div>
+    <div id="googleBtnContainer" class="google-btn-wrap"></div>
+    <?php return ob_get_clean();
+}
+
 function login_inner(): string {
     $flashes = take_flashes();
     ob_start();
     ?>
 <div class="login-wrap">
-  <div class="login-logo an"><i class="fas fa-store"></i> <?= h(APP_NAME) ?></div>
+  <div class="login-logo an"><?php if (site_logo_url()): ?><img src="<?= h(site_logo_url()) ?>" alt="" class="login-logo-img"><?php else: ?><i class="fas fa-store"></i><?php endif; ?> <?= h(site_name()) ?></div>
   <p class="login-sub an">سوق رقمي يجمع كل المتاجر بمكان واحد</p>
   <?php foreach ($flashes as $f): ?><div class="flash flash-<?= h($f['type']) ?> an" style="max-width:360px;width:100%"><?= h($f['text']) ?></div><?php endforeach; ?>
   <div class="login-card an" style="--ad:.1s">
@@ -1650,6 +1842,7 @@ function login_inner(): string {
       <div class="field"><label>كلمة المرور</label><input type="password" name="password" required></div>
       <button class="btn" type="submit"><i class="fas fa-arrow-left"></i> دخول</button>
     </form>
+    <?= render_google_button() ?>
   </div>
   <div class="login-admin-link an" style="--ad:.2s">ما عندك حساب؟ <a href="indexx.php?page=register">إنشاء حساب جديد</a></div>
 </div>
@@ -1664,7 +1857,7 @@ function register_inner(): string {
     ob_start();
     ?>
 <div class="login-wrap">
-  <div class="login-logo an"><i class="fas fa-store"></i> <?= h(APP_NAME) ?></div>
+  <div class="login-logo an"><?php if (site_logo_url()): ?><img src="<?= h(site_logo_url()) ?>" alt="" class="login-logo-img"><?php else: ?><i class="fas fa-store"></i><?php endif; ?> <?= h(site_name()) ?></div>
   <p class="login-sub an">إنشاء حساب جديد</p>
   <?php foreach ($flashes as $f): ?><div class="flash flash-<?= h($f['type']) ?> an" style="max-width:360px;width:100%"><?= h($f['text']) ?></div><?php endforeach; ?>
   <div class="login-card an" style="--ad:.1s">
@@ -1681,6 +1874,7 @@ function register_inner(): string {
       </div>
       <button class="btn" type="submit"><i class="fas fa-user-plus"></i> إنشاء الحساب</button>
     </form>
+    <?= render_google_button() ?>
   </div>
   <div class="login-admin-link an" style="--ad:.2s">عندك حساب؟ <a href="indexx.php?page=login">تسجيل الدخول</a></div>
 </div>
@@ -1696,7 +1890,7 @@ function page_home(): string {
     $products = array_values(array_filter(db_read('products'), fn($p) => in_array($p['store_id'], $liveStoreIds, true)));
     usort($stores, fn($a,$b) => $b['created_at'] <=> $a['created_at']);
     $featured = array_values(array_filter($stores, fn($s) => $s['featured']));
-    $newest = array_slice($stores, 0, 6);
+    $newest = array_slice($stores, 0, 12);
     usort($products, fn($a,$b) => $b['created_at'] <=> $a['created_at']);
     $newProducts = array_slice($products, 0, 8);
     $deals = array_values(array_filter($products, fn($p) => !empty($p['discount_price']) && $p['discount_price'] < $p['price']));
@@ -1725,7 +1919,7 @@ function page_home(): string {
     $inner = '<div class="hscroll">' . implode('', array_map(fn($s) => '<div style="min-width:220px">' . render_store_card($s) . '</div>', array_slice($featured, 0, 6))) . '</div>';
     echo $featured ? render_section('fa-star', 'متاجر مميزة', $inner, 'indexx.php?page=stores') : '';
 
-    $inner = '<div class="grid2">' . implode('', array_map('render_store_tile', array_slice($newest, 0, 4))) . '</div>';
+    $inner = '<div class="store-grid6">' . implode('', array_map('render_store_tile', $newest)) . '</div>';
     echo render_section('fa-clock', 'أحدث المتاجر', $inner, 'indexx.php?page=stores');
 
     $inner = '<div class="hgrid">' . implode('', array_map('render_product_card', $newProducts)) . '</div>';
@@ -1762,9 +1956,9 @@ function page_stores(): string {
     </div>
     <?php if (!$stores): ?>
         <div class="empty-state an"><i class="fas fa-shop-slash"></i><p>لا توجد متاجر مطابقة</p></div>
-    <?php else: foreach ($stores as $s): ?>
-        <?= render_store_card($s) ?>
-    <?php endforeach; endif;
+    <?php else: ?>
+        <div class="store-grid6 an"><?php foreach ($stores as $s): ?><?= render_store_tile($s) ?><?php endforeach; ?></div>
+    <?php endif;
     return ob_get_clean();
 }
 
@@ -2048,15 +2242,6 @@ function page_account(): string {
     </div>
 
     <button class="btn btn-danger an" style="margin-top:16px" onclick="openSheet('logoutSheet')"><i class="fas fa-right-from-bracket"></i> تسجيل الخروج</button>
-
-    <div class="sheet-backdrop" id="sheetBackdrop" onclick="closeSheets()"></div>
-    <div class="confirm-sheet confirm-modal" id="logoutSheet">
-        <h4>متأكد إنك تريد تسجيل الخروج؟</h4>
-        <div class="confirm-actions">
-            <button class="btn btn-outline" onclick="closeSheets()">إلغاء</button>
-            <form method="post" style="width:100%"><input type="hidden" name="action" value="logout"><button class="btn btn-danger" type="submit">تسجيل الخروج</button></form>
-        </div>
-    </div>
     <?php return ob_get_clean();
 }
 
@@ -2131,9 +2316,11 @@ function page_notifications(): string {
     </div>
     <?php if (!$notifs): ?>
         <div class="empty-state an"><i class="fas fa-bell-slash"></i><p>لا توجد إشعارات</p></div>
-    <?php else: foreach ($notifs as $n): ?>
+    <?php else: foreach ($notifs as $n):
+        [$nIcon, $nColor] = notif_icon($n['type'] ?? 'info'); ?>
     <div class="notif-wrap an">
         <div class="notif-row <?= $n['read'] ? '' : 'unread' ?>">
+            <div class="notif-icon" style="background:<?= h($nColor) ?>22;color:<?= h($nColor) ?>"><i class="fas <?= h($nIcon) ?>"></i></div>
             <?php if ($n['link']): ?><a href="<?= h($n['link']) ?>" class="notif-body">
             <?php else: ?><div class="notif-body">
             <?php endif; ?>
@@ -2723,6 +2910,16 @@ function page_admin(): string {
 
     if ($section === 'settings') {
         $settings = get_settings(); ?>
+        <div class="card an" style="margin-bottom:16px">
+            <h3 style="font-size:.88rem;font-weight:800;margin-bottom:14px"><i class="fas fa-palette" style="color:var(--accent)"></i> اسم وشعار الموقع</h3>
+            <form method="post" enctype="multipart/form-data">
+                <input type="hidden" name="action" value="admin_update_branding">
+                <?php if ($settings['site_logo']): ?><img src="<?= h($settings['site_logo']) ?>" alt="" style="width:56px;height:56px;border-radius:16px;object-fit:cover;margin-bottom:10px"><?php endif; ?>
+                <div class="field"><label>اسم الموقع (يظهر بعنوان الصفحة وتثبيت التطبيق)</label><input type="text" name="site_name" value="<?= h($settings['site_name']) ?>" placeholder="<?= h(APP_NAME) ?>"></div>
+                <div class="field"><label>شعار الموقع</label><input type="file" name="site_logo" accept="image/*"></div>
+                <button class="btn btn-sm" type="submit">حفظ</button>
+            </form>
+        </div>
         <div class="card an" style="margin-bottom:16px">
             <form method="post">
                 <input type="hidden" name="action" value="admin_update_fee">
