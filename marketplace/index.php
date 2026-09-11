@@ -55,82 +55,10 @@ function next_id(array $items): int {
     return $max + 1;
 }
 
-/* ===================== البيانات التجريبية الأولية ===================== */
-function ensure_seed_data(): void {
-    /* كل مجموعة تُفحص وتُهيَّأ بشكل مستقل تماماً عن البقية — لا يجوز أبداً أن
-       يؤدي كون "stores" فارغة (مثلاً: أدمن هيّأ حسابه عبر install.php ولم
-       يُنشئ متاجر تجريبية بعد) لإعادة كتابة "users" أو "settings" الحقيقيين
-       فوق ما أدخله install.php أو الأدمن فعلياً. */
-    ensure_seed_marketplace_content();
-    ensure_seed_admin_user();
-    ensure_seed_settings();
-}
-
-function ensure_seed_marketplace_content(): void {
-    if (db_read('stores') !== []) return; // تم التهيئة من قبل
-
-    $baseStore = ['sections'=>[], 'earnings'=>0, 'earnings_log'=>[], 'last_fee_at'=>null, 'subscription_expires_at'=>time()+86400*SUBSCRIPTION_DAYS, 'suspended'=>false];
-    $stores = [
-        $baseStore + ['id'=>1,'owner_user_id'=>0,'name'=>'متجر أحمد للملابس','slug'=>'ahmed-clothes','description'=>'أحدث صيحات الموضة والملابس الرجالية والنسائية بجودة عالية وأسعار مناسبة للجميع.','category'=>'ملابس','contact_phone'=>'07701234567','contact_whatsapp'=>'9647701234567','logo'=>'','cover'=>'','status'=>'approved','featured'=>true,'theme'=>['primary'=>'#f2b100','radius'=>18,'density'=>'comfortable','layout'=>'grid2'],'created_at'=>time()-86400*20],
-        $baseStore + ['id'=>2,'owner_user_id'=>0,'name'=>'متجر علي للإلكترونيات','slug'=>'ali-electronics','description'=>'أجهزة إلكترونية، هواتف، وإكسسوارات أصلية مع ضمان حقيقي وخدمة توصيل سريعة.','category'=>'إلكترونيات','contact_phone'=>'07709876543','contact_whatsapp'=>'9647709876543','logo'=>'','cover'=>'','status'=>'approved','featured'=>true,'theme'=>['primary'=>'#2f8fd8','radius'=>10,'density'=>'compact','layout'=>'grid3'],'created_at'=>time()-86400*15],
-        $baseStore + ['id'=>3,'owner_user_id'=>0,'name'=>'متجر سارة للتجميل','slug'=>'sara-beauty','description'=>'منتجات تجميل وعناية بالبشرة من ماركات موثوقة، مختارة بعناية لتناسب كل الأذواق.','category'=>'تجميل ومكياج','contact_phone'=>'07715558899','contact_whatsapp'=>'9647715558899','logo'=>'','cover'=>'','status'=>'approved','featured'=>true,'theme'=>['primary'=>'#e0559a','radius'=>26,'density'=>'spacious','layout'=>'grid2'],'created_at'=>time()-86400*8],
-        $baseStore + ['id'=>4,'owner_user_id'=>0,'name'=>'بيت الأناقة للمنزل','slug'=>'home-elegance','description'=>'كل ما يحتاجه منزلك من أدوات مطبخ وديكور بأسعار تنافسية.','category'=>'منزل ومطبخ','contact_phone'=>'07733221100','contact_whatsapp'=>'9647733221100','logo'=>'','cover'=>'','status'=>'approved','featured'=>false,'theme'=>['primary'=>'#3fa66a','radius'=>14,'density'=>'comfortable','layout'=>'list'],'created_at'=>time()-86400*3],
-        $baseStore + ['id'=>5,'owner_user_id'=>0,'name'=>'عالم الأطفال','slug'=>'kids-world','description'=>'ألعاب وملابس أطفال آمنة ومسلية لكل الأعمار.','category'=>'أطفال وألعاب','contact_phone'=>'07744556677','contact_whatsapp'=>'9647744556677','logo'=>'','cover'=>'','status'=>'approved','featured'=>false,'theme'=>['primary'=>'#f2b100','radius'=>18,'density'=>'comfortable','layout'=>'grid2'],'created_at'=>time()-86400*1],
-    ];
-
-    $products = [
-        ['id'=>1,'store_id'=>1,'name'=>'قميص قطني كلاسيكي','description'=>'قميص رجالي قطن 100% متوفر بعدة مقاسات وألوان، مناسب للعمل والمناسبات.','price'=>25000,'discount_price'=>null,'category'=>'ملابس','images'=>[],'created_at'=>time()-86400*19],
-        ['id'=>2,'store_id'=>1,'name'=>'فستان سهرة أنيق','description'=>'فستان سهرة بتصميم عصري وخامة فاخرة، مثالي للمناسبات الخاصة.','price'=>75000,'discount_price'=>60000,'category'=>'ملابس','images'=>[],'created_at'=>time()-86400*10],
-        ['id'=>3,'store_id'=>1,'name'=>'جينز رجالي مريح','description'=>'بنطلون جينز بقصة عصرية ومقاومة للتمزق.','price'=>35000,'discount_price'=>null,'category'=>'ملابس','images'=>[],'created_at'=>time()-86400*2],
-        ['id'=>4,'store_id'=>2,'name'=>'سماعات بلوتوث لاسلكية','description'=>'سماعات بجودة صوت عالية وعمر بطارية يصل ل 20 ساعة، مقاومة للماء.','price'=>45000,'discount_price'=>35000,'category'=>'إلكترونيات','images'=>[],'created_at'=>time()-86400*14],
-        ['id'=>5,'store_id'=>2,'name'=>'شاحن سريع 65 واط','description'=>'شاحن سريع متوافق مع أغلب الأجهزة، يشحن الهاتف بالكامل خلال دقائق.','price'=>20000,'discount_price'=>null,'category'=>'إلكترونيات','images'=>[],'created_at'=>time()-86400*6],
-        ['id'=>6,'store_id'=>2,'name'=>'ساعة ذكية رياضية','description'=>'تتبع اللياقة، نبضات القلب، والإشعارات مباشرة على معصمك.','price'=>90000,'discount_price'=>null,'category'=>'إلكترونيات','images'=>[],'created_at'=>time()-86400*1],
-        ['id'=>7,'store_id'=>3,'name'=>'طقم فرش مكياج احترافي','description'=>'12 فرشاة مكياج بجودة عالية مع حقيبة أنيقة.','price'=>30000,'discount_price'=>22000,'category'=>'تجميل ومكياج','images'=>[],'created_at'=>time()-86400*7],
-        ['id'=>8,'store_id'=>3,'name'=>'كريم ترطيب للبشرة','description'=>'كريم مرطب يومي مناسب لجميع أنواع البشرة.','price'=>15000,'discount_price'=>null,'category'=>'تجميل ومكياج','images'=>[],'created_at'=>time()-86400*4],
-        ['id'=>9,'store_id'=>4,'name'=>'طقم أواني طبخ 10 قطع','description'=>'أواني طبخ غير لاصقة بجودة ممتازة.','price'=>120000,'discount_price'=>null,'category'=>'منزل ومطبخ','images'=>[],'created_at'=>time()-86400*3],
-        ['id'=>10,'store_id'=>5,'name'=>'سيارة تحكم عن بعد','description'=>'لعبة سيارة سريعة تعمل بالريموت، مناسبة للأعمار +6.','price'=>28000,'discount_price'=>null,'category'=>'أطفال وألعاب','images'=>[],'created_at'=>time()-86400*1],
-    ];
-
-    db_write('stores', $stores);
-    db_write('products', $products);
-    db_write('orders', []);
-    db_write('complaints', []);
-    db_write('topup_requests', []);
-    db_write('notifications', []);
-}
-
-function ensure_seed_admin_user(): void {
-    if (db_read('users') !== []) return; // يوجد مستخدمون فعليون (أنشئوا عبر install.php أو التسجيل) — لا نلمسهم
-    db_write('users', [
-        ['id'=>1, 'name'=>'الإدارة', 'email'=>ADMIN_SEED_EMAIL, 'password_hash'=>password_hash(ADMIN_SEED_PASSWORD, PASSWORD_DEFAULT), 'phone'=>'', 'wallet'=>0, 'wallet_log'=>[], 'favorites'=>['stores'=>[],'products'=>[]], 'is_admin'=>true, 'created_at'=>time()],
-    ]);
-}
-
-function ensure_seed_settings(): void {
-    if (db_read('settings') !== []) return; // إعدادات حقيقية موجودة أصلاً (مثلاً من install.php) — لا نلمسها
-    db_write('settings', [
-        'monthly_fee' => 15000,
-        'categories' => ['ملابس', 'إلكترونيات', 'تجميل ومكياج', 'منزل ومطبخ', 'أطفال وألعاب', 'رياضة ولياقة', 'أخرى'],
-        'payment_methods' => [
-            ['id'=>1, 'name'=>'زين كاش', 'transfer_number'=>'0770-000-0000', 'agent_name'=>'إدارة ' . APP_NAME, 'logo'=>'', 'qr_code'=>'', 'details'=>'حوّل إلى الرقم ثم ارفع صورة الوصل'],
-            ['id'=>2, 'name'=>'آسيا حوالة', 'transfer_number'=>'0770-111-1111', 'agent_name'=>'إدارة ' . APP_NAME, 'logo'=>'', 'qr_code'=>'', 'details'=>'حوّل باسم الوكيل وارفع صورة الوصل'],
-            ['id'=>3, 'name'=>'تسليم نقدي بالمكتب', 'transfer_number'=>'', 'agent_name'=>'إدارة ' . APP_NAME, 'logo'=>'', 'qr_code'=>'', 'details'=>'راجع مكتب الإدارة وسلّم المبلغ نقداً'],
-        ],
-        'site_name' => APP_NAME,
-        'site_logo' => '',
-        'ai_api_key' => '',
-        'coupons' => [],
-    ]);
-}
-ensure_seed_data();
-
-/* عند رفع هذا الإصدار فوق استضافة فيها بيانات من نسخة سابقة (نظام دخول قديم
-   بدون بريد/كلمة مرور)، يبقى ملف stores.json موجوداً فتتخطى ensure_seed_data()
-   التهيئة بالكامل ولا يُنشأ حساب الأدمن الجديد أبداً — فيفشل تسجيل الدخول
-   بحساب الأدمن دائماً برسالة "البريد أو كلمة المرور غير صحيحة". هذه الدالة
-   مستقلة وتُشغَّل بكل طلب: تحذف تلقائياً أي سجلات مستخدمين قديمة غير متوافقة
-   (بلا password_hash) وتضمن وجود حساب أدمن صالح دوماً، دون المساس بأي حساب
-   مستخدم حقيقي مسجَّل بالنظام الجديد. */
+/* لا توجد أي متاجر أو منتجات أو بيانات تجريبية ثابتة بالكود — الموقع يبدأ
+   فارغاً تماماً ويُبنى بالكامل من install.php ولوحة الأدمن. هذه الدالة فقط
+   تضمن وجود حساب أدمن صالح دائماً (تحذف تلقائياً أي سجلات مستخدمين قديمة
+   غير متوافقة من نسخة سابقة بلا password_hash)، دون المساس بأي حساب حقيقي. */
 function ensure_admin_user(): void {
     $users = db_read('users');
     $before = $users;
@@ -263,7 +191,7 @@ function store_pending_earnings(array $store): float {
 function find_coupon_for_product(int $productId): ?array {
     $code = $_SESSION['cart_coupon'] ?? null;
     if (!$code) return null;
-    foreach (get_settings()['coupons'] as $c) if ($c['code'] === $code && $c['product_id'] === $productId) return $c;
+    foreach (get_settings()['coupons'] as $c) if ($c['code'] === $code && ($c['product_id'] === null || $c['product_id'] === $productId)) return $c;
     return null;
 }
 
@@ -278,21 +206,41 @@ function is_store_live(array $s): bool {
     return $exp === null || time() < $exp;
 }
 
-function store_rating(int $storeId): float {
-    static $ordersByStore = null, $complaintsByStore = null;
-    if ($ordersByStore === null) {
-        $ordersByStore = []; $complaintsByStore = [];
-        foreach (db_read('orders') as $o) $ordersByStore[$o['store_id']] = ($ordersByStore[$o['store_id']] ?? 0) + 1;
-        foreach (db_read('complaints') as $c) $complaintsByStore[$c['store_id']] = ($complaintsByStore[$c['store_id']] ?? 0) + 1;
+/* التقييم الحقيقي مصدره فقط مشترون أكملوا طلباً فعلياً مع هذا المتجر
+   (عبر submit_review) — لا يوجد أي تقييم افتراضي أو محسوب من عدد الشكاوى. */
+function store_rating(int $storeId): ?float {
+    static $sums = null, $counts = null;
+    if ($sums === null) {
+        $sums = []; $counts = [];
+        foreach (db_read('reviews') as $r) {
+            $sums[$r['store_id']] = ($sums[$r['store_id']] ?? 0) + $r['rating'];
+            $counts[$r['store_id']] = ($counts[$r['store_id']] ?? 0) + 1;
+        }
     }
-    $oc = $ordersByStore[$storeId] ?? 0;
-    $cc = $complaintsByStore[$storeId] ?? 0;
-    if ($oc === 0) return 5.0;
-    $rating = 5 - min(4, ($cc / $oc) * 5);
-    return max(1, round($rating * 2) / 2);
+    if (empty($counts[$storeId])) return null;
+    return round($sums[$storeId] / $counts[$storeId] * 2) / 2;
 }
 
-function render_stars(float $rating): string {
+function product_rating(int $productId): ?float {
+    static $sums = null, $counts = null;
+    if ($sums === null) {
+        $sums = []; $counts = [];
+        foreach (db_read('reviews') as $r) {
+            $sums[$r['product_id']] = ($sums[$r['product_id']] ?? 0) + $r['rating'];
+            $counts[$r['product_id']] = ($counts[$r['product_id']] ?? 0) + 1;
+        }
+    }
+    if (empty($counts[$productId])) return null;
+    return round($sums[$productId] / $counts[$productId] * 2) / 2;
+}
+
+function find_review(int $orderId, int $productId): ?array {
+    foreach (db_read('reviews') as $r) if ($r['order_id'] === $orderId && $r['product_id'] === $productId) return $r;
+    return null;
+}
+
+function render_stars(?float $rating): string {
+    if ($rating === null) return '<span class="stars-num" style="color:var(--muted)">لا تقييمات بعد</span>';
     ob_start();
     for ($i = 1; $i <= 5; $i++) {
         if ($rating >= $i) echo '<i class="fas fa-star"></i>';
@@ -536,8 +484,33 @@ if ($action !== '') {
     }
 
     // من هنا تحتاج المستخدم مسجّل دخول
-    $needsUser = ['add_to_cart','remove_from_cart','checkout','apply_vendor','toggle_favorite','update_profile','submit_complaint','request_topup','complaint_reply','request_withdraw'];
+    $needsUser = ['add_to_cart','remove_from_cart','checkout','apply_vendor','toggle_favorite','update_profile','submit_complaint','request_topup','complaint_reply','request_withdraw','submit_review'];
     if (in_array($action, $needsUser, true) && !current_user()) redirect('index.php');
+
+    if ($action === 'submit_review') {
+        $user = current_user();
+        $orderId = (int)($_POST['order_id'] ?? 0);
+        $productId = (int)($_POST['product_id'] ?? 0);
+        $rating = (int)($_POST['rating'] ?? 0);
+        $comment = trim((string)($_POST['comment'] ?? ''));
+        $order = null;
+        foreach (db_read('orders') as $o) if ($o['id'] === $orderId && $o['buyer_id'] === $user['id']) { $order = $o; break; }
+        $isDelivered = $order && $order['status'] === ORDER_STAGES[count(ORDER_STAGES) - 1];
+        $hasItem = $order && in_array($productId, array_column($order['items'], 'product_id'), true);
+        if (!$order || !$isDelivered || !$hasItem || $rating < 1 || $rating > 5) {
+            flash('err', 'لا يمكن إضافة هذا التقييم');
+            redirect('index.php?page=orders');
+        }
+        if (find_review($orderId, $productId)) {
+            flash('err', 'تم تقييم هذا المنتج مسبقاً لهذا الطلب');
+            redirect('index.php?page=orders');
+        }
+        $reviews = db_read('reviews');
+        $reviews[] = ['id'=>next_id($reviews), 'order_id'=>$orderId, 'product_id'=>$productId, 'store_id'=>$order['store_id'], 'user_id'=>$user['id'], 'rating'=>$rating, 'comment'=>$comment, 'created_at'=>time()];
+        db_write('reviews', $reviews);
+        flash('ok', 'شكراً على تقييمك');
+        redirect('index.php?page=orders');
+    }
 
     if ($action === 'add_to_cart') {
         $pid = (int)($_POST['product_id'] ?? 0);
@@ -559,7 +532,7 @@ if ($action !== '') {
         $code = strtoupper(trim((string)($_POST['coupon_code'] ?? '')));
         $cart = $_SESSION['cart'] ?? [];
         $matched = false;
-        foreach (get_settings()['coupons'] as $c) if ($c['code'] === $code && isset($cart[$c['product_id']])) { $matched = true; break; }
+        foreach (get_settings()['coupons'] as $c) if ($c['code'] === $code && ($c['product_id'] === null ? !empty($cart) : isset($cart[$c['product_id']]))) { $matched = true; break; }
         if ($code === '' || !$matched) {
             unset($_SESSION['cart_coupon']);
             flash('err', $code === '' ? 'تم إلغاء الكوبون' : 'هذا الكود غير صالح أو لا ينطبق على منتج بسلتك');
@@ -642,17 +615,24 @@ if ($action !== '') {
         $user = current_user();
         $newEmail = mb_strtolower(trim((string)($_POST['email'] ?? $user['email'])));
         $newPassword = (string)($_POST['password'] ?? '');
+        $currentPassword = (string)($_POST['current_password'] ?? '');
         if (!filter_var($newEmail, FILTER_VALIDATE_EMAIL)) {
             flash('err', 'البريد الإلكتروني غير صحيح');
-            redirect('index.php?page=account');
+            redirect('index.php?page=account-edit');
         }
         foreach ($users as $u) if ($u['id'] !== $user['id'] && mb_strtolower($u['email'] ?? '') === $newEmail) {
             flash('err', 'هذا البريد مستخدم من حساب آخر');
-            redirect('index.php?page=account');
+            redirect('index.php?page=account-edit');
         }
-        if ($newPassword !== '' && strlen($newPassword) < 6) {
-            flash('err', 'كلمة المرور الجديدة لازم لا تقل عن 6 خانات');
-            redirect('index.php?page=account');
+        if ($newPassword !== '') {
+            if (strlen($newPassword) < 6) {
+                flash('err', 'كلمة المرور الجديدة لازم لا تقل عن 6 خانات');
+                redirect('index.php?page=account-edit');
+            }
+            if (!password_verify($currentPassword, $user['password_hash'] ?? '')) {
+                flash('err', 'كلمة المرور الحالية غير صحيحة');
+                redirect('index.php?page=account-edit');
+            }
         }
         foreach ($users as &$u) if ($u['id'] === $user['id']) {
             $u['name'] = trim((string)($_POST['name'] ?? $u['name']));
@@ -663,7 +643,7 @@ if ($action !== '') {
         unset($u);
         db_write('users', $users);
         flash('ok', 'تم تحديث بياناتك');
-        redirect('index.php?page=account');
+        redirect('index.php?page=account-edit');
     }
 
     if ($action === 'request_topup') {
@@ -1158,9 +1138,10 @@ if ($action !== '') {
         if ($action === 'admin_add_coupon') {
             $settings = get_settings();
             $code = strtoupper(trim((string)($_POST['code'] ?? '')));
-            $pid = (int)($_POST['product_id'] ?? 0);
+            $scope = (string)($_POST['scope'] ?? 'product');
+            $pid = $scope === 'all' ? null : (int)($_POST['product_id'] ?? 0);
             $percent = max(1, min(90, (float)($_POST['percent'] ?? 0)));
-            if ($code === '' || !find_product($pid)) {
+            if ($code === '' || ($pid !== null && !find_product($pid))) {
                 flash('err', 'الرجاء اختيار منتج وكتابة كود صحيح');
                 redirect('index.php?page=admin&section=settings');
             }
@@ -1214,7 +1195,7 @@ if ($action !== '') {
                 $users = db_read('users');
                 foreach ($users as &$u) if ($u['id'] === $req['user_id']) {
                     $u['wallet'] = (float)$u['wallet'] + (float)$req['amount'];
-                    $u['wallet_log'][] = ['amount'=>(float)$req['amount'], 'note'=>'شحن يدوي معتمد (' . $req['method'] . ')', 'at'=>time()];
+                    $u['wallet_log'][] = ['amount'=>(float)$req['amount'], 'note'=>'شحن رصيد معتمد (' . $req['method'] . ')', 'at'=>time()];
                 }
                 unset($u);
                 db_write('users', $users);
@@ -1332,7 +1313,7 @@ function ai_fallback_reply(string $msg): string {
     $m = mb_strtolower($msg);
     $rules = [
         'مرحبا'=>'أهلاً بيك! 👋 أقدر أساعدك تلقى متجر أو منتج، أو تعرف كيف تسوي طلب أو تصير تاجر بالتطبيق.',
-        'رصيد'=>'الرصيد يضيفه لك الأدمن يدوياً حالياً. تواصل مع إدارة التطبيق لشحن رصيدك، وبعدها تكدر تشتري من أي متجر بيه.',
+        'رصيد'=>'تكدر تشحن رصيدك من "حسابي ← المحفظة"، اختر طريقة الدفع وارفع صورة وصل التحويل، وبعد موافقة الإدارة يضاف الرصيد لمحفظتك وتكدر تشتري من أي متجر بيه.',
         'طلب'=>'تكدر تتابع حالة طلباتك من صفحة "طلباتي"، وتمر كل طلبية بأربع مراحل: ' . implode(' ← ', ORDER_STAGES) . '.',
         'تاجر'=>'لتصير تاجر: روح لصفحة "حسابي" واضغط "تقديم طلب كتاجر"، عبّي بيانات متجرك وانتظر موافقة الإدارة.',
         'توصيل'=>'كل متجر يحدد طريقة التواصل والتوصيل الخاصة فيه، تكدر تتواصل مباشرة مع المتجر من صفحته عبر واتساب.',
@@ -1409,6 +1390,7 @@ function render_product_card(array $p): string {
         <div class="prod-card-info">
             <h4><?= h($p['name']) ?></h4>
             <p class="prod-store"><?= h($store['name'] ?? '') ?></p>
+            <?php $pr = product_rating($p['id']); if ($pr !== null): ?><div style="font-size:.65rem"><?= render_stars($pr) ?></div><?php endif; ?>
             <div class="prod-price">
                 <?php if ($hasDiscount): ?>
                     <span class="now"><?= money($p['discount_price']) ?></span>
@@ -1828,8 +1810,14 @@ function page_store(): string {
         foreach ($store['sections'] as $sec) $groups[] = ['title'=>$sec['title'], 'layout'=>$sec['layout'], 'items'=>array_values(array_filter($products, fn($p) => ($p['section_id'] ?? null) === $sec['id']))];
         $unsectioned = array_values(array_filter($products, fn($p) => empty($p['section_id']) || !in_array($p['section_id'], array_column($store['sections'], 'id'), true)));
         if ($unsectioned) $groups[] = ['title'=>$store['sections'] ? 'منتجات أخرى' : 'منتجات المتجر', 'layout'=>$theme['layout'], 'items'=>$unsectioned];
-        foreach ($groups as $g): if (!$g['items']) continue; $lc = ['grid2'=>'grid2','grid3'=>'grid3','list'=>''][$g['layout']] ?? 'grid2'; ?>
-        <h3 style="font-size:.9rem;font-weight:800;margin:18px 0 10px"><?= h($g['title']) ?> (<?= count($g['items']) ?>)</h3>
+        $groups = array_values(array_filter($groups, fn($g) => $g['items']));
+        if (count($groups) > 1): ?>
+        <div class="chips an" style="margin:14px 0">
+            <?php foreach ($groups as $gi => $g): ?><a class="chip" href="#sec-<?= $gi ?>"><?= h($g['title']) ?></a><?php endforeach; ?>
+        </div>
+        <?php endif;
+        foreach ($groups as $gi => $g): $lc = ['grid2'=>'grid2','grid3'=>'grid3','list'=>''][$g['layout']] ?? 'grid2'; ?>
+        <h3 id="sec-<?= $gi ?>" style="font-size:.9rem;font-weight:800;margin:18px 0 10px"><?= h($g['title']) ?> (<?= count($g['items']) ?>)</h3>
         <?php if ($lc): ?>
             <div class="<?= $lc ?>"><?= implode('', array_map('render_product_card', $g['items'])) ?></div>
         <?php else: foreach ($g['items'] as $p): ?>
@@ -1864,6 +1852,7 @@ function page_product(): string {
     <?php endif; ?>
     <a href="index.php?page=store&id=<?= $store['id'] ?>" style="font-size:.72rem;color:var(--accent);font-weight:700"><i class="fas fa-store"></i> <?= h($store['name'] ?? '') ?></a>
     <h2 style="font-size:1.1rem;font-weight:800;margin:8px 0 6px"><?= h($p['name']) ?></h2>
+    <div style="font-size:.72rem;margin-bottom:6px"><?= render_stars(product_rating($p['id'])) ?></div>
     <div class="prod-price" style="margin-bottom:12px">
         <?php if ($hasDiscount): ?>
             <span class="now" style="font-size:1.2rem"><?= money($p['discount_price']) ?></span>
@@ -1962,7 +1951,8 @@ function page_orders(): string {
     if (!$orders) return '<div class="empty-state an"><i class="fas fa-receipt"></i><p>لا توجد طلبات بعد</p></div>';
     ob_start(); ?>
     <h2 style="font-size:1.05rem;font-weight:800;margin:6px 0 16px" class="an">طلباتي</h2>
-    <?php foreach ($orders as $o): $store = find_store($o['store_id']); ?>
+    <?php $isDelivered = fn($o) => $o['status'] === ORDER_STAGES[count(ORDER_STAGES) - 1];
+    foreach ($orders as $o): $store = find_store($o['store_id']); ?>
     <div class="order-card an">
         <div class="order-top"><span><i class="fas fa-shop" style="color:var(--accent)"></i> <?= h($store['name'] ?? '') ?></span><span><?= money($o['total']) ?></span></div>
         <div class="order-items"><?= implode('، ', array_map(fn($it) => h($it['name']) . ' ×' . $it['qty'], $o['items'])) ?></div>
@@ -1972,6 +1962,23 @@ function page_orders(): string {
             <div style="margin-top:8px;display:flex;flex-direction:column;gap:6px">
                 <?php foreach ($o['items'] as $it): ?>
                 <div class="row-between" style="font-size:.74rem"><span><?= h($it['name']) ?> × <?= $it['qty'] ?></span><span style="color:var(--muted)"><?= money($it['price']) ?> = <?= money($it['price'] * $it['qty']) ?></span></div>
+                <?php if ($isDelivered($o)): $rv = find_review($o['id'], $it['product_id']); ?>
+                    <?php if ($rv): ?>
+                    <div style="font-size:.72rem"><?= render_stars((float)$rv['rating']) ?></div>
+                    <?php else: ?>
+                    <form method="post" class="rate-form">
+                        <input type="hidden" name="action" value="submit_review">
+                        <input type="hidden" name="order_id" value="<?= $o['id'] ?>">
+                        <input type="hidden" name="product_id" value="<?= $it['product_id'] ?>">
+                        <input type="hidden" name="rating" value="0" class="rate-input-val">
+                        <div class="rate-stars">
+                            <?php for ($s = 1; $s <= 5; $s++): ?><button type="button" class="rs" data-v="<?= $s ?>"><i class="far fa-star"></i></button><?php endfor; ?>
+                        </div>
+                        <input type="text" name="comment" placeholder="تعليق (اختياري)" style="font-size:.72rem">
+                        <button class="btn btn-sm" type="submit" style="width:auto">قيّم المنتج</button>
+                    </form>
+                    <?php endif; ?>
+                <?php endif; ?>
                 <?php endforeach; ?>
                 <div class="row-between" style="font-size:.72rem;color:var(--muted);margin-top:4px;padding-top:6px;border-top:1px solid var(--border)">
                     <span><i class="far fa-clock"></i> <?= date('Y-m-d H:i', $o['created_at']) ?></span>
@@ -2052,16 +2059,17 @@ function page_account(): string {
         <button class="theme-toggle-btn" type="button" onclick="toggleTheme()" title="تبديل الوضع"><i class="fas fa-moon moon"></i><i class="fas fa-sun sun"></i></button>
     </div>
 
-    <details class="nav-row an" style="display:block">
-        <summary style="display:flex;align-items:center;gap:12px;cursor:pointer;list-style:none"><i class="fas fa-user-pen lead"></i><div class="t"><strong>تعديل معلومات الحساب</strong><span><?= h($user['name']) ?></span></div></summary>
-        <form method="post" style="margin-top:14px"><input type="hidden" name="action" value="update_profile">
-            <div class="field"><label>الاسم</label><input type="text" name="name" value="<?= h($user['name']) ?>"></div>
-            <div class="field"><label>البريد الإلكتروني</label><input type="email" name="email" value="<?= h($user['email'] ?? '') ?>"></div>
-            <div class="field"><label>رقم الهاتف</label><input type="tel" name="phone" value="<?= h($user['phone'] ?? '') ?>"></div>
-            <div class="field"><label>كلمة مرور جديدة (اتركه فارغاً إذا لا تريد تغييرها)</label><input type="password" name="password" autocomplete="new-password"></div>
-            <button class="btn btn-sm" type="submit">حفظ التعديل</button>
-        </form>
-    </details>
+    <a href="index.php?page=account-edit" class="nav-row an">
+        <i class="fas fa-user-pen lead"></i>
+        <div class="t"><strong>تعديل معلومات الحساب</strong><span>الاسم، البريد، الهاتف، وكلمة المرور</span></div>
+        <i class="fas fa-chevron-left" style="color:var(--muted)"></i>
+    </a>
+
+    <a href="index.php?page=ai" class="nav-row an">
+        <i class="fas fa-sparkles lead"></i>
+        <div class="t"><strong>المساعد الذكي</strong><span>اسأل عن طلباتك أو منتج تحتاجه</span></div>
+        <i class="fas fa-chevron-left" style="color:var(--muted)"></i>
+    </a>
 
     <details class="nav-row an" style="display:block">
         <summary style="display:flex;align-items:center;gap:12px;cursor:pointer;list-style:none"><i class="fas fa-shield-halved lead"></i><div class="t"><strong>سياسة الخصوصية</strong><span>كيف نتعامل مع بياناتك</span></div></summary>
@@ -2079,6 +2087,38 @@ function page_account(): string {
     </div>
 
     <button class="btn btn-danger an" style="margin-top:16px" onclick="openSheet('logoutSheet')"><i class="fas fa-right-from-bracket"></i> تسجيل الخروج</button>
+    <?php return ob_get_clean();
+}
+
+function page_account_edit(): string {
+    $user = current_user();
+    ob_start(); ?>
+    <a href="index.php?page=account" class="ai-back an"><i class="fas fa-arrow-right"></i> رجوع لحسابي</a>
+    <h2 style="font-size:1.05rem;font-weight:800;margin-bottom:14px" class="an"><i class="fas fa-user-pen"></i> تعديل معلومات الحساب</h2>
+
+    <div class="card an" style="margin-bottom:14px">
+        <h3 style="font-size:.85rem;font-weight:800;margin-bottom:14px"><i class="fas fa-id-card" style="color:var(--accent)"></i> المعلومات الشخصية</h3>
+        <form method="post">
+            <input type="hidden" name="action" value="update_profile">
+            <div class="field"><label>الاسم</label><input type="text" name="name" value="<?= h($user['name']) ?>" required></div>
+            <div class="field"><label>البريد الإلكتروني</label><input type="email" name="email" value="<?= h($user['email'] ?? '') ?>" required></div>
+            <div class="field"><label>رقم الهاتف</label><input type="tel" name="phone" value="<?= h($user['phone'] ?? '') ?>"></div>
+            <button class="btn btn-sm" type="submit">حفظ التعديل</button>
+        </form>
+    </div>
+
+    <div class="card an">
+        <h3 style="font-size:.85rem;font-weight:800;margin-bottom:14px"><i class="fas fa-lock" style="color:var(--accent)"></i> تغيير كلمة المرور</h3>
+        <form method="post">
+            <input type="hidden" name="action" value="update_profile">
+            <input type="hidden" name="name" value="<?= h($user['name']) ?>">
+            <input type="hidden" name="email" value="<?= h($user['email'] ?? '') ?>">
+            <input type="hidden" name="phone" value="<?= h($user['phone'] ?? '') ?>">
+            <div class="field"><label>كلمة المرور الحالية</label><input type="password" name="current_password" autocomplete="current-password"></div>
+            <div class="field"><label>كلمة المرور الجديدة</label><input type="password" name="password" minlength="6" autocomplete="new-password"></div>
+            <button class="btn btn-sm" type="submit">تغيير كلمة المرور</button>
+        </form>
+    </div>
     <?php return ob_get_clean();
 }
 
@@ -2101,7 +2141,7 @@ function page_account_wallet(): string {
         <div class="card an" style="margin-bottom:14px"><i class="fas fa-hourglass-half" style="color:var(--accent)"></i> طلب شحن <?= money($myPendingTopup['amount']) ?> بانتظار مراجعة الإدارة.</div>
     <?php else: ?>
     <div class="card an" style="margin-bottom:14px">
-        <h3 style="font-size:.85rem;font-weight:800;margin-bottom:14px"><i class="fas fa-plus" style="color:var(--accent)"></i> شحن يدوي</h3>
+        <h3 style="font-size:.85rem;font-weight:800;margin-bottom:14px"><i class="fas fa-plus" style="color:var(--accent)"></i> شحن المحفظة</h3>
         <form method="post" enctype="multipart/form-data">
             <input type="hidden" name="action" value="request_topup">
             <div class="field"><label>طريقة الدفع</label>
@@ -2902,7 +2942,7 @@ function page_admin(): string {
             <div class="field" style="flex:1;margin-bottom:0"><input type="text" name="name" placeholder="تصنيف جديد" required></div>
             <button class="btn btn-sm" type="submit" style="width:auto">إضافة</button>
         </form>
-        <h3 style="font-size:.88rem;font-weight:800;margin-bottom:10px">طرق الدفع للشحن اليدوي</h3>
+        <h3 style="font-size:.88rem;font-weight:800;margin-bottom:10px">طرق الدفع</h3>
         <?php foreach ($settings['payment_methods'] as $m): ?>
             <div class="table-card an">
                 <div class="row-between">
@@ -2936,13 +2976,13 @@ function page_admin(): string {
         <?php $allProducts = db_read('products'); if (!$settings['coupons']): ?>
             <p style="font-size:.72rem;color:var(--muted);margin-bottom:10px">لا توجد كوبونات بعد</p>
         <?php else: foreach ($settings['coupons'] as $cp):
-            $cpProduct = null; foreach ($allProducts as $pp) if ($pp['id'] === $cp['product_id']) { $cpProduct = $pp; break; } ?>
+            $cpProduct = null; if ($cp['product_id'] !== null) foreach ($allProducts as $pp) if ($pp['id'] === $cp['product_id']) { $cpProduct = $pp; break; } ?>
             <div class="table-card an">
                 <div class="row-between">
                     <h5><?= h($cp['code']) ?> <span style="color:var(--accent);font-weight:700">-<?= (int)$cp['percent'] ?>%</span></h5>
                     <form method="post" onsubmit="return confirm('حذف الكوبون؟')"><input type="hidden" name="action" value="admin_delete_coupon"><input type="hidden" name="coupon_id" value="<?= $cp['id'] ?>"><button class="cart-remove"><i class="fas fa-trash"></i></button></form>
                 </div>
-                <div class="meta">على منتج: <?= h($cpProduct['name'] ?? 'منتج محذوف') ?></div>
+                <div class="meta"><?= $cp['product_id'] === null ? 'على كل المنتجات بجميع المتاجر' : 'على منتج: ' . h($cpProduct['name'] ?? 'منتج محذوف') ?></div>
             </div>
         <?php endforeach; endif; ?>
         <details class="card an" style="margin-top:10px">
@@ -2950,8 +2990,14 @@ function page_admin(): string {
             <form method="post" style="margin-top:14px">
                 <input type="hidden" name="action" value="admin_add_coupon">
                 <div class="field"><label>الكود</label><input type="text" name="code" required placeholder="مثال: SALE20" style="text-transform:uppercase"></div>
-                <div class="field"><label>المنتج</label>
-                    <select name="product_id" required>
+                <div class="field"><label>نطاق الكوبون</label>
+                    <select name="scope" onchange="document.getElementById('couponProductField').hidden = this.value === 'all'">
+                        <option value="product">منتج محدد</option>
+                        <option value="all">كل المنتجات بجميع المتاجر</option>
+                    </select>
+                </div>
+                <div class="field" id="couponProductField"><label>المنتج</label>
+                    <select name="product_id">
                         <?php foreach ($allProducts as $pp): $ps = find_store($pp['store_id']); ?>
                         <option value="<?= $pp['id'] ?>"><?= h($pp['name']) ?> — <?= h($ps['name'] ?? '') ?></option>
                         <?php endforeach; ?>
@@ -3002,6 +3048,7 @@ function resolve_view(): array {
         case 'orders': return ['طلباتي', app_shell_inner(page_orders(), 'orders')];
         case 'account': return ['حسابي', app_shell_inner(page_account(), 'account')];
         case 'account-wallet': return ['المحفظة', app_shell_inner(page_account_wallet(), 'account')];
+        case 'account-edit': return ['تعديل الحساب', app_shell_inner(page_account_edit(), 'account')];
         case 'favorites': return ['المفضلة', app_shell_inner(page_favorites(), 'account')];
         case 'apply-vendor': return ['تقديم طلب تاجر', app_shell_inner(page_apply_vendor(), 'account')];
         case 'vendor': return ['لوحة التاجر', app_shell_inner(page_vendor(), 'account')];

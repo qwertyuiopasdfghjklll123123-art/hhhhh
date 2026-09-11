@@ -106,7 +106,19 @@ a.btn{display:inline-block;text-decoration:none;background:#f2b100;color:#1a1a2e
     exit;
 }
 
+/* كثير من الدوال (find_store/find_product وغيرها) تنادي db_read() لنفس
+   المجموعة مراراً بنفس الطلب (مثلاً لكل منتج بقائمة). تخزين مؤقت بالذاكرة
+   لعمر الطلب فقط (لا يُحفظ بين الطلبات) يمنع تكرار الاستعلام/الترميز نفسه
+   عشرات المرات، وهذا وحده أثّر بشكل ملموس على سرعة الصفحات المزدحمة
+   بالمنتجات. db_write() يحدّث هذا التخزين فوراً فلا تُقرأ بيانات قديمة. */
+function &db_cache(): array {
+    static $cache = [];
+    return $cache;
+}
+
 function db_read(string $name, array $default = []): array {
+    $cache = &db_cache();
+    if (array_key_exists($name, $cache)) return $cache[$name] ?? $default;
     $conn = db_connect();
     if (!$conn) db_fail_no_connection();
     $stmt = $conn->prepare("SELECT data FROM kv_store WHERE name = ?");
@@ -115,9 +127,10 @@ function db_read(string $name, array $default = []): array {
     $stmt->bind_result($json);
     $found = $stmt->fetch();
     $stmt->close();
-    if (!$found) return $default;
+    if (!$found) { $cache[$name] = null; return $default; }
     $data = json_decode($json, true);
-    return is_array($data) ? $data : $default;
+    $cache[$name] = is_array($data) ? $data : null;
+    return $cache[$name] ?? $default;
 }
 
 function db_write(string $name, array $data): void {
@@ -129,6 +142,8 @@ function db_write(string $name, array $data): void {
     $stmt->bind_param('ssi', $name, $json, $now);
     $stmt->execute();
     $stmt->close();
+    $cache = &db_cache();
+    $cache[$name] = $data;
 }
 
 /* اختبار بيانات اتصال قبل حفظها فعلياً (من install.php أو لوحة الأدمن) —

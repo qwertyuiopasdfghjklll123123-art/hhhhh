@@ -29,6 +29,15 @@ if ('serviceWorker' in navigator) {
 function clearOfflineCache(){
   navigator.serviceWorker?.getRegistration().then(function(reg){ reg?.active?.postMessage('clear-dynamic-cache'); }).catch(function(){});
 }
+/* التطبيق لا يغيّر رابط المتصفح أبداً أثناء التصفح الداخلي (كل شيء عبر
+   fetch)، لكن نغيّره مرة واحدة فقط عند حدود الدخول/الخروج: دومين/app بعد
+   الدخول، وجذر الدومين فقط قبل الدخول — دون أي إعادة تحميل للصفحة. */
+function setAuthUrl(actionName){
+  try {
+    if (['login', 'register', 'google_login'].includes(actionName)) history.replaceState(null, '', 'app');
+    else if (actionName === 'logout') history.replaceState(null, '', '/');
+  } catch (err) {}
+}
 let _deferredInstall = null;
 window.addEventListener('beforeinstallprompt', function(e){
   e.preventDefault();
@@ -59,7 +68,7 @@ function handleGoogleCredential(response){
   fd.append('action', 'google_login');
   fd.append('credential', response.credential);
   fetch('index.php', {method:'POST', body: fd, headers:{'X-Requested-With':'fetch'}, credentials:'same-origin'})
-    .then(r => r.json()).then(applySwap).catch(() => { window.location.href = 'index.php'; })
+    .then(r => r.json()).then(applySwap).then(() => setAuthUrl('google_login')).catch(() => { window.location.href = 'index.php'; })
     .finally(() => setLoading(false));
 }
 function renderGoogleButton(){
@@ -93,6 +102,7 @@ async function submitPost(form){
     if (!r.ok) throw new Error('bad response');
     applySwap(await r.json());
     if (['login', 'logout', 'register', 'google_login'].includes(actionName)) clearOfflineCache();
+    setAuthUrl(actionName);
   } catch (err) {
     form.submit();
   }
@@ -225,6 +235,18 @@ function toggleTheme(){
 }
 (function(){try{if(localStorage.getItem('mk_theme')==='dark')document.documentElement.setAttribute('data-theme','dark')}catch(e){}})();
 
+
+document.addEventListener('click', function(e){
+  const btn = e.target.closest('.rate-stars .rs');
+  if (!btn) return;
+  const v = parseInt(btn.dataset.v, 10);
+  const wrap = btn.closest('.rate-stars');
+  wrap.querySelectorAll('.rs').forEach(function(b){
+    const active = parseInt(b.dataset.v, 10) <= v;
+    b.querySelector('i').className = active ? 'fas fa-star' : 'far fa-star';
+  });
+  wrap.closest('form').querySelector('.rate-input-val').value = v;
+});
 
 function openLightbox(src){
   let lb=document.querySelector('.lightbox');

@@ -1,4 +1,7 @@
-# رابط نظيف: يمكن فتح التطبيق من domain/app بدل domain/index.php
+# جذر الدومين يفتح index.php تلقائياً بلا اسم ملف بالرابط (قبل تسجيل الدخول)
+DirectoryIndex index.php
+
+# رابط نظيف: يمكن فتح التطبيق من domain/app بدل domain/index.php (بعد تسجيل الدخول)
 # لا يمس هذا الوصول المباشر لـ index.php أبداً — فقط يضيف مساراً بديلاً
 <IfModule mod_rewrite.c>
 RewriteEngine On

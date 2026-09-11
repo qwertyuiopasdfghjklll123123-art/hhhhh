@@ -68,6 +68,10 @@ button,input,select,textarea{font-family:inherit;color:inherit}
 .verified{color:var(--accent);font-size:.7rem}
 .stars{color:#f5b400;font-size:.7rem;letter-spacing:1px}
 .stars-num{font-size:.68rem;color:var(--muted);font-weight:700}
+.rate-form{display:flex;flex-wrap:wrap;align-items:center;gap:6px;padding:8px;background:var(--hover-bg);border-radius:10px}
+.rate-form input[type="text"]{flex:1;min-width:90px;padding:6px 8px;border:1px solid var(--border);border-radius:8px;background:var(--card)}
+.rate-stars{display:flex;gap:2px}
+.rate-stars .rs{background:none;border:none;cursor:pointer;color:#f5b400;font-size:.85rem;padding:2px}
 .cv{color:var(--muted);font-size:.65rem;opacity:.5}
 .store-grid6{display:grid;grid-template-columns:repeat(6,1fr);gap:10px 4px}
 .store-tile{display:flex;flex-direction:column;align-items:center;gap:5px;text-align:center;transition:transform .15s}
