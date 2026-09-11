@@ -5,8 +5,6 @@
 declare(strict_types=1);
 error_reporting(E_ALL & ~E_DEPRECATED);
 mb_internal_encoding('UTF-8');
-session_start();
-header('Content-Type: text/html; charset=utf-8');
 
 /* ===================== الإعدادات ===================== */
 define('APP_NAME', 'سوق');
@@ -26,6 +24,27 @@ define('EARNINGS_HOLD_HOURS', 24);
 
 if (!is_dir(DATA_DIR)) mkdir(DATA_DIR, 0777, true);
 if (!is_dir(UPLOAD_DIR)) mkdir(UPLOAD_DIR, 0777, true);
+
+/* بعض الاستضافات المشتركة يكون مسار الجلسات الافتراضي عندها غير قابل للكتابة أو
+   مقيّد، فتفشل الجلسة بصمت (يظهر أثرها كـ "كود التحقق غير صحيح" دائماً لأن
+   الكود المخزّن بالجلسة لا يصل من الطلب الأول للثاني). نستخدم مجلد جلسات خاص
+   بالتطبيق نضمن كتابته، ونضبط الكوكي بشكل متوافق مع HTTP أو HTTPS. */
+define('SESSION_DIR', DATA_DIR . '/sessions');
+if (!is_dir(SESSION_DIR)) mkdir(SESSION_DIR, 0777, true);
+if (is_dir(SESSION_DIR) && is_writable(SESSION_DIR)) session_save_path(SESSION_DIR);
+session_set_cookie_params([
+    'lifetime' => 0,
+    'path' => '/',
+    'secure' => !empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off',
+    'httponly' => true,
+    'samesite' => 'Lax',
+]);
+session_start();
+header('Content-Type: text/html; charset=utf-8');
+
+// نحمي مجلد البيانات (JSON + الجلسات) من الوصول المباشر عبر الويب — عكس مجلد uploads الذي يجب أن يبقى مفتوحاً لعرض الصور
+$__dataHt = DATA_DIR . '/.htaccess';
+if (!file_exists($__dataHt)) @file_put_contents($__dataHt, "Require all denied\nDeny from all\n");
 
 /* ===================== طبقة التخزين (JSON) ===================== */
 function db_path(string $name): string { return DATA_DIR . '/' . $name . '.json'; }
@@ -94,6 +113,61 @@ function ensure_seed_data(): void {
     ]);
 }
 ensure_seed_data();
+
+/* عند رفع هذا الإصدار فوق استضافة فيها بيانات من نسخة سابقة (نظام دخول قديم
+   بدون بريد/كلمة مرور)، يبقى ملف stores.json موجوداً فتتخطى ensure_seed_data()
+   التهيئة بالكامل ولا يُنشأ حساب الأدمن الجديد أبداً — فيفشل تسجيل الدخول
+   بحساب الأدمن دائماً برسالة "البريد أو كلمة المرور غير صحيحة". هذه الدالة
+   مستقلة وتُشغَّل بكل طلب: تحذف تلقائياً أي سجلات مستخدمين قديمة غير متوافقة
+   (بلا password_hash) وتضمن وجود حساب أدمن صالح دوماً، دون المساس بأي حساب
+   مستخدم حقيقي مسجَّل بالنظام الجديد. */
+function ensure_admin_user(): void {
+    $users = db_read('users');
+    $before = $users;
+
+    $users = array_values(array_filter($users, fn($u) => !empty($u['password_hash']) && !empty($u['email'])));
+
+    $hasAdmin = false;
+    foreach ($users as $u) if (!empty($u['is_admin'])) { $hasAdmin = true; break; }
+
+    if (!$hasAdmin) {
+        $users[] = [
+            'id' => next_id($users), 'name' => 'الإدارة', 'email' => ADMIN_SEED_EMAIL,
+            'password_hash' => password_hash(ADMIN_SEED_PASSWORD, PASSWORD_DEFAULT), 'phone' => '',
+            'wallet' => 0, 'wallet_log' => [], 'favorites' => ['stores'=>[],'products'=>[]],
+            'is_admin' => true, 'created_at' => time(),
+        ];
+    }
+
+    if ($users !== $before) db_write('users', $users);
+}
+ensure_admin_user();
+
+/* نفس فكرة ensure_admin_user لكن لبيانات المتاجر: إن كان stores.json قديماً
+   من قبل إضافة نظام الأرباح/الاشتراكات فلن تحوي سجلاته حقول مثل earnings_log
+   وسيظهر تحذير PHP يكسر استجابة الـ ajax. نُكمل الحقول الناقصة فقط بقيم
+   افتراضية آمنة دون المساس بأي بيانات متجر حقيقية موجودة. */
+function ensure_store_defaults(): void {
+    $stores = db_read('stores');
+    $themeDefaults = ['primary'=>'#f2b100', 'radius'=>18, 'density'=>'comfortable', 'layout'=>'grid2'];
+    $defaults = [
+        'sections'=>[], 'earnings'=>0, 'earnings_log'=>[], 'last_fee_at'=>null,
+        'subscription_expires_at'=>null, 'suspended'=>false,
+        'name'=>'بدون اسم', 'slug'=>'', 'description'=>'', 'category'=>'أخرى',
+        'contact_phone'=>'', 'contact_whatsapp'=>'', 'logo'=>'', 'cover'=>'',
+        'status'=>'approved', 'featured'=>false, 'created_at'=>time(),
+        'theme'=>$themeDefaults, 'owner_user_id'=>0,
+    ];
+    $changed = false;
+    foreach ($stores as &$s) {
+        $merged = $s + $defaults;
+        $merged['theme'] = (is_array($merged['theme'] ?? null) ? $merged['theme'] : []) + $themeDefaults;
+        if ($merged !== $s) { $s = $merged; $changed = true; }
+    }
+    unset($s);
+    if ($changed) db_write('stores', $stores);
+}
+ensure_store_defaults();
 
 function release_matured_earnings(): void {
     $stores = db_read('stores');
@@ -1195,7 +1269,7 @@ function applySwap(data){
 async function navigateTo(url){
   setLoading(true);
   try {
-    const r = await fetch(url, {headers:{'X-Requested-With':'fetch'}});
+    const r = await fetch(url, {headers:{'X-Requested-With':'fetch'}, credentials:'same-origin'});
     if (!r.ok) throw new Error('bad response');
     applySwap(await r.json());
   } catch (err) {
@@ -1208,7 +1282,7 @@ async function submitPost(form){
   setLoading(true);
   try {
     const fd = new FormData(form);
-    const r = await fetch('indexx.php', {method:'POST', body: fd, headers:{'X-Requested-With':'fetch'}});
+    const r = await fetch('indexx.php', {method:'POST', body: fd, headers:{'X-Requested-With':'fetch'}, credentials:'same-origin'});
     if (!r.ok) throw new Error('bad response');
     applySwap(await r.json());
   } catch (err) {
@@ -1253,7 +1327,7 @@ async function handleAiChatSubmit(form){
   box.insertAdjacentHTML('beforeend', '<div class="ai-msg ai-bot" id="aiTyping">...</div>');
   box.scrollTop = box.scrollHeight;
   try {
-    const r = await fetch('indexx.php?ajax=chat', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({message: msg, history: window._aiHistory})});
+    const r = await fetch('indexx.php?ajax=chat', {method:'POST', headers:{'Content-Type':'application/json'}, credentials:'same-origin', body: JSON.stringify({message: msg, history: window._aiHistory})});
     const data = await r.json();
     document.getElementById('aiTyping')?.remove();
     box.insertAdjacentHTML('beforeend', '<div class="ai-msg ai-bot"></div>');
