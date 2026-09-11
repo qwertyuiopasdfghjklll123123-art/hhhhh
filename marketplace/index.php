@@ -23,20 +23,10 @@ define('COMPLAINT_REASONS', ['المنتج تالف أو معيب', 'لم يصل
 define('SUBSCRIPTION_DAYS', 30);
 define('EARNINGS_HOLD_HOURS', 24);
 
-if (!is_dir(DATA_DIR)) mkdir(DATA_DIR, 0777, true);
 if (!is_dir(UPLOAD_DIR)) mkdir(UPLOAD_DIR, 0777, true);
 
-/* بيانات اتصال MySQL تُقرأ من ملف مستقل مباشرة (لا عبر db_read) لأن db_read
-   نفسها قد تعتمد على معرفة هذه البيانات أولاً — مشكلة "البيضة والدجاجة".
-   تُضبط من install.php أو لوحة الأدمن. تركها فارغة يبقي التخزين على JSON
-   كما كان دائماً، بلا أي تغيير. */
-define('DB_CONFIG_FILE', DATA_DIR . '/db_config.json');
-$__dbConfig = file_exists(DB_CONFIG_FILE) ? json_decode((string)file_get_contents(DB_CONFIG_FILE), true) : null;
-$__dbConfig = is_array($__dbConfig) ? $__dbConfig : [];
-define('DB_HOST', (string)($__dbConfig['host'] ?? ''));
-define('DB_NAME', (string)($__dbConfig['name'] ?? ''));
-define('DB_USER', (string)($__dbConfig['user'] ?? ''));
-define('DB_PASS', (string)($__dbConfig['pass'] ?? ''));
+// طبقة التخزين المشتركة (MySQL اختياري وإلا JSON) — يشترك بها أيضاً install.php وmanifest.php
+require_once __DIR__ . '/includes/db.php';
 
 /* بعض الاستضافات المشتركة يكون مسار الجلسات الافتراضي عندها غير قابل للكتابة أو
    مقيّد، فتفشل الجلسة بصمت (يظهر أثرها كـ "كود التحقق غير صحيح" دائماً لأن
@@ -58,97 +48,6 @@ header('Content-Type: text/html; charset=utf-8');
 // نحمي مجلد البيانات (JSON + الجلسات) من الوصول المباشر عبر الويب — عكس مجلد uploads الذي يجب أن يبقى مفتوحاً لعرض الصور
 $__dataHt = DATA_DIR . '/.htaccess';
 if (!file_exists($__dataHt)) @file_put_contents($__dataHt, "Require all denied\nDeny from all\n");
-
-/* ===================== طبقة التخزين (MySQL اختياري، وإلا JSON) =====================
-   كل "مجموعة" (stores, products, users...) تبقى مصفوفة PHP واحدة بالضبط كما
-   كانت دائماً — بقية آلاف الأسطر بهذا الملف لا تعرف ولا يهمها أين تُخزَّن
-   فعلياً. عند وجود اتصال MySQL صالح تُحفظ كل مجموعة كسطر واحد (JSON) بجدول
-   kv_store بدل ملف JSON منفصل؛ فشل الاتصال أو عدم ضبطه يرجعان تلقائياً
-   لملفات JSON دون أي كسر أو فقدان بيانات. */
-function db_path(string $name): string { return DATA_DIR . '/' . $name . '.json'; }
-
-function db_connect(): ?mysqli {
-    static $conn = null;
-    static $tried = false;
-    if ($tried) return $conn;
-    $tried = true;
-    if (DB_HOST === '' || DB_NAME === '' || DB_USER === '' || !class_exists('mysqli')) return null;
-    mysqli_report(MYSQLI_REPORT_OFF);
-    $c = @mysqli_connect(DB_HOST, DB_USER, DB_PASS, DB_NAME);
-    if (!$c) return null;
-    $c->set_charset('utf8mb4');
-    $c->query("CREATE TABLE IF NOT EXISTS kv_store (name VARCHAR(64) PRIMARY KEY, data LONGTEXT NOT NULL, updated_at INT NOT NULL) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
-    $conn = $c;
-    db_migrate_json_to_mysql($conn);
-    return $conn;
-}
-
-/* هجرة تلقائية لمرة واحدة: إن كان جدول kv_store فارغاً تماماً ووُجدت ملفات
-   JSON محلية سابقة، تُستورد كلها حتى لا يخسر من يفعّل MySQL بيانات موقعه
-   القائم. لا تُكرَّر بعد أول مرة لأن الجدول لن يعود فارغاً. */
-function db_migrate_json_to_mysql(mysqli $conn): void {
-    $res = $conn->query("SELECT COUNT(*) AS c FROM kv_store");
-    $row = $res ? $res->fetch_assoc() : null;
-    if (!$row || (int)$row['c'] > 0) return;
-    $files = glob(DATA_DIR . '/*.json');
-    if (!$files) return;
-    $stmt = $conn->prepare("INSERT INTO kv_store (name, data, updated_at) VALUES (?, ?, ?)");
-    $now = time();
-    foreach ($files as $f) {
-        $name = basename($f, '.json');
-        if ($name === 'db_config') continue; // بيانات اتصال، ليست مجموعة بيانات تطبيق
-        $json = file_get_contents($f);
-        if ($json === false || json_decode($json) === null) continue;
-        $stmt->bind_param('ssi', $name, $json, $now);
-        $stmt->execute();
-    }
-    $stmt->close();
-}
-
-function db_read(string $name, array $default = []): array {
-    $conn = db_connect();
-    if ($conn) {
-        $stmt = $conn->prepare("SELECT data FROM kv_store WHERE name = ?");
-        $stmt->bind_param('s', $name);
-        $stmt->execute();
-        $stmt->bind_result($json);
-        $found = $stmt->fetch();
-        $stmt->close();
-        if (!$found) return $default;
-        $data = json_decode($json, true);
-        return is_array($data) ? $data : $default;
-    }
-    $f = db_path($name);
-    if (!file_exists($f)) return $default;
-    $raw = file_get_contents($f);
-    $data = json_decode($raw, true);
-    return is_array($data) ? $data : $default;
-}
-
-function db_write(string $name, array $data): void {
-    $json = json_encode($data, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT);
-    $conn = db_connect();
-    if ($conn) {
-        $now = time();
-        $stmt = $conn->prepare("INSERT INTO kv_store (name, data, updated_at) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE data = VALUES(data), updated_at = VALUES(updated_at)");
-        $stmt->bind_param('ssi', $name, $json, $now);
-        $stmt->execute();
-        $stmt->close();
-        return;
-    }
-    file_put_contents(db_path($name), $json, LOCK_EX);
-}
-
-/* اختبار بيانات اتصال قبل حفظها فعلياً (من install.php أو لوحة الأدمن) —
-   يمنع حفظ بيانات خاطئة تقفل صاحب الموقع عن بياناته. */
-function db_test_connection(string $host, string $name, string $user, string $pass): ?string {
-    if (!class_exists('mysqli')) return 'امتداد mysqli غير مفعّل على هذه الاستضافة';
-    mysqli_report(MYSQLI_REPORT_OFF);
-    $c = @mysqli_connect($host, $user, $pass, $name);
-    if (!$c) return 'تعذّر الاتصال: ' . (mysqli_connect_error() ?: 'تحقق من بيانات الدخول');
-    $c->close();
-    return null;
-}
 
 function next_id(array $items): int {
     $max = 0;
@@ -342,14 +241,6 @@ function store_pending_earnings(array $store): float {
     foreach ($store['earnings_log'] as $e) if (!empty($e['release_at']) && empty($e['released'])) $sum += $e['amount'];
     return $sum;
 }
-
-function get_settings(): array {
-    $defaults = ['monthly_fee'=>0, 'categories'=>[], 'payment_methods'=>[], 'site_name'=>APP_NAME, 'site_logo'=>'', 'ai_api_key'=>'', 'coupons'=>[], 'telegram_bot_token'=>'', 'telegram_chat_id'=>'', 'last_backup_at'=>0];
-    return db_read('settings', $defaults) + $defaults;
-}
-function get_categories(): array { return get_settings()['categories'] ?? []; }
-function site_name(): string { $n = trim((string)(get_settings()['site_name'] ?? '')); return $n !== '' ? $n : APP_NAME; }
-function site_logo_url(): ?string { $l = get_settings()['site_logo'] ?? ''; return $l ? $l : null; }
 
 function find_coupon_for_product(int $productId): ?array {
     $code = $_SESSION['cart_coupon'] ?? null;
@@ -564,10 +455,10 @@ if ($action !== '') {
         }
         if (!$found || !password_verify($password, $found['password_hash'] ?? '')) {
             flash('err', 'البريد أو رقم الهاتف أو كلمة المرور غير صحيحة');
-            redirect('indexx.php?page=login');
+            redirect('index.php?page=login');
         }
         $_SESSION['user_id'] = $found['id'];
-        redirect('indexx.php');
+        redirect('index.php');
     }
 
     if ($action === 'register') {
@@ -587,19 +478,19 @@ if ($action !== '') {
         else {
             foreach (db_read('users') as $u) if (mb_strtolower($u['email'] ?? '') === $email) { $err = 'هذا البريد مسجّل مسبقاً'; break; }
         }
-        if ($err) { flash('err', $err); redirect('indexx.php?page=register'); }
+        if ($err) { flash('err', $err); redirect('index.php?page=register'); }
 
         $users = db_read('users');
         $newUser = ['id'=>next_id($users), 'name'=>$name, 'email'=>$email, 'password_hash'=>password_hash($password, PASSWORD_DEFAULT), 'phone'=>$phone, 'wallet'=>0, 'wallet_log'=>[], 'favorites'=>['stores'=>[],'products'=>[]], 'is_admin'=>false, 'created_at'=>time()];
         $users[] = $newUser;
         db_write('users', $users);
         $_SESSION['user_id'] = $newUser['id'];
-        redirect('indexx.php');
+        redirect('index.php');
     }
 
     if ($action === 'google_login') {
         $claims = google_verify_id_token((string)($_POST['credential'] ?? ''));
-        if ($claims === null) { flash('err', 'تعذّر التحقق من حساب Google، حاول مرة ثانية'); redirect('indexx.php?page=login'); }
+        if ($claims === null) { flash('err', 'تعذّر التحقق من حساب Google، حاول مرة ثانية'); redirect('index.php?page=login'); }
         $email = mb_strtolower((string)$claims['email']);
         $users = db_read('users');
         $found = null;
@@ -617,18 +508,18 @@ if ($action !== '') {
             db_write('users', $users);
             $_SESSION['user_id'] = $newUser['id'];
         }
-        redirect('indexx.php');
+        redirect('index.php');
     }
 
     if ($action === 'logout') {
         unset($_SESSION['user_id']);
         $_SESSION['cart'] = [];
-        redirect('indexx.php');
+        redirect('index.php');
     }
 
     // من هنا تحتاج المستخدم مسجّل دخول
     $needsUser = ['add_to_cart','remove_from_cart','checkout','apply_vendor','toggle_favorite','update_profile','submit_complaint','request_topup','complaint_reply','request_withdraw'];
-    if (in_array($action, $needsUser, true) && !current_user()) redirect('indexx.php');
+    if (in_array($action, $needsUser, true) && !current_user()) redirect('index.php');
 
     if ($action === 'add_to_cart') {
         $pid = (int)($_POST['product_id'] ?? 0);
@@ -637,13 +528,13 @@ if ($action !== '') {
             $_SESSION['cart'][$pid] = ($_SESSION['cart'][$pid] ?? 0) + $qty;
             flash('ok', 'أُضيف المنتج إلى السلة');
         }
-        redirect($_POST['back'] ?? 'indexx.php');
+        redirect($_POST['back'] ?? 'index.php');
     }
 
     if ($action === 'remove_from_cart') {
         $pid = (int)($_POST['product_id'] ?? 0);
         unset($_SESSION['cart'][$pid]);
-        redirect('indexx.php?page=cart');
+        redirect('index.php?page=cart');
     }
 
     if ($action === 'apply_coupon') {
@@ -658,17 +549,17 @@ if ($action !== '') {
             $_SESSION['cart_coupon'] = $code;
             flash('ok', 'تم تطبيق الكوبون');
         }
-        redirect('indexx.php?page=cart');
+        redirect('index.php?page=cart');
     }
 
     if ($action === 'checkout') {
         $cart = $_SESSION['cart'] ?? [];
-        if (empty($cart)) redirect('indexx.php?page=cart');
+        if (empty($cart)) redirect('index.php?page=cart');
         $deliveryPhone = trim((string)($_POST['delivery_phone'] ?? ''));
         $deliveryLocation = trim((string)($_POST['delivery_location'] ?? ''));
         if ($deliveryPhone === '' || $deliveryLocation === '') {
             flash('err', 'الرجاء إدخال رقم الهاتف والموقع لإتمام الطلب');
-            redirect('indexx.php?page=cart');
+            redirect('index.php?page=cart');
         }
         $products = db_read('products');
         $byStore = [];
@@ -683,7 +574,7 @@ if ($action !== '') {
         $user = current_user();
         if ($total > (float)$user['wallet']) {
             flash('err', 'رصيدك غير كافٍ لإتمام الشراء. تواصل مع الإدارة لشحن رصيدك.');
-            redirect('indexx.php?page=cart');
+            redirect('index.php?page=cart');
         }
         $orders = db_read('orders');
         $stores = db_read('stores');
@@ -693,7 +584,7 @@ if ($action !== '') {
             $orders[] = ['id'=>$oid, 'buyer_id'=>$user['id'], 'store_id'=>$storeId, 'items'=>$items, 'total'=>$subtotal, 'status'=>ORDER_STAGES[0], 'delivery_phone'=>$deliveryPhone, 'delivery_location'=>$deliveryLocation, 'created_at'=>time(), 'updated_at'=>time()];
             foreach ($stores as &$s) if ($s['id'] === $storeId) {
                 $s['earnings_log'][] = ['amount'=>$subtotal, 'note'=>'قيمة طلب جديد (معلّقة ' . EARNINGS_HOLD_HOURS . ' ساعة)', 'at'=>time(), 'release_at'=>time() + 3600 * EARNINGS_HOLD_HOURS, 'released'=>false];
-                if ($s['owner_user_id']) add_notification($s['owner_user_id'], 'طلب جديد #' . $oid, $user['name'] . ' طلب منتجات بقيمة ' . money($subtotal) . ' — راح تتوفر بالرصيد بعد ' . EARNINGS_HOLD_HOURS . ' ساعة', 'indexx.php?page=vendor&section=orders', 'order');
+                if ($s['owner_user_id']) add_notification($s['owner_user_id'], 'طلب جديد #' . $oid, $user['name'] . ' طلب منتجات بقيمة ' . money($subtotal) . ' — راح تتوفر بالرصيد بعد ' . EARNINGS_HOLD_HOURS . ' ساعة', 'index.php?page=vendor&section=orders', 'order');
             }
             unset($s);
         }
@@ -709,7 +600,7 @@ if ($action !== '') {
         $_SESSION['cart'] = [];
         unset($_SESSION['cart_coupon']);
         flash('ok', 'تم إنشاء طلبك بنجاح، يمكنك متابعته من صفحة طلباتي');
-        redirect('indexx.php?page=orders');
+        redirect('index.php?page=orders');
     }
 
     if ($action === 'toggle_favorite') {
@@ -725,7 +616,7 @@ if ($action !== '') {
         }
         unset($u);
         db_write('users', $users);
-        redirect($_POST['back'] ?? 'indexx.php');
+        redirect($_POST['back'] ?? 'index.php');
     }
 
     if ($action === 'update_profile') {
@@ -735,15 +626,15 @@ if ($action !== '') {
         $newPassword = (string)($_POST['password'] ?? '');
         if (!filter_var($newEmail, FILTER_VALIDATE_EMAIL)) {
             flash('err', 'البريد الإلكتروني غير صحيح');
-            redirect('indexx.php?page=account');
+            redirect('index.php?page=account');
         }
         foreach ($users as $u) if ($u['id'] !== $user['id'] && mb_strtolower($u['email'] ?? '') === $newEmail) {
             flash('err', 'هذا البريد مستخدم من حساب آخر');
-            redirect('indexx.php?page=account');
+            redirect('index.php?page=account');
         }
         if ($newPassword !== '' && strlen($newPassword) < 6) {
             flash('err', 'كلمة المرور الجديدة لازم لا تقل عن 6 خانات');
-            redirect('indexx.php?page=account');
+            redirect('index.php?page=account');
         }
         foreach ($users as &$u) if ($u['id'] === $user['id']) {
             $u['name'] = trim((string)($_POST['name'] ?? $u['name']));
@@ -754,7 +645,7 @@ if ($action !== '') {
         unset($u);
         db_write('users', $users);
         flash('ok', 'تم تحديث بياناتك');
-        redirect('indexx.php?page=account');
+        redirect('index.php?page=account');
     }
 
     if ($action === 'request_topup') {
@@ -764,31 +655,31 @@ if ($action !== '') {
         $receipt = handle_upload('receipt');
         if ($amount <= 0 || $method === '' || !$receipt) {
             flash('err', 'الرجاء اختيار طريقة الدفع، إدخال المبلغ، ورفع صورة الوصل');
-            redirect('indexx.php?page=account');
+            redirect('index.php?page=account');
         }
         $requests = db_read('topup_requests');
         $requests[] = ['id'=>next_id($requests), 'user_id'=>$user['id'], 'method'=>$method, 'amount'=>$amount, 'receipt'=>$receipt, 'status'=>'pending', 'created_at'=>time()];
         db_write('topup_requests', $requests);
-        add_notification('admin', 'طلب شحن جديد', $user['name'] . ' طلب شحن ' . money($amount) . ' عبر ' . $method, 'indexx.php?page=admin&section=topups', 'wallet');
+        add_notification('admin', 'طلب شحن جديد', $user['name'] . ' طلب شحن ' . money($amount) . ' عبر ' . $method, 'index.php?page=admin&section=topups', 'wallet');
         flash('ok', 'تم إرسال طلب الشحن، بانتظار مراجعة الإدارة');
-        redirect('indexx.php?page=account');
+        redirect('index.php?page=account');
     }
 
     if ($action === 'request_withdraw') {
         $store = my_store();
-        if (!$store) redirect('indexx.php?page=vendor');
+        if (!$store) redirect('index.php?page=vendor');
         $amount = (float)($store['earnings'] ?? 0);
         $method = trim((string)($_POST['method'] ?? ''));
         $accountNumber = trim((string)($_POST['account_number'] ?? ''));
         $accountName = trim((string)($_POST['account_name'] ?? ''));
         if ($amount <= 0 || $method === '' || $accountNumber === '' || $accountName === '') {
             flash('err', 'الرجاء تعبئة كل الحقول، والتأكد من وجود رصيد متاح');
-            redirect('indexx.php?page=vendor&section=withdraw');
+            redirect('index.php?page=vendor&section=withdraw');
         }
         $existing = array_filter(db_read('withdraw_requests'), fn($r) => $r['store_id'] === $store['id'] && $r['status'] === 'pending');
         if ($existing) {
             flash('err', 'لديك طلب سحب قيد المراجعة بالفعل');
-            redirect('indexx.php?page=vendor&section=withdraw');
+            redirect('index.php?page=vendor&section=withdraw');
         }
         $requests = db_read('withdraw_requests');
         $requests[] = [
@@ -797,14 +688,14 @@ if ($action !== '') {
             'status' => 'pending', 'created_at' => time(),
         ];
         db_write('withdraw_requests', $requests);
-        add_notification('admin', 'طلب سحب رصيد جديد', $store['name'] . ' طلب سحب ' . money($amount) . ' عبر ' . $method, 'indexx.php?page=admin&section=withdrawals', 'wallet');
+        add_notification('admin', 'طلب سحب رصيد جديد', $store['name'] . ' طلب سحب ' . money($amount) . ' عبر ' . $method, 'index.php?page=admin&section=withdrawals', 'wallet');
         flash('ok', 'تم إرسال طلب السحب، بانتظار مراجعة الإدارة');
-        redirect('indexx.php?page=vendor&section=withdraw');
+        redirect('index.php?page=vendor&section=withdraw');
     }
 
     if ($action === 'apply_vendor') {
         $user = current_user();
-        if (my_store() || my_pending_store()) redirect('indexx.php?page=account');
+        if (my_store() || my_pending_store()) redirect('index.php?page=account');
         $doc = handle_upload('document');
         $stores = db_read('stores');
         $stores[] = [
@@ -823,9 +714,9 @@ if ($action !== '') {
             'created_at'=>time(),
         ];
         db_write('stores', $stores);
-        add_notification('admin', 'طلب انضمام جديد', $user['name'] . ' قدّم طلب انضمام كتاجر (' . trim((string)($_POST['name'] ?? '')) . ')', 'indexx.php?page=admin&section=applications', 'store');
+        add_notification('admin', 'طلب انضمام جديد', $user['name'] . ' قدّم طلب انضمام كتاجر (' . trim((string)($_POST['name'] ?? '')) . ')', 'index.php?page=admin&section=applications', 'store');
         flash('ok', 'تم إرسال طلبك بنجاح، سيتم مراجعته من قبل الإدارة قريباً');
-        redirect('indexx.php?page=account');
+        redirect('index.php?page=account');
     }
 
     if ($action === 'submit_complaint') {
@@ -835,7 +726,7 @@ if ($action !== '') {
         $details = trim((string)($_POST['details'] ?? ''));
         $order = null;
         foreach (db_read('orders') as $o) if ($o['id'] === $orderId && $o['buyer_id'] === $user['id']) { $order = $o; break; }
-        if (!$order || $reason === '') { flash('err', 'الرجاء اختيار الطلب وسبب المشكلة'); redirect('indexx.php?page=ai'); }
+        if (!$order || $reason === '') { flash('err', 'الرجاء اختيار الطلب وسبب المشكلة'); redirect('index.php?page=ai'); }
         $complaints = db_read('complaints');
         $cid = next_id($complaints);
         $messages = [['from'=>'buyer', 'text'=>$reason . ($details !== '' ? ' — ' . $details : ''), 'at'=>time()]];
@@ -845,15 +736,15 @@ if ($action !== '') {
             'status'=>'open', 'created_at'=>time(),
         ];
         db_write('complaints', $complaints);
-        add_notification('admin', 'شكوى جديدة #' . $cid, $user['name'] . ' رفع شكوى على الطلب #' . $orderId . ' (' . $reason . ')', 'indexx.php?page=admin&section=complaints', 'complaint');
-        redirect('indexx.php?page=ai');
+        add_notification('admin', 'شكوى جديدة #' . $cid, $user['name'] . ' رفع شكوى على الطلب #' . $orderId . ' (' . $reason . ')', 'index.php?page=admin&section=complaints', 'complaint');
+        redirect('index.php?page=ai');
     }
 
     if ($action === 'complaint_reply') {
         $user = current_user();
         $cid = (int)($_POST['complaint_id'] ?? 0);
         $text = trim((string)($_POST['text'] ?? ''));
-        if ($text === '') redirect('indexx.php?page=ai');
+        if ($text === '') redirect('index.php?page=ai');
         $complaints = db_read('complaints');
         $target = null;
         foreach ($complaints as &$c) {
@@ -867,17 +758,17 @@ if ($action !== '') {
         unset($c);
         if ($target) {
             db_write('complaints', $complaints);
-            if (is_admin_user()) add_notification($target['buyer_id'], 'رد جديد على شكواك #' . $cid, $text, 'indexx.php?page=ai', 'complaint');
-            else add_notification('admin', 'رد جديد على الشكوى #' . $cid, $user['name'] . ': ' . $text, 'indexx.php?page=admin&section=complaints', 'complaint');
+            if (is_admin_user()) add_notification($target['buyer_id'], 'رد جديد على شكواك #' . $cid, $text, 'index.php?page=ai', 'complaint');
+            else add_notification('admin', 'رد جديد على الشكوى #' . $cid, $user['name'] . ': ' . $text, 'index.php?page=admin&section=complaints', 'complaint');
         }
-        redirect(is_admin_user() ? 'indexx.php?page=admin&section=complaints&id=' . $cid : 'indexx.php?page=ai');
+        redirect(is_admin_user() ? 'index.php?page=admin&section=complaints&id=' . $cid : 'index.php?page=ai');
     }
 
     // إجراءات التاجر
     $vendorActions = ['vendor_add_product','vendor_edit_product','vendor_delete_product','vendor_update_order','vendor_save_theme','vendor_save_info','vendor_add_section','vendor_rename_section','vendor_delete_section','vendor_move_section'];
     if (in_array($action, $vendorActions, true)) {
         $store = my_store();
-        if (!$store) redirect('indexx.php');
+        if (!$store) redirect('index.php');
 
         if ($action === 'vendor_add_product') {
             $products = db_read('products');
@@ -889,7 +780,7 @@ if ($action !== '') {
                 'images'=>handle_multi_upload('images'), 'created_at'=>time()];
             db_write('products', $products);
             flash('ok', 'تمت إضافة المنتج');
-            redirect('indexx.php?page=vendor&section=products');
+            redirect('index.php?page=vendor&section=products');
         }
 
         if ($action === 'vendor_edit_product') {
@@ -910,7 +801,7 @@ if ($action !== '') {
             unset($p);
             db_write('products', $products);
             flash('ok', 'تم حفظ التعديلات');
-            redirect('indexx.php?page=vendor&section=products');
+            redirect('index.php?page=vendor&section=products');
         }
 
         if ($action === 'vendor_add_section') {
@@ -923,7 +814,7 @@ if ($action !== '') {
             unset($s);
             db_write('stores', $stores);
             flash('ok', 'تمت إضافة القسم');
-            redirect('indexx.php?page=vendor&section=sections');
+            redirect('index.php?page=vendor&section=sections');
         }
 
         if ($action === 'vendor_rename_section') {
@@ -939,7 +830,7 @@ if ($action !== '') {
             unset($s);
             db_write('stores', $stores);
             flash('ok', 'تم حفظ القسم');
-            redirect('indexx.php?page=vendor&section=sections');
+            redirect('index.php?page=vendor&section=sections');
         }
 
         if ($action === 'vendor_delete_section') {
@@ -955,7 +846,7 @@ if ($action !== '') {
             unset($p);
             db_write('products', $products);
             flash('ok', 'تم حذف القسم، ومنتجاته صارت بلا قسم');
-            redirect('indexx.php?page=vendor&section=sections');
+            redirect('index.php?page=vendor&section=sections');
         }
 
         if ($action === 'vendor_move_section') {
@@ -974,7 +865,7 @@ if ($action !== '') {
             }
             unset($s);
             db_write('stores', $stores);
-            redirect('indexx.php?page=vendor&section=sections');
+            redirect('index.php?page=vendor&section=sections');
         }
 
         if ($action === 'vendor_delete_product') {
@@ -982,7 +873,7 @@ if ($action !== '') {
             $products = array_values(array_filter(db_read('products'), fn($p) => !($p['id'] === $pid && $p['store_id'] === $store['id'])));
             db_write('products', $products);
             flash('ok', 'تم حذف المنتج');
-            redirect('indexx.php?page=vendor&section=products');
+            redirect('index.php?page=vendor&section=products');
         }
 
         if ($action === 'vendor_update_order') {
@@ -1001,8 +892,8 @@ if ($action !== '') {
             }
             unset($o);
             db_write('orders', $orders);
-            if ($buyerId) add_notification($buyerId, 'تحديث طلبك #' . $oid, 'طلبك صار: ' . $newStatus, 'indexx.php?page=orders', 'order');
-            redirect('indexx.php?page=vendor&section=orders');
+            if ($buyerId) add_notification($buyerId, 'تحديث طلبك #' . $oid, 'طلبك صار: ' . $newStatus, 'index.php?page=orders', 'order');
+            redirect('index.php?page=vendor&section=orders');
         }
 
         if ($action === 'vendor_save_theme') {
@@ -1022,7 +913,7 @@ if ($action !== '') {
             unset($s);
             db_write('stores', $stores);
             flash('ok', 'تم حفظ تخصيص متجرك');
-            redirect('indexx.php?page=vendor&section=theme');
+            redirect('index.php?page=vendor&section=theme');
         }
 
         if ($action === 'vendor_save_info') {
@@ -1037,14 +928,14 @@ if ($action !== '') {
             unset($s);
             db_write('stores', $stores);
             flash('ok', 'تم حفظ معلومات المتجر');
-            redirect('indexx.php?page=vendor&section=info');
+            redirect('index.php?page=vendor&section=info');
         }
     }
 
     // إجراءات الأدمن
     $adminActions = ['admin_approve','admin_reject','admin_topup','admin_toggle_featured','admin_collect_fee','admin_update_fee','admin_update_branding','admin_update_ai_key','admin_add_payment_method','admin_delete_payment_method','admin_approve_topup','admin_reject_topup','admin_approve_withdraw','admin_reject_withdraw','admin_resolve_complaint','admin_toggle_suspend','admin_add_category','admin_delete_category','admin_toggle_admin','admin_broadcast','admin_add_coupon','admin_delete_coupon','admin_update_backup','admin_backup_now','admin_update_db_config'];
     if (in_array($action, $adminActions, true)) {
-        if (!is_admin_user()) redirect('indexx.php');
+        if (!is_admin_user()) redirect('index.php');
 
         if ($action === 'admin_approve') {
             $stores = db_read('stores');
@@ -1056,9 +947,9 @@ if ($action !== '') {
             }
             unset($s);
             db_write('stores', $stores);
-            if ($owner) add_notification($owner, 'تم قبول متجرك 🎉', 'تهانينا! متجرك فعّال الحين بالمنصة، اشتراكك يمتد ' . SUBSCRIPTION_DAYS . ' يوم.', 'indexx.php?page=vendor', 'store');
+            if ($owner) add_notification($owner, 'تم قبول متجرك 🎉', 'تهانينا! متجرك فعّال الحين بالمنصة، اشتراكك يمتد ' . SUBSCRIPTION_DAYS . ' يوم.', 'index.php?page=vendor', 'store');
             flash('ok', 'تم قبول طلب التاجر');
-            redirect('indexx.php?page=admin&section=applications');
+            redirect('index.php?page=admin&section=applications');
         }
         if ($action === 'admin_reject') {
             $stores = db_read('stores');
@@ -1066,9 +957,9 @@ if ($action !== '') {
             foreach ($stores as &$s) if ($s['id'] === (int)$_POST['store_id']) { $s['status'] = 'rejected'; $owner = $s['owner_user_id']; }
             unset($s);
             db_write('stores', $stores);
-            if ($owner) add_notification($owner, 'تم رفض طلب متجرك', 'للأسف تمت مراجعة طلبك كتاجر ولم تتم الموافقة عليه.', 'indexx.php?page=account', 'store');
+            if ($owner) add_notification($owner, 'تم رفض طلب متجرك', 'للأسف تمت مراجعة طلبك كتاجر ولم تتم الموافقة عليه.', 'index.php?page=account', 'store');
             flash('ok', 'تم رفض الطلب');
-            redirect('indexx.php?page=admin&section=applications');
+            redirect('index.php?page=admin&section=applications');
         }
         if ($action === 'admin_topup') {
             $uid = (int)$_POST['user_id'];
@@ -1081,14 +972,14 @@ if ($action !== '') {
             unset($u);
             db_write('users', $users);
             flash('ok', 'تم شحن الرصيد');
-            redirect('indexx.php?page=admin&section=users');
+            redirect('index.php?page=admin&section=users');
         }
         if ($action === 'admin_toggle_featured') {
             $stores = db_read('stores');
             foreach ($stores as &$s) if ($s['id'] === (int)$_POST['store_id']) $s['featured'] = !$s['featured'];
             unset($s);
             db_write('stores', $stores);
-            redirect('indexx.php?page=admin&section=stores');
+            redirect('index.php?page=admin&section=stores');
         }
         if ($action === 'admin_toggle_suspend') {
             $sid = (int)$_POST['store_id'];
@@ -1101,9 +992,9 @@ if ($action !== '') {
             }
             unset($s);
             db_write('stores', $stores);
-            if ($owner) add_notification($owner, $nowSuspended ? 'تم تعليق متجرك' : 'تم تفعيل متجرك', $nowSuspended ? 'قامت الإدارة بتعليق متجرك مؤقتاً، وما راح يظهر بالسوق لحد ما يتفعّل.' : 'رجع متجرك يظهر بالسوق من جديد.', 'indexx.php?page=vendor', 'store');
+            if ($owner) add_notification($owner, $nowSuspended ? 'تم تعليق متجرك' : 'تم تفعيل متجرك', $nowSuspended ? 'قامت الإدارة بتعليق متجرك مؤقتاً، وما راح يظهر بالسوق لحد ما يتفعّل.' : 'رجع متجرك يظهر بالسوق من جديد.', 'index.php?page=vendor', 'store');
             flash('ok', $nowSuspended ? 'تم تعليق المتجر' : 'تم إعادة تفعيل المتجر');
-            redirect('indexx.php?page=admin&section=stores');
+            redirect('index.php?page=admin&section=stores');
         }
         if ($action === 'admin_add_category') {
             $settings = get_settings();
@@ -1111,14 +1002,14 @@ if ($action !== '') {
             if ($name !== '' && !in_array($name, $settings['categories'], true)) $settings['categories'][] = $name;
             db_write('settings', $settings);
             flash('ok', 'تمت إضافة التصنيف');
-            redirect('indexx.php?page=admin&section=settings');
+            redirect('index.php?page=admin&section=settings');
         }
         if ($action === 'admin_delete_category') {
             $settings = get_settings();
             $settings['categories'] = array_values(array_filter($settings['categories'], fn($c) => $c !== ($_POST['name'] ?? '')));
             db_write('settings', $settings);
             flash('ok', 'تم حذف التصنيف');
-            redirect('indexx.php?page=admin&section=settings');
+            redirect('index.php?page=admin&section=settings');
         }
         if ($action === 'admin_toggle_admin') {
             $uid = (int)$_POST['user_id'];
@@ -1129,7 +1020,7 @@ if ($action !== '') {
                 db_write('users', $users);
                 flash('ok', 'تم تحديث صلاحية المستخدم');
             }
-            redirect('indexx.php?page=admin&section=users');
+            redirect('index.php?page=admin&section=users');
         }
         if ($action === 'admin_broadcast') {
             $title = trim((string)($_POST['title'] ?? ''));
@@ -1138,7 +1029,7 @@ if ($action !== '') {
                 foreach (db_read('users') as $u) add_notification($u['id'], $title, $body, null, 'broadcast');
                 flash('ok', 'تم إرسال الإشعار لكل المستخدمين');
             }
-            redirect('indexx.php?page=admin&section=broadcast');
+            redirect('index.php?page=admin&section=broadcast');
         }
         if ($action === 'admin_collect_fee') {
             $sid = (int)$_POST['store_id'];
@@ -1156,9 +1047,9 @@ if ($action !== '') {
             }
             unset($s);
             db_write('stores', $stores);
-            if ($owner) add_notification($owner, 'تجديد الاشتراك', 'تم تحصيل ' . money($fee) . ' وتجديد اشتراك متجرك ' . SUBSCRIPTION_DAYS . ' يوم إضافي.', 'indexx.php?page=vendor', 'store');
+            if ($owner) add_notification($owner, 'تجديد الاشتراك', 'تم تحصيل ' . money($fee) . ' وتجديد اشتراك متجرك ' . SUBSCRIPTION_DAYS . ' يوم إضافي.', 'index.php?page=vendor', 'store');
             flash('ok', 'تم تحصيل الرسم وتجديد الاشتراك ' . SUBSCRIPTION_DAYS . ' يوم');
-            redirect('indexx.php?page=admin&section=stores');
+            redirect('index.php?page=admin&section=stores');
         }
         if ($action === 'admin_approve_withdraw') {
             $rid = (int)($_POST['request_id'] ?? 0);
@@ -1175,10 +1066,10 @@ if ($action !== '') {
                 }
                 unset($s);
                 db_write('stores', $stores);
-                add_notification($req['owner_user_id'], 'تم قبول طلب سحبك', 'تم تحويل ' . money($req['amount']) . ' لحسابك عبر ' . $req['method'] . '.', 'indexx.php?page=vendor&section=withdraw', 'wallet');
+                add_notification($req['owner_user_id'], 'تم قبول طلب سحبك', 'تم تحويل ' . money($req['amount']) . ' لحسابك عبر ' . $req['method'] . '.', 'index.php?page=vendor&section=withdraw', 'wallet');
             }
             flash('ok', 'تم اعتماد طلب السحب');
-            redirect('indexx.php?page=admin&section=withdrawals');
+            redirect('index.php?page=admin&section=withdrawals');
         }
         if ($action === 'admin_reject_withdraw') {
             $rid = (int)($_POST['request_id'] ?? 0);
@@ -1187,16 +1078,16 @@ if ($action !== '') {
             foreach ($requests as &$r) if ($r['id'] === $rid && $r['status'] === 'pending') { $r['status'] = 'rejected'; $uid = $r['owner_user_id']; }
             unset($r);
             db_write('withdraw_requests', $requests);
-            if ($uid) add_notification($uid, 'تم رفض طلب سحبك', 'للأسف تمت مراجعة طلب السحب ولم تتم الموافقة عليه.', 'indexx.php?page=vendor&section=withdraw', 'wallet');
+            if ($uid) add_notification($uid, 'تم رفض طلب سحبك', 'للأسف تمت مراجعة طلب السحب ولم تتم الموافقة عليه.', 'index.php?page=vendor&section=withdraw', 'wallet');
             flash('ok', 'تم رفض طلب السحب');
-            redirect('indexx.php?page=admin&section=withdrawals');
+            redirect('index.php?page=admin&section=withdrawals');
         }
         if ($action === 'admin_update_fee') {
             $settings = get_settings();
             $settings['monthly_fee'] = (float)($_POST['monthly_fee'] ?? 0);
             db_write('settings', $settings);
             flash('ok', 'تم تحديث قيمة الرسم الشهري');
-            redirect('indexx.php?page=admin&section=settings');
+            redirect('index.php?page=admin&section=settings');
         }
         if ($action === 'admin_update_branding') {
             $settings = get_settings();
@@ -1206,14 +1097,14 @@ if ($action !== '') {
             if ($logo) $settings['site_logo'] = $logo;
             db_write('settings', $settings);
             flash('ok', 'تم تحديث اسم وشعار الموقع');
-            redirect('indexx.php?page=admin&section=settings');
+            redirect('index.php?page=admin&section=settings');
         }
         if ($action === 'admin_update_ai_key') {
             $settings = get_settings();
             $settings['ai_api_key'] = trim((string)($_POST['ai_api_key'] ?? ''));
             db_write('settings', $settings);
             flash('ok', 'تم تحديث مفتاح المساعد الذكي');
-            redirect('indexx.php?page=admin&section=settings');
+            redirect('index.php?page=admin&section=settings');
         }
         if ($action === 'admin_update_backup') {
             $settings = get_settings();
@@ -1221,12 +1112,12 @@ if ($action !== '') {
             $settings['telegram_chat_id'] = trim((string)($_POST['telegram_chat_id'] ?? ''));
             db_write('settings', $settings);
             flash('ok', 'تم حفظ إعدادات النسخ الاحتياطي');
-            redirect('indexx.php?page=admin&section=backup');
+            redirect('index.php?page=admin&section=backup');
         }
         if ($action === 'admin_backup_now') {
             $result = run_backup_now();
             flash($result['ok'] ? 'ok' : 'err', $result['msg']);
-            redirect('indexx.php?page=admin&section=backup');
+            redirect('index.php?page=admin&section=backup');
         }
         if ($action === 'admin_update_db_config') {
             $host = trim((string)($_POST['db_host'] ?? ''));
@@ -1245,7 +1136,7 @@ if ($action !== '') {
                     flash('ok', 'تم اختبار الاتصال وحفظه — سيُستخدم MySQL من الآن');
                 }
             }
-            redirect('indexx.php?page=admin&section=settings');
+            redirect('index.php?page=admin&section=settings');
         }
         if ($action === 'admin_add_coupon') {
             $settings = get_settings();
@@ -1254,14 +1145,14 @@ if ($action !== '') {
             $percent = max(1, min(90, (float)($_POST['percent'] ?? 0)));
             if ($code === '' || !find_product($pid)) {
                 flash('err', 'الرجاء اختيار منتج وكتابة كود صحيح');
-                redirect('indexx.php?page=admin&section=settings');
+                redirect('index.php?page=admin&section=settings');
             }
             $coupons = $settings['coupons'];
             $coupons[] = ['id'=>next_id($coupons), 'code'=>$code, 'product_id'=>$pid, 'percent'=>$percent];
             $settings['coupons'] = $coupons;
             db_write('settings', $settings);
             flash('ok', 'تمت إضافة الكوبون');
-            redirect('indexx.php?page=admin&section=settings');
+            redirect('index.php?page=admin&section=settings');
         }
         if ($action === 'admin_delete_coupon') {
             $settings = get_settings();
@@ -1269,7 +1160,7 @@ if ($action !== '') {
             $settings['coupons'] = array_values(array_filter($settings['coupons'], fn($c) => $c['id'] !== $cid));
             db_write('settings', $settings);
             flash('ok', 'تم حذف الكوبون');
-            redirect('indexx.php?page=admin&section=settings');
+            redirect('index.php?page=admin&section=settings');
         }
         if ($action === 'admin_add_payment_method') {
             $settings = get_settings();
@@ -1285,7 +1176,7 @@ if ($action !== '') {
             $settings['payment_methods'] = $methods;
             db_write('settings', $settings);
             flash('ok', 'تمت إضافة طريقة الدفع');
-            redirect('indexx.php?page=admin&section=settings');
+            redirect('index.php?page=admin&section=settings');
         }
         if ($action === 'admin_delete_payment_method') {
             $settings = get_settings();
@@ -1293,7 +1184,7 @@ if ($action !== '') {
             $settings['payment_methods'] = array_values(array_filter($settings['payment_methods'], fn($m) => $m['id'] !== $mid));
             db_write('settings', $settings);
             flash('ok', 'تم حذف طريقة الدفع');
-            redirect('indexx.php?page=admin&section=settings');
+            redirect('index.php?page=admin&section=settings');
         }
         if ($action === 'admin_approve_topup') {
             $rid = (int)$_POST['request_id'];
@@ -1310,10 +1201,10 @@ if ($action !== '') {
                 }
                 unset($u);
                 db_write('users', $users);
-                add_notification($req['user_id'], 'تم قبول طلب شحنك', 'تمت إضافة ' . money($req['amount']) . ' لرصيدك.', 'indexx.php?page=account', 'wallet');
+                add_notification($req['user_id'], 'تم قبول طلب شحنك', 'تمت إضافة ' . money($req['amount']) . ' لرصيدك.', 'index.php?page=account', 'wallet');
                 flash('ok', 'تم قبول طلب الشحن وإضافة الرصيد');
             }
-            redirect('indexx.php?page=admin&section=topups');
+            redirect('index.php?page=admin&section=topups');
         }
         if ($action === 'admin_reject_topup') {
             $rid = (int)$_POST['request_id'];
@@ -1322,9 +1213,9 @@ if ($action !== '') {
             foreach ($requests as &$r) if ($r['id'] === $rid && $r['status'] === 'pending') { $r['status'] = 'rejected'; $uid = $r['user_id']; }
             unset($r);
             db_write('topup_requests', $requests);
-            if ($uid) add_notification($uid, 'تم رفض طلب شحنك', 'للأسف تمت مراجعة طلب الشحن ولم تتم الموافقة عليه.', 'indexx.php?page=account', 'wallet');
+            if ($uid) add_notification($uid, 'تم رفض طلب شحنك', 'للأسف تمت مراجعة طلب الشحن ولم تتم الموافقة عليه.', 'index.php?page=account', 'wallet');
             flash('ok', 'تم رفض طلب الشحن');
-            redirect('indexx.php?page=admin&section=topups');
+            redirect('index.php?page=admin&section=topups');
         }
         if ($action === 'admin_resolve_complaint') {
             $cid = (int)$_POST['complaint_id'];
@@ -1333,8 +1224,8 @@ if ($action !== '') {
             foreach ($complaints as &$c) if ($c['id'] === $cid) { $c['status'] = 'resolved'; $buyerId = $c['buyer_id']; $orderId = $c['order_id']; }
             unset($c);
             db_write('complaints', $complaints);
-            if ($buyerId) add_notification($buyerId, 'تمت معالجة شكواك', 'تمت معالجة شكواك على الطلب #' . $orderId . '.', 'indexx.php?page=orders', 'complaint');
-            redirect('indexx.php?page=admin&section=complaints');
+            if ($buyerId) add_notification($buyerId, 'تمت معالجة شكواك', 'تمت معالجة شكواك على الطلب #' . $orderId . '.', 'index.php?page=orders', 'complaint');
+            redirect('index.php?page=admin&section=complaints');
         }
     }
 
@@ -1342,7 +1233,7 @@ if ($action !== '') {
     $notifActions = ['notif_mark_read', 'notif_mark_all_read', 'notif_delete'];
     if (in_array($action, $notifActions, true)) {
         $recipient = my_notif_recipient();
-        if ($recipient === null) redirect('indexx.php');
+        if ($recipient === null) redirect('index.php');
         $notifs = db_read('notifications');
         if ($action === 'notif_mark_read') {
             $nid = (int)($_POST['notif_id'] ?? 0);
@@ -1356,10 +1247,10 @@ if ($action !== '') {
             $notifs = array_values(array_filter($notifs, fn($n) => !($n['id'] === $nid && $n['recipient'] === $recipient)));
         }
         db_write('notifications', $notifs);
-        redirect('indexx.php?page=notifications');
+        redirect('index.php?page=notifications');
     }
 
-    redirect('indexx.php');
+    redirect('index.php');
 }
 
 /* ===================== المساعد الذكي (DeepSeek) ===================== */
@@ -1457,562 +1348,12 @@ function ai_call_deepseek(array $messages): ?string {
     return $data['choices'][0]['message']['content'] ?? null;
 }
 
-/* ===================== CSS و JS المشتركة ===================== */
-function render_css(): void { ?>
-*{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
-[hidden]{display:none!important}
-html{scroll-behavior:smooth}
-:root{--bg:#f8f6f3;--card:#fff;--text:#1a1a2e;--muted:#6b7280;--accent:#f2b100;--accent2:#ffcf40;--shadow:0 1px 2px rgba(242,177,0,.08),0 6px 18px rgba(242,177,0,.08);--border:rgba(242,177,0,.14);--hover-bg:rgba(242,177,0,.07);--gradient:linear-gradient(135deg,#f2b100,#ffcf40);--danger:#e5484d;--success:#2f9e5c;--radius:16px}
-[data-theme="dark"]{--bg:#0d0d0d;--card:#1a1a1a;--text:#f0ece0;--muted:#a89f8e;--accent:#ffcf40;--accent2:#ffe27a;--shadow:0 1px 2px rgba(0,0,0,.5),0 6px 20px rgba(0,0,0,.6);--border:rgba(255,207,64,.14);--hover-bg:rgba(255,207,64,.08);--gradient:linear-gradient(135deg,#ffcf40,#ffe27a)}
-body{font-family:'IBM Plex Sans Arabic',sans-serif;background:var(--bg);color:var(--text);min-height:100vh;min-height:100dvh;overflow-x:hidden;position:relative;transition:background .3s,color .3s;animation:pageIn .5s ease both;scrollbar-width:none}
-body::-webkit-scrollbar{display:none}
-@keyframes pageIn{from{opacity:0}to{opacity:1}}
-@keyframes fadeUp{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:translateY(0)}}
-.an{animation:fadeUp .5s cubic-bezier(.22,1,.36,1) both;animation-delay:var(--ad,0s)}
-.bg-orb{position:fixed;border-radius:50%;filter:blur(80px);pointer-events:none;z-index:0}
-.bo1{width:280px;height:280px;background:rgba(242,177,0,.10);top:-100px;right:-80px}
-.bo2{width:220px;height:220px;background:rgba(255,207,64,.08);bottom:10%;left:-70px}
-.z1{position:relative;z-index:1}
-a{color:inherit;text-decoration:none}
-button,input,select,textarea{font-family:inherit;color:inherit}
-.topbar{display:flex;align-items:center;justify-content:space-between;padding:14px 16px;position:sticky;top:0;z-index:50;background:var(--bg);backdrop-filter:blur(10px)}
-.logo{font-size:1.2rem;font-weight:900;display:flex;align-items:center;gap:8px;background:var(--gradient);-webkit-background-clip:text;-webkit-text-fill-color:transparent}
-.logo-img{width:24px;height:24px;border-radius:8px;object-fit:cover}
-.install-banner{display:flex;align-items:center;gap:10px;background:var(--gradient);color:#1a1a2e;font-size:.72rem;font-weight:700;padding:9px 14px;position:sticky;top:56px;z-index:45}
-.install-banner span{flex:1}
-.topbar-right{display:flex;gap:8px}
-.icon-btn{position:relative;width:38px;height:38px;border-radius:50%;background:var(--card);box-shadow:var(--shadow);border:none;display:flex;align-items:center;justify-content:center;cursor:pointer;font-size:.95rem;color:var(--text);transition:transform .15s}
-.icon-btn:active{transform:scale(.88)}
-.icon-btn .badge{position:absolute;top:-4px;left:-4px;background:var(--danger);color:#fff;font-size:.6rem;font-weight:800;border-radius:100px;min-width:16px;height:16px;display:flex;align-items:center;justify-content:center;padding:0 3px}
-.icon-btn .sun{display:none}[data-theme="dark"] .icon-btn .sun{display:inline;color:var(--accent)}[data-theme="dark"] .icon-btn .moon{display:none}
-.content{max-width:520px;margin:0 auto;padding:4px 16px 100px}
-#app-root.nav-loading{pointer-events:none}
-.flash{padding:12px 16px;border-radius:14px;margin-bottom:14px;font-size:.82rem;font-weight:600}
-.flash-ok{background:rgba(47,158,92,.12);color:var(--success);border:1px solid rgba(47,158,92,.25)}
-.flash-err{background:rgba(229,72,77,.12);color:var(--danger);border:1px solid rgba(229,72,77,.25)}
-.tabbar{position:fixed;bottom:0;right:0;left:0;z-index:50;display:flex;background:var(--card);box-shadow:0 -2px 16px rgba(0,0,0,.08);padding:6px 4px calc(6px + env(safe-area-inset-bottom,0px));z-index:60}
-.tab{flex:1;display:flex;flex-direction:column;align-items:center;gap:3px;padding:6px 2px;font-size:.62rem;font-weight:700;color:var(--muted);border-radius:12px;position:relative;transition:color .2s}
-.tab i{font-size:1.05rem}
-.tab.active{color:var(--accent)}
-.tab-badge{position:absolute;top:0;left:22%;background:var(--danger);color:#fff;font-size:.55rem;font-weight:800;border-radius:100px;min-width:14px;height:14px;display:flex;align-items:center;justify-content:center}
-.tab-ai{gap:0}
-.tab-ai i{width:40px;height:40px;border-radius:50%;background:var(--gradient);color:#1a1a2e;display:flex;align-items:center;justify-content:center;font-size:1.15rem;margin-top:-20px;box-shadow:0 6px 16px rgba(242,177,0,.45);border:3px solid var(--card);transition:transform .2s}
-.tab-ai:active i{transform:scale(.9)}
-.tab-ai span{margin-top:2px}
-.tab-ai.active span{color:var(--accent)}
-.sec{margin-bottom:22px}
-.sh{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px}
-.sh h3{font-size:.9rem;font-weight:800;display:flex;align-items:center;gap:8px}
-.sh .al{font-size:.68rem;color:var(--accent);font-weight:700}
-.wallet-card{border-radius:22px;padding:22px 18px;background:var(--gradient);color:#1a1a2e;position:relative;overflow:hidden;box-shadow:0 10px 28px rgba(242,177,0,.3);margin-bottom:18px}
-.wallet-card::after{content:'';position:absolute;bottom:-30px;left:-30px;width:120px;height:120px;border-radius:50%;background:rgba(255,255,255,.18)}
-.wallet-top{display:flex;justify-content:space-between;align-items:flex-start;position:relative;z-index:1}
-.wallet-top .greet{font-size:.8rem;font-weight:700;opacity:.85}
-.wallet-bal{font-size:1.7rem;font-weight:900;margin-top:4px}
-.wallet-note{font-size:.65rem;margin-top:10px;opacity:.85;position:relative;z-index:1}
-.hscroll{display:flex;gap:10px;overflow-x:auto;padding-bottom:4px;scrollbar-width:none}
-.hscroll::-webkit-scrollbar{display:none}
-.cat-chip{flex-shrink:0;display:flex;flex-direction:column;align-items:center;gap:6px;padding:10px 14px;border-radius:16px;background:var(--card);box-shadow:var(--shadow);font-size:.65rem;font-weight:700;min-width:66px}
-.cat-chip i{font-size:1.1rem;color:var(--accent)}
-.cat-chip.active{background:var(--gradient);color:#1a1a2e}
-.search-bar{display:flex;align-items:center;gap:8px;background:var(--card);border-radius:100px;box-shadow:var(--shadow);padding:10px 16px;margin-bottom:14px}
-.search-bar input{flex:1;border:none;background:none;outline:none;font-size:.8rem}
-.search-bar i{color:var(--muted)}
-.store-card{display:flex;align-items:center;gap:12px;background:var(--card);border-radius:16px;padding:12px;margin-bottom:8px;box-shadow:var(--shadow);transition:transform .15s}
-.store-card:active{transform:scale(.97)}
-.store-card-logo{width:48px;height:48px;border-radius:14px;display:flex;align-items:center;justify-content:center;color:#1a1a2e;flex-shrink:0;overflow:hidden}
-.store-card-logo img{width:100%;height:100%;object-fit:cover}
-.store-card-info{flex:1;min-width:0}
-.store-card-info h4{font-size:.82rem;font-weight:700;margin-bottom:2px;display:flex;align-items:center;gap:5px}
-.store-card-info p{font-size:.68rem;color:var(--muted)}
-.verified{color:var(--accent);font-size:.7rem}
-.stars{color:#f5b400;font-size:.7rem;letter-spacing:1px}
-.stars-num{font-size:.68rem;color:var(--muted);font-weight:700}
-.cv{color:var(--muted);font-size:.65rem;opacity:.5}
-.store-grid6{display:grid;grid-template-columns:repeat(6,1fr);gap:10px 4px}
-.store-tile{display:flex;flex-direction:column;align-items:center;gap:5px;text-align:center;transition:transform .15s}
-.store-tile:active{transform:scale(.94)}
-.store-tile-icon{width:100%;aspect-ratio:1;border-radius:18px;background:var(--hover-bg);display:flex;align-items:center;justify-content:center;font-size:1.2rem;color:#1a1a2e;overflow:hidden;box-shadow:var(--shadow)}
-.store-tile-icon img{width:100%;height:100%;object-fit:cover}
-.store-tile-name{font-size:.62rem;font-weight:700;color:var(--text);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;line-height:1.3;word-break:break-word}
-.hgrid{display:flex;gap:10px;overflow-x:auto;scrollbar-width:none;padding-bottom:4px}
-.hgrid::-webkit-scrollbar{display:none}
-.hgrid .prod-card{min-width:150px}
-.grid2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
-.grid3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px}
-.prod-card{background:var(--card);border-radius:16px;overflow:hidden;box-shadow:var(--shadow);transition:transform .15s}
-.prod-card:active{transform:scale(.97)}
-.prod-card-img{aspect-ratio:1;background:var(--hover-bg);display:flex;align-items:center;justify-content:center;position:relative;overflow:hidden}
-.prod-card-img img{width:100%;height:100%;object-fit:cover}
-.prod-card-img i{font-size:1.8rem;color:var(--accent);opacity:.5}
-.prod-badge{position:absolute;top:6px;right:6px;background:var(--danger);color:#fff;font-size:.6rem;font-weight:800;padding:2px 7px;border-radius:8px}
-.prod-card-info{padding:10px}
-.prod-card-info h4{font-size:.74rem;font-weight:700;margin-bottom:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.prod-store{font-size:.62rem;color:var(--muted);margin-bottom:4px}
-.prod-price .now{font-size:.8rem;font-weight:800;color:var(--accent)}
-[data-theme="dark"] .prod-price .now{color:#d9a300}
-.prod-price .was{font-size:.65rem;color:var(--muted);text-decoration:line-through;margin-inline-start:5px}
-.empty-state{text-align:center;padding:50px 20px;color:var(--muted)}
-.empty-state i{font-size:2.2rem;margin-bottom:10px;opacity:.4}
-.card{background:var(--card);border-radius:18px;padding:16px;box-shadow:var(--shadow)}
-.btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;padding:12px 20px;border-radius:14px;background:var(--gradient);color:#1a1a2e;font-weight:800;font-size:.82rem;border:none;cursor:pointer;width:100%;transition:transform .15s}
-.btn:active{transform:scale(.96)}
-.btn-outline{background:none;border:2px solid var(--accent);color:var(--accent)}
-.btn-danger{background:var(--danger);color:#fff}
-.btn-sm{width:auto;padding:8px 16px;font-size:.72rem}
-.field{margin-bottom:14px}
-.field label{display:block;font-size:.72rem;font-weight:700;margin-bottom:6px;color:var(--muted)}
-.field input,.field select,.field textarea{width:100%;padding:11px 14px;border-radius:12px;border:1px solid var(--border);background:var(--card);font-size:.82rem;outline:none}
-.field textarea{resize:vertical;min-height:80px}
-.field input[type=file]{padding:9px}
-.field input[type=color]{padding:4px;height:44px;cursor:pointer}
-.login-wrap{min-height:100vh;min-height:100dvh;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:24px;position:relative;z-index:1}
-.login-logo{font-size:2rem;font-weight:900;display:flex;align-items:center;gap:10px;background:var(--gradient);-webkit-background-clip:text;-webkit-text-fill-color:transparent;margin-bottom:6px}
-.login-logo-img{width:40px;height:40px;border-radius:12px;object-fit:cover}
-.login-sub{font-size:.78rem;color:var(--muted);margin-bottom:26px;text-align:center}
-.login-card{width:100%;max-width:360px;background:var(--card);border-radius:22px;padding:24px;box-shadow:var(--shadow)}
-.login-admin-link{margin-top:18px;font-size:.7rem;color:var(--muted);text-align:center}
-.auth-divider{display:flex;align-items:center;gap:10px;margin:16px 0;font-size:.68rem;color:var(--muted)}
-.auth-divider::before,.auth-divider::after{content:'';flex:1;height:1px;background:var(--border)}
-.google-btn-wrap{display:flex;justify-content:center;min-height:40px}
-.auth-page{min-height:100vh;min-height:100dvh;position:relative;overflow:hidden;padding:22px 22px calc(22px + env(safe-area-inset-bottom,0px));display:flex;flex-direction:column;z-index:1}
-.auth-blob{position:absolute;border-radius:50%;z-index:-1}
-.auth-blob-tl{width:230px;height:230px;background:var(--accent2);top:-100px;left:-100px;opacity:.4}
-.auth-blob-br{width:260px;height:260px;background:var(--accent2);bottom:-120px;right:-120px;opacity:.35}
-.auth-skip{align-self:flex-start;font-size:.78rem;font-weight:700;color:var(--text);display:flex;align-items:center;gap:6px;text-decoration:none}
-.auth-hero{position:relative;display:flex;align-items:center;justify-content:center;margin:22px auto 14px;width:100%;max-width:250px;height:300px}
-.auth-hero.sm{max-width:170px;height:190px;margin:8px auto 16px}
-.auth-hero-bubble{position:absolute;width:50px;height:50px;border-radius:16px;background:var(--card);box-shadow:var(--shadow);display:flex;align-items:center;justify-content:center;font-size:1.15rem;color:var(--accent);z-index:2}
-.auth-hero.sm .auth-hero-bubble{width:34px;height:34px;border-radius:11px;font-size:.85rem}
-.auth-hero-bubble.b1{top:6%;left:-4%}
-.auth-hero-bubble.b2{top:2%;right:-6%}
-.auth-hero-bubble.b3{bottom:22%;left:-8%}
-.auth-hero-bubble.b4{bottom:4%;right:-4%}
-.phone-mock{width:64%;height:94%;background:#1a1a2e;border-radius:32px;padding:8px;box-shadow:0 22px 44px rgba(0,0,0,.22);position:relative}
-.auth-hero.sm .phone-mock{border-radius:22px;padding:5px}
-.phone-mock::before{content:'';position:absolute;top:8px;left:50%;transform:translateX(-50%);width:34%;height:14px;background:#1a1a2e;border-radius:0 0 10px 10px;z-index:2}
-.phone-mock-screen{width:100%;height:100%;background:var(--card);border-radius:24px;overflow:hidden;padding:14px 8px 8px;display:flex;flex-direction:column;gap:6px}
-.auth-hero.sm .phone-mock-screen{border-radius:16px;padding:9px 6px 6px;gap:4px}
-.phone-mock-brand{font-size:.6rem;font-weight:900;text-align:center;color:var(--accent);margin-bottom:2px}
-.auth-hero.sm .phone-mock-brand{font-size:.5rem}
-.phone-mock-search{height:16px;border-radius:8px;background:var(--hover-bg);display:flex;align-items:center;padding:0 6px;color:var(--muted);font-size:.5rem}
-.phone-mock-cats{display:flex;gap:5px;justify-content:center}
-.phone-mock-cats span{flex:1;aspect-ratio:1;border-radius:8px;background:var(--gradient);display:flex;align-items:center;justify-content:center;font-size:.5rem;color:#1a1a2e;max-width:24px}
-.phone-mock-row{font-size:.48rem;font-weight:800;color:var(--text);margin-top:2px}
-.phone-mock-cards{display:flex;gap:5px;flex:1}
-.phone-mock-cards span{flex:1;border-radius:8px;background:var(--hover-bg);display:flex;align-items:center;justify-content:center;color:var(--accent);font-size:.6rem}
-.auth-heading{font-size:1.2rem;font-weight:900;text-align:center;margin:4px 0 6px;line-height:1.5}
-.auth-heading-sub{font-size:.78rem;color:var(--muted);text-align:center;margin-bottom:18px;line-height:1.7}
-.auth-dots{display:flex;gap:6px;justify-content:center;margin:16px 0 4px}
-.auth-dots span{width:7px;height:7px;border-radius:50%;background:var(--border);display:block}
-.auth-dots span.active{width:20px;border-radius:4px;background:var(--accent)}
-.field-icon-wrap{position:relative}
-.field-icon-wrap input{padding-right:42px}
-.field-icon-wrap .field-ic{position:absolute;right:14px;top:50%;transform:translateY(-50%);color:var(--muted);font-size:.85rem;pointer-events:none}
-.field-icon-wrap .pw-toggle{position:absolute;right:14px;top:50%;transform:translateY(-50%);color:var(--muted);font-size:.85rem;background:none;border:none;cursor:pointer;padding:4px}
-.auth-forgot{display:block;width:fit-content;margin:-6px 0 6px;font-size:.7rem;color:var(--accent);cursor:pointer;list-style:none}
-.auth-forgot::-webkit-details-marker{display:none}
-.auth-forgot-note{font-size:.68rem;color:var(--muted);margin:-4px 0 12px;line-height:1.7}
-.captcha-box{display:flex;gap:10px;justify-content:center;padding:14px 10px;background:repeating-linear-gradient(135deg,var(--hover-bg),var(--hover-bg) 6px,transparent 6px,transparent 12px);border-radius:12px;border:1px dashed var(--border);user-select:none;-webkit-user-select:none;-moz-user-select:none;pointer-events:none}
-.captcha-box span{font-size:1.3rem;font-weight:900;font-family:monospace;letter-spacing:2px;color:var(--text);display:inline-block}
-.stepper{display:flex;justify-content:space-between;position:relative;margin:18px 0 6px}
-.stepper::before{content:'';position:absolute;top:7px;right:6%;left:6%;height:2px;background:var(--border);z-index:0}
-.step{flex:1;text-align:center;position:relative;z-index:1}
-.step .dot{display:block;width:16px;height:16px;border-radius:50%;background:var(--border);margin:0 auto 6px;border:3px solid var(--bg)}
-.step.done .dot{background:var(--accent)}
-.step .lbl{font-size:.55rem;color:var(--muted);font-weight:700}
-.step.current .lbl{color:var(--accent)}
-.order-card{background:var(--card);border-radius:16px;padding:14px;margin-bottom:12px;box-shadow:var(--shadow)}
-.order-top{display:flex;justify-content:space-between;align-items:center;font-size:.75rem;font-weight:700}
-.order-items{font-size:.7rem;color:var(--muted);margin-top:6px}
-.chips{display:flex;gap:8px;overflow-x:auto;margin-bottom:14px;scrollbar-width:none}
-.chips::-webkit-scrollbar{display:none}
-.chip{flex-shrink:0;padding:8px 16px;border-radius:100px;background:var(--card);box-shadow:var(--shadow);font-size:.72rem;font-weight:700;color:var(--muted)}
-.chip.active{background:var(--gradient);color:#1a1a2e}
-.gallery-main{aspect-ratio:1;border-radius:18px;overflow:hidden;background:var(--card);box-shadow:var(--shadow);display:flex;align-items:center;justify-content:center;margin-bottom:10px;cursor:zoom-in}
-.gallery-main img{width:100%;height:100%;object-fit:cover}
-.gallery-main i{font-size:3rem;color:var(--accent);opacity:.4}
-.gallery-thumbs{display:flex;gap:8px;margin-bottom:16px}
-.gallery-thumbs img{width:56px;height:56px;object-fit:cover;border-radius:10px;cursor:pointer;opacity:.6;box-shadow:var(--shadow)}
-.gallery-thumbs img.active{opacity:1;outline:2px solid var(--accent)}
-.lightbox{position:fixed;inset:0;background:rgba(0,0,0,.9);z-index:200;display:none;align-items:center;justify-content:center}
-.lightbox.open{display:flex}
-.lightbox img{max-width:92%;max-height:92%;object-fit:contain;border-radius:8px}
-.qty-box{display:flex;align-items:center;gap:14px;background:var(--card);border-radius:14px;padding:8px 14px;box-shadow:var(--shadow);width:fit-content;margin-bottom:14px}
-.qty-box button{width:28px;height:28px;border-radius:8px;border:none;background:var(--hover-bg);color:var(--text);font-weight:800;cursor:pointer}
-.cart-store-group{margin-bottom:16px}
-.cart-store-title{font-size:.78rem;font-weight:800;margin-bottom:8px;display:flex;align-items:center;gap:6px}
-.cart-item{display:flex;align-items:center;gap:10px;background:var(--card);border-radius:14px;padding:10px;margin-bottom:8px;box-shadow:var(--shadow)}
-.cart-item-img{width:46px;height:46px;border-radius:10px;background:var(--hover-bg);display:flex;align-items:center;justify-content:center;flex-shrink:0;overflow:hidden}
-.cart-item-img img{width:100%;height:100%;object-fit:cover}
-.cart-item-info{flex:1;min-width:0;font-size:.75rem;font-weight:700}
-.cart-item-info span{display:block;font-size:.68rem;color:var(--muted);font-weight:600;margin-top:2px}
-.cart-remove{color:var(--danger);background:none;border:none;font-size:.85rem;cursor:pointer;padding:6px}
-.cart-total{display:flex;justify-content:space-between;font-weight:800;font-size:.95rem;padding:14px 0;border-top:1px solid var(--border);margin-top:6px}
-.section-tabs{display:flex;gap:8px;overflow-x:auto;margin-bottom:16px;scrollbar-width:none}
-.section-tabs::-webkit-scrollbar{display:none}
-.section-tabs a{flex-shrink:0;padding:9px 16px;border-radius:100px;background:var(--card);box-shadow:var(--shadow);font-size:.72rem;font-weight:700;color:var(--muted)}
-.section-tabs a.active{background:var(--gradient);color:#1a1a2e}
-.admin-topbar{display:flex;align-items:center;gap:12px;margin-bottom:16px}
-.admin-topbar strong{font-size:.95rem;font-weight:800}
-.admin-sidebar{position:fixed;top:0;bottom:0;right:0;width:78%;max-width:280px;background:var(--card);z-index:120;transform:translateX(100%);transition:transform .25s cubic-bezier(.22,1,.36,1);overflow-y:auto;padding:10px 0 calc(10px + env(safe-area-inset-bottom,0px))}
-.admin-sidebar.open{transform:translateX(0)}
-.admin-sidebar-head{display:flex;justify-content:space-between;align-items:center;padding:8px 16px 14px;border-bottom:1px solid var(--border);margin-bottom:8px;font-weight:800;font-size:.85rem}
-.admin-sidebar a{display:block;padding:13px 16px;font-size:.8rem;font-weight:700;color:var(--text);text-decoration:none;border-right:3px solid transparent}
-.admin-sidebar a.active{color:var(--accent);border-right-color:var(--accent);background:var(--hover-bg)}
-.stat-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:18px}
-.stat-box{background:var(--card);border-radius:16px;padding:14px;box-shadow:var(--shadow);text-align:center}
-.stat-box .num{font-size:1.3rem;font-weight:900;color:var(--accent)}
-.stat-box .lbl{font-size:.65rem;color:var(--muted);font-weight:700;margin-top:2px}
-.row-between{display:flex;justify-content:space-between;align-items:center}
-.table-card{background:var(--card);border-radius:14px;padding:12px;margin-bottom:10px;box-shadow:var(--shadow)}
-.table-card h5{font-size:.8rem;font-weight:800;margin-bottom:4px}
-.table-card .meta{font-size:.68rem;color:var(--muted);margin-bottom:8px}
-.acct-row{display:flex;align-items:center;justify-content:space-between;padding:14px 4px;border-bottom:1px solid var(--border);font-size:.82rem;font-weight:600}
-.acct-row:last-child{border-bottom:none}
-.acct-row i{color:var(--accent);margin-inline-end:10px;width:20px}
-.avatar-lg{width:70px;height:70px;border-radius:50%;background:var(--gradient);display:flex;align-items:center;justify-content:center;font-size:1.6rem;font-weight:900;color:#1a1a2e;margin:0 auto 10px}
-.theme-preview{border-radius:var(--pv-radius,16px);padding:var(--pv-pad,14px);background:var(--card);box-shadow:var(--shadow);display:flex;align-items:center;gap:10px;margin-bottom:16px;border-top:4px solid var(--pv-color,#f2b100)}
-.theme-preview .pv-ico{width:40px;height:40px;border-radius:var(--pv-radius,16px);background:var(--pv-color,#f2b100)}
-.confirm-sheet{position:fixed;left:0;right:0;bottom:0;z-index:120;background:var(--card);border-radius:22px 22px 0 0;padding:20px 20px calc(20px + env(safe-area-inset-bottom,0px));box-shadow:0 -10px 30px rgba(0,0,0,.2);transform:translateY(110%);transition:transform .25s cubic-bezier(.22,1,.36,1)}
-.confirm-sheet.open{transform:translateY(0)}
-.sheet-backdrop{position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:110;display:none}
-.sheet-backdrop.open{display:block}
-.confirm-sheet h4{font-size:.92rem;margin-bottom:14px;text-align:center}
-.confirm-actions{display:flex;gap:10px}
-.theme-toggle-btn{width:38px;height:38px;border-radius:50%;background:var(--bg);box-shadow:var(--shadow);border:none;cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:.9rem;color:var(--text);flex-shrink:0}
-.theme-toggle-btn .sun{display:none}
-[data-theme="dark"] .theme-toggle-btn .sun{display:inline;color:var(--accent)}
-[data-theme="dark"] .theme-toggle-btn .moon{display:none}
-.ai-intent-grid{display:flex;flex-direction:column;gap:12px;margin-top:10px}
-.ai-intent-card{display:flex;align-items:center;gap:14px;background:var(--card);border-radius:18px;padding:18px;box-shadow:var(--shadow);border:none;width:100%;text-align:right;cursor:pointer;font-family:inherit}
-.ai-intent-card i{font-size:1.4rem;color:#1a1a2e;width:48px;height:48px;border-radius:14px;background:var(--gradient);display:flex;align-items:center;justify-content:center;flex-shrink:0}
-.ai-intent-card strong{font-size:.88rem;display:block;margin-bottom:3px;color:var(--text)}
-.ai-intent-card span{font-size:.7rem;color:var(--muted)}
-.ai-back{display:flex;align-items:center;gap:6px;font-size:.75rem;font-weight:700;color:var(--accent);background:none;border:none;cursor:pointer;padding:8px 0;margin-bottom:8px;font-family:inherit}
-.ai-chat-box{background:var(--card);border-radius:18px;box-shadow:var(--shadow);display:flex;flex-direction:column;height:60vh;overflow:hidden}
-#aiMsgs{flex:1;overflow-y:auto;padding:14px;display:flex;flex-direction:column;gap:8px}
-.ai-msg{max-width:80%;padding:9px 12px;border-radius:14px;font-size:.78rem;line-height:1.6}
-.ai-bot{background:var(--hover-bg);align-self:flex-start;border-bottom-left-radius:4px}
-.ai-user{background:var(--gradient);color:#1a1a2e;align-self:flex-end;border-bottom-right-radius:4px;font-weight:600}
-.ai-product-card{display:flex;align-items:center;gap:10px;background:var(--card);border:1px solid var(--border);border-radius:14px;padding:8px;max-width:80%;align-self:flex-start;text-decoration:none;color:inherit}
-.ai-product-img{width:42px;height:42px;border-radius:10px;background:var(--hover-bg);display:flex;align-items:center;justify-content:center;flex-shrink:0;overflow:hidden;color:var(--accent)}
-.ai-product-img img{width:100%;height:100%;object-fit:cover}
-.ai-product-info{flex:1;min-width:0}
-.ai-product-info h5{font-size:.74rem;font-weight:800;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.ai-product-info span{font-size:.68rem;color:var(--accent);font-weight:700}
-#aiChatForm{display:flex;gap:6px;padding:10px;border-top:1px solid var(--border)}
-#aiChatForm input{flex:1;border:1px solid var(--border);border-radius:100px;padding:10px 14px;background:var(--bg);font-size:.8rem;outline:none}
-#aiChatForm button{width:38px;height:38px;border-radius:50%;background:var(--gradient);border:none;color:#1a1a2e;cursor:pointer;flex-shrink:0}
-.pick-list{display:flex;flex-direction:column;gap:8px;margin-bottom:16px}
-.pick-card{display:block;background:var(--card);border-radius:14px;padding:12px 14px;box-shadow:var(--shadow);cursor:pointer;border:2px solid transparent}
-.pick-card input{margin-inline-end:8px}
-.pick-card:has(input:checked){border-color:var(--accent)}
-.pick-card .t{font-size:.78rem;font-weight:700}
-.pick-card .s{font-size:.68rem;color:var(--muted);margin-top:2px}
-.chip-wrap{display:flex;flex-wrap:wrap;gap:8px}
-.chip-radio{position:absolute;opacity:0;pointer-events:none}
-.chip-label{display:inline-block;padding:9px 16px;border-radius:100px;background:var(--card);box-shadow:var(--shadow);font-size:.74rem;font-weight:700;color:var(--muted);cursor:pointer}
-.chip-radio:checked + .chip-label{background:var(--gradient);color:#1a1a2e}
-.notif-wrap{position:relative;overflow:hidden;border-radius:16px;margin-bottom:8px}
-.notif-row{display:flex;align-items:center;gap:8px;background:var(--card);box-shadow:var(--shadow);border-radius:16px;padding:12px;touch-action:pan-y;position:relative;z-index:1}
-.notif-row.unread{border-right:3px solid var(--accent)}
-.notif-icon{width:38px;height:38px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:.9rem;flex-shrink:0}
-.notif-body{flex:1;min-width:0;color:inherit;text-decoration:none}
-.notif-body strong{font-size:.8rem;display:block;margin-bottom:2px}
-.notif-body p{font-size:.72rem;color:var(--muted);margin-bottom:4px;line-height:1.6}
-.notif-time{font-size:.62rem;color:var(--muted);opacity:.7}
-.notif-actions{display:flex;gap:4px;flex-shrink:0}
-.nav-row{display:flex;align-items:center;gap:12px;background:var(--card);border-radius:16px;padding:14px 16px;box-shadow:var(--shadow);margin-bottom:10px}
-.nav-row i.lead{color:var(--accent);font-size:1.1rem;width:24px;text-align:center}
-.nav-row .t{flex:1;min-width:0}
-.nav-row .t strong{font-size:.85rem;display:block}
-.nav-row .t span{font-size:.68rem;color:var(--muted)}
-.nav-row .trail{color:var(--muted);font-size:.75rem}
-.store-hero{border-radius:20px;overflow:hidden;margin-bottom:16px;box-shadow:var(--shadow)}
-.store-hero-cover{height:120px;background:var(--gradient);position:relative}
-.store-hero-cover img{width:100%;height:100%;object-fit:cover}
-.store-hero-body{background:var(--card);padding:16px;margin-top:-30px;position:relative}
-.store-hero-logo{width:64px;height:64px;border-radius:18px;background:var(--gradient);border:4px solid var(--card);display:flex;align-items:center;justify-content:center;font-size:1.5rem;color:#1a1a2e;margin-bottom:10px;overflow:hidden}
-.store-hero-logo img{width:100%;height:100%;object-fit:cover}
-@media (min-width:900px){
-  .content{max-width:1100px}
-  .grid2{grid-template-columns:repeat(4,1fr)}
-  .grid3{grid-template-columns:repeat(5,1fr)}
-  .hgrid .prod-card{min-width:190px}
-  .store-grid6{grid-template-columns:repeat(8,1fr);gap:16px 8px}
-}
-@media (max-width:360px){
-  .store-grid6{grid-template-columns:repeat(4,1fr)}
-}
-<?php }
-
-function render_js(): void { ?>
-/* ===== تصفح بلا فتح صفحات جديدة (نفس الرابط من الدخول لآخر شي) ===== */
-function setLoading(v){ document.getElementById('app-root')?.classList.toggle('nav-loading', v); }
-
-function applySwap(data){
-  const doSwap = () => {
-    document.getElementById('app-root').innerHTML = data.html;
-    document.title = data.title + ' — <?= h(site_name()) ?>';
-    window.scrollTo(0, 0);
-    showInstallBanner();
-    renderGoogleButton();
-  };
-  if (document.startViewTransition) document.startViewTransition(doSwap);
-  else doSwap();
-}
-
-/* ===== تثبيت التطبيق (PWA) ===== */
-if ('serviceWorker' in navigator) {
-  window.addEventListener('load', function(){ navigator.serviceWorker.register('indexx.php?asset=sw').catch(function(){}); });
-}
-let _deferredInstall = null;
-window.addEventListener('beforeinstallprompt', function(e){
-  e.preventDefault();
-  _deferredInstall = e;
-  showInstallBanner();
-});
-function showInstallBanner(){
-  if (!_deferredInstall) return;
-  let dismissed = false;
-  try { dismissed = sessionStorage.getItem('installDismissed') === '1'; } catch (err) {}
-  const b = document.getElementById('installBanner');
-  if (b && !dismissed) b.hidden = false;
-}
-document.addEventListener('click', function(e){
-  if (e.target.closest('#installBtn')) {
-    document.getElementById('installBanner')?.setAttribute('hidden', '');
-    if (_deferredInstall) { _deferredInstall.prompt(); _deferredInstall.userChoice.finally(() => { _deferredInstall = null; }); }
-  } else if (e.target.closest('#installDismiss')) {
-    document.getElementById('installBanner')?.setAttribute('hidden', '');
-    try { sessionStorage.setItem('installDismissed', '1'); } catch (err) {}
-  }
-});
-
-function renderGoogleButton(){}
-<?php if (GOOGLE_CLIENT_ID !== ''): ?>
-/* ===== تسجيل الدخول عبر Google ===== */
-function handleGoogleCredential(response){
-  setLoading(true);
-  const fd = new FormData();
-  fd.append('action', 'google_login');
-  fd.append('credential', response.credential);
-  fetch('indexx.php', {method:'POST', body: fd, headers:{'X-Requested-With':'fetch'}, credentials:'same-origin'})
-    .then(r => r.json()).then(applySwap).catch(() => { window.location.href = 'indexx.php'; })
-    .finally(() => setLoading(false));
-}
-function renderGoogleButton(){
-  const box = document.getElementById('googleBtnContainer');
-  if (!box || !window.google?.accounts?.id) return;
-  google.accounts.id.initialize({client_id: '<?= h(GOOGLE_CLIENT_ID) ?>', callback: handleGoogleCredential});
-  box.innerHTML = '';
-  google.accounts.id.renderButton(box, {type:'standard', theme:'outline', size:'large', shape:'pill', locale:'ar'});
-}
-window.addEventListener('load', renderGoogleButton);
-<?php endif; ?>
-
-async function navigateTo(url){
-  setLoading(true);
-  try {
-    const r = await fetch(url, {headers:{'X-Requested-With':'fetch'}, credentials:'same-origin'});
-    if (!r.ok) throw new Error('bad response');
-    applySwap(await r.json());
-  } catch (err) {
-    window.location.href = url;
-  }
-  setLoading(false);
-}
-
-async function submitPost(form){
-  setLoading(true);
-  try {
-    const fd = new FormData(form);
-    const r = await fetch('indexx.php', {method:'POST', body: fd, headers:{'X-Requested-With':'fetch'}, credentials:'same-origin'});
-    if (!r.ok) throw new Error('bad response');
-    applySwap(await r.json());
-  } catch (err) {
-    form.submit();
-  }
-  setLoading(false);
-}
-
-document.addEventListener('click', function(e){
-  const a = e.target.closest('a[href]');
-  if (!a || !a.closest('#app-root')) return;
-  const href = a.getAttribute('href');
-  if (!href || !href.startsWith('indexx.php') || a.target === '_blank') return;
-  e.preventDefault();
-  navigateTo(href);
-});
-
-document.addEventListener('submit', function(e){
-  const form = e.target;
-  if (!form.closest('#app-root')) return;
-  e.preventDefault();
-  if (form.id === 'aiChatForm') { handleAiChatSubmit(form); return; }
-  if ((form.getAttribute('method') || 'get').toLowerCase() === 'get') {
-    const qs = new URLSearchParams(new FormData(form)).toString();
-    navigateTo((form.getAttribute('action') || 'indexx.php') + '?' + qs);
-  } else {
-    submitPost(form);
-  }
-});
-
-async function handleAiChatSubmit(form){
-  const inp = document.getElementById('aiInput');
-  const msg = inp.value.trim();
-  if (!msg) return;
-  const box = document.getElementById('aiMsgs');
-  box.insertAdjacentHTML('beforeend', '<div class="ai-msg ai-user"></div>');
-  box.lastElementChild.textContent = msg;
-  window._aiHistory = window._aiHistory || [];
-  window._aiHistory.push({role:'user', content: msg});
-  inp.value = '';
-  box.scrollTop = box.scrollHeight;
-  box.insertAdjacentHTML('beforeend', '<div class="ai-msg ai-bot" id="aiTyping">...</div>');
-  box.scrollTop = box.scrollHeight;
-  try {
-    const r = await fetch('indexx.php?ajax=chat', {method:'POST', headers:{'Content-Type':'application/json'}, credentials:'same-origin', body: JSON.stringify({message: msg, history: window._aiHistory})});
-    const data = await r.json();
-    document.getElementById('aiTyping')?.remove();
-    box.insertAdjacentHTML('beforeend', '<div class="ai-msg ai-bot"></div>');
-    box.lastElementChild.textContent = data.reply;
-    window._aiHistory.push({role:'assistant', content: data.reply});
-    if (data.product) {
-      const p = data.product;
-      box.insertAdjacentHTML('beforeend', '<a href="indexx.php?page=product&id=' + encodeURIComponent(p.id) + '" class="ai-product-card"><div class="ai-product-img">' + (p.image ? '<img src="' + p.image + '" alt="">' : '<i class="fas fa-box"></i>') + '</div><div class="ai-product-info"><h5></h5><span></span></div><i class="fas fa-arrow-left"></i></a>');
-      const cardEl = box.lastElementChild;
-      cardEl.querySelector('h5').textContent = p.name;
-      cardEl.querySelector('span').textContent = p.price;
-    }
-  } catch (err) {
-    document.getElementById('aiTyping')?.remove();
-    box.insertAdjacentHTML('beforeend', '<div class="ai-msg ai-bot">صار خطأ بالاتصال، حاول مرة ثانية.</div>');
-  }
-  box.scrollTop = box.scrollHeight;
-}
-
-function aiShow(view){
-  document.getElementById('aiIntent')?.setAttribute('hidden','');
-  document.getElementById('aiChatView')?.setAttribute('hidden','');
-  document.getElementById('aiComplaintView')?.setAttribute('hidden','');
-  document.getElementById(view)?.removeAttribute('hidden');
-  if (view === 'aiChatView') document.getElementById('aiInput')?.focus();
-}
-
-function useMyLocation(){
-  const status = document.getElementById('locStatus');
-  if (!navigator.geolocation) { status.textContent = 'المتصفح ما يدعم تحديد الموقع'; return; }
-  status.textContent = 'جاري التحديد...';
-  navigator.geolocation.getCurrentPosition(function(pos){
-    const lat = pos.coords.latitude, lng = pos.coords.longitude;
-    document.getElementById('deliveryLocation').value = 'إحداثيات GPS: ' + lat.toFixed(6) + ', ' + lng.toFixed(6);
-    status.textContent = 'جارٍ تحديد اسم الموقع...';
-    fetch('https://nominatim.openstreetmap.org/reverse?format=json&lat=' + lat + '&lon=' + lng + '&accept-language=ar&zoom=18')
-      .then(r => r.json())
-      .then(data => {
-        if (data && data.display_name) {
-          document.getElementById('deliveryLocation').value = data.display_name;
-          status.textContent = 'تم تحديد موقعك ✅';
-        } else {
-          status.textContent = 'تم تحديد إحداثياتك، تعذّر إيجاد اسم للمكان';
-        }
-      })
-      .catch(() => { status.textContent = 'تم تحديد إحداثياتك، تعذّر إيجاد اسم للمكان'; });
-  }, function(){
-    status.textContent = 'تعذّر تحديد الموقع، اكتبه يدوياً';
-  });
-}
-
-/* ===== سحب لحذف الإشعارات ===== */
-let _swEl = null, _swStartX = 0, _swCurX = 0;
-document.addEventListener('pointerdown', function(e){
-  const row = e.target.closest('.notif-row');
-  if (!row || e.target.closest('button')) return;
-  _swEl = row; _swStartX = e.clientX; _swCurX = 0;
-  row.style.transition = 'none';
-});
-document.addEventListener('pointermove', function(e){
-  if (!_swEl) return;
-  _swCurX = e.clientX - _swStartX;
-  if (_swCurX > 0) _swCurX = 0;
-  _swEl.style.transform = `translateX(${_swCurX}px)`;
-});
-function _swEnd(){
-  if (!_swEl) return;
-  const el = _swEl, cur = _swCurX;
-  el.style.transition = 'transform .2s';
-  if (cur < -80) {
-    el.style.transform = 'translateX(-110%)';
-    const btn = el.querySelector('.notif-delete-trigger');
-    setTimeout(() => btn?.click(), 180);
-  } else {
-    el.style.transform = '';
-  }
-  _swEl = null; _swCurX = 0;
-}
-document.addEventListener('pointerup', _swEnd);
-document.addEventListener('pointercancel', _swEnd);
-
-function toggleTheme(){
-  const cur=document.documentElement.getAttribute('data-theme');
-  const next=cur==='dark'?null:'dark';
-  if(next)document.documentElement.setAttribute('data-theme',next);else document.documentElement.removeAttribute('data-theme');
-  try{localStorage.setItem('mk_theme',next||'')}catch(e){}
-}
-(function(){try{if(localStorage.getItem('mk_theme')==='dark')document.documentElement.setAttribute('data-theme','dark')}catch(e){}})();
-
-
-function openLightbox(src){
-  let lb=document.querySelector('.lightbox');
-  if(!lb){lb=document.createElement('div');lb.className='lightbox';lb.innerHTML='<img>';lb.onclick=()=>lb.classList.remove('open');document.body.appendChild(lb);}
-  lb.querySelector('img').src=src;
-  lb.classList.add('open');
-}
-
-function swapMain(src,el){
-  document.getElementById('mainImg').src=src;
-  document.querySelectorAll('.gallery-thumbs img').forEach(t=>t.classList.remove('active'));
-  el.classList.add('active');
-}
-
-function qtyChange(delta){
-  const inp=document.getElementById('qtyInput');
-  let v=parseInt(inp.value||'1')+delta;
-  if(v<1)v=1;
-  inp.value=v;
-}
-
-function openSheet(id){document.getElementById(id).classList.add('open');document.getElementById('sheetBackdrop').classList.add('open');}
-function closeSheets(){document.querySelectorAll('.confirm-sheet, .admin-sidebar').forEach(s=>s.classList.remove('open'));document.getElementById('sheetBackdrop')?.classList.remove('open');}
-
-document.addEventListener('click', function(e){
-  const btn = e.target.closest('.pw-toggle');
-  if (!btn) return;
-  const input = btn.previousElementSibling;
-  if (!input || input.tagName !== 'INPUT') return;
-  const showing = input.type === 'text';
-  input.type = showing ? 'password' : 'text';
-  btn.querySelector('i').className = 'fas ' + (showing ? 'fa-eye-slash' : 'fa-eye');
-});
-
-function previewTheme(){
-  const color=document.getElementById('pv_color')?.value;
-  const radiusSel=document.getElementById('pv_radius')?.value;
-  const radiusMap={sharp:'6px',rounded:'16px',pill:'28px'};
-  const pv=document.getElementById('themePreview');
-  if(!pv)return;
-  pv.style.setProperty('--pv-color',color);
-  pv.style.setProperty('--pv-radius',radiusMap[radiusSel]||'16px');
-}
-<?php }
 
 /* ===================== مكوّنات العرض المشتركة ===================== */
 function render_store_card(array $s): string {
     $img = $s['logo'] ? UPLOAD_URL . '/' . basename($s['logo']) : '';
     ob_start(); ?>
-    <a class="store-card an" href="indexx.php?page=store&id=<?= $s['id'] ?>">
+    <a class="store-card an" href="index.php?page=store&id=<?= $s['id'] ?>">
         <div class="store-card-logo" style="background:<?= $img ? 'transparent' : 'var(--gradient)' ?>">
             <?php if ($img): ?><img src="<?= h($s['logo']) ?>" alt=""><?php else: ?><i class="fas <?= category_icon($s['category']) ?>"></i><?php endif; ?>
         </div>
@@ -2028,7 +1369,7 @@ function render_store_card(array $s): string {
 function render_store_tile(array $s): string {
     $img = $s['logo'] ? UPLOAD_URL . '/' . basename($s['logo']) : '';
     ob_start(); ?>
-    <a class="store-tile an" href="indexx.php?page=store&id=<?= $s['id'] ?>">
+    <a class="store-tile an" href="index.php?page=store&id=<?= $s['id'] ?>">
         <div class="store-tile-icon" style="background:<?= $img ? 'transparent' : 'var(--gradient)' ?>">
             <?php if ($img): ?><img src="<?= h($s['logo']) ?>" alt=""><?php else: ?><i class="fas <?= category_icon($s['category']) ?>"></i><?php endif; ?>
         </div>
@@ -2043,7 +1384,7 @@ function render_product_card(array $p): string {
     $hasDiscount = !empty($p['discount_price']) && $p['discount_price'] < $p['price'];
     $pct = $hasDiscount ? round((1 - $p['discount_price'] / $p['price']) * 100) : 0;
     ob_start(); ?>
-    <a class="prod-card an" href="indexx.php?page=product&id=<?= $p['id'] ?>">
+    <a class="prod-card an" href="index.php?page=product&id=<?= $p['id'] ?>">
         <div class="prod-card-img">
             <?php if ($img): ?><img src="<?= h($img) ?>" alt=""><?php else: ?><i class="fas <?= category_icon($p['category']) ?>"></i><?php endif; ?>
             <?php if ($hasDiscount): ?><span class="prod-badge">-<?= $pct ?>%</span><?php endif; ?>
@@ -2068,7 +1409,7 @@ function render_product_row(array $p): string {
     $img = $p['images'][0] ?? '';
     $hasDiscount = !empty($p['discount_price']) && $p['discount_price'] < $p['price'];
     ob_start(); ?>
-    <a class="store-card an" href="indexx.php?page=product&id=<?= $p['id'] ?>">
+    <a class="store-card an" href="index.php?page=product&id=<?= $p['id'] ?>">
         <div class="store-card-logo" style="background:<?= $img ? 'transparent' : 'var(--gradient)' ?>">
             <?php if ($img): ?><img src="<?= h($img) ?>" alt=""><?php else: ?><i class="fas <?= category_icon($p['category']) ?>"></i><?php endif; ?>
         </div>
@@ -2116,10 +1457,10 @@ function app_shell_inner(string $body, ?string $activeTab = 'home'): string {
     ob_start();
     ?>
 <header class="topbar an">
-  <a href="indexx.php" class="logo"><?php if (site_logo_url()): ?><img src="<?= h(site_logo_url()) ?>" alt="" class="logo-img"><?php else: ?><i class="fas fa-store"></i><?php endif; ?> <?= h(site_name()) ?></a>
+  <a href="index.php" class="logo"><?php if (site_logo_url()): ?><img src="<?= h(site_logo_url()) ?>" alt="" class="logo-img"><?php else: ?><i class="fas fa-store"></i><?php endif; ?> <?= h(site_name()) ?></a>
   <div class="topbar-right">
-    <a class="icon-btn" href="indexx.php?page=notifications" title="الإشعارات"><i class="fas fa-bell"></i><?php if ($unreadCount): ?><span class="badge"><?= $unreadCount ?></span><?php endif; ?></a>
-    <a class="icon-btn" href="indexx.php?page=cart" title="السلة"><i class="fas fa-cart-shopping"></i><?php if ($cartCount): ?><span class="badge"><?= $cartCount ?></span><?php endif; ?></a>
+    <a class="icon-btn" href="index.php?page=notifications" title="الإشعارات"><i class="fas fa-bell"></i><?php if ($unreadCount): ?><span class="badge"><?= $unreadCount ?></span><?php endif; ?></a>
+    <a class="icon-btn" href="index.php?page=cart" title="السلة"><i class="fas fa-cart-shopping"></i><?php if ($cartCount): ?><span class="badge"><?= $cartCount ?></span><?php endif; ?></a>
   </div>
 </header>
 
@@ -2138,11 +1479,11 @@ function app_shell_inner(string $body, ?string $activeTab = 'home'): string {
 </main>
 
 <nav class="tabbar">
-  <a class="tab <?= $activeTab==='home'?'active':'' ?>" href="indexx.php"><i class="fas fa-house"></i><span>الرئيسية</span></a>
-  <a class="tab <?= $activeTab==='stores'?'active':'' ?>" href="indexx.php?page=stores"><i class="fas fa-shop"></i><span>المتاجر</span></a>
-  <a class="tab tab-ai <?= $activeTab==='ai'?'active':'' ?>" href="indexx.php?page=ai"><i class="fas fa-sparkles"></i><span>المساعد الذكي</span></a>
-  <a class="tab <?= $activeTab==='orders'?'active':'' ?>" href="indexx.php?page=orders"><i class="fas fa-receipt"></i><span>طلباتي</span></a>
-  <a class="tab <?= $activeTab==='account'?'active':'' ?>" href="indexx.php?page=account"><i class="fas fa-user"></i><span>حسابي</span></a>
+  <a class="tab <?= $activeTab==='home'?'active':'' ?>" href="index.php"><i class="fas fa-house"></i><span>الرئيسية</span></a>
+  <a class="tab <?= $activeTab==='stores'?'active':'' ?>" href="index.php?page=stores"><i class="fas fa-shop"></i><span>المتاجر</span></a>
+  <a class="tab tab-ai <?= $activeTab==='ai'?'active':'' ?>" href="index.php?page=ai"><i class="fas fa-sparkles"></i><span>المساعد الذكي</span></a>
+  <a class="tab <?= $activeTab==='orders'?'active':'' ?>" href="index.php?page=orders"><i class="fas fa-receipt"></i><span>طلباتي</span></a>
+  <a class="tab <?= $activeTab==='account'?'active':'' ?>" href="index.php?page=account"><i class="fas fa-user"></i><span>حسابي</span></a>
 </nav>
 
 <div class="sheet-backdrop" id="sheetBackdrop" onclick="closeSheets()"></div>
@@ -2166,93 +1507,25 @@ function full_document(string $title, string $inner): void {
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
 <title><?= h($title) ?> — <?= h(site_name()) ?></title>
-<link rel="manifest" href="indexx.php?asset=manifest">
+<link rel="manifest" href="manifest.php">
 <meta name="theme-color" content="#f2b100">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="<?= h(site_name()) ?>">
-<link rel="apple-touch-icon" href="<?= h(site_logo_url() ?? 'indexx.php?asset=icon&size=192') ?>">
-<link rel="icon" href="<?= h(site_logo_url() ?? 'indexx.php?asset=icon&size=192') ?>">
+<link rel="apple-touch-icon" href="<?= h(site_logo_url() ?? 'assets/icon-192.png') ?>">
+<link rel="icon" href="<?= h(site_logo_url() ?? 'assets/icon-192.png') ?>">
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
 <?php if (GOOGLE_CLIENT_ID !== ''): ?><script src="https://accounts.google.com/gsi/client" async defer></script><?php endif; ?>
-<link rel="stylesheet" href="indexx.php?asset=style.css">
+<link rel="stylesheet" href="assets/style.css">
 </head>
 <body>
 <div class="bg-orb bo1"></div><div class="bg-orb bo2"></div>
 <div id="app-root"><?= $inner ?></div>
-<script src="indexx.php?asset=app.js"></script>
+<script>window.APP_CONFIG = <?= json_encode(['siteName' => site_name(), 'googleClientId' => GOOGLE_CLIENT_ID], JSON_UNESCAPED_UNICODE) ?>;</script>
+<script src="assets/app.js"></script>
 </body>
 </html>
     <?php
-}
-
-/* ===================== PWA: مانيفست وservice worker من نفس الملف (بلا ملفات إضافية) ===================== */
-if (isset($_GET['asset']) && $_GET['asset'] === 'manifest') {
-    header('Content-Type: application/manifest+json; charset=utf-8');
-    $logo = site_logo_url();
-    $iconType = function_exists('imagecreatetruecolor') ? 'image/png' : 'image/svg+xml';
-    $icons = $logo
-        ? [['src'=>$logo, 'sizes'=>'192x192', 'type'=>'image/png', 'purpose'=>'any'], ['src'=>$logo, 'sizes'=>'512x512', 'type'=>'image/png', 'purpose'=>'any']]
-        : [['src'=>'indexx.php?asset=icon&size=192', 'sizes'=>'192x192', 'type'=>$iconType, 'purpose'=>'any'], ['src'=>'indexx.php?asset=icon&size=512', 'sizes'=>'512x512', 'type'=>$iconType, 'purpose'=>'any']];
-    echo json_encode([
-        'name' => site_name(),
-        'short_name' => site_name(),
-        'start_url' => 'indexx.php',
-        'scope' => './',
-        'display' => 'standalone',
-        'background_color' => '#ffffff',
-        'theme_color' => '#f2b100',
-        'dir' => 'rtl',
-        'lang' => 'ar',
-        'icons' => $icons,
-    ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
-    exit;
-}
-if (isset($_GET['asset']) && $_GET['asset'] === 'icon') {
-    $size = (int)($_GET['size'] ?? 512);
-    if (!in_array($size, [192, 512], true)) $size = 512;
-    /* لا يوجد ملف خط TTF متاح برفقة هذا الملف الواحد لرسم أول حرف من الاسم
-       (عربي غالباً) بامتداد GD، فنرسم أيقونة حقيبة تسوّق بسيطة بأشكال هندسية
-       بدل النص — تعمل بأي لغة وتبقى مقروءة بأصغر حجم. PNG حقيقي أفضل لمعايير
-       تثبيت PWA على أندرويد من SVG وحدها؛ SVG تبقى احتياطاً إن كان GD معطّلاً. */
-    if (function_exists('imagecreatetruecolor')) {
-        header('Content-Type: image/png');
-        $im = imagecreatetruecolor($size, $size);
-        $bg = imagecolorallocate($im, 0xf2, 0xb1, 0x00);
-        imagefill($im, 0, 0, $bg);
-        $white = imagecolorallocate($im, 255, 255, 255);
-        $m = (int)($size * 0.24);
-        $bodyTop = (int)($size * 0.44);
-        $bodyBottom = (int)($size * 0.8);
-        imagefilledrectangle($im, $m, $bodyTop, $size - $m, $bodyBottom, $white);
-        imagesetthickness($im, max(2, (int)($size * 0.045)));
-        $handleW = (int)($size * 0.34);
-        imagearc($im, (int)($size / 2), $bodyTop, $handleW, (int)($handleW * 1.15), 180, 360, $white);
-        imagepng($im);
-        imagedestroy($im);
-        exit;
-    }
-    header('Content-Type: image/svg+xml; charset=utf-8');
-    echo '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><rect width="512" height="512" fill="#f2b100"/><rect x="123" y="225" width="266" height="184" fill="#fff"/><path d="M190 225a66 66 0 0 1 132 0" fill="none" stroke="#fff" stroke-width="22"/></svg>';
-    exit;
-}
-if (isset($_GET['asset']) && $_GET['asset'] === 'sw') {
-    header('Content-Type: application/javascript; charset=utf-8');
-    header('Service-Worker-Allowed: ./');
-    echo "self.addEventListener('install',e=>self.skipWaiting());self.addEventListener('activate',e=>self.clients.claim());self.addEventListener('fetch',e=>{});";
-    exit;
-}
-if (isset($_GET['asset']) && $_GET['asset'] === 'style.css') {
-    header('Content-Type: text/css; charset=utf-8');
-    header('Cache-Control: public, max-age=300');
-    render_css();
-    exit;
-}
-if (isset($_GET['asset']) && $_GET['asset'] === 'app.js') {
-    header('Content-Type: application/javascript; charset=utf-8');
-    header('Cache-Control: public, max-age=300');
-    render_js();
-    exit;
 }
 
 if (isset($_GET['ajax']) && $_GET['ajax'] === 'chat') {
@@ -2341,13 +1614,13 @@ function welcome_inner(): string {
 <div class="auth-page">
   <div class="auth-blob auth-blob-tl"></div>
   <div class="auth-blob auth-blob-br"></div>
-  <a href="indexx.php?page=login" class="auth-skip an">تخطي <i class="fas fa-arrow-left"></i></a>
+  <a href="index.php?page=login" class="auth-skip an">تخطي <i class="fas fa-arrow-left"></i></a>
   <?= render_auth_hero(false) ?>
   <h1 class="auth-heading an">تسوق من متاجرك المفضلة واكتشف أفضل المتاجر</h1>
   <p class="auth-heading-sub an">كل المتاجر والمنتجات بمكان واحد، بتجربة سلسة وسريعة</p>
   <div class="auth-dots an"><span class="active"></span><span></span><span></span></div>
   <div style="flex:1"></div>
-  <a href="indexx.php?page=register" class="btn an" style="max-width:360px;margin:0 auto;display:flex"><i class="fas fa-arrow-left"></i> ابدأ الآن</a>
+  <a href="index.php?page=register" class="btn an" style="max-width:360px;margin:0 auto;display:flex"><i class="fas fa-arrow-left"></i> ابدأ الآن</a>
 </div>
     <?php return ob_get_clean();
 }
@@ -2374,7 +1647,7 @@ function login_inner(): string {
     </form>
     <?= render_google_button() ?>
   </div>
-  <div class="login-admin-link an" style="--ad:.2s">ليس لديك حساب؟ <a href="indexx.php?page=register">إنشاء حساب جديد</a></div>
+  <div class="login-admin-link an" style="--ad:.2s">ليس لديك حساب؟ <a href="index.php?page=register">إنشاء حساب جديد</a></div>
 </div>
     <?php
     return ob_get_clean();
@@ -2410,7 +1683,7 @@ function register_inner(): string {
     </form>
     <?= render_google_button() ?>
   </div>
-  <div class="login-admin-link an" style="--ad:.2s">لديك حساب بالفعل؟ <a href="indexx.php?page=login">تسجيل الدخول</a></div>
+  <div class="login-admin-link an" style="--ad:.2s">لديك حساب بالفعل؟ <a href="index.php?page=login">تسجيل الدخول</a></div>
 </div>
     <?php
     return ob_get_clean();
@@ -2445,16 +1718,16 @@ function page_home(): string {
 
     <div class="hscroll an" style="--ad:.12s;margin-bottom:20px">
         <?php foreach (get_categories() as $c): ?>
-            <a class="cat-chip" href="indexx.php?page=stores&cat=<?= urlencode($c) ?>"><i class="fas <?= category_icon($c) ?>"></i><?= h($c) ?></a>
+            <a class="cat-chip" href="index.php?page=stores&cat=<?= urlencode($c) ?>"><i class="fas <?= category_icon($c) ?>"></i><?= h($c) ?></a>
         <?php endforeach; ?>
     </div>
 
     <?php
     $inner = '<div class="hscroll">' . implode('', array_map(fn($s) => '<div style="min-width:220px">' . render_store_card($s) . '</div>', array_slice($featured, 0, 6))) . '</div>';
-    echo $featured ? render_section('fa-star', 'متاجر مميزة', $inner, 'indexx.php?page=stores') : '';
+    echo $featured ? render_section('fa-star', 'متاجر مميزة', $inner, 'index.php?page=stores') : '';
 
     $inner = '<div class="store-grid6">' . implode('', array_map('render_store_tile', $newest)) . '</div>';
-    echo render_section('fa-clock', 'أحدث المتاجر', $inner, 'indexx.php?page=stores');
+    echo render_section('fa-clock', 'أحدث المتاجر', $inner, 'index.php?page=stores');
 
     $inner = '<div class="hgrid">' . implode('', array_map('render_product_card', $newProducts)) . '</div>';
     echo $newProducts ? render_section('fa-bolt', 'منتجات جديدة', $inner) : '';
@@ -2483,9 +1756,9 @@ function page_stores(): string {
         <div class="search-bar"><i class="fas fa-magnifying-glass"></i><input type="text" name="q" value="<?= h($q) ?>" placeholder="ابحث عن متجر..."></div>
     </form>
     <div class="chips an">
-        <a class="chip <?= $cat===''?'active':'' ?>" href="indexx.php?page=stores">الكل</a>
+        <a class="chip <?= $cat===''?'active':'' ?>" href="index.php?page=stores">الكل</a>
         <?php foreach (get_categories() as $c): ?>
-            <a class="chip <?= $cat===$c?'active':'' ?>" href="indexx.php?page=stores&cat=<?= urlencode($c) ?>"><?= h($c) ?></a>
+            <a class="chip <?= $cat===$c?'active':'' ?>" href="index.php?page=stores&cat=<?= urlencode($c) ?>"><?= h($c) ?></a>
         <?php endforeach; ?>
     </div>
     <?php if (!$stores): ?>
@@ -2522,7 +1795,7 @@ function page_store(): string {
                 <div style="font-size:.78rem;margin-top:2px"><?= render_stars(store_rating($store['id'])) ?></div>
                 </div>
                 <?php if ($user): ?>
-                <form method="post"><input type="hidden" name="action" value="toggle_favorite"><input type="hidden" name="type" value="store"><input type="hidden" name="id" value="<?= $id ?>"><input type="hidden" name="back" value="indexx.php?page=store&id=<?= $id ?>">
+                <form method="post"><input type="hidden" name="action" value="toggle_favorite"><input type="hidden" name="type" value="store"><input type="hidden" name="id" value="<?= $id ?>"><input type="hidden" name="back" value="index.php?page=store&id=<?= $id ?>">
                     <button class="icon-btn" style="<?= $isFav?'color:var(--danger)':'' ?>"><i class="fa<?= $isFav?'s':'r' ?> fa-heart"></i></button>
                 </form>
                 <?php endif; ?>
@@ -2571,7 +1844,7 @@ function page_product(): string {
         <?php foreach ($images as $i => $img): ?><img src="<?= h($img) ?>" class="<?= $i===0?'active':'' ?>" onclick="swapMain('<?= h($img) ?>',this)"><?php endforeach; ?>
     </div>
     <?php endif; ?>
-    <a href="indexx.php?page=store&id=<?= $store['id'] ?>" style="font-size:.72rem;color:var(--accent);font-weight:700"><i class="fas fa-store"></i> <?= h($store['name'] ?? '') ?></a>
+    <a href="index.php?page=store&id=<?= $store['id'] ?>" style="font-size:.72rem;color:var(--accent);font-weight:700"><i class="fas fa-store"></i> <?= h($store['name'] ?? '') ?></a>
     <h2 style="font-size:1.1rem;font-weight:800;margin:8px 0 6px"><?= h($p['name']) ?></h2>
     <div class="prod-price" style="margin-bottom:12px">
         <?php if ($hasDiscount): ?>
@@ -2583,10 +1856,10 @@ function page_product(): string {
     </div>
     <p style="font-size:.82rem;line-height:1.9;color:var(--muted);margin-bottom:18px"><?= nl2br(h($p['description'])) ?></p>
 
-    <form method="post" action="indexx.php?page=product&id=<?= $id ?>">
+    <form method="post" action="index.php?page=product&id=<?= $id ?>">
         <input type="hidden" name="action" value="add_to_cart">
         <input type="hidden" name="product_id" value="<?= $id ?>">
-        <input type="hidden" name="back" value="indexx.php?page=product&id=<?= $id ?>">
+        <input type="hidden" name="back" value="index.php?page=product&id=<?= $id ?>">
         <div class="qty-box">
             <button type="button" onclick="qtyChange(-1)">−</button>
             <input id="qtyInput" name="qty" value="1" style="width:30px;text-align:center;border:none;background:none;font-weight:800">
@@ -2607,7 +1880,7 @@ function page_product(): string {
 function page_cart(): string {
     $user = current_user();
     $cart = $_SESSION['cart'] ?? [];
-    if (!$cart) return '<div class="empty-state an"><i class="fas fa-cart-shopping"></i><p>سلتك فارغة</p><a class="btn" style="width:auto;display:inline-flex;margin-top:14px" href="indexx.php?page=stores">تصفح المتاجر</a></div>';
+    if (!$cart) return '<div class="empty-state an"><i class="fas fa-cart-shopping"></i><p>سلتك فارغة</p><a class="btn" style="width:auto;display:inline-flex;margin-top:14px" href="index.php?page=stores">تصفح المتاجر</a></div>';
 
     $products = db_read('products');
     $byStore = [];
@@ -2704,7 +1977,7 @@ function page_account(): string {
     $storeTrail = 'تقديم طلب';
     if ($store) $storeTrail = 'لوحتك جاهزة';
     elseif ($pending) $storeTrail = $pending['status'] === 'pending' ? 'قيد المراجعة' : 'مرفوض';
-    $storeLink = $store ? 'indexx.php?page=vendor' : ($pending ? 'indexx.php?page=account' : 'indexx.php?page=apply-vendor');
+    $storeLink = $store ? 'index.php?page=vendor' : ($pending ? 'index.php?page=account' : 'index.php?page=apply-vendor');
 
     ob_start(); ?>
     <div class="an" style="text-align:center;margin:10px 0 18px">
@@ -2714,14 +1987,14 @@ function page_account(): string {
     </div>
 
     <?php if (is_admin_user()): ?>
-    <a href="indexx.php?page=admin" class="nav-row an" style="background:var(--gradient);color:#1a1a2e">
+    <a href="index.php?page=admin" class="nav-row an" style="background:var(--gradient);color:#1a1a2e">
         <i class="fas fa-user-shield lead" style="color:#1a1a2e"></i>
         <div class="t"><strong>لوحة الإدارة</strong><span style="color:#1a1a2e;opacity:.75">التحكم الكامل بالمنصة</span></div>
         <i class="fas fa-chevron-left"></i>
     </a>
     <?php endif; ?>
 
-    <a href="indexx.php?page=account-wallet" class="nav-row an">
+    <a href="index.php?page=account-wallet" class="nav-row an">
         <i class="fas fa-wallet lead"></i>
         <div class="t"><strong>المحفظة</strong><span>شحن الرصيد ومتابعة الطلبات</span></div>
         <span class="trail" style="color:var(--accent);font-weight:800"><?= money($user['wallet']) ?></span>
@@ -2742,14 +2015,14 @@ function page_account(): string {
     </a>
     <?php endif; ?>
 
-    <a href="indexx.php?page=favorites" class="nav-row an">
+    <a href="index.php?page=favorites" class="nav-row an">
         <i class="fas fa-heart lead"></i>
         <div class="t"><strong>المفضلة</strong><span>المتاجر والمنتجات المحفوظة</span></div>
         <span class="trail"><?= $favCount ?></span>
         <i class="fas fa-chevron-left" style="color:var(--muted)"></i>
     </a>
 
-    <a href="indexx.php?page=notifications" class="nav-row an">
+    <a href="index.php?page=notifications" class="nav-row an">
         <i class="fas fa-bell lead"></i>
         <div class="t"><strong>الإشعارات</strong><span>كل التحديثات والتنبيهات</span></div>
         <i class="fas fa-chevron-left" style="color:var(--muted)"></i>
@@ -2801,7 +2074,7 @@ function page_account_wallet(): string {
     $statusLabel = ['pending'=>'بانتظار المراجعة', 'approved'=>'تمت الموافقة', 'rejected'=>'مرفوض'];
 
     ob_start(); ?>
-    <a href="indexx.php?page=account" class="ai-back an"><i class="fas fa-arrow-right"></i> رجوع لحسابي</a>
+    <a href="index.php?page=account" class="ai-back an"><i class="fas fa-arrow-right"></i> رجوع لحسابي</a>
     <h2 style="font-size:1.05rem;font-weight:800;margin-bottom:14px" class="an"><i class="fas fa-wallet"></i> المحفظة</h2>
     <div class="wallet-card an" style="margin-bottom:14px">
         <div class="wallet-top"><div><div class="greet">رصيدك الحالي</div><div class="wallet-bal"><?= money($user['wallet']) ?></div></div><i class="fas fa-wallet" style="font-size:1.6rem;opacity:.7"></i></div>
@@ -2848,7 +2121,7 @@ function page_favorites(): string {
     $user = current_user();
     $favStores = array_values(array_filter(db_read('stores'), fn($s) => in_array($s['id'], $user['favorites']['stores'] ?? [], true)));
     ob_start(); ?>
-    <a href="indexx.php?page=account" class="ai-back an"><i class="fas fa-arrow-right"></i> رجوع لحسابي</a>
+    <a href="index.php?page=account" class="ai-back an"><i class="fas fa-arrow-right"></i> رجوع لحسابي</a>
     <h2 style="font-size:1.05rem;font-weight:800;margin-bottom:14px" class="an"><i class="fas fa-heart"></i> المفضلة</h2>
     <?php if (!$favStores): ?>
         <div class="empty-state an"><i class="fas fa-heart-crack"></i><p>ما عندك متاجر مفضّلة بعد</p></div>
@@ -3009,7 +2282,7 @@ function vendor_tabs(string $active): string {
     ob_start(); ?>
     <div class="section-tabs">
         <?php foreach ($tabs as $k=>$label): ?>
-            <a class="<?= $active===$k?'active':'' ?>" href="indexx.php?page=vendor&section=<?= $k ?>"><?= $label ?></a>
+            <a class="<?= $active===$k?'active':'' ?>" href="index.php?page=vendor&section=<?= $k ?>"><?= $label ?></a>
         <?php endforeach; ?>
     </div>
     <?php return ob_get_clean();
@@ -3306,7 +2579,7 @@ function admin_sidebar_html(): string {
     <nav class="admin-sidebar" id="adminSidebar">
         <div class="admin-sidebar-head"><span><i class="fas fa-user-shield"></i> لوحة الإدارة</span><button type="button" class="icon-btn" onclick="closeSheets()"><i class="fas fa-xmark"></i></button></div>
         <?php foreach (admin_section_labels() as $k => $label): ?>
-            <a class="<?= $active === $k ? 'active' : '' ?>" href="indexx.php?page=admin&section=<?= $k ?>"><?= h($label) ?></a>
+            <a class="<?= $active === $k ? 'active' : '' ?>" href="index.php?page=admin&section=<?= $k ?>"><?= h($label) ?></a>
         <?php endforeach; ?>
     </nav>
     <?php return ob_get_clean();
@@ -3320,7 +2593,7 @@ function page_admin(): string {
     $pending = array_values(array_filter($stores, fn($s) => $s['status'] === 'pending'));
 
     ob_start();
-    echo '<a href="indexx.php?page=account" class="ai-back an"><i class="fas fa-arrow-right"></i> رجوع لحسابي</a>';
+    echo '<a href="index.php?page=account" class="ai-back an"><i class="fas fa-arrow-right"></i> رجوع لحسابي</a>';
     echo '<h2 style="font-size:1.05rem;font-weight:800;margin-bottom:14px" class="an"><i class="fas fa-user-shield"></i> لوحة الإدارة</h2>';
     echo admin_tabs($section);
 
@@ -3508,7 +2781,7 @@ function page_admin(): string {
         if ($active) {
             $u = null; foreach ($users as $uu) if ($uu['id'] === $active['buyer_id']) $u = $uu;
             $s = null; foreach ($stores as $ss) if ($ss['id'] === $active['store_id']) $s = $ss; ?>
-            <a href="indexx.php?page=admin&section=complaints" class="ai-back an"><i class="fas fa-arrow-right"></i> كل الشكاوى</a>
+            <a href="index.php?page=admin&section=complaints" class="ai-back an"><i class="fas fa-arrow-right"></i> كل الشكاوى</a>
             <div class="card an" style="margin-bottom:14px">
                 <div class="row-between" style="margin-bottom:6px"><strong>شكوى #<?= $active['id'] ?> — طلب #<?= $active['order_id'] ?></strong><span class="d-st-b <?= $active['status']==='resolved'?'st-on':'st-dv' ?>"><?= $active['status']==='resolved'?'تمت المعالجة':'مفتوحة' ?></span></div>
                 <div class="meta">المتجر: <?= h($s['name'] ?? '؟') ?> — المشتري: <?= h($u['name'] ?? '؟') ?> (<?= h($u['phone'] ?? '') ?>)</div>
@@ -3534,7 +2807,7 @@ function page_admin(): string {
                 $u = null; foreach ($users as $uu) if ($uu['id'] === $c['buyer_id']) $u = $uu;
                 $s = null; foreach ($stores as $ss) if ($ss['id'] === $c['store_id']) $s = $ss;
                 $lastMsg = end($c['messages']) ?: null; ?>
-                <a href="indexx.php?page=admin&section=complaints&id=<?= $c['id'] ?>" class="table-card an" style="display:block">
+                <a href="index.php?page=admin&section=complaints&id=<?= $c['id'] ?>" class="table-card an" style="display:block">
                     <div class="row-between"><h5>طلب #<?= $c['order_id'] ?> — <?= h($s['name'] ?? '') ?></h5><span class="d-st-b <?= $c['status']==='resolved'?'st-on':'st-dv' ?>"><?= $c['status']==='resolved'?'تمت المعالجة':'مفتوحة' ?></span></div>
                     <div class="meta">من: <?= h($u['name'] ?? '؟') ?> — <?= date('Y-m-d H:i', $c['created_at']) ?></div>
                     <?php if ($lastMsg): ?><p style="font-size:.76rem;color:var(--muted);margin-top:4px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"><?= h($lastMsg['text']) ?></p><?php endif; ?>

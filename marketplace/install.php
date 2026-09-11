@@ -4,40 +4,19 @@ error_reporting(E_ALL & ~E_DEPRECATED);
 mb_internal_encoding('UTF-8');
 
 /* ملف تنصيب أولي — يضبط اسم الموقع وبيانات دخول الأدمن عبر نموذج بدل تعديل
-   الكود يدوياً. يقرأ ويكتب على نفس مجلد data الذي يستخدمه indexx.php، لذا
-   يعمل بشكل صحيح سواء شُغّل قبل أول زيارة للتطبيق أو بعدها. */
+   الكود يدوياً. يشترك بطبقة التخزين نفسها التي يستخدمها index.php (JSON أو
+   MySQL) عبر includes/db.php، لذا يعمل بشكل صحيح سواء شُغّل قبل أول زيارة
+   للتطبيق أو بعدها، وسواء كان الموقع مربوطاً بـ MySQL أو لا. */
 
-define('DATA_DIR', __DIR__ . '/data');
-if (!is_dir(DATA_DIR)) mkdir(DATA_DIR, 0777, true);
-$__dataHt = DATA_DIR . '/.htaccess';
-if (!file_exists($__dataHt)) @file_put_contents($__dataHt, "Require all denied\nDeny from all\n");
+require_once __DIR__ . '/includes/db.php';
 
-function db_path(string $name): string { return DATA_DIR . '/' . $name . '.json'; }
-function db_read(string $name, array $default = []): array {
-    $f = db_path($name);
-    if (!file_exists($f)) return $default;
-    $data = json_decode((string)file_get_contents($f), true);
-    return is_array($data) ? $data : $default;
-}
-function db_write(string $name, array $data): void {
-    file_put_contents(db_path($name), json_encode($data, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT), LOCK_EX);
-}
 function h(?string $s): string { return htmlspecialchars((string)$s, ENT_QUOTES, 'UTF-8'); }
-
-function db_test_connection(string $host, string $name, string $user, string $pass): ?string {
-    if (!class_exists('mysqli')) return 'امتداد mysqli غير مفعّل على هذه الاستضافة';
-    mysqli_report(MYSQLI_REPORT_OFF);
-    $c = @mysqli_connect($host, $user, $pass, $name);
-    if (!$c) return 'تعذّر الاتصال: ' . (mysqli_connect_error() ?: 'تحقق من بيانات الدخول');
-    $c->close();
-    return null;
-}
 
 $users = db_read('users');
 $hasAdmin = false;
 foreach ($users as $u) if (!empty($u['is_admin']) && !empty($u['password_hash'])) { $hasAdmin = true; break; }
 
-$dbConfigFile = DATA_DIR . '/db_config.json';
+$dbConfigFile = DB_CONFIG_FILE;
 $dbConfig = file_exists($dbConfigFile) ? json_decode((string)file_get_contents($dbConfigFile), true) : [];
 $dbConfig = is_array($dbConfig) ? $dbConfig : [];
 
@@ -132,7 +111,7 @@ a.btn{display:block;text-align:center;text-decoration:none;background:#1a1a2e;co
 <h1>🛠️ تنصيب التطبيق</h1>
 <?php if ($done): ?>
     <div class="ok">✅ تم التنصيب بنجاح! يمكنك الآن تسجيل الدخول بالبريد وكلمة المرور اللي حددتهم.</div>
-    <a class="btn" href="indexx.php">فتح التطبيق</a>
+    <a class="btn" href="index.php">فتح التطبيق</a>
     <div class="warn">⚠️ لأمان موقعك، احذف ملف install.php من الاستضافة الآن.</div>
 <?php else: ?>
     <?php if ($hasAdmin): ?><div class="warn" style="margin-bottom:14px">يوجد حساب أدمن مُهيّأ مسبقاً — إرسال هذا النموذج سيستبدل بريده وكلمة مروره بما تكتبه هنا.</div><?php endif; ?>

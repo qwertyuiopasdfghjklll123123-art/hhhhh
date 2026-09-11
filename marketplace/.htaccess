@@ -1,8 +1,8 @@
-# رابط نظيف: يمكن فتح التطبيق من domain/app بدل domain/indexx.php
-# لا يمس هذا الوصول المباشر لـ indexx.php أبداً — فقط يضيف مساراً بديلاً
+# رابط نظيف: يمكن فتح التطبيق من domain/app بدل domain/index.php
+# لا يمس هذا الوصول المباشر لـ index.php أبداً — فقط يضيف مساراً بديلاً
 <IfModule mod_rewrite.c>
 RewriteEngine On
-RewriteRule ^app/?$ indexx.php [L,QSA]
+RewriteRule ^app/?$ index.php [L,QSA]
 </IfModule>
 
 # حجب الوصول المباشر لملفات النسخ الاحتياطي أو أي ملفات مؤقتة إن وُجدت
