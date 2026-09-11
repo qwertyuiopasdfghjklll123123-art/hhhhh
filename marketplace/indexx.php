@@ -393,13 +393,18 @@ $action = $_POST['action'] ?? '';
 if ($action !== '') {
 
     if ($action === 'login') {
-        $email = trim(mb_strtolower((string)($_POST['email'] ?? '')));
+        $identifier = trim((string)($_POST['identifier'] ?? $_POST['email'] ?? ''));
+        $identifierLower = mb_strtolower($identifier);
         $password = (string)($_POST['password'] ?? '');
         $users = db_read('users');
         $found = null;
-        foreach ($users as $u) if (mb_strtolower($u['email'] ?? '') === $email) { $found = $u; break; }
+        foreach ($users as $u) {
+            $emailMatch = $identifierLower !== '' && mb_strtolower($u['email'] ?? '') === $identifierLower;
+            $phoneMatch = $identifier !== '' && ($u['phone'] ?? '') !== '' && $u['phone'] === $identifier;
+            if ($emailMatch || $phoneMatch) { $found = $u; break; }
+        }
         if (!$found || !password_verify($password, $found['password_hash'] ?? '')) {
-            flash('err', 'البريد أو كلمة المرور غير صحيحة');
+            flash('err', 'البريد أو رقم الهاتف أو كلمة المرور غير صحيحة');
             redirect('indexx.php?page=login');
         }
         $_SESSION['user_id'] = $found['id'];
@@ -1212,6 +1217,32 @@ button,input,select,textarea{font-family:inherit;color:inherit}
 .auth-divider{display:flex;align-items:center;gap:10px;margin:16px 0;font-size:.68rem;color:var(--muted)}
 .auth-divider::before,.auth-divider::after{content:'';flex:1;height:1px;background:var(--border)}
 .google-btn-wrap{display:flex;justify-content:center;min-height:40px}
+.auth-page{min-height:100vh;min-height:100dvh;position:relative;overflow:hidden;padding:22px 22px calc(22px + env(safe-area-inset-bottom,0px));display:flex;flex-direction:column;z-index:1}
+.auth-blob{position:absolute;border-radius:50%;z-index:-1}
+.auth-blob-tl{width:230px;height:230px;background:var(--accent2);top:-100px;left:-100px;opacity:.4}
+.auth-blob-br{width:260px;height:260px;background:var(--accent2);bottom:-120px;right:-120px;opacity:.35}
+.auth-skip{align-self:flex-start;font-size:.78rem;font-weight:700;color:var(--text);display:flex;align-items:center;gap:6px;text-decoration:none}
+.auth-hero{position:relative;display:flex;align-items:center;justify-content:center;margin:20px auto 10px;width:100%;max-width:230px;aspect-ratio:1}
+.auth-hero.sm{max-width:150px;margin:6px auto 14px}
+.auth-hero-main{width:54%;height:54%;border-radius:30px;background:var(--gradient);display:flex;align-items:center;justify-content:center;font-size:2.4rem;color:#1a1a2e;box-shadow:0 18px 36px rgba(242,177,0,.28);overflow:hidden}
+.auth-hero-bubble{position:absolute;width:50px;height:50px;border-radius:16px;background:var(--card);box-shadow:var(--shadow);display:flex;align-items:center;justify-content:center;font-size:1.1rem;color:var(--accent)}
+.auth-hero.sm .auth-hero-bubble{width:34px;height:34px;border-radius:11px;font-size:.85rem}
+.auth-hero-bubble.b1{top:2%;left:2%}
+.auth-hero-bubble.b2{top:6%;right:0}
+.auth-hero-bubble.b3{bottom:6%;left:0}
+.auth-hero-bubble.b4{bottom:2%;right:4%}
+.auth-heading{font-size:1.2rem;font-weight:900;text-align:center;margin:4px 0 6px;line-height:1.5}
+.auth-heading-sub{font-size:.78rem;color:var(--muted);text-align:center;margin-bottom:18px;line-height:1.7}
+.auth-dots{display:flex;gap:6px;justify-content:center;margin:16px 0 4px}
+.auth-dots span{width:7px;height:7px;border-radius:50%;background:var(--border);display:block}
+.auth-dots span.active{width:20px;border-radius:4px;background:var(--accent)}
+.field-icon-wrap{position:relative}
+.field-icon-wrap input{padding-right:42px}
+.field-icon-wrap .field-ic{position:absolute;right:14px;top:50%;transform:translateY(-50%);color:var(--muted);font-size:.85rem;pointer-events:none}
+.field-icon-wrap .pw-toggle{position:absolute;right:14px;top:50%;transform:translateY(-50%);color:var(--muted);font-size:.85rem;background:none;border:none;cursor:pointer;padding:4px}
+.auth-forgot{display:block;width:fit-content;margin:-6px 0 6px;font-size:.7rem;color:var(--accent);cursor:pointer;list-style:none}
+.auth-forgot::-webkit-details-marker{display:none}
+.auth-forgot-note{font-size:.68rem;color:var(--muted);margin:-4px 0 12px;line-height:1.7}
 .captcha-box{display:flex;gap:10px;justify-content:center;padding:14px 10px;background:repeating-linear-gradient(135deg,var(--hover-bg),var(--hover-bg) 6px,transparent 6px,transparent 12px);border-radius:12px;border:1px dashed var(--border);user-select:none;-webkit-user-select:none;-moz-user-select:none;pointer-events:none}
 .captcha-box span{font-size:1.3rem;font-weight:900;font-family:monospace;letter-spacing:2px;color:var(--text);display:inline-block}
 .stepper{display:flex;justify-content:space-between;position:relative;margin:18px 0 6px}
@@ -1555,6 +1586,16 @@ function qtyChange(delta){
 function openSheet(id){document.getElementById(id).classList.add('open');document.getElementById('sheetBackdrop').classList.add('open');}
 function closeSheets(){document.querySelectorAll('.confirm-sheet').forEach(s=>s.classList.remove('open'));document.getElementById('sheetBackdrop')?.classList.remove('open');}
 
+document.addEventListener('click', function(e){
+  const btn = e.target.closest('.pw-toggle');
+  if (!btn) return;
+  const input = btn.previousElementSibling;
+  if (!input || input.tagName !== 'INPUT') return;
+  const showing = input.type === 'text';
+  input.type = showing ? 'password' : 'text';
+  btn.querySelector('i').className = 'fas ' + (showing ? 'fa-eye-slash' : 'fa-eye');
+});
+
 function previewTheme(){
   const color=document.getElementById('pv_color')?.value;
   const radiusSel=document.getElementById('pv_radius')?.value;
@@ -1827,24 +1868,65 @@ function render_google_button(): string {
     <?php return ob_get_clean();
 }
 
+/* أيقونات زخرفية تمثّل تصنيفات المتجر نفسه بدل شعارات شركات عالمية (Adidas/Nike/Apple/Samsung
+   بصور المرجع) — لا يصح تضمين علامات تجارية لشركات لا علاقة لها بهذا السوق. */
+function render_auth_hero(bool $small = false): string {
+    $icons = ['fa-shirt', 'fa-mobile-screen', 'fa-wand-magic-sparkles', 'fa-kitchen-set'];
+    ob_start(); ?>
+    <div class="auth-hero<?= $small ? ' sm' : '' ?> an">
+        <div class="auth-hero-main"><?php if (site_logo_url()): ?><img src="<?= h(site_logo_url()) ?>" alt="" style="width:100%;height:100%;object-fit:cover"><?php else: ?><i class="fas fa-bag-shopping"></i><?php endif; ?></div>
+        <?php foreach ($icons as $i => $ic): ?>
+        <div class="auth-hero-bubble b<?= $i + 1 ?>"><i class="fas <?= $ic ?>"></i></div>
+        <?php endforeach; ?>
+    </div>
+    <?php return ob_get_clean();
+}
+
+function render_auth_logo(): string {
+    ob_start(); ?>
+    <div class="login-logo an" style="font-size:1.4rem"><?php if (site_logo_url()): ?><img src="<?= h(site_logo_url()) ?>" alt="" class="login-logo-img"><?php else: ?><i class="fas fa-store"></i><?php endif; ?> <?= h(site_name()) ?></div>
+    <?php return ob_get_clean();
+}
+
+function welcome_inner(): string {
+    ob_start(); ?>
+<div class="auth-page">
+  <div class="auth-blob auth-blob-tl"></div>
+  <div class="auth-blob auth-blob-br"></div>
+  <a href="indexx.php?page=login" class="auth-skip an">تخطي <i class="fas fa-arrow-left"></i></a>
+  <?= render_auth_hero(false) ?>
+  <h1 class="auth-heading an">تسوق من متاجرك المفضلة واكتشف أفضل المتاجر</h1>
+  <p class="auth-heading-sub an">كل المتاجر والمنتجات بمكان واحد، بتجربة سلسة وسريعة</p>
+  <div class="auth-dots an"><span class="active"></span><span></span><span></span></div>
+  <div style="flex:1"></div>
+  <a href="indexx.php?page=register" class="btn an" style="max-width:360px;margin:0 auto;display:flex"><i class="fas fa-arrow-left"></i> ابدأ الآن</a>
+</div>
+    <?php return ob_get_clean();
+}
+
 function login_inner(): string {
     $flashes = take_flashes();
     ob_start();
     ?>
-<div class="login-wrap">
-  <div class="login-logo an"><?php if (site_logo_url()): ?><img src="<?= h(site_logo_url()) ?>" alt="" class="login-logo-img"><?php else: ?><i class="fas fa-store"></i><?php endif; ?> <?= h(site_name()) ?></div>
-  <p class="login-sub an">سوق رقمي يجمع كل المتاجر بمكان واحد</p>
-  <?php foreach ($flashes as $f): ?><div class="flash flash-<?= h($f['type']) ?> an" style="max-width:360px;width:100%"><?= h($f['text']) ?></div><?php endforeach; ?>
-  <div class="login-card an" style="--ad:.1s">
+<div class="auth-page" style="justify-content:center">
+  <div class="auth-blob auth-blob-tl"></div>
+  <div class="auth-blob auth-blob-br"></div>
+  <?= render_auth_logo() ?>
+  <?= render_auth_hero(true) ?>
+  <h1 class="auth-heading an">مرحبًا بعودتك</h1>
+  <p class="auth-heading-sub an">سجل دخولك للمتابعة واستكشاف أحدث العروض</p>
+  <?php foreach ($flashes as $f): ?><div class="flash flash-<?= h($f['type']) ?> an" style="max-width:360px;width:100%;margin:0 auto 12px"><?= h($f['text']) ?></div><?php endforeach; ?>
+  <div class="login-card an" style="--ad:.1s;margin:0 auto">
     <form method="post">
       <input type="hidden" name="action" value="login">
-      <div class="field"><label>البريد الإلكتروني</label><input type="email" name="email" placeholder="name@example.com" required autofocus></div>
-      <div class="field"><label>كلمة المرور</label><input type="password" name="password" required></div>
-      <button class="btn" type="submit"><i class="fas fa-arrow-left"></i> دخول</button>
+      <div class="field field-icon-wrap"><label>البريد الإلكتروني أو رقم الجوال</label><input type="text" name="identifier" placeholder="البريد الإلكتروني أو رقم الجوال" required autofocus><i class="fas fa-envelope field-ic"></i></div>
+      <div class="field field-icon-wrap"><label>كلمة المرور</label><input type="password" name="password" required><button type="button" class="pw-toggle"><i class="fas fa-eye-slash"></i></button></div>
+      <details><summary class="auth-forgot">نسيت كلمة المرور؟</summary><p class="auth-forgot-note">تواصل مع إدارة <?= h(site_name()) ?> لإعادة تعيين كلمة المرور.</p></details>
+      <button class="btn" type="submit"><i class="fas fa-arrow-left"></i> تسجيل الدخول</button>
     </form>
     <?= render_google_button() ?>
   </div>
-  <div class="login-admin-link an" style="--ad:.2s">ما عندك حساب؟ <a href="indexx.php?page=register">إنشاء حساب جديد</a></div>
+  <div class="login-admin-link an" style="--ad:.2s">ليس لديك حساب؟ <a href="indexx.php?page=register">إنشاء حساب جديد</a></div>
 </div>
     <?php
     return ob_get_clean();
@@ -1856,27 +1938,31 @@ function register_inner(): string {
     unset($_SESSION['reg_old']);
     ob_start();
     ?>
-<div class="login-wrap">
-  <div class="login-logo an"><?php if (site_logo_url()): ?><img src="<?= h(site_logo_url()) ?>" alt="" class="login-logo-img"><?php else: ?><i class="fas fa-store"></i><?php endif; ?> <?= h(site_name()) ?></div>
-  <p class="login-sub an">إنشاء حساب جديد</p>
-  <?php foreach ($flashes as $f): ?><div class="flash flash-<?= h($f['type']) ?> an" style="max-width:360px;width:100%"><?= h($f['text']) ?></div><?php endforeach; ?>
-  <div class="login-card an" style="--ad:.1s">
+<div class="auth-page" style="justify-content:center">
+  <div class="auth-blob auth-blob-tl"></div>
+  <div class="auth-blob auth-blob-br"></div>
+  <?= render_auth_logo() ?>
+  <?= render_auth_hero(true) ?>
+  <h1 class="auth-heading an">إنشاء حساب جديد</h1>
+  <p class="auth-heading-sub an">انضم إلى ملايين المتسوقين واستمتع بتجربة تسوق فريدة</p>
+  <?php foreach ($flashes as $f): ?><div class="flash flash-<?= h($f['type']) ?> an" style="max-width:360px;width:100%;margin:0 auto 12px"><?= h($f['text']) ?></div><?php endforeach; ?>
+  <div class="login-card an" style="--ad:.1s;margin:0 auto">
     <form method="post">
       <input type="hidden" name="action" value="register">
-      <div class="field"><label>الاسم</label><input type="text" name="name" value="<?= h($old['name'] ?? '') ?>" placeholder="مثال: محمد أحمد" required></div>
-      <div class="field"><label>البريد الإلكتروني</label><input type="email" name="email" value="<?= h($old['email'] ?? '') ?>" placeholder="name@example.com" required></div>
-      <div class="field"><label>رقم الهاتف</label><input type="tel" name="phone" value="<?= h($old['phone'] ?? '') ?>" placeholder="07xxxxxxxxx" required></div>
-      <div class="field"><label>كلمة المرور</label><input type="password" name="password" minlength="6" required></div>
+      <div class="field field-icon-wrap"><label>الاسم الكامل</label><input type="text" name="name" value="<?= h($old['name'] ?? '') ?>" placeholder="أدخل اسمك الكامل" required><i class="fas fa-user field-ic"></i></div>
+      <div class="field field-icon-wrap"><label>البريد الإلكتروني</label><input type="email" name="email" value="<?= h($old['email'] ?? '') ?>" placeholder="example@domain.com" required><i class="fas fa-envelope field-ic"></i></div>
+      <div class="field field-icon-wrap"><label>رقم الهاتف</label><input type="tel" name="phone" value="<?= h($old['phone'] ?? '') ?>" placeholder="أدخل رقم هاتفك" required><i class="fas fa-phone field-ic"></i></div>
+      <div class="field field-icon-wrap"><label>كلمة المرور</label><input type="password" name="password" minlength="6" placeholder="أدخل كلمة مرور قوية" required><button type="button" class="pw-toggle"><i class="fas fa-eye-slash"></i></button></div>
       <div class="field">
         <label>كود التحقق</label>
         <?= render_captcha() ?>
         <input type="text" name="captcha" placeholder="اكتب الكود اللي فوق" required autocomplete="off" style="margin-top:8px">
       </div>
-      <button class="btn" type="submit"><i class="fas fa-user-plus"></i> إنشاء الحساب</button>
+      <button class="btn" type="submit"><i class="fas fa-arrow-left"></i> إنشاء الحساب</button>
     </form>
     <?= render_google_button() ?>
   </div>
-  <div class="login-admin-link an" style="--ad:.2s">عندك حساب؟ <a href="indexx.php?page=login">تسجيل الدخول</a></div>
+  <div class="login-admin-link an" style="--ad:.2s">لديك حساب بالفعل؟ <a href="indexx.php?page=login">تسجيل الدخول</a></div>
 </div>
     <?php
     return ob_get_clean();
@@ -2973,7 +3059,8 @@ function resolve_view(): array {
 
     if (!current_user()) {
         if ($page === 'register') return ['إنشاء حساب', register_inner()];
-        return ['تسجيل الدخول', login_inner()];
+        if ($page === 'login') return ['تسجيل الدخول', login_inner()];
+        return ['مرحباً', welcome_inner()];
     }
 
     switch ($page) {
