@@ -26,6 +26,18 @@ define('EARNINGS_HOLD_HOURS', 24);
 if (!is_dir(DATA_DIR)) mkdir(DATA_DIR, 0777, true);
 if (!is_dir(UPLOAD_DIR)) mkdir(UPLOAD_DIR, 0777, true);
 
+/* بيانات اتصال MySQL تُقرأ من ملف مستقل مباشرة (لا عبر db_read) لأن db_read
+   نفسها قد تعتمد على معرفة هذه البيانات أولاً — مشكلة "البيضة والدجاجة".
+   تُضبط من install.php أو لوحة الأدمن. تركها فارغة يبقي التخزين على JSON
+   كما كان دائماً، بلا أي تغيير. */
+define('DB_CONFIG_FILE', DATA_DIR . '/db_config.json');
+$__dbConfig = file_exists(DB_CONFIG_FILE) ? json_decode((string)file_get_contents(DB_CONFIG_FILE), true) : null;
+$__dbConfig = is_array($__dbConfig) ? $__dbConfig : [];
+define('DB_HOST', (string)($__dbConfig['host'] ?? ''));
+define('DB_NAME', (string)($__dbConfig['name'] ?? ''));
+define('DB_USER', (string)($__dbConfig['user'] ?? ''));
+define('DB_PASS', (string)($__dbConfig['pass'] ?? ''));
+
 /* بعض الاستضافات المشتركة يكون مسار الجلسات الافتراضي عندها غير قابل للكتابة أو
    مقيّد، فتفشل الجلسة بصمت (يظهر أثرها كـ "كود التحقق غير صحيح" دائماً لأن
    الكود المخزّن بالجلسة لا يصل من الطلب الأول للثاني). نستخدم مجلد جلسات خاص
@@ -47,10 +59,65 @@ header('Content-Type: text/html; charset=utf-8');
 $__dataHt = DATA_DIR . '/.htaccess';
 if (!file_exists($__dataHt)) @file_put_contents($__dataHt, "Require all denied\nDeny from all\n");
 
-/* ===================== طبقة التخزين (JSON) ===================== */
+/* ===================== طبقة التخزين (MySQL اختياري، وإلا JSON) =====================
+   كل "مجموعة" (stores, products, users...) تبقى مصفوفة PHP واحدة بالضبط كما
+   كانت دائماً — بقية آلاف الأسطر بهذا الملف لا تعرف ولا يهمها أين تُخزَّن
+   فعلياً. عند وجود اتصال MySQL صالح تُحفظ كل مجموعة كسطر واحد (JSON) بجدول
+   kv_store بدل ملف JSON منفصل؛ فشل الاتصال أو عدم ضبطه يرجعان تلقائياً
+   لملفات JSON دون أي كسر أو فقدان بيانات. */
 function db_path(string $name): string { return DATA_DIR . '/' . $name . '.json'; }
 
+function db_connect(): ?mysqli {
+    static $conn = null;
+    static $tried = false;
+    if ($tried) return $conn;
+    $tried = true;
+    if (DB_HOST === '' || DB_NAME === '' || DB_USER === '' || !class_exists('mysqli')) return null;
+    mysqli_report(MYSQLI_REPORT_OFF);
+    $c = @mysqli_connect(DB_HOST, DB_USER, DB_PASS, DB_NAME);
+    if (!$c) return null;
+    $c->set_charset('utf8mb4');
+    $c->query("CREATE TABLE IF NOT EXISTS kv_store (name VARCHAR(64) PRIMARY KEY, data LONGTEXT NOT NULL, updated_at INT NOT NULL) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+    $conn = $c;
+    db_migrate_json_to_mysql($conn);
+    return $conn;
+}
+
+/* هجرة تلقائية لمرة واحدة: إن كان جدول kv_store فارغاً تماماً ووُجدت ملفات
+   JSON محلية سابقة، تُستورد كلها حتى لا يخسر من يفعّل MySQL بيانات موقعه
+   القائم. لا تُكرَّر بعد أول مرة لأن الجدول لن يعود فارغاً. */
+function db_migrate_json_to_mysql(mysqli $conn): void {
+    $res = $conn->query("SELECT COUNT(*) AS c FROM kv_store");
+    $row = $res ? $res->fetch_assoc() : null;
+    if (!$row || (int)$row['c'] > 0) return;
+    $files = glob(DATA_DIR . '/*.json');
+    if (!$files) return;
+    $stmt = $conn->prepare("INSERT INTO kv_store (name, data, updated_at) VALUES (?, ?, ?)");
+    $now = time();
+    foreach ($files as $f) {
+        $name = basename($f, '.json');
+        if ($name === 'db_config') continue; // بيانات اتصال، ليست مجموعة بيانات تطبيق
+        $json = file_get_contents($f);
+        if ($json === false || json_decode($json) === null) continue;
+        $stmt->bind_param('ssi', $name, $json, $now);
+        $stmt->execute();
+    }
+    $stmt->close();
+}
+
 function db_read(string $name, array $default = []): array {
+    $conn = db_connect();
+    if ($conn) {
+        $stmt = $conn->prepare("SELECT data FROM kv_store WHERE name = ?");
+        $stmt->bind_param('s', $name);
+        $stmt->execute();
+        $stmt->bind_result($json);
+        $found = $stmt->fetch();
+        $stmt->close();
+        if (!$found) return $default;
+        $data = json_decode($json, true);
+        return is_array($data) ? $data : $default;
+    }
     $f = db_path($name);
     if (!file_exists($f)) return $default;
     $raw = file_get_contents($f);
@@ -59,7 +126,28 @@ function db_read(string $name, array $default = []): array {
 }
 
 function db_write(string $name, array $data): void {
-    file_put_contents(db_path($name), json_encode($data, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT), LOCK_EX);
+    $json = json_encode($data, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT);
+    $conn = db_connect();
+    if ($conn) {
+        $now = time();
+        $stmt = $conn->prepare("INSERT INTO kv_store (name, data, updated_at) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE data = VALUES(data), updated_at = VALUES(updated_at)");
+        $stmt->bind_param('ssi', $name, $json, $now);
+        $stmt->execute();
+        $stmt->close();
+        return;
+    }
+    file_put_contents(db_path($name), $json, LOCK_EX);
+}
+
+/* اختبار بيانات اتصال قبل حفظها فعلياً (من install.php أو لوحة الأدمن) —
+   يمنع حفظ بيانات خاطئة تقفل صاحب الموقع عن بياناته. */
+function db_test_connection(string $host, string $name, string $user, string $pass): ?string {
+    if (!class_exists('mysqli')) return 'امتداد mysqli غير مفعّل على هذه الاستضافة';
+    mysqli_report(MYSQLI_REPORT_OFF);
+    $c = @mysqli_connect($host, $user, $pass, $name);
+    if (!$c) return 'تعذّر الاتصال: ' . (mysqli_connect_error() ?: 'تحقق من بيانات الدخول');
+    $c->close();
+    return null;
 }
 
 function next_id(array $items): int {
@@ -954,7 +1042,7 @@ if ($action !== '') {
     }
 
     // إجراءات الأدمن
-    $adminActions = ['admin_approve','admin_reject','admin_topup','admin_toggle_featured','admin_collect_fee','admin_update_fee','admin_update_branding','admin_update_ai_key','admin_add_payment_method','admin_delete_payment_method','admin_approve_topup','admin_reject_topup','admin_approve_withdraw','admin_reject_withdraw','admin_resolve_complaint','admin_toggle_suspend','admin_add_category','admin_delete_category','admin_toggle_admin','admin_broadcast','admin_add_coupon','admin_delete_coupon','admin_update_backup','admin_backup_now'];
+    $adminActions = ['admin_approve','admin_reject','admin_topup','admin_toggle_featured','admin_collect_fee','admin_update_fee','admin_update_branding','admin_update_ai_key','admin_add_payment_method','admin_delete_payment_method','admin_approve_topup','admin_reject_topup','admin_approve_withdraw','admin_reject_withdraw','admin_resolve_complaint','admin_toggle_suspend','admin_add_category','admin_delete_category','admin_toggle_admin','admin_broadcast','admin_add_coupon','admin_delete_coupon','admin_update_backup','admin_backup_now','admin_update_db_config'];
     if (in_array($action, $adminActions, true)) {
         if (!is_admin_user()) redirect('indexx.php');
 
@@ -1139,6 +1227,25 @@ if ($action !== '') {
             $result = run_backup_now();
             flash($result['ok'] ? 'ok' : 'err', $result['msg']);
             redirect('indexx.php?page=admin&section=backup');
+        }
+        if ($action === 'admin_update_db_config') {
+            $host = trim((string)($_POST['db_host'] ?? ''));
+            $name = trim((string)($_POST['db_name'] ?? ''));
+            $user = trim((string)($_POST['db_user'] ?? ''));
+            $pass = (string)($_POST['db_pass'] ?? '');
+            if ($host === '' && $name === '' && $user === '') {
+                @unlink(DB_CONFIG_FILE);
+                flash('ok', 'تم إلغاء ربط MySQL — التخزين رجع لملفات JSON');
+            } else {
+                $err = db_test_connection($host, $name, $user, $pass);
+                if ($err !== null) {
+                    flash('err', $err);
+                } else {
+                    file_put_contents(DB_CONFIG_FILE, json_encode(['host'=>$host,'name'=>$name,'user'=>$user,'pass'=>$pass], JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT), LOCK_EX);
+                    flash('ok', 'تم اختبار الاتصال وحفظه — سيُستخدم MySQL من الآن');
+                }
+            }
+            redirect('indexx.php?page=admin&section=settings');
         }
         if ($action === 'admin_add_coupon') {
             $settings = get_settings();
@@ -3563,6 +3670,26 @@ function page_admin(): string {
                 <button class="btn btn-sm" type="submit">إضافة</button>
             </form>
         </details>
+
+        <h3 style="font-size:.88rem;font-weight:800;margin:22px 0 10px"><i class="fas fa-database" style="color:var(--accent)"></i> قاعدة بيانات MySQL <span style="font-size:.68rem;color:var(--muted);font-weight:400">(اختياري)</span></h3>
+        <div class="card an">
+            <div class="row-between" style="margin-bottom:12px">
+                <span style="font-size:.78rem">حالة التخزين الحالية</span>
+                <strong style="font-size:.78rem;color:<?= DB_HOST !== '' ? 'var(--success)' : 'var(--muted)' ?>"><?= DB_HOST !== '' ? '✅ متصل بـ MySQL' : '📁 ملفات JSON' ?></strong>
+            </div>
+            <p style="font-size:.68rem;color:var(--muted);margin-bottom:14px">اتركها فارغة ليبقى التخزين على ملفات JSON كالمعتاد. إن وفّرت بيانات قاعدة بيانات MySQL من لوحة استضافتك (cPanel)، يُختبر الاتصال أولاً قبل الحفظ فلن يُقفل موقعك بخطأ كتابي، وتُنقل بياناتك الحالية إليها تلقائياً بأول اتصال ناجح دون أي فقدان.</p>
+            <form method="post">
+                <input type="hidden" name="action" value="admin_update_db_config">
+                <div class="field"><label>المضيف (Host)</label><input type="text" name="db_host" value="<?= h(DB_HOST) ?>" placeholder="localhost" style="direction:ltr;text-align:left"></div>
+                <div class="field"><label>اسم قاعدة البيانات</label><input type="text" name="db_name" value="<?= h(DB_NAME) ?>" style="direction:ltr;text-align:left"></div>
+                <div class="field"><label>اسم المستخدم</label><input type="text" name="db_user" value="<?= h(DB_USER) ?>" style="direction:ltr;text-align:left"></div>
+                <div class="field"><label>كلمة المرور</label><input type="password" name="db_pass" value="<?= h(DB_PASS) ?>" style="direction:ltr;text-align:left" autocomplete="off"></div>
+                <button class="btn btn-sm" type="submit">اختبار وحفظ</button>
+            </form>
+            <?php if (DB_HOST !== ''): ?>
+            <p style="font-size:.65rem;color:var(--muted);margin-top:10px">لإلغاء ربط MySQL والرجوع لملفات JSON: امسح حقول المضيف واسم القاعدة واسم المستخدم، ثم اضغط اختبار وحفظ.</p>
+            <?php endif; ?>
+        </div>
         <?php
     }
 

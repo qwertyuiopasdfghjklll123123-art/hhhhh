@@ -24,14 +24,48 @@ function db_write(string $name, array $data): void {
 }
 function h(?string $s): string { return htmlspecialchars((string)$s, ENT_QUOTES, 'UTF-8'); }
 
+function db_test_connection(string $host, string $name, string $user, string $pass): ?string {
+    if (!class_exists('mysqli')) return 'امتداد mysqli غير مفعّل على هذه الاستضافة';
+    mysqli_report(MYSQLI_REPORT_OFF);
+    $c = @mysqli_connect($host, $user, $pass, $name);
+    if (!$c) return 'تعذّر الاتصال: ' . (mysqli_connect_error() ?: 'تحقق من بيانات الدخول');
+    $c->close();
+    return null;
+}
+
 $users = db_read('users');
 $hasAdmin = false;
 foreach ($users as $u) if (!empty($u['is_admin']) && !empty($u['password_hash'])) { $hasAdmin = true; break; }
 
+$dbConfigFile = DATA_DIR . '/db_config.json';
+$dbConfig = file_exists($dbConfigFile) ? json_decode((string)file_get_contents($dbConfigFile), true) : [];
+$dbConfig = is_array($dbConfig) ? $dbConfig : [];
+
+$dbSaved = false;
+$dbError = '';
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['form'] ?? '') === 'mysql') {
+    $host = trim((string)($_POST['db_host'] ?? ''));
+    $name = trim((string)($_POST['db_name'] ?? ''));
+    $user = trim((string)($_POST['db_user'] ?? ''));
+    $pass = (string)($_POST['db_pass'] ?? '');
+    if ($host === '' && $name === '' && $user === '') {
+        @unlink($dbConfigFile);
+        $dbConfig = [];
+        $dbSaved = true;
+    } else {
+        $dbError = db_test_connection($host, $name, $user, $pass);
+        if ($dbError === null) {
+            $dbConfig = ['host' => $host, 'name' => $name, 'user' => $user, 'pass' => $pass];
+            file_put_contents($dbConfigFile, json_encode($dbConfig, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT), LOCK_EX);
+            $dbSaved = true;
+        }
+    }
+}
+
 $done = false;
 $error = '';
 
-if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['form'] ?? 'site') === 'site') {
     $siteName = trim((string)($_POST['site_name'] ?? ''));
     $adminName = trim((string)($_POST['admin_name'] ?? ''));
     $email = trim((string)($_POST['email'] ?? ''));
@@ -104,6 +138,7 @@ a.btn{display:block;text-align:center;text-decoration:none;background:#1a1a2e;co
     <?php if ($hasAdmin): ?><div class="warn" style="margin-bottom:14px">يوجد حساب أدمن مُهيّأ مسبقاً — إرسال هذا النموذج سيستبدل بريده وكلمة مروره بما تكتبه هنا.</div><?php endif; ?>
     <?php if ($error): ?><div class="err"><?= h($error) ?></div><?php endif; ?>
     <form method="post">
+        <input type="hidden" name="form" value="site">
         <div class="field"><label>اسم الموقع</label><input type="text" name="site_name" value="<?= h($_POST['site_name'] ?? '') ?>" required></div>
         <div class="field"><label>اسم الأدمن</label><input type="text" name="admin_name" value="<?= h($_POST['admin_name'] ?? '') ?>" required></div>
         <div class="field"><label>بريد الأدمن</label><input type="email" name="email" value="<?= h($_POST['email'] ?? '') ?>" required></div>
@@ -112,6 +147,21 @@ a.btn{display:block;text-align:center;text-decoration:none;background:#1a1a2e;co
         <button type="submit">تنصيب</button>
     </form>
 <?php endif; ?>
+</div>
+
+<div class="box">
+<h1>🗄️ قاعدة بيانات MySQL <span style="font-size:.7rem;color:#999;font-weight:400">(اختياري)</span></h1>
+<p style="font-size:.76rem;color:#666;line-height:1.8;margin-bottom:16px">اتركها فارغة ليبقى التخزين على ملفات JSON كالمعتاد. إن وفّرت بيانات قاعدة بيانات MySQL من لوحة استضافتك، يُختبر الاتصال أولاً قبل الحفظ، وتُنقل بياناتك الحالية إليها تلقائياً بأول اتصال ناجح دون أي فقدان.</p>
+<?php if ($dbSaved): ?><div class="ok" style="margin-bottom:14px"><?= $dbConfig ? '✅ تم اختبار الاتصال وحفظه — سيُستخدم MySQL من الآن.' : '✅ تم إلغاء ربط MySQL — التخزين رجع لملفات JSON.' ?></div><?php endif; ?>
+<?php if ($dbError): ?><div class="err"><?= h($dbError) ?></div><?php endif; ?>
+<form method="post">
+    <input type="hidden" name="form" value="mysql">
+    <div class="field"><label>المضيف (Host)</label><input type="text" name="db_host" value="<?= h($dbConfig['host'] ?? '') ?>" placeholder="localhost" style="direction:ltr;text-align:left"></div>
+    <div class="field"><label>اسم قاعدة البيانات</label><input type="text" name="db_name" value="<?= h($dbConfig['name'] ?? '') ?>" style="direction:ltr;text-align:left"></div>
+    <div class="field"><label>اسم المستخدم</label><input type="text" name="db_user" value="<?= h($dbConfig['user'] ?? '') ?>" style="direction:ltr;text-align:left"></div>
+    <div class="field"><label>كلمة المرور</label><input type="password" name="db_pass" value="<?= h($dbConfig['pass'] ?? '') ?>" style="direction:ltr;text-align:left"></div>
+    <button type="submit">اختبار وحفظ</button>
+</form>
 </div>
 </body>
 </html>
