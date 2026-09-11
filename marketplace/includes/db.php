@@ -2,22 +2,27 @@
 declare(strict_types=1);
 
 /* ============================================================
-   طبقة التخزين المشتركة — MySQL اختياري، وإلا JSON تلقائياً
+   طبقة التخزين المشتركة — MySQL فقط (بلا رجوع لملفات JSON)
    ============================================================
    يشترك بهذا الملف index.php وinstall.php وmanifest.php حتى تبقى
    قراءة/كتابة البيانات (وبيانات اتصال MySQL نفسها) متطابقة تماماً
    من أي نقطة دخول شُغّلت. كل "مجموعة" (stores, products, users...)
    تبقى مصفوفة PHP عادية كما كانت دائماً — بقية كود التطبيق لا يعرف
-   ولا يهمه أين تُخزَّن فعلياً؛ فقط db_read()/db_write() يعرفان ذلك. */
+   ولا يهمه أين تُخزَّن فعلياً؛ فقط db_read()/db_write() يعرفان ذلك.
+
+   بطلب صريح من صاحب الموقع: لا يوجد رجوع صامت لملفات JSON إن انقطع
+   اتصال MySQL أو لم يُضبط بعد — الموقع يعتمد على MySQL حصراً، ويظهر
+   صفحة واضحة توجّه لإعداد الاتصال بدل العمل ببيانات قديمة أو التوقف
+   بخطأ PHP غامض. ملفات JSON القديمة (إن وُجدت من نسخة سابقة) تُستورد
+   مرة واحدة فقط عند أول اتصال ناجح، لكنها لا تُستخدم بعد ذلك أبداً. */
 
 if (!defined('APP_NAME')) define('APP_NAME', 'سوق');
 if (!defined('DATA_DIR')) define('DATA_DIR', dirname(__DIR__) . '/data');
 if (!is_dir(DATA_DIR)) mkdir(DATA_DIR, 0777, true);
 
 /* بيانات اتصال MySQL تُقرأ من ملف مستقل مباشرة (لا عبر db_read) لأن db_read
-   نفسها قد تعتمد على معرفة هذه البيانات أولاً — مشكلة "البيضة والدجاجة".
-   تُضبط من install.php أو لوحة الأدمن. تركها فارغة يبقي التخزين على JSON
-   كما كان دائماً، بلا أي تغيير. */
+   نفسها تعتمد على معرفة هذه البيانات أولاً — مشكلة "البيضة والدجاجة".
+   تُضبط من install.php أو لوحة الأدمن. */
 if (!defined('DB_CONFIG_FILE')) define('DB_CONFIG_FILE', DATA_DIR . '/db_config.json');
 $__dbConfig = file_exists(DB_CONFIG_FILE) ? json_decode((string)file_get_contents(DB_CONFIG_FILE), true) : null;
 $__dbConfig = is_array($__dbConfig) ? $__dbConfig : [];
@@ -26,8 +31,6 @@ if (!defined('DB_NAME')) define('DB_NAME', (string)($__dbConfig['name'] ?? ''));
 if (!defined('DB_USER')) define('DB_USER', (string)($__dbConfig['user'] ?? ''));
 if (!defined('DB_PASS')) define('DB_PASS', (string)($__dbConfig['pass'] ?? ''));
 unset($__dbConfig);
-
-function db_path(string $name): string { return DATA_DIR . '/' . $name . '.json'; }
 
 function db_connect(): ?mysqli {
     static $conn = null;
@@ -67,38 +70,65 @@ function db_migrate_json_to_mysql(mysqli $conn): void {
     $stmt->close();
 }
 
+/* يوقف الطلب بصفحة عربية واضحة بدل السماح لصفحة أن تُعرض ببيانات ناقصة أو
+   بخطأ PHP خام — يُستدعى فقط حين يفشل db_connect() فعلاً (غير مضبوط أو
+   الاتصال متعذّر)، أي أن db_read()/db_write() لا تصلان هنا إطلاقاً في
+   التشغيل العادي بموقع مضبوط بشكل صحيح. */
+function db_fail_no_connection(): void {
+    http_response_code(503);
+    header('Content-Type: text/html; charset=utf-8');
+    $script = basename((string)($_SERVER['SCRIPT_NAME'] ?? ''));
+    $showInstallLink = $script !== 'install.php';
+    ?>
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>قاعدة البيانات غير متصلة</title>
+<style>
+body{font-family:'Segoe UI',Tahoma,sans-serif;background:#f8f6f3;margin:0;padding:24px;min-height:100vh;display:flex;align-items:center;justify-content:center}
+.box{max-width:420px;width:100%;background:#fff;border-radius:18px;padding:28px;box-shadow:0 4px 20px rgba(0,0,0,.08);text-align:center}
+h1{font-size:1.05rem;margin:0 0 12px}
+p{font-size:.82rem;color:#666;line-height:1.9;margin:0 0 18px}
+a.btn{display:inline-block;text-decoration:none;background:#f2b100;color:#1a1a2e;font-weight:800;padding:12px 24px;border-radius:10px;font-size:.85rem}
+</style>
+</head>
+<body>
+<div class="box">
+<h1>⚠️ تعذّر الاتصال بقاعدة بيانات MySQL</h1>
+<p>هذا الموقع يعتمد على MySQL حصراً لتخزين بياناته. تحقق من بيانات الاتصال (المضيف، اسم القاعدة، اسم المستخدم، كلمة المرور) من لوحة استضافتك ثم أعد ضبطها.</p>
+<?php if ($showInstallLink): ?><a class="btn" href="install.php">إعداد الاتصال</a><?php endif; ?>
+</div>
+</body>
+</html>
+    <?php
+    exit;
+}
+
 function db_read(string $name, array $default = []): array {
     $conn = db_connect();
-    if ($conn) {
-        $stmt = $conn->prepare("SELECT data FROM kv_store WHERE name = ?");
-        $stmt->bind_param('s', $name);
-        $stmt->execute();
-        $stmt->bind_result($json);
-        $found = $stmt->fetch();
-        $stmt->close();
-        if (!$found) return $default;
-        $data = json_decode($json, true);
-        return is_array($data) ? $data : $default;
-    }
-    $f = db_path($name);
-    if (!file_exists($f)) return $default;
-    $raw = file_get_contents($f);
-    $data = json_decode($raw, true);
+    if (!$conn) db_fail_no_connection();
+    $stmt = $conn->prepare("SELECT data FROM kv_store WHERE name = ?");
+    $stmt->bind_param('s', $name);
+    $stmt->execute();
+    $stmt->bind_result($json);
+    $found = $stmt->fetch();
+    $stmt->close();
+    if (!$found) return $default;
+    $data = json_decode($json, true);
     return is_array($data) ? $data : $default;
 }
 
 function db_write(string $name, array $data): void {
-    $json = json_encode($data, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT);
     $conn = db_connect();
-    if ($conn) {
-        $now = time();
-        $stmt = $conn->prepare("INSERT INTO kv_store (name, data, updated_at) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE data = VALUES(data), updated_at = VALUES(updated_at)");
-        $stmt->bind_param('ssi', $name, $json, $now);
-        $stmt->execute();
-        $stmt->close();
-        return;
-    }
-    file_put_contents(db_path($name), $json, LOCK_EX);
+    if (!$conn) db_fail_no_connection();
+    $json = json_encode($data, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT);
+    $now = time();
+    $stmt = $conn->prepare("INSERT INTO kv_store (name, data, updated_at) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE data = VALUES(data), updated_at = VALUES(updated_at)");
+    $stmt->bind_param('ssi', $name, $json, $now);
+    $stmt->execute();
+    $stmt->close();
 }
 
 /* اختبار بيانات اتصال قبل حفظها فعلياً (من install.php أو لوحة الأدمن) —

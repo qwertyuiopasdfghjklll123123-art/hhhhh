@@ -5,7 +5,7 @@ mb_internal_encoding('UTF-8');
 
 /* مانيفست PWA كملف مستقل (بدل توجيهه عبر ?asset= من index.php) — يبقى
    ديناميكياً لأن اسم/شعار الموقع قابلان للتعديل من لوحة الأدمن، فيُقرآن هنا
-   من نفس طبقة التخزين التي يستخدمها index.php (JSON أو MySQL). */
+   من نفس طبقة تخزين MySQL التي يستخدمها index.php. */
 require_once __DIR__ . '/includes/db.php';
 
 header('Content-Type: application/manifest+json; charset=utf-8');

@@ -3,48 +3,58 @@ declare(strict_types=1);
 error_reporting(E_ALL & ~E_DEPRECATED);
 mb_internal_encoding('UTF-8');
 
-/* ملف تنصيب أولي — يضبط اسم الموقع وبيانات دخول الأدمن عبر نموذج بدل تعديل
-   الكود يدوياً. يشترك بطبقة التخزين نفسها التي يستخدمها index.php (JSON أو
-   MySQL) عبر includes/db.php، لذا يعمل بشكل صحيح سواء شُغّل قبل أول زيارة
-   للتطبيق أو بعدها، وسواء كان الموقع مربوطاً بـ MySQL أو لا. */
+/* ملف تنصيب أولي — يضبط اتصال MySQL أولاً (إلزامي، الموقع يعتمد عليه حصراً
+   بلا رجوع لملفات JSON)، ثم اسم الموقع وبيانات دخول الأدمن. يشترك بطبقة
+   التخزين نفسها التي يستخدمها index.php عبر includes/db.php، لذا يعمل
+   بشكل صحيح سواء شُغّل قبل أول زيارة للتطبيق أو بعدها. */
 
 require_once __DIR__ . '/includes/db.php';
 
 function h(?string $s): string { return htmlspecialchars((string)$s, ENT_QUOTES, 'UTF-8'); }
 
-$users = db_read('users');
-$hasAdmin = false;
-foreach ($users as $u) if (!empty($u['is_admin']) && !empty($u['password_hash'])) { $hasAdmin = true; break; }
-
 $dbConfigFile = DB_CONFIG_FILE;
 $dbConfig = file_exists($dbConfigFile) ? json_decode((string)file_get_contents($dbConfigFile), true) : [];
 $dbConfig = is_array($dbConfig) ? $dbConfig : [];
 
-$dbSaved = false;
+$dbSaved = isset($_GET['saved']) && $_GET['saved'] === 'mysql';
 $dbError = '';
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['form'] ?? '') === 'mysql') {
     $host = trim((string)($_POST['db_host'] ?? ''));
     $name = trim((string)($_POST['db_name'] ?? ''));
     $user = trim((string)($_POST['db_user'] ?? ''));
     $pass = (string)($_POST['db_pass'] ?? '');
-    if ($host === '' && $name === '' && $user === '') {
-        @unlink($dbConfigFile);
-        $dbConfig = [];
-        $dbSaved = true;
+    if ($host === '' || $name === '' || $user === '') {
+        $dbError = 'الرجاء تعبئة المضيف واسم القاعدة واسم المستخدم — الموقع يعتمد على MySQL حصراً';
     } else {
         $dbError = db_test_connection($host, $name, $user, $pass);
         if ($dbError === null) {
             $dbConfig = ['host' => $host, 'name' => $name, 'user' => $user, 'pass' => $pass];
             file_put_contents($dbConfigFile, json_encode($dbConfig, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT), LOCK_EX);
-            $dbSaved = true;
+            /* ثوابت DB_HOST/DB_NAME/... تحمل القيم القديمة (عُرّفت أول تحميل
+               للطلب قبل هذا الحفظ) ولا يمكن إعادة تعريفها بنفس الطلب — نعيد
+               تحميل الصفحة بطلب جديد كي تُقرأ القيم المحفوظة توّاً من جديد. */
+            header('Location: install.php?saved=mysql');
+            exit;
         }
     }
+}
+
+/* لا نلمس db_read/db_write إلا بعد التأكد أن الاتصال فعلاً قائم الآن (وليس
+   فقط أن ملف الإعدادات موجود) — تجنباً لتوقف install.php نفسه بصفحة الخطأ
+   قبل أن يتاح للزائر فرصة تصحيح بيانات الاتصال من النموذج أدناه. */
+$mysqlReady = db_connect() !== null;
+
+$users = [];
+$hasAdmin = false;
+if ($mysqlReady) {
+    $users = db_read('users');
+    foreach ($users as $u) if (!empty($u['is_admin']) && !empty($u['password_hash'])) { $hasAdmin = true; break; }
 }
 
 $done = false;
 $error = '';
 
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['form'] ?? 'site') === 'site') {
+if ($mysqlReady && $_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['form'] ?? '') === 'site') {
     $siteName = trim((string)($_POST['site_name'] ?? ''));
     $adminName = trim((string)($_POST['admin_name'] ?? ''));
     $email = trim((string)($_POST['email'] ?? ''));
@@ -108,8 +118,26 @@ a.btn{display:block;text-align:center;text-decoration:none;background:#1a1a2e;co
 </head>
 <body>
 <div class="box">
-<h1>🛠️ تنصيب التطبيق</h1>
-<?php if ($done): ?>
+<h1>🗄️ الخطوة 1 — الاتصال بقاعدة بيانات MySQL</h1>
+<p style="font-size:.76rem;color:#666;line-height:1.8;margin-bottom:16px">هذا الموقع يعتمد على MySQL حصراً لتخزين بياناته (لا يوجد تخزين بديل). أنشئ قاعدة بيانات ومستخدماً لها من لوحة استضافتك (cPanel غالباً)، ثم أدخل بياناتها هنا — يُختبر الاتصال أولاً قبل الحفظ، وتُنقل أي بيانات JSON قديمة (من نسخة سابقة) إليها تلقائياً بأول اتصال ناجح دون أي فقدان.</p>
+<?php if ($dbSaved): ?><div class="ok" style="margin-bottom:14px">✅ تم اختبار الاتصال وحفظه.</div><?php endif; ?>
+<?php if ($dbError): ?><div class="err"><?= h($dbError) ?></div><?php endif; ?>
+<?php if ($mysqlReady): ?><div class="ok" style="margin-bottom:14px">✅ الاتصال بقاعدة البيانات يعمل الآن.</div><?php endif; ?>
+<form method="post">
+    <input type="hidden" name="form" value="mysql">
+    <div class="field"><label>المضيف (Host)</label><input type="text" name="db_host" value="<?= h($dbConfig['host'] ?? '') ?>" placeholder="localhost" style="direction:ltr;text-align:left" required></div>
+    <div class="field"><label>اسم قاعدة البيانات</label><input type="text" name="db_name" value="<?= h($dbConfig['name'] ?? '') ?>" style="direction:ltr;text-align:left" required></div>
+    <div class="field"><label>اسم المستخدم</label><input type="text" name="db_user" value="<?= h($dbConfig['user'] ?? '') ?>" style="direction:ltr;text-align:left" required></div>
+    <div class="field"><label>كلمة المرور</label><input type="password" name="db_pass" value="<?= h($dbConfig['pass'] ?? '') ?>" style="direction:ltr;text-align:left"></div>
+    <button type="submit">اختبار وحفظ</button>
+</form>
+</div>
+
+<div class="box">
+<h1>🛠️ الخطوة 2 — اسم الموقع وحساب الأدمن</h1>
+<?php if (!$mysqlReady): ?>
+    <div class="warn">⚠️ اضبط الاتصال بقاعدة بيانات MySQL أعلاه أولاً — هذا النموذج يُفعَّل بعدها مباشرة.</div>
+<?php elseif ($done): ?>
     <div class="ok">✅ تم التنصيب بنجاح! يمكنك الآن تسجيل الدخول بالبريد وكلمة المرور اللي حددتهم.</div>
     <a class="btn" href="index.php">فتح التطبيق</a>
     <div class="warn">⚠️ لأمان موقعك، احذف ملف install.php من الاستضافة الآن.</div>
@@ -126,21 +154,6 @@ a.btn{display:block;text-align:center;text-decoration:none;background:#1a1a2e;co
         <button type="submit">تنصيب</button>
     </form>
 <?php endif; ?>
-</div>
-
-<div class="box">
-<h1>🗄️ قاعدة بيانات MySQL <span style="font-size:.7rem;color:#999;font-weight:400">(اختياري)</span></h1>
-<p style="font-size:.76rem;color:#666;line-height:1.8;margin-bottom:16px">اتركها فارغة ليبقى التخزين على ملفات JSON كالمعتاد. إن وفّرت بيانات قاعدة بيانات MySQL من لوحة استضافتك، يُختبر الاتصال أولاً قبل الحفظ، وتُنقل بياناتك الحالية إليها تلقائياً بأول اتصال ناجح دون أي فقدان.</p>
-<?php if ($dbSaved): ?><div class="ok" style="margin-bottom:14px"><?= $dbConfig ? '✅ تم اختبار الاتصال وحفظه — سيُستخدم MySQL من الآن.' : '✅ تم إلغاء ربط MySQL — التخزين رجع لملفات JSON.' ?></div><?php endif; ?>
-<?php if ($dbError): ?><div class="err"><?= h($dbError) ?></div><?php endif; ?>
-<form method="post">
-    <input type="hidden" name="form" value="mysql">
-    <div class="field"><label>المضيف (Host)</label><input type="text" name="db_host" value="<?= h($dbConfig['host'] ?? '') ?>" placeholder="localhost" style="direction:ltr;text-align:left"></div>
-    <div class="field"><label>اسم قاعدة البيانات</label><input type="text" name="db_name" value="<?= h($dbConfig['name'] ?? '') ?>" style="direction:ltr;text-align:left"></div>
-    <div class="field"><label>اسم المستخدم</label><input type="text" name="db_user" value="<?= h($dbConfig['user'] ?? '') ?>" style="direction:ltr;text-align:left"></div>
-    <div class="field"><label>كلمة المرور</label><input type="password" name="db_pass" value="<?= h($dbConfig['pass'] ?? '') ?>" style="direction:ltr;text-align:left"></div>
-    <button type="submit">اختبار وحفظ</button>
-</form>
 </div>
 </body>
 </html>

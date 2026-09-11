@@ -1,6 +1,6 @@
 <?php
 /* ============================================================
-   سوق رقمي متعدد المتاجر — ملف واحد بدون قاعدة بيانات (JSON)
+   سوق رقمي متعدد المتاجر — تخزين البيانات عبر MySQL حصراً
    ============================================================ */
 declare(strict_types=1);
 error_reporting(E_ALL & ~E_DEPRECATED);
@@ -25,7 +25,7 @@ define('EARNINGS_HOLD_HOURS', 24);
 
 if (!is_dir(UPLOAD_DIR)) mkdir(UPLOAD_DIR, 0777, true);
 
-// طبقة التخزين المشتركة (MySQL اختياري وإلا JSON) — يشترك بها أيضاً install.php وmanifest.php
+// طبقة التخزين المشتركة (MySQL حصراً) — يشترك بها أيضاً install.php وmanifest.php
 require_once __DIR__ . '/includes/db.php';
 
 /* بعض الاستضافات المشتركة يكون مسار الجلسات الافتراضي عندها غير قابل للكتابة أو
@@ -57,7 +57,17 @@ function next_id(array $items): int {
 
 /* ===================== البيانات التجريبية الأولية ===================== */
 function ensure_seed_data(): void {
-    if (file_exists(db_path('stores'))) return; // تم التهيئة من قبل
+    /* كل مجموعة تُفحص وتُهيَّأ بشكل مستقل تماماً عن البقية — لا يجوز أبداً أن
+       يؤدي كون "stores" فارغة (مثلاً: أدمن هيّأ حسابه عبر install.php ولم
+       يُنشئ متاجر تجريبية بعد) لإعادة كتابة "users" أو "settings" الحقيقيين
+       فوق ما أدخله install.php أو الأدمن فعلياً. */
+    ensure_seed_marketplace_content();
+    ensure_seed_admin_user();
+    ensure_seed_settings();
+}
+
+function ensure_seed_marketplace_content(): void {
+    if (db_read('stores') !== []) return; // تم التهيئة من قبل
 
     $baseStore = ['sections'=>[], 'earnings'=>0, 'earnings_log'=>[], 'last_fee_at'=>null, 'subscription_expires_at'=>time()+86400*SUBSCRIPTION_DAYS, 'suspended'=>false];
     $stores = [
@@ -83,13 +93,21 @@ function ensure_seed_data(): void {
 
     db_write('stores', $stores);
     db_write('products', $products);
-    db_write('users', [
-        ['id'=>1, 'name'=>'الإدارة', 'email'=>ADMIN_SEED_EMAIL, 'password_hash'=>password_hash(ADMIN_SEED_PASSWORD, PASSWORD_DEFAULT), 'phone'=>'', 'wallet'=>0, 'wallet_log'=>[], 'favorites'=>['stores'=>[],'products'=>[]], 'is_admin'=>true, 'created_at'=>time()],
-    ]);
     db_write('orders', []);
     db_write('complaints', []);
     db_write('topup_requests', []);
     db_write('notifications', []);
+}
+
+function ensure_seed_admin_user(): void {
+    if (db_read('users') !== []) return; // يوجد مستخدمون فعليون (أنشئوا عبر install.php أو التسجيل) — لا نلمسهم
+    db_write('users', [
+        ['id'=>1, 'name'=>'الإدارة', 'email'=>ADMIN_SEED_EMAIL, 'password_hash'=>password_hash(ADMIN_SEED_PASSWORD, PASSWORD_DEFAULT), 'phone'=>'', 'wallet'=>0, 'wallet_log'=>[], 'favorites'=>['stores'=>[],'products'=>[]], 'is_admin'=>true, 'created_at'=>time()],
+    ]);
+}
+
+function ensure_seed_settings(): void {
+    if (db_read('settings') !== []) return; // إعدادات حقيقية موجودة أصلاً (مثلاً من install.php) — لا نلمسها
     db_write('settings', [
         'monthly_fee' => 15000,
         'categories' => ['ملابس', 'إلكترونيات', 'تجميل ومكياج', 'منزل ومطبخ', 'أطفال وألعاب', 'رياضة ولياقة', 'أخرى'],
@@ -1124,16 +1142,15 @@ if ($action !== '') {
             $name = trim((string)($_POST['db_name'] ?? ''));
             $user = trim((string)($_POST['db_user'] ?? ''));
             $pass = (string)($_POST['db_pass'] ?? '');
-            if ($host === '' && $name === '' && $user === '') {
-                @unlink(DB_CONFIG_FILE);
-                flash('ok', 'تم إلغاء ربط MySQL — التخزين رجع لملفات JSON');
+            if ($host === '' || $name === '' || $user === '') {
+                flash('err', 'الرجاء تعبئة المضيف واسم القاعدة واسم المستخدم — الموقع يعتمد على MySQL حصراً ولا يمكن تعطيله');
             } else {
                 $err = db_test_connection($host, $name, $user, $pass);
                 if ($err !== null) {
                     flash('err', $err);
                 } else {
                     file_put_contents(DB_CONFIG_FILE, json_encode(['host'=>$host,'name'=>$name,'user'=>$user,'pass'=>$pass], JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT), LOCK_EX);
-                    flash('ok', 'تم اختبار الاتصال وحفظه — سيُستخدم MySQL من الآن');
+                    flash('ok', 'تم اختبار الاتصال وحفظه');
                 }
             }
             redirect('index.php?page=admin&section=settings');
@@ -2944,24 +2961,21 @@ function page_admin(): string {
             </form>
         </details>
 
-        <h3 style="font-size:.88rem;font-weight:800;margin:22px 0 10px"><i class="fas fa-database" style="color:var(--accent)"></i> قاعدة بيانات MySQL <span style="font-size:.68rem;color:var(--muted);font-weight:400">(اختياري)</span></h3>
+        <h3 style="font-size:.88rem;font-weight:800;margin:22px 0 10px"><i class="fas fa-database" style="color:var(--accent)"></i> قاعدة بيانات MySQL</h3>
         <div class="card an">
             <div class="row-between" style="margin-bottom:12px">
-                <span style="font-size:.78rem">حالة التخزين الحالية</span>
-                <strong style="font-size:.78rem;color:<?= DB_HOST !== '' ? 'var(--success)' : 'var(--muted)' ?>"><?= DB_HOST !== '' ? '✅ متصل بـ MySQL' : '📁 ملفات JSON' ?></strong>
+                <span style="font-size:.78rem">حالة الاتصال</span>
+                <strong style="font-size:.78rem;color:var(--success)">✅ متصل بـ <?= h(DB_HOST) ?></strong>
             </div>
-            <p style="font-size:.68rem;color:var(--muted);margin-bottom:14px">اتركها فارغة ليبقى التخزين على ملفات JSON كالمعتاد. إن وفّرت بيانات قاعدة بيانات MySQL من لوحة استضافتك (cPanel)، يُختبر الاتصال أولاً قبل الحفظ فلن يُقفل موقعك بخطأ كتابي، وتُنقل بياناتك الحالية إليها تلقائياً بأول اتصال ناجح دون أي فقدان.</p>
+            <p style="font-size:.68rem;color:var(--muted);margin-bottom:14px">الموقع يعتمد على MySQL حصراً لتخزين بياناته. استخدم النموذج فقط إن أردت تحويل الموقع لخادم MySQL آخر (مثلاً عند تغيير الاستضافة) — يُختبر الاتصال الجديد أولاً قبل الحفظ فلن يُقفل موقعك بخطأ كتابي، وتُنقل البيانات الحالية إليه تلقائياً إن كان فارغاً.</p>
             <form method="post">
                 <input type="hidden" name="action" value="admin_update_db_config">
-                <div class="field"><label>المضيف (Host)</label><input type="text" name="db_host" value="<?= h(DB_HOST) ?>" placeholder="localhost" style="direction:ltr;text-align:left"></div>
-                <div class="field"><label>اسم قاعدة البيانات</label><input type="text" name="db_name" value="<?= h(DB_NAME) ?>" style="direction:ltr;text-align:left"></div>
-                <div class="field"><label>اسم المستخدم</label><input type="text" name="db_user" value="<?= h(DB_USER) ?>" style="direction:ltr;text-align:left"></div>
+                <div class="field"><label>المضيف (Host)</label><input type="text" name="db_host" value="<?= h(DB_HOST) ?>" placeholder="localhost" style="direction:ltr;text-align:left" required></div>
+                <div class="field"><label>اسم قاعدة البيانات</label><input type="text" name="db_name" value="<?= h(DB_NAME) ?>" style="direction:ltr;text-align:left" required></div>
+                <div class="field"><label>اسم المستخدم</label><input type="text" name="db_user" value="<?= h(DB_USER) ?>" style="direction:ltr;text-align:left" required></div>
                 <div class="field"><label>كلمة المرور</label><input type="password" name="db_pass" value="<?= h(DB_PASS) ?>" style="direction:ltr;text-align:left" autocomplete="off"></div>
                 <button class="btn btn-sm" type="submit">اختبار وحفظ</button>
             </form>
-            <?php if (DB_HOST !== ''): ?>
-            <p style="font-size:.65rem;color:var(--muted);margin-top:10px">لإلغاء ربط MySQL والرجوع لملفات JSON: امسح حقول المضيف واسم القاعدة واسم المستخدم، ثم اضغط اختبار وحفظ.</p>
-            <?php endif; ?>
         </div>
         <?php
     }
