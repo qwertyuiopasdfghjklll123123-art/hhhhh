@@ -28,6 +28,7 @@ if (!is_dir(UPLOAD_DIR)) mkdir(UPLOAD_DIR, 0777, true);
 
 // طبقة التخزين المشتركة (MySQL حصراً) — يشترك بها أيضاً install.php وmanifest.php
 require_once __DIR__ . '/includes/db.php';
+db_prefetch_all();
 
 /* بعض الاستضافات المشتركة يكون مسار الجلسات الافتراضي عندها غير قابل للكتابة أو
    مقيّد، فتفشل الجلسة بصمت (تسجيل الدخول أو السلة لا يبقيان محفوظين بين طلب
@@ -90,8 +91,15 @@ ensure_admin_user();
 /* نفس فكرة ensure_admin_user لكن لبيانات المتاجر: إن كان stores.json قديماً
    من قبل إضافة نظام الأرباح/الاشتراكات فلن تحوي سجلاته حقول مثل earnings_log
    وسيظهر تحذير PHP يكسر استجابة الـ ajax. نُكمل الحقول الناقصة فقط بقيم
-   افتراضية آمنة دون المساس بأي بيانات متجر حقيقية موجودة. */
+   افتراضية آمنة دون المساس بأي بيانات متجر حقيقية موجودة.
+   المتاجر الجديدة (عبر apply_vendor) تُنشأ دائماً بكل الحقول كاملة، فهذا
+   الإكمال يلزم فقط لبيانات قديمة سابقة على إضافة حقل معيّن — مرة واحدة في
+   عمر الموقع، وليس كل طلب. مقارنة المصفوفات بعمق (!==) لكل متجر بكل طلب
+   كانت تصبح بطيئة جداً كلما كبر earnings_log للمتاجر (لا يتقلّص أبداً)،
+   فتُبطئ كل زر بكل صفحة للجميع لا للأدمن فقط — بنفس فكرة ملف .mysql_ready. */
 function ensure_store_defaults(): void {
+    $marker = DATA_DIR . '/.store_defaults_ensured';
+    if (file_exists($marker)) return;
     $stores = db_read('stores');
     $themeDefaults = ['primary'=>'#f2b100', 'radius'=>18, 'density'=>'comfortable', 'layout'=>'grid2'];
     $defaults = [
@@ -110,10 +118,19 @@ function ensure_store_defaults(): void {
     }
     unset($s);
     if ($changed) db_write('stores', $stores);
+    @file_put_contents($marker, (string)time());
 }
 ensure_store_defaults();
 
+/* فحص استحقاق الأرباح المعلّقة — عملية مستمرة طوال عمر الموقع (ليست إعداد
+   مرة واحدة كالدالة أعلاه)، لذا لا يصح إيقافها كلياً بعد أول تشغيل. لكن
+   earnings_log لكل متجر يكبر باستمرار (لا يتقلّص أبداً حتى للسجلات
+   المُعالَجة)، فتكرار مسحه بالكامل مع كل طلب لكل زائر يصبح بطيئاً فعلاً
+   كلما تراكمت طلبات حقيقية. نكتفي بفحصه فعلياً مرة كل دقيقة كحد أقصى
+   (كافٍ جداً لحجز مدته بالساعات EARNINGS_HOLD_HOURS) بدل كل طلب. */
 function release_matured_earnings(): void {
+    $settings = get_settings();
+    if (time() - (int)($settings['last_earnings_check_at'] ?? 0) < 60) return;
     $stores = db_read('stores');
     $changed = false;
     foreach ($stores as &$s) {
@@ -128,6 +145,8 @@ function release_matured_earnings(): void {
     }
     unset($s);
     if ($changed) db_write('stores', $stores);
+    $settings['last_earnings_check_at'] = time();
+    db_write('settings', $settings);
 }
 release_matured_earnings();
 
@@ -289,6 +308,17 @@ function my_notifications(): array {
     $all = array_values(array_filter(db_read('notifications'), fn($n) => $n['recipient'] === $recipient));
     usort($all, fn($a, $b) => $b['created_at'] <=> $a['created_at']);
     return $all;
+}
+
+/* شارة الإشعارات غير المقروءة بأعلى كل صفحة (app_shell_inner) تحتاج عدداً
+   فقط لا القائمة كاملة مرتّبة — تفادي usort() هنا (يُستدعى بكل صفحة لكل
+   مستخدم) يوفّر عملاً بلا فائدة مع تراكم إشعارات كثيرة بعمر الموقع. */
+function count_unread_notifications(): int {
+    $recipient = my_notif_recipient();
+    if ($recipient === null) return 0;
+    $n = 0;
+    foreach (db_read('notifications') as $item) if ($item['recipient'] === $recipient && !$item['read']) $n++;
+    return $n;
 }
 
 function time_ago(int $ts): string {
@@ -1589,7 +1619,7 @@ function order_stepper(string $status): string {
 
 function app_shell_inner(string $body, ?string $activeTab = 'home', string $extraSheets = ''): string {
     $cartCount = array_sum($_SESSION['cart'] ?? []);
-    $unreadCount = count(array_filter(my_notifications(), fn($n) => !$n['read']));
+    $unreadCount = count_unread_notifications();
     $flashes = take_flashes();
     $shellUser = current_user();
     $needsPhone = $shellUser !== null && empty($shellUser['phone'] ?? '');
@@ -1608,12 +1638,6 @@ function app_shell_inner(string $body, ?string $activeTab = 'home', string $extr
   <span>ثبّت تطبيق <?= h(site_name()) ?> على جهازك لتصفح أسرع</span>
   <button class="btn btn-sm" id="installBtn" type="button" style="width:auto">تثبيت</button>
   <button class="icon-btn" id="installDismiss" type="button" style="width:28px;height:28px"><i class="fas fa-xmark"></i></button>
-</div>
-<div class="install-banner" id="notifBanner" hidden>
-  <i class="fas fa-bell"></i>
-  <span>فعّل إشعارات <?= h(site_name()) ?> حتى تلاحق طلباتك وعروضنا بسرعة</span>
-  <button class="btn btn-sm" id="notifBtn" type="button" style="width:auto">تفعيل</button>
-  <button class="icon-btn" id="notifDismiss" type="button" style="width:28px;height:28px"><i class="fas fa-xmark"></i></button>
 </div>
 
 <main class="content z1">

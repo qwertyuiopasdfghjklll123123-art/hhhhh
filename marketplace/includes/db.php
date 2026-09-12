@@ -142,6 +142,28 @@ function db_read(string $name, array $default = []): array {
     return $cache[$name] ?? $default;
 }
 
+/* كل صفحة تقريباً تحتاج عدة مجموعات مختلفة (users, settings, stores,
+   products, notifications...)، وكل db_read() لمجموعة غير مخزَّنة مسبقاً
+   يعني رحلة شبكة منفصلة لـMySQL — فصفحة واحدة قد تُصدر 5-8 رحلات متتالية.
+   هذا محسوس بوضوح إن كانت قاعدة البيانات على خادم منفصل عن الموقع (زمن
+   استجابة الشبكة يتكرر مع كل رحلة)، وهو سبب رئيسي لشعور "كل الأزرار
+   بطيئة" بلا علاقة بحجم البيانات نفسها. نجلب كل المجموعات دفعة واحدة
+   باستعلام SQL واحد فقط، ونملأ بها db_cache() مسبقاً، فتصبح كل db_read()
+   اللاحقة بنفس الطلب قراءة من الذاكرة مباشرة بلا أي رحلة شبكة إضافية —
+   دون تغيير أي سلوك أو استدعاء db_read() الحالي بالتطبيق. */
+function db_prefetch_all(): void {
+    $conn = db_connect();
+    if (!$conn) return;
+    $res = $conn->query("SELECT name, data FROM kv_store");
+    if (!$res) return;
+    $cache = &db_cache();
+    while ($row = $res->fetch_assoc()) {
+        if (array_key_exists($row['name'], $cache)) continue;
+        $data = json_decode($row['data'], true);
+        $cache[$row['name']] = is_array($data) ? $data : null;
+    }
+}
+
 function db_write(string $name, array $data): void {
     $conn = db_connect();
     if (!$conn) db_fail_no_connection();
@@ -198,7 +220,7 @@ function db_test_connection(string $host, string $name, string $user, string $pa
    أعلاه، لذا تبقى صحيحة سواء استُخدمت من index.php أو install.php أو
    manifest.php وسواء كان التخزين JSON أو MySQL. */
 function get_settings(): array {
-    $defaults = ['monthly_fee'=>0, 'categories'=>[], 'payment_methods'=>[], 'site_name'=>APP_NAME, 'site_logo'=>'', 'ai_api_key'=>'', 'google_client_id'=>'', 'coupons'=>[], 'telegram_bot_token'=>'', 'telegram_chat_id'=>'', 'last_backup_at'=>0];
+    $defaults = ['monthly_fee'=>0, 'categories'=>[], 'payment_methods'=>[], 'site_name'=>APP_NAME, 'site_logo'=>'', 'ai_api_key'=>'', 'google_client_id'=>'', 'coupons'=>[], 'telegram_bot_token'=>'', 'telegram_chat_id'=>'', 'last_backup_at'=>0, 'last_earnings_check_at'=>0];
     return db_read('settings', $defaults) + $defaults;
 }
 function get_categories(): array { return get_settings()['categories'] ?? []; }
