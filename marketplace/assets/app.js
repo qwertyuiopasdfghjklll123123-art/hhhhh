@@ -41,6 +41,7 @@ window.addEventListener('beforeinstallprompt', function(e){
 });
 function showInstallBanner(){
   if (!_deferredInstall) return;
+  if (document.getElementById('completeProfileSheet')) return; // لا نظهره فوق نافذة إكمال البيانات الإلزامية — يظهر تلقائياً بعدها مباشرة
   let dismissed = false;
   try { dismissed = sessionStorage.getItem('installDismissed') === '1'; } catch (err) {}
   const b = document.getElementById('installBanner');

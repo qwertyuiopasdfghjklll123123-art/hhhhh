@@ -1697,8 +1697,9 @@ function full_document(string $title, string $inner): void {
 <meta name="apple-mobile-web-app-title" content="<?= h(site_name()) ?>">
 <link rel="apple-touch-icon" href="<?= h(site_logo_url() ?? 'assets/icon-192.png') ?>">
 <link rel="icon" href="<?= h(site_logo_url() ?? 'assets/icon-192.png') ?>">
-<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
-<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
+<link rel="preload" as="style" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" onload="this.onload=null;this.rel='stylesheet'">
+<link rel="preload" as="style" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@300;400;500;600;700;800;900&display=swap" onload="this.onload=null;this.rel='stylesheet'">
+<noscript><link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css"><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@300;400;500;600;700;800;900&display=swap"></noscript>
 <?php if (google_client_id() !== ''): ?><script src="https://accounts.google.com/gsi/client" async defer></script><?php endif; ?>
 <link rel="stylesheet" href="assets/style.css">
 </head>
