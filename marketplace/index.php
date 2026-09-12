@@ -793,9 +793,9 @@ if ($action !== '') {
             $products = db_read('products');
             $products[] = ['id'=>next_id($products), 'store_id'=>$store['id'],
                 'name'=>trim((string)$_POST['name']), 'description'=>trim((string)$_POST['description']),
-                'price'=>(float)$_POST['price'], 'discount_price'=>$_POST['discount_price'] !== '' ? (float)$_POST['discount_price'] : null,
+                'price'=>(float)$_POST['price'], 'discount_price'=>($_POST['discount_price'] ?? '') !== '' ? (float)$_POST['discount_price'] : null,
                 'category'=>$_POST['category'] ?? $store['category'],
-                'section_id'=>$_POST['section_id'] !== '' ? (int)$_POST['section_id'] : null,
+                'section_id'=>($_POST['section_id'] ?? '') !== '' ? (int)$_POST['section_id'] : null,
                 'images'=>handle_multi_upload('images'), 'created_at'=>time()];
             db_write('products', $products);
             flash('ok', 'تمت إضافة المنتج');
@@ -810,9 +810,9 @@ if ($action !== '') {
                     $p['name'] = trim((string)$_POST['name']);
                     $p['description'] = trim((string)$_POST['description']);
                     $p['price'] = (float)$_POST['price'];
-                    $p['discount_price'] = $_POST['discount_price'] !== '' ? (float)$_POST['discount_price'] : null;
+                    $p['discount_price'] = ($_POST['discount_price'] ?? '') !== '' ? (float)$_POST['discount_price'] : null;
                     $p['category'] = $_POST['category'] ?? $p['category'];
-                    $p['section_id'] = $_POST['section_id'] !== '' ? (int)$_POST['section_id'] : null;
+                    $p['section_id'] = ($_POST['section_id'] ?? '') !== '' ? (int)$_POST['section_id'] : null;
                     $newImgs = handle_multi_upload('images');
                     if ($newImgs) $p['images'] = array_merge($p['images'], $newImgs);
                 }
@@ -1606,7 +1606,6 @@ function full_document(string $title, string $inner): void {
 <body>
 <div class="bg-orb bo1"></div><div class="bg-orb bo2"></div>
 <div class="offline-banner" id="offlineBanner" hidden><i class="fas fa-wifi"></i> <span>لا يوجد اتصال بالإنترنت</span></div>
-<div class="nav-loader" id="navLoader" hidden><div class="nav-loader-icon"><i class="fas fa-shop"></i></div></div>
 <div id="app-root"><?= $inner ?></div>
 <script>window.APP_CONFIG = <?= json_encode(['siteName' => site_name(), 'googleClientId' => google_client_id()], JSON_UNESCAPED_UNICODE) ?>;</script>
 <script>try { history.replaceState(null, '', <?= json_encode(current_user() ? 'app' : '/') ?>); } catch (e) {}</script>

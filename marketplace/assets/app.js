@@ -1,21 +1,14 @@
 /* ===== تصفح بلا فتح صفحات جديدة (نفس الرابط من الدخول لآخر شي) ===== */
-function setLoading(v){
-  document.getElementById('app-root')?.classList.toggle('nav-loading', v);
-  document.getElementById('navLoader')?.toggleAttribute('hidden', !v);
-}
+function setLoading(v){ document.getElementById('app-root')?.classList.toggle('nav-loading', v); }
 
 function applySwap(data){
-  const doSwap = () => {
-    document.getElementById('app-root').innerHTML = data.html;
-    document.title = data.title + (window.APP_CONFIG?.siteName ? ' — ' + window.APP_CONFIG.siteName : '');
-    window.scrollTo(0, 0);
-    showInstallBanner();
-    renderGoogleButton();
-    if (document.getElementById('orderSuccessTrigger')) openSheet('orderSuccessSheet');
-    if (document.getElementById('onboardTrigger')) { openSheet('onboardSheet'); markOnboardSeen(); }
-  };
-  if (document.startViewTransition) document.startViewTransition(doSwap);
-  else doSwap();
+  document.getElementById('app-root').innerHTML = data.html;
+  document.title = data.title + (window.APP_CONFIG?.siteName ? ' — ' + window.APP_CONFIG.siteName : '');
+  window.scrollTo(0, 0);
+  showInstallBanner();
+  renderGoogleButton();
+  if (document.getElementById('orderSuccessTrigger')) openSheet('orderSuccessSheet');
+  if (document.getElementById('onboardTrigger')) { openSheet('onboardSheet'); markOnboardSeen(); }
 }
 
 /* ===== شعار انقطاع الإنترنت — يظهر/يختفي تلقائياً حسب حالة الاتصال الحقيقية ===== */
