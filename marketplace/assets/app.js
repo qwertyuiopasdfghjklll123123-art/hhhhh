@@ -24,12 +24,9 @@ window.addEventListener('online', updateOfflineBanner);
 window.addEventListener('offline', updateOfflineBanner);
 updateOfflineBanner();
 
-/* ===== تثبيت التطبيق (PWA) + تصفح بلا إنترنت للصفحات المفتوحة سابقاً ===== */
+/* ===== تثبيت التطبيق (PWA) — بلا أي تخزين لصفحات أو بيانات، فقط الواجهة الثابتة ===== */
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', function(){ navigator.serviceWorker.register('sw.js').catch(function(){}); });
-}
-function clearOfflineCache(){
-  navigator.serviceWorker?.getRegistration().then(function(reg){ reg?.active?.postMessage('clear-dynamic-cache'); }).catch(function(){});
 }
 /* التطبيق لا يغيّر رابط المتصفح أبداً أثناء التصفح الداخلي (كل شيء عبر
    fetch)، لكن نغيّره مرة واحدة فقط عند حدود الدخول/الخروج: دومين/app بعد
@@ -120,7 +117,6 @@ async function submitPost(form){
     const r = await fetch('index.php', {method:'POST', body: fd, headers:{'X-Requested-With':'fetch'}, credentials:'same-origin'});
     if (!r.ok) throw new Error('bad response');
     applySwap(await r.json());
-    if (['login', 'logout', 'register', 'google_login'].includes(actionName)) clearOfflineCache();
     setAuthUrl(actionName);
   } catch (err) {
     form.submit();
