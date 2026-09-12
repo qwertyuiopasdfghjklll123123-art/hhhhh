@@ -434,14 +434,13 @@ if ($action !== '') {
         $phone = trim((string)($_POST['phone'] ?? ''));
         $password = (string)($_POST['password'] ?? '');
         $captcha = strtoupper(trim((string)($_POST['captcha'] ?? '')));
-        $expected = $_SESSION['reg_captcha'] ?? null;
-        unset($_SESSION['reg_captcha']);
+        $captchaValid = verify_captcha($captcha, (string)($_POST['captcha_expires'] ?? ''), (string)($_POST['captcha_sig'] ?? ''));
 
         $err = null;
         if ($name === '' || $email === '' || $phone === '' || $password === '') $err = 'الرجاء تعبئة كل الحقول';
         elseif (!filter_var($email, FILTER_VALIDATE_EMAIL)) $err = 'البريد الإلكتروني غير صحيح';
         elseif (strlen($password) < 6) $err = 'كلمة المرور لازم لا تقل عن 6 خانات';
-        elseif ($expected === null || $captcha !== $expected) $err = 'كود التحقق غير صحيح، حاول مرة ثانية';
+        elseif (!$captchaValid) $err = 'كود التحقق غير صحيح أو منتهي الصلاحية، حاول مرة ثانية';
         else {
             foreach (db_read('users') as $u) if (mb_strtolower($u['email'] ?? '') === $email) { $err = 'هذا البريد مسجّل مسبقاً'; break; }
         }
@@ -1621,11 +1620,34 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === 'chat') {
 }
 
 /* ===================== صفحة الدخول ===================== */
+/* كود التحقق لا يعتمد على $_SESSION إطلاقاً — يُوقَّع بتوقيع HMAC ويُحمل
+   بحقلين مخفيين بالنموذج نفسه (الكود + مدة صلاحيته)، ويُعاد توليد نفس
+   التوقيع عند الإرسال للمقارنة. هذا يجعله يعمل بشكل صحيح حتى لو كانت
+   جلسات PHP على الاستضافة غير موثوقة (خوادم متعددة بلا تخزين جلسات
+   مشترك، إعدادات صلاحيات مجلد الجلسات...) — وهي مشكلة شائعة بالاستضافة
+   المشتركة تجعل كود صحيح بصرياً يُرفض دائماً رغم كتابته بشكل صحيح تماماً. */
+function captcha_secret(): string {
+    $settings = get_settings();
+    $secret = trim((string)($settings['captcha_secret'] ?? ''));
+    if ($secret === '') {
+        $secret = bin2hex(random_bytes(32));
+        $settings['captcha_secret'] = $secret;
+        db_write('settings', $settings);
+    }
+    return $secret;
+}
+function verify_captcha(string $userInput, string $expiresRaw, string $sig): bool {
+    $expires = (int)$expiresRaw;
+    if ($expires < time() || $sig === '') return false;
+    $expected = hash_hmac('sha256', $userInput . '|' . $expires, captcha_secret());
+    return hash_equals($expected, $sig);
+}
 function render_captcha(): string {
     $chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
     $code = '';
     for ($i = 0; $i < 5; $i++) $code .= $chars[random_int(0, strlen($chars) - 1)];
-    $_SESSION['reg_captcha'] = $code;
+    $expires = time() + 600;
+    $sig = hash_hmac('sha256', $code . '|' . $expires, captcha_secret());
     ob_start(); ?>
     <div class="captcha-box">
         <?php foreach (str_split($code) as $ch):
@@ -1633,6 +1655,8 @@ function render_captcha(): string {
             <span style="transform:rotate(<?= $rot ?>deg) translateY(<?= $dy ?>px)"><?= h($ch) ?></span>
         <?php endforeach; ?>
     </div>
+    <input type="hidden" name="captcha_expires" value="<?= $expires ?>">
+    <input type="hidden" name="captcha_sig" value="<?= h($sig) ?>">
     <?php return ob_get_clean();
 }
 
