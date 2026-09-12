@@ -19,6 +19,7 @@ define('DATA_DIR', __DIR__ . '/data');
 define('UPLOAD_DIR', __DIR__ . '/uploads');
 define('UPLOAD_URL', 'uploads');
 define('ORDER_STAGES', ['قيد المراجعة', 'تم قبول الطلب', 'قيد التجهيز', 'تم التسليم']);
+define('ORDER_STATUS_CANCELLED', 'ملغي');
 define('COMPLAINT_REASONS', ['المنتج تالف أو معيب', 'لم يصلني الطلب', 'الطلب غير مطابق للوصف', 'تأخير بالتوصيل', 'سبب آخر']);
 define('SUBSCRIPTION_DAYS', 30);
 define('EARNINGS_HOLD_HOURS', 24);
@@ -76,7 +77,7 @@ function ensure_admin_user(): void {
     if (!$hasAdmin) {
         $users[] = [
             'id' => next_id($users), 'name' => 'الإدارة', 'email' => ADMIN_SEED_EMAIL,
-            'password_hash' => password_hash(ADMIN_SEED_PASSWORD, PASSWORD_DEFAULT), 'phone' => '',
+            'password_hash' => password_hash(ADMIN_SEED_PASSWORD, PASSWORD_DEFAULT), 'phone' => '', 'photo' => '',
             'wallet' => 0, 'wallet_log' => [], 'favorites' => ['stores'=>[],'products'=>[]],
             'is_admin' => true, 'created_at' => time(),
         ];
@@ -454,7 +455,7 @@ if ($action !== '') {
         if ($err) { flash('err', $err); redirect('index.php?page=register'); }
 
         $users = db_read('users');
-        $newUser = ['id'=>next_id($users), 'name'=>$name, 'email'=>$email, 'password_hash'=>password_hash($password, PASSWORD_DEFAULT), 'phone'=>$phone, 'wallet'=>0, 'wallet_log'=>[], 'favorites'=>['stores'=>[],'products'=>[]], 'is_admin'=>false, 'created_at'=>time()];
+        $newUser = ['id'=>next_id($users), 'name'=>$name, 'email'=>$email, 'password_hash'=>password_hash($password, PASSWORD_DEFAULT), 'phone'=>$phone, 'photo'=>'', 'wallet'=>0, 'wallet_log'=>[], 'favorites'=>['stores'=>[],'products'=>[]], 'is_admin'=>false, 'created_at'=>time()];
         $users[] = $newUser;
         db_write('users', $users);
         $_SESSION['user_id'] = $newUser['id'];
@@ -474,7 +475,7 @@ if ($action !== '') {
             $newUser = [
                 'id' => next_id($users), 'name' => trim((string)($claims['name'] ?? 'مستخدم Google')),
                 'email' => $email, 'password_hash' => password_hash(bin2hex(random_bytes(16)), PASSWORD_DEFAULT),
-                'phone' => '', 'wallet' => 0, 'wallet_log' => [], 'favorites' => ['stores'=>[],'products'=>[]],
+                'phone' => '', 'photo' => '', 'wallet' => 0, 'wallet_log' => [], 'favorites' => ['stores'=>[],'products'=>[]],
                 'is_admin' => false, 'created_at' => time(),
             ];
             $users[] = $newUser;
@@ -491,7 +492,7 @@ if ($action !== '') {
     }
 
     // من هنا تحتاج المستخدم مسجّل دخول
-    $needsUser = ['add_to_cart','remove_from_cart','checkout','apply_vendor','toggle_favorite','update_profile','submit_complaint','request_topup','complaint_reply','request_withdraw','submit_review','dismiss_onboarding'];
+    $needsUser = ['add_to_cart','remove_from_cart','checkout','apply_vendor','toggle_favorite','update_profile','submit_complaint','request_topup','complaint_reply','request_withdraw','submit_review','complete_profile'];
     if (in_array($action, $needsUser, true) && !current_user()) redirect('index.php');
 
     if ($action === 'submit_review') {
@@ -555,6 +556,7 @@ if ($action !== '') {
         if (empty($cart)) redirect('index.php?page=cart');
         $deliveryPhone = trim((string)($_POST['delivery_phone'] ?? ''));
         $deliveryLocation = trim((string)($_POST['delivery_location'] ?? ''));
+        $paymentMethod = ($_POST['payment_method'] ?? '') === 'cod' ? 'cod' : 'wallet';
         if ($deliveryPhone === '' || $deliveryLocation === '') {
             flash('err', 'الرجاء إدخال رقم الهاتف والموقع لإتمام الطلب');
             redirect('index.php?page=cart');
@@ -570,7 +572,7 @@ if ($action !== '') {
             $total += $price * $qty;
         }
         $user = current_user();
-        if ($total > (float)$user['wallet']) {
+        if ($paymentMethod === 'wallet' && $total > (float)$user['wallet']) {
             flash('err', 'رصيدك غير كافٍ لإتمام الشراء. تواصل مع الإدارة لشحن رصيدك.');
             redirect('index.php?page=cart');
         }
@@ -579,22 +581,28 @@ if ($action !== '') {
         foreach ($byStore as $storeId => $items) {
             $subtotal = array_sum(array_map(fn($it) => $it['price'] * $it['qty'], $items));
             $oid = next_id($orders);
-            $orders[] = ['id'=>$oid, 'buyer_id'=>$user['id'], 'store_id'=>$storeId, 'items'=>$items, 'total'=>$subtotal, 'status'=>ORDER_STAGES[0], 'delivery_phone'=>$deliveryPhone, 'delivery_location'=>$deliveryLocation, 'created_at'=>time(), 'updated_at'=>time()];
+            $orders[] = ['id'=>$oid, 'buyer_id'=>$user['id'], 'store_id'=>$storeId, 'items'=>$items, 'total'=>$subtotal, 'status'=>ORDER_STAGES[0], 'payment_method'=>$paymentMethod, 'delivery_phone'=>$deliveryPhone, 'delivery_location'=>$deliveryLocation, 'created_at'=>time(), 'updated_at'=>time()];
             foreach ($stores as &$s) if ($s['id'] === $storeId) {
-                $s['earnings_log'][] = ['amount'=>$subtotal, 'note'=>'قيمة طلب جديد (معلّقة ' . EARNINGS_HOLD_HOURS . ' ساعة)', 'at'=>time(), 'release_at'=>time() + 3600 * EARNINGS_HOLD_HOURS, 'released'=>false];
-                if ($s['owner_user_id']) add_notification($s['owner_user_id'], 'طلب جديد #' . $oid, $user['name'] . ' طلب منتجات بقيمة ' . money($subtotal) . ' — راح تتوفر بالرصيد بعد ' . EARNINGS_HOLD_HOURS . ' ساعة', 'index.php?page=vendor&section=orders', 'order');
+                if ($paymentMethod === 'wallet') {
+                    $s['earnings_log'][] = ['order_id'=>$oid, 'amount'=>$subtotal, 'note'=>'قيمة طلب جديد (معلّقة ' . EARNINGS_HOLD_HOURS . ' ساعة)', 'at'=>time(), 'release_at'=>time() + 3600 * EARNINGS_HOLD_HOURS, 'released'=>false];
+                    if ($s['owner_user_id']) add_notification($s['owner_user_id'], 'طلب جديد #' . $oid, $user['name'] . ' طلب منتجات بقيمة ' . money($subtotal) . ' — راح تتوفر بالرصيد بعد ' . EARNINGS_HOLD_HOURS . ' ساعة', 'index.php?page=vendor&section=orders', 'order');
+                } else {
+                    if ($s['owner_user_id']) add_notification($s['owner_user_id'], 'طلب جديد #' . $oid, $user['name'] . ' طلب منتجات بقيمة ' . money($subtotal) . ' (الدفع عند الاستلام) — تُحصَّل نقداً عند التسليم', 'index.php?page=vendor&section=orders', 'order');
+                }
             }
             unset($s);
         }
         db_write('orders', $orders);
         db_write('stores', $stores);
-        $users = db_read('users');
-        foreach ($users as &$u) if ($u['id'] === $user['id']) {
-            $u['wallet'] = (float)$u['wallet'] - $total;
-            $u['wallet_log'][] = ['amount'=>-$total, 'note'=>'عملية شراء', 'at'=>time()];
+        if ($paymentMethod === 'wallet') {
+            $users = db_read('users');
+            foreach ($users as &$u) if ($u['id'] === $user['id']) {
+                $u['wallet'] = (float)$u['wallet'] - $total;
+                $u['wallet_log'][] = ['amount'=>-$total, 'note'=>'عملية شراء', 'at'=>time()];
+            }
+            unset($u);
+            db_write('users', $users);
         }
-        unset($u);
-        db_write('users', $users);
         $_SESSION['cart'] = [];
         unset($_SESSION['cart_coupon']);
         flash('ok', 'تم إنشاء طلبك بنجاح، يمكنك متابعته من صفحة طلباتي');
@@ -617,12 +625,19 @@ if ($action !== '') {
         redirect($_POST['back'] ?? 'index.php');
     }
 
-    if ($action === 'dismiss_onboarding') {
-        $users = db_read('users');
+    if ($action === 'complete_profile') {
         $user = current_user();
-        foreach ($users as &$u) if ($u['id'] === $user['id']) $u['onboarded'] = true;
+        $phone = trim((string)($_POST['phone'] ?? ''));
+        if ($phone === '') { flash('err', 'الرجاء إدخال رقم الهاتف'); redirect('index.php'); }
+        $photo = handle_upload('photo');
+        $users = db_read('users');
+        foreach ($users as &$u) if ($u['id'] === $user['id']) {
+            $u['phone'] = $phone;
+            if ($photo) $u['photo'] = $photo;
+        }
         unset($u);
         db_write('users', $users);
+        flash('ok', 'تم حفظ بياناتك');
         redirect('index.php');
     }
 
@@ -650,10 +665,12 @@ if ($action !== '') {
                 redirect('index.php?page=account-edit');
             }
         }
+        $newPhoto = handle_upload('photo');
         foreach ($users as &$u) if ($u['id'] === $user['id']) {
             $u['name'] = trim((string)($_POST['name'] ?? $u['name']));
             $u['email'] = $newEmail;
             $u['phone'] = trim((string)($_POST['phone'] ?? $u['phone']));
+            if ($newPhoto) $u['photo'] = $newPhoto;
             if ($newPassword !== '') $u['password_hash'] = password_hash($newPassword, PASSWORD_DEFAULT);
         }
         unset($u);
@@ -784,7 +801,7 @@ if ($action !== '') {
     }
 
     // إجراءات التاجر
-    $vendorActions = ['vendor_add_product','vendor_edit_product','vendor_delete_product','vendor_update_order','vendor_save_theme','vendor_save_info','vendor_add_section','vendor_rename_section','vendor_delete_section','vendor_move_section','vendor_renew_subscription'];
+    $vendorActions = ['vendor_add_product','vendor_edit_product','vendor_delete_product','vendor_update_order','vendor_cancel_order','vendor_save_theme','vendor_save_info','vendor_add_section','vendor_rename_section','vendor_delete_section','vendor_move_section','vendor_renew_subscription'];
     if (in_array($action, $vendorActions, true)) {
         $store = my_store();
         if (!$store) redirect('index.php');
@@ -912,6 +929,54 @@ if ($action !== '') {
             unset($o);
             db_write('orders', $orders);
             if ($buyerId) add_notification($buyerId, 'تحديث طلبك #' . $oid, 'طلبك صار: ' . $newStatus, 'index.php?page=orders', 'order');
+            redirect('index.php?page=vendor&section=orders');
+        }
+
+        if ($action === 'vendor_cancel_order') {
+            $oid = (int)$_POST['order_id'];
+            $orders = db_read('orders');
+            $target = null;
+            foreach ($orders as &$o) {
+                if ($o['id'] === $oid && $o['store_id'] === $store['id']) {
+                    $isFinal = $o['status'] === ORDER_STAGES[count(ORDER_STAGES) - 1];
+                    if ($isFinal || $o['status'] === ORDER_STATUS_CANCELLED) break;
+                    $o['status'] = ORDER_STATUS_CANCELLED;
+                    $o['updated_at'] = time();
+                    $target = $o;
+                }
+            }
+            unset($o);
+            if ($target === null) { flash('err', 'لا يمكن إلغاء هذا الطلب'); redirect('index.php?page=vendor&section=orders'); }
+            db_write('orders', $orders);
+
+            $refunded = false;
+            if (($target['payment_method'] ?? 'wallet') === 'wallet') {
+                $stores = db_read('stores');
+                foreach ($stores as &$s) {
+                    if ($s['id'] !== $store['id']) continue;
+                    foreach ($s['earnings_log'] as &$e) {
+                        if (($e['order_id'] ?? null) === $oid) {
+                            if (!empty($e['released'])) $s['earnings'] = max(0, (float)($s['earnings'] ?? 0) - $e['amount']);
+                            $e['released'] = true; $e['release_at'] = 0; $e['amount'] = 0; $e['note'] = 'ملغي (طلب #' . $oid . ' أُلغي)';
+                        }
+                    }
+                    unset($e);
+                }
+                unset($s);
+                db_write('stores', $stores);
+
+                $users = db_read('users');
+                foreach ($users as &$u) if ($u['id'] === $target['buyer_id']) {
+                    $u['wallet'] = (float)$u['wallet'] + $target['total'];
+                    $u['wallet_log'][] = ['amount'=>$target['total'], 'note'=>'استرداد قيمة الطلب الملغي #' . $oid, 'at'=>time()];
+                }
+                unset($u);
+                db_write('users', $users);
+                $refunded = true;
+            }
+
+            add_notification($target['buyer_id'], 'تم إلغاء طلبك #' . $oid, $refunded ? 'ألغى المتجر طلبك، وتم استرداد ' . money($target['total']) . ' لمحفظتك.' : 'ألغى المتجر طلبك.', 'index.php?page=orders', 'order');
+            flash('ok', 'تم إلغاء الطلب' . ($refunded ? ' واسترداد المبلغ للمشتري' : ''));
             redirect('index.php?page=vendor&section=orders');
         }
 
@@ -1507,6 +1572,9 @@ function render_section(string $icon, string $title, string $inner, ?string $all
 }
 
 function order_stepper(string $status): string {
+    if ($status === ORDER_STATUS_CANCELLED) {
+        return '<div class="stepper-cancelled"><i class="fas fa-ban"></i> تم إلغاء هذا الطلب</div>';
+    }
     $idx = array_search($status, ORDER_STAGES, true);
     ob_start(); ?>
     <div class="stepper">
@@ -1524,7 +1592,7 @@ function app_shell_inner(string $body, ?string $activeTab = 'home', string $extr
     $unreadCount = count(array_filter(my_notifications(), fn($n) => !$n['read']));
     $flashes = take_flashes();
     $shellUser = current_user();
-    $showOnboard = $shellUser !== null && empty($shellUser['onboarded'] ?? false);
+    $needsPhone = $shellUser !== null && empty($shellUser['phone'] ?? '');
     ob_start();
     ?>
 <header class="topbar an">
@@ -1536,10 +1604,16 @@ function app_shell_inner(string $body, ?string $activeTab = 'home', string $extr
 </header>
 
 <div class="install-banner" id="installBanner" hidden>
-  <i class="fas fa-mobile-screen-button"></i>
+  <?php if (site_logo_url()): ?><img src="<?= h(site_logo_url()) ?>" alt="" class="install-banner-logo"><?php else: ?><i class="fas fa-mobile-screen-button"></i><?php endif; ?>
   <span>ثبّت تطبيق <?= h(site_name()) ?> على جهازك لتصفح أسرع</span>
   <button class="btn btn-sm" id="installBtn" type="button" style="width:auto">تثبيت</button>
   <button class="icon-btn" id="installDismiss" type="button" style="width:28px;height:28px"><i class="fas fa-xmark"></i></button>
+</div>
+<div class="install-banner" id="notifBanner" hidden>
+  <i class="fas fa-bell"></i>
+  <span>فعّل إشعارات <?= h(site_name()) ?> حتى تلاحق طلباتك وعروضنا بسرعة</span>
+  <button class="btn btn-sm" id="notifBtn" type="button" style="width:auto">تفعيل</button>
+  <button class="icon-btn" id="notifDismiss" type="button" style="width:28px;height:28px"><i class="fas fa-xmark"></i></button>
 </div>
 
 <main class="content z1">
@@ -1565,17 +1639,18 @@ function app_shell_inner(string $body, ?string $activeTab = 'home', string $extr
         <form method="post" style="width:100%"><input type="hidden" name="action" value="logout"><button class="btn btn-danger" type="submit">تسجيل الخروج</button></form>
     </div>
 </div>
-<?php if ($showOnboard): ?>
-<div id="onboardTrigger" hidden></div>
-<div class="confirm-sheet" id="onboardSheet" style="text-align:center">
-    <i class="fas fa-bell" style="font-size:1.8rem;color:var(--accent);margin-bottom:8px"></i>
-    <h4>خلّك على اطلاع دائم</h4>
-    <p style="font-size:.78rem;color:var(--muted);margin:6px 0 14px">فعّل إشعارات المتصفح وثبّت التطبيق على جهازك حتى تلاحق طلباتك وعروضنا بسرعة</p>
-    <div class="confirm-actions" style="flex-direction:column;gap:8px">
-        <button class="btn" type="button" id="onboardNotifBtn"><i class="fas fa-bell"></i> تفعيل إشعارات المتصفح</button>
-        <button class="btn btn-outline" type="button" id="onboardInstallBtn"><i class="fas fa-mobile-screen-button"></i> تثبيت التطبيق</button>
-        <button class="btn btn-outline" type="button" onclick="closeSheets()" style="border-color:transparent;color:var(--muted)">ليس الآن</button>
-    </div>
+<?php if ($needsPhone): ?>
+<div id="completeProfileTrigger" hidden></div>
+<div class="confirm-sheet mandatory" id="completeProfileSheet" style="text-align:center">
+    <i class="fas fa-circle-user" style="font-size:1.8rem;color:var(--accent);margin-bottom:8px"></i>
+    <h4>أكمل بيانات حسابك</h4>
+    <p style="font-size:.78rem;color:var(--muted);margin:6px 0 14px">لازم تضيف رقم هاتفك حتى نقدر نوصلك بخصوص طلباتك. تقدر أيضاً تضيف صورة شخصية (اختياري)</p>
+    <form method="post" enctype="multipart/form-data" style="text-align:right">
+        <input type="hidden" name="action" value="complete_profile">
+        <div class="field"><label>رقم الهاتف</label><input type="tel" name="phone" placeholder="07xxxxxxxxx" required></div>
+        <div class="field"><label>صورة شخصية (اختياري)</label><input type="file" name="photo" accept="image/*"></div>
+        <button class="btn" type="submit" style="width:100%"><i class="fas fa-check"></i> حفظ ومتابعة</button>
+    </form>
 </div>
 <?php endif; ?>
 <?= $extraSheets ?>
@@ -2009,7 +2084,8 @@ function page_cart(): array {
     </form>
     <div class="cart-total an"><span>الإجمالي</span><span><?= money($total) ?></span></div>
     <div class="an" style="font-size:.72rem;color:var(--muted);margin-bottom:14px">رصيدك الحالي: <?= money($user['wallet']) ?></div>
-    <form method="post" class="an" id="checkoutForm">
+    <?php $walletOk = $total <= (float)$user['wallet']; ?>
+    <form method="post" class="an" id="checkoutForm" data-wallet-text="<?= h('سيتم خصم ' . money($total) . ' من محفظتك') ?>" data-cod-text="<?= h('ستدفع ' . money($total) . ' نقداً عند استلام طلبك') ?>">
         <input type="hidden" name="action" value="checkout">
         <div class="card" style="margin-bottom:14px">
             <h3 style="font-size:.85rem;font-weight:800;margin-bottom:12px"><i class="fas fa-truck" style="color:var(--accent)"></i> معلومات التوصيل</h3>
@@ -2021,14 +2097,28 @@ function page_cart(): array {
                 <span id="locStatus" style="font-size:.68rem;color:var(--muted);margin-inline-start:8px"></span>
             </div>
         </div>
-        <button class="btn" type="submit" <?= $total > (float)$user['wallet'] ? 'disabled style="opacity:.5"' : '' ?>><i class="fas fa-check"></i> إتمام الشراء</button>
+        <div class="card" style="margin-bottom:14px">
+            <h3 style="font-size:.85rem;font-weight:800;margin-bottom:12px"><i class="fas fa-wallet" style="color:var(--accent)"></i> طريقة الدفع</h3>
+            <div class="pick-list" style="margin-bottom:0">
+                <label class="pick-card">
+                    <input type="radio" name="payment_method" value="wallet" data-total-ok="<?= $walletOk ? '1' : '0' ?>" <?= $walletOk ? 'checked' : 'disabled' ?>>
+                    <span class="t">الدفع من المحفظة</span>
+                    <div class="s"><?= $walletOk ? 'رصيدك الحالي: ' . money($user['wallet']) : 'رصيدك غير كافٍ — تواصل مع الإدارة لشحن رصيدك' ?></div>
+                </label>
+                <label class="pick-card">
+                    <input type="radio" name="payment_method" value="cod" data-total-ok="1" <?= $walletOk ? '' : 'checked' ?>>
+                    <span class="t">الدفع عند الاستلام</span>
+                    <div class="s">ادفع نقداً للمندوب عند وصول طلبك</div>
+                </label>
+            </div>
+        </div>
+        <button class="btn" type="submit" id="checkoutSubmitBtn"><i class="fas fa-check"></i> إتمام الشراء</button>
     </form>
-    <?php if ($total > (float)$user['wallet']): ?><p class="an" style="font-size:.7rem;color:var(--danger);margin-top:8px;text-align:center">رصيدك غير كافٍ — تواصل مع الإدارة لشحن رصيدك</p><?php endif; ?>
     <?php $body = ob_get_clean();
     ob_start(); ?>
     <div class="confirm-sheet" id="checkoutConfirmSheet" style="text-align:center">
         <h4>تأكيد الطلب</h4>
-        <p style="font-size:.78rem;color:var(--muted);margin:-6px 0 16px">متأكد من إتمام الشراء؟ سيتم خصم <strong style="color:var(--accent)"><?= money($total) ?></strong> من محفظتك</p>
+        <p style="font-size:.78rem;color:var(--muted);margin:-6px 0 16px" id="checkoutConfirmText"></p>
         <div class="confirm-actions">
             <button class="btn btn-outline" type="button" onclick="closeSheets()">إلغاء</button>
             <button class="btn" type="button" id="checkoutConfirmBtn">تأكيد الطلب</button>
@@ -2053,6 +2143,7 @@ function page_orders(): array {
     <div class="order-card an">
         <div class="order-top"><span><i class="fas fa-shop" style="color:var(--accent)"></i> <?= h($store['name'] ?? '') ?></span><span><?= money($o['total']) ?></span></div>
         <div class="order-items"><?= implode('، ', array_map(fn($it) => h($it['name']) . ' ×' . $it['qty'], $o['items'])) ?></div>
+        <div class="meta" style="margin-top:2px"><i class="fas <?= ($o['payment_method'] ?? 'wallet')==='cod'?'fa-money-bill-wave':'fa-wallet' ?>" style="color:var(--accent)"></i> <?= ($o['payment_method'] ?? 'wallet')==='cod' ? 'الدفع عند الاستلام' : 'مدفوع من المحفظة' ?></div>
         <?= order_stepper($o['status']) ?>
         <details style="margin-top:10px">
             <summary style="font-size:.72rem;color:var(--accent);font-weight:700;cursor:pointer">تفاصيل الطلب #<?= $o['id'] ?></summary>
@@ -2115,7 +2206,7 @@ function page_account(): string {
 
     ob_start(); ?>
     <div class="an" style="text-align:center;margin:10px 0 18px">
-        <div class="avatar-lg"><?= h(mb_substr($user['name'], 0, 1)) ?></div>
+        <?php if (!empty($user['photo'])): ?><img src="<?= h($user['photo']) ?>" alt="" class="avatar-lg" style="object-fit:cover"><?php else: ?><div class="avatar-lg"><?= h(mb_substr($user['name'], 0, 1)) ?></div><?php endif; ?>
         <h2 style="font-size:1.05rem;font-weight:800"><?= h($user['name']) ?></h2>
         <?php if ($user['phone']): ?><p style="font-size:.72rem;color:var(--muted)"><?= h($user['phone']) ?></p><?php endif; ?>
     </div>
@@ -2191,11 +2282,13 @@ function page_account_edit(): string {
 
     <div class="card an" style="margin-bottom:14px">
         <h3 style="font-size:.85rem;font-weight:800;margin-bottom:14px"><i class="fas fa-id-card" style="color:var(--accent)"></i> المعلومات الشخصية</h3>
-        <form method="post">
+        <form method="post" enctype="multipart/form-data">
             <input type="hidden" name="action" value="update_profile">
+            <?php if (!empty($user['photo'])): ?><img src="<?= h($user['photo']) ?>" alt="" style="width:64px;height:64px;border-radius:50%;object-fit:cover;margin-bottom:10px"><?php endif; ?>
             <div class="field"><label>الاسم</label><input type="text" name="name" value="<?= h($user['name']) ?>" required></div>
             <div class="field"><label>البريد الإلكتروني</label><input type="email" name="email" value="<?= h($user['email'] ?? '') ?>" required></div>
             <div class="field"><label>رقم الهاتف</label><input type="tel" name="phone" value="<?= h($user['phone'] ?? '') ?>"></div>
+            <div class="field"><label>الصورة الشخصية</label><input type="file" name="photo" accept="image/*"></div>
             <button class="btn btn-sm" type="submit">حفظ التعديل</button>
         </form>
     </div>
@@ -2595,15 +2688,15 @@ function page_vendor(): string {
 
     if ($section === 'orders') {
         if (!$orders) { echo '<div class="empty-state an"><i class="fas fa-receipt"></i><p>لا توجد طلبات بعد</p></div>'; }
-        $allUsers = db_read('users');
+        $usersById = array_column(db_read('users'), null, 'id');
         foreach ($orders as $o) {
             $idx = array_search($o['status'], ORDER_STAGES, true);
-            $buyer = null; foreach ($allUsers as $u) if ($u['id'] === $o['buyer_id']) $buyer = $u;
+            $buyer = $usersById[$o['buyer_id']] ?? null;
             ?>
             <div class="order-card an">
                 <div class="order-top"><span>طلب #<?= $o['id'] ?></span><span><?= money($o['total']) ?></span></div>
                 <div class="meta" style="margin:4px 0"><i class="fas fa-user" style="color:var(--accent)"></i> <?= h($buyer['name'] ?? 'مستخدم محذوف') ?> <?php if ($buyer): ?>— <a href="tel:<?= h($buyer['phone']) ?>" style="color:var(--accent)"><?= h($buyer['phone']) ?></a><?php endif; ?></div>
-                <div class="meta" style="margin-bottom:8px"><i class="far fa-clock" style="color:var(--accent)"></i> <?= date('Y-m-d H:i', $o['created_at']) ?></div>
+                <div class="meta" style="margin-bottom:8px"><i class="far fa-clock" style="color:var(--accent)"></i> <?= date('Y-m-d H:i', $o['created_at']) ?> — <i class="fas <?= ($o['payment_method'] ?? 'wallet')==='cod'?'fa-money-bill-wave':'fa-wallet' ?>" style="color:var(--accent)"></i> <?= ($o['payment_method'] ?? 'wallet')==='cod' ? 'الدفع عند الاستلام' : 'مدفوع من المحفظة' ?></div>
                 <?php if (!empty($o['delivery_phone']) || !empty($o['delivery_location'])): ?>
                 <div class="meta" style="margin-bottom:8px;background:var(--hover-bg);padding:8px;border-radius:10px">
                     <?php if (!empty($o['delivery_phone'])): ?><div><i class="fas fa-phone" style="color:var(--accent)"></i> توصيل: <a href="tel:<?= h($o['delivery_phone']) ?>" style="color:var(--accent)"><?= h($o['delivery_phone']) ?></a></div><?php endif; ?>
@@ -2619,10 +2712,15 @@ function page_vendor(): string {
                     </div>
                 </details>
                 <?= order_stepper($o['status']) ?>
-                <?php if ($idx < count(ORDER_STAGES) - 1): ?>
-                <form method="post" style="margin-top:10px"><input type="hidden" name="action" value="vendor_update_order"><input type="hidden" name="order_id" value="<?= $o['id'] ?>">
-                    <button class="btn btn-sm" type="submit">نقل للمرحلة التالية: <?= h(ORDER_STAGES[$idx+1]) ?></button>
-                </form>
+                <?php if ($idx !== false && $idx < count(ORDER_STAGES) - 1): ?>
+                <div style="display:flex;gap:8px;margin-top:10px">
+                    <form method="post" style="flex:1"><input type="hidden" name="action" value="vendor_update_order"><input type="hidden" name="order_id" value="<?= $o['id'] ?>">
+                        <button class="btn btn-sm" type="submit" style="width:100%">نقل للمرحلة التالية: <?= h(ORDER_STAGES[$idx+1]) ?></button>
+                    </form>
+                    <form method="post" onsubmit="return confirm('إلغاء هذا الطلب؟<?= ($o['payment_method'] ?? 'wallet')==='wallet' ? ' سيُسترد المبلغ لمحفظة المشتري تلقائياً.' : '' ?>')"><input type="hidden" name="action" value="vendor_cancel_order"><input type="hidden" name="order_id" value="<?= $o['id'] ?>">
+                        <button class="btn btn-sm btn-outline" style="border-color:var(--danger);color:var(--danger)" type="submit"><i class="fas fa-ban"></i> إلغاء</button>
+                    </form>
+                </div>
                 <?php endif; ?>
             </div>
             <?php
@@ -2763,6 +2861,11 @@ function page_admin(): string {
     $users = db_read('users');
     $orders = db_read('orders');
     $pending = array_values(array_filter($stores, fn($s) => $s['status'] === 'pending'));
+    /* بحث بمفتاح O(1) بدل مسح كل المستخدمين/المتاجر خطياً لكل عنصر بكل قسم
+       — يمنع بطء لوحة الأدمن الملموس مع تراكم بيانات حقيقية (مستخدمين/طلبات
+       كثيرين). */
+    $usersById = array_column($users, null, 'id');
+    $storesById = array_column($stores, null, 'id');
 
     ob_start();
     echo '<a href="index.php?page=account" class="ai-back an"><i class="fas fa-arrow-right"></i> رجوع لحسابي</a>';
@@ -2782,7 +2885,7 @@ function page_admin(): string {
     if ($section === 'applications') {
         if (!$pending) echo '<div class="empty-state an"><i class="fas fa-circle-check"></i><p>لا توجد طلبات معلّقة حالياً</p></div>';
         foreach ($pending as $s) {
-            $owner = null; foreach ($users as $u) if ($u['id'] === $s['owner_user_id']) $owner = $u;
+            $owner = $usersById[$s['owner_user_id']] ?? null;
             ?>
             <div class="table-card an">
                 <h5><?= h($s['name']) ?></h5>
@@ -2801,7 +2904,7 @@ function page_admin(): string {
     if ($section === 'stores') {
         $fee = (float)get_settings()['monthly_fee'];
         foreach ($stores as $s) { if ($s['status'] !== 'approved') continue;
-            $owner = null; foreach ($users as $u) if ($u['id'] === $s['owner_user_id']) $owner = $u; ?>
+            $owner = $usersById[$s['owner_user_id']] ?? null; ?>
             <div class="table-card an">
                 <div class="row-between">
                     <h5><?= h($s['name']) ?></h5>
@@ -2835,9 +2938,12 @@ function page_admin(): string {
     }
 
     if ($section === 'users') {
+        $ordersByBuyer = [];
+        foreach ($orders as $o) $ordersByBuyer[$o['buyer_id']][] = $o;
+        $storeByOwner = array_column($stores, null, 'owner_user_id');
         foreach ($users as $u) {
-            $uOrders = array_values(array_filter($orders, fn($o) => $o['buyer_id'] === $u['id']));
-            $uStore = null; foreach ($stores as $s) if ($s['owner_user_id'] === $u['id']) $uStore = $s;
+            $uOrders = $ordersByBuyer[$u['id']] ?? [];
+            $uStore = $storeByOwner[$u['id']] ?? null;
             $favN = count($u['favorites']['stores'] ?? []) + count($u['favorites']['products'] ?? []); ?>
             <div class="table-card an">
                 <div class="row-between"><h5><?= h($u['name']) ?> <?php if (!empty($u['is_admin'])): ?><span class="d-st-b st-on">أدمن</span><?php endif; ?></h5><strong style="color:var(--accent)"><?= money($u['wallet']) ?></strong></div>
@@ -2875,8 +2981,8 @@ function page_admin(): string {
         $allOrders = $orders; usort($allOrders, fn($a,$b) => $b['created_at'] <=> $a['created_at']);
         if (!$allOrders) echo '<div class="empty-state an"><i class="fas fa-receipt"></i><p>لا توجد طلبات بعد</p></div>';
         foreach ($allOrders as $o) {
-            $s = null; foreach ($stores as $ss) if ($ss['id'] === $o['store_id']) $s = $ss;
-            $u = null; foreach ($users as $uu) if ($uu['id'] === $o['buyer_id']) $u = $uu; ?>
+            $s = $storesById[$o['store_id']] ?? null;
+            $u = $usersById[$o['buyer_id']] ?? null; ?>
             <div class="table-card an">
                 <div class="row-between"><h5>طلب #<?= $o['id'] ?></h5><strong style="color:var(--accent)"><?= money($o['total']) ?></strong></div>
                 <div class="meta"><i class="fas fa-shop"></i> <?= h($s['name'] ?? '؟') ?> — <i class="fas fa-user"></i> <?= h($u['name'] ?? '؟') ?></div>
@@ -2900,7 +3006,7 @@ function page_admin(): string {
         usort($logs, fn($a,$b) => $b['at'] <=> $a['at']);
         if (!$logs) echo '<div class="empty-state an"><i class="fas fa-comments"></i><p>لا توجد محادثات بعد</p></div>';
         foreach (array_slice($logs, 0, 50) as $l) {
-            $u = null; foreach ($users as $uu) if ($uu['id'] === $l['user_id']) $u = $uu; ?>
+            $u = $usersById[$l['user_id']] ?? null; ?>
             <div class="table-card an">
                 <div class="meta"><?= h($u['name'] ?? '؟') ?> — <?= date('Y-m-d H:i', $l['at']) ?></div>
                 <p style="font-size:.78rem;margin-top:4px"><strong>؟</strong> <?= h($l['message']) ?></p>
@@ -2914,7 +3020,7 @@ function page_admin(): string {
         $pendingReqs = array_values(array_filter($requests, fn($r) => $r['status'] === 'pending'));
         if (!$pendingReqs) echo '<div class="empty-state an"><i class="fas fa-circle-check"></i><p>لا توجد طلبات شحن معلّقة</p></div>';
         foreach ($pendingReqs as $r) {
-            $u = null; foreach ($users as $uu) if ($uu['id'] === $r['user_id']) $u = $uu; ?>
+            $u = $usersById[$r['user_id']] ?? null; ?>
             <div class="table-card an">
                 <div class="row-between"><h5><?= h($u['name'] ?? '؟') ?></h5><strong style="color:var(--accent)"><?= money($r['amount']) ?></strong></div>
                 <div class="meta"><?= h($u['phone'] ?? '') ?> — <?= h($r['method']) ?> — <?= date('Y-m-d H:i', $r['created_at']) ?></div>
@@ -2932,7 +3038,7 @@ function page_admin(): string {
         $pendingW = array_values(array_filter($wRequests, fn($r) => $r['status'] === 'pending'));
         if (!$pendingW) echo '<div class="empty-state an"><i class="fas fa-circle-check"></i><p>لا توجد طلبات سحب معلّقة</p></div>';
         foreach ($pendingW as $r) {
-            $s = null; foreach ($stores as $ss) if ($ss['id'] === $r['store_id']) $s = $ss; ?>
+            $s = $storesById[$r['store_id']] ?? null; ?>
             <div class="table-card an">
                 <div class="row-between"><h5><?= h($s['name'] ?? '؟') ?></h5><strong style="color:var(--accent)"><?= money($r['amount']) ?></strong></div>
                 <div class="meta">عبر <?= h($r['method']) ?> — <?= h($r['account_name']) ?> (<?= h($r['account_number']) ?>) — <?= date('Y-m-d H:i', $r['created_at']) ?></div>
@@ -2951,8 +3057,8 @@ function page_admin(): string {
         if ($openId) foreach ($complaints as $c) if ($c['id'] === $openId) $active = $c;
 
         if ($active) {
-            $u = null; foreach ($users as $uu) if ($uu['id'] === $active['buyer_id']) $u = $uu;
-            $s = null; foreach ($stores as $ss) if ($ss['id'] === $active['store_id']) $s = $ss; ?>
+            $u = $usersById[$active['buyer_id']] ?? null;
+            $s = $storesById[$active['store_id']] ?? null; ?>
             <a href="index.php?page=admin&section=complaints" class="ai-back an"><i class="fas fa-arrow-right"></i> كل الشكاوى</a>
             <div class="card an" style="margin-bottom:14px">
                 <div class="row-between" style="margin-bottom:6px"><strong>شكوى #<?= $active['id'] ?> — طلب #<?= $active['order_id'] ?></strong><span class="d-st-b <?= $active['status']==='resolved'?'st-on':'st-dv' ?>"><?= $active['status']==='resolved'?'تمت المعالجة':'مفتوحة' ?></span></div>
@@ -2976,8 +3082,8 @@ function page_admin(): string {
         } else {
             if (!$complaints) echo '<div class="empty-state an"><i class="fas fa-circle-check"></i><p>لا توجد شكاوى</p></div>';
             foreach ($complaints as $c) {
-                $u = null; foreach ($users as $uu) if ($uu['id'] === $c['buyer_id']) $u = $uu;
-                $s = null; foreach ($stores as $ss) if ($ss['id'] === $c['store_id']) $s = $ss;
+                $u = $usersById[$c['buyer_id']] ?? null;
+                $s = $storesById[$c['store_id']] ?? null;
                 $lastMsg = end($c['messages']) ?: null; ?>
                 <a href="index.php?page=admin&section=complaints&id=<?= $c['id'] ?>" class="table-card an" style="display:block">
                     <div class="row-between"><h5>طلب #<?= $c['order_id'] ?> — <?= h($s['name'] ?? '') ?></h5><span class="d-st-b <?= $c['status']==='resolved'?'st-on':'st-dv' ?>"><?= $c['status']==='resolved'?'تمت المعالجة':'مفتوحة' ?></span></div>

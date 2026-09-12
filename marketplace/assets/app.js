@@ -6,9 +6,10 @@ function applySwap(data){
   document.title = data.title + (window.APP_CONFIG?.siteName ? ' — ' + window.APP_CONFIG.siteName : '');
   window.scrollTo(0, 0);
   showInstallBanner();
+  showNotifBanner();
   renderGoogleButton();
   if (document.getElementById('orderSuccessTrigger')) openSheet('orderSuccessSheet');
-  if (document.getElementById('onboardTrigger')) { openSheet('onboardSheet'); markOnboardSeen(); }
+  if (document.getElementById('completeProfileTrigger')) openSheet('completeProfileSheet');
 }
 
 /* ===== شعار انقطاع الإنترنت — يظهر/يختفي تلقائياً حسب حالة الاتصال الحقيقية ===== */
@@ -49,6 +50,15 @@ function showInstallBanner(){
 function triggerInstall(){
   if (_deferredInstall) { _deferredInstall.prompt(); _deferredInstall.userChoice.finally(() => { _deferredInstall = null; }); }
 }
+/* بانر منفصل تماماً عن بانر تثبيت PWA أعلاه — كل واحد له شرط ظهوره وإخفاؤه
+   الخاص به بشكل مستقل (إشعارات حسب إذن المتصفح، تثبيت حسب beforeinstallprompt). */
+function showNotifBanner(){
+  if (!('Notification' in window) || Notification.permission !== 'default') return;
+  let dismissed = false;
+  try { dismissed = sessionStorage.getItem('notifDismissed') === '1'; } catch (err) {}
+  const b = document.getElementById('notifBanner');
+  if (b && !dismissed) b.hidden = false;
+}
 document.addEventListener('click', function(e){
   if (e.target.closest('#installBtn')) {
     document.getElementById('installBanner')?.setAttribute('hidden', '');
@@ -56,21 +66,17 @@ document.addEventListener('click', function(e){
   } else if (e.target.closest('#installDismiss')) {
     document.getElementById('installBanner')?.setAttribute('hidden', '');
     try { sessionStorage.setItem('installDismissed', '1'); } catch (err) {}
-  } else if (e.target.closest('#onboardInstallBtn')) {
-    triggerInstall();
-    closeSheets();
-  } else if (e.target.closest('#onboardNotifBtn')) {
+  } else if (e.target.closest('#notifBtn')) {
+    document.getElementById('notifBanner')?.setAttribute('hidden', '');
     if ('Notification' in window && Notification.requestPermission) Notification.requestPermission();
-    closeSheets();
+  } else if (e.target.closest('#notifDismiss')) {
+    document.getElementById('notifBanner')?.setAttribute('hidden', '');
+    try { sessionStorage.setItem('notifDismissed', '1'); } catch (err) {}
   }
 });
-function markOnboardSeen(){
-  const fd = new FormData();
-  fd.append('action', 'dismiss_onboarding');
-  fetch('index.php', {method:'POST', body: fd, headers:{'X-Requested-With':'fetch'}, credentials:'same-origin'}).catch(function(){});
-}
 document.addEventListener('DOMContentLoaded', function(){
-  if (document.getElementById('onboardTrigger')) { openSheet('onboardSheet'); markOnboardSeen(); }
+  showNotifBanner();
+  if (document.getElementById('completeProfileTrigger')) openSheet('completeProfileSheet');
 });
 
 /* ===== تسجيل الدخول عبر Google (يعمل فقط إن كان مفتاح Google مضبوطاً من الأدمن) ===== */
@@ -144,6 +150,10 @@ document.addEventListener('submit', function(e){
   if (form.id === 'checkoutForm') {
     if (!form.reportValidity()) return;
     window._pendingCheckoutForm = form;
+    const method = form.querySelector('input[name=payment_method]:checked')?.value;
+    const text = method === 'cod' ? form.dataset.codText : form.dataset.walletText;
+    const textEl = document.getElementById('checkoutConfirmText');
+    if (textEl && text) textEl.textContent = text;
     openSheet('checkoutConfirmSheet');
     return;
   }
@@ -304,7 +314,10 @@ function qtyChange(delta){
 }
 
 function openSheet(id){document.getElementById(id).classList.add('open');document.getElementById('sheetBackdrop').classList.add('open');}
-function closeSheets(){document.querySelectorAll('.confirm-sheet, .admin-sidebar').forEach(s=>s.classList.remove('open'));document.getElementById('sheetBackdrop')?.classList.remove('open');}
+function closeSheets(){
+  document.querySelectorAll('.confirm-sheet:not(.mandatory), .admin-sidebar').forEach(s=>s.classList.remove('open'));
+  if (!document.querySelector('.confirm-sheet.mandatory.open')) document.getElementById('sheetBackdrop')?.classList.remove('open');
+}
 
 document.addEventListener('click', function(e){
   const btn = e.target.closest('.pw-toggle');
