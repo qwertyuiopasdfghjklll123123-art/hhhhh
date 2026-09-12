@@ -1,0 +1,10 @@
+# منع الوصول المباشر لملفات الإعداد والتثبيت الحساسة
+<FilesMatch "^(config\.php|config\.sample\.php)$">
+    Require all denied
+</FilesMatch>
+
+<Files "schema.sql">
+    Require all denied
+</Files>
+
+Options -Indexes

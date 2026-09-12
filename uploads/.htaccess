@@ -1,0 +1,13 @@
+# منع تنفيذ أي ملفات PHP أو سكربتات داخل مجلد الصور المرفوعة
+<FilesMatch "\.(php|phtml|php3|php4|php5|php7|pht|phar|cgi|pl|py|sh)$">
+    Require all denied
+</FilesMatch>
+
+<IfModule mod_php.c>
+    php_flag engine off
+</IfModule>
+<IfModule mod_php7.c>
+    php_flag engine off
+</IfModule>
+
+Options -ExecCGI -Indexes
