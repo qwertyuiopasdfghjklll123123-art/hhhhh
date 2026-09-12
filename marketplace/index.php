@@ -29,9 +29,9 @@ if (!is_dir(UPLOAD_DIR)) mkdir(UPLOAD_DIR, 0777, true);
 require_once __DIR__ . '/includes/db.php';
 
 /* بعض الاستضافات المشتركة يكون مسار الجلسات الافتراضي عندها غير قابل للكتابة أو
-   مقيّد، فتفشل الجلسة بصمت (يظهر أثرها كـ "كود التحقق غير صحيح" دائماً لأن
-   الكود المخزّن بالجلسة لا يصل من الطلب الأول للثاني). نستخدم مجلد جلسات خاص
-   بالتطبيق نضمن كتابته، ونضبط الكوكي بشكل متوافق مع HTTP أو HTTPS. */
+   مقيّد، فتفشل الجلسة بصمت (تسجيل الدخول أو السلة لا يبقيان محفوظين بين طلب
+   وآخر). نستخدم مجلد جلسات خاص بالتطبيق نضمن كتابته، ونضبط الكوكي بشكل متوافق
+   مع HTTP أو HTTPS. */
 define('SESSION_DIR', DATA_DIR . '/sessions');
 if (!is_dir(SESSION_DIR)) mkdir(SESSION_DIR, 0777, true);
 if (is_dir(SESSION_DIR) && is_writable(SESSION_DIR)) session_save_path(SESSION_DIR);
@@ -45,9 +45,8 @@ session_set_cookie_params([
 session_start();
 header('Content-Type: text/html; charset=utf-8');
 /* منع صريح لأي تخزين مؤقت (متصفح أو CDN أو طبقة تسريع بالاستضافة مثل
-   LiteSpeed Cache) — الموقع بالكامل ديناميكي لكل زائر (سلة، جلسة دخول،
-   كود تحقق موقّع بمهلة صلاحية...)، فأي نسخة مخزّنة قديمة تُعرض لزائر لاحق
-   تسبب أخطاء يصعب تفسيرها (كودَ تحقق "صحيح بصرياً" يُرفض دائماً مثلاً). */
+   LiteSpeed Cache) — الموقع بالكامل ديناميكي لكل زائر (سلة، جلسة دخول...)،
+   فأي نسخة مخزّنة قديمة تُعرض لزائر لاحق تسبب أخطاء يصعب تفسيرها. */
 header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0');
 header('Pragma: no-cache');
 
@@ -439,14 +438,13 @@ if ($action !== '') {
         $email = trim(mb_strtolower((string)($_POST['email'] ?? '')));
         $phone = trim((string)($_POST['phone'] ?? ''));
         $password = (string)($_POST['password'] ?? '');
-        $captcha = strtoupper(trim((string)($_POST['captcha'] ?? '')));
-        $captchaValid = verify_captcha($captcha, (string)($_POST['captcha_expires'] ?? ''), (string)($_POST['captcha_sig'] ?? ''));
+        $agreePolicy = ($_POST['agree_policy'] ?? '') === '1';
 
         $err = null;
         if ($name === '' || $email === '' || $phone === '' || $password === '') $err = 'الرجاء تعبئة كل الحقول';
         elseif (!filter_var($email, FILTER_VALIDATE_EMAIL)) $err = 'البريد الإلكتروني غير صحيح';
         elseif (strlen($password) < 6) $err = 'كلمة المرور لازم لا تقل عن 6 خانات';
-        elseif (!$captchaValid) $err = 'كود التحقق غير صحيح أو منتهي الصلاحية، حاول مرة ثانية';
+        elseif (!$agreePolicy) $err = 'الرجاء الموافقة على الشروط وسياسة الخصوصية';
         else {
             foreach (db_read('users') as $u) if (mb_strtolower($u['email'] ?? '') === $email) { $err = 'هذا البريد مسجّل مسبقاً'; break; }
         }
@@ -1626,44 +1624,12 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === 'chat') {
 }
 
 /* ===================== صفحة الدخول ===================== */
-/* كود التحقق لا يعتمد على $_SESSION إطلاقاً — يُوقَّع بتوقيع HMAC ويُحمل
-   بحقلين مخفيين بالنموذج نفسه (الكود + مدة صلاحيته)، ويُعاد توليد نفس
-   التوقيع عند الإرسال للمقارنة. هذا يجعله يعمل بشكل صحيح حتى لو كانت
-   جلسات PHP على الاستضافة غير موثوقة (خوادم متعددة بلا تخزين جلسات
-   مشترك، إعدادات صلاحيات مجلد الجلسات...) — وهي مشكلة شائعة بالاستضافة
-   المشتركة تجعل كود صحيح بصرياً يُرفض دائماً رغم كتابته بشكل صحيح تماماً. */
-function captcha_secret(): string {
-    $settings = get_settings();
-    $secret = trim((string)($settings['captcha_secret'] ?? ''));
-    if ($secret === '') {
-        $secret = bin2hex(random_bytes(32));
-        $settings['captcha_secret'] = $secret;
-        db_write('settings', $settings);
-    }
-    return $secret;
-}
-function verify_captcha(string $userInput, string $expiresRaw, string $sig): bool {
-    $expires = (int)$expiresRaw;
-    if ($expires < time() || $sig === '') return false;
-    $expected = hash_hmac('sha256', $userInput . '|' . $expires, captcha_secret());
-    return hash_equals($expected, $sig);
-}
-function render_captcha(): string {
-    $chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
-    $code = '';
-    for ($i = 0; $i < 5; $i++) $code .= $chars[random_int(0, strlen($chars) - 1)];
-    $expires = time() + 600;
-    $sig = hash_hmac('sha256', $code . '|' . $expires, captcha_secret());
-    ob_start(); ?>
-    <div class="captcha-box">
-        <?php foreach (str_split($code) as $ch):
-            $rot = random_int(-18, 18); $dy = random_int(-4, 4); ?>
-            <span style="transform:rotate(<?= $rot ?>deg) translateY(<?= $dy ?>px)"><?= h($ch) ?></span>
-        <?php endforeach; ?>
-    </div>
-    <input type="hidden" name="captcha_expires" value="<?= $expires ?>">
-    <input type="hidden" name="captcha_sig" value="<?= h($sig) ?>">
-    <?php return ob_get_clean();
+/* نص سياسة الخصوصية بمكان واحد — يُستخدم بصفحة التسجيل (كموافقة إلزامية)
+   وبصفحة حسابي (للرجوع إليه لاحقاً بعد إنشاء الحساب). */
+function privacy_policy_text(): string {
+    return 'نستخدم بياناتك (الاسم، البريد، الهاتف) فقط لتشغيل حسابك وطلباتك داخل ' . h(APP_NAME) . '.
+            ما نبيع ولا نشارك بياناتك مع أي جهة خارجية. صور الوصولات والمستندات تُستخدم فقط للمراجعة الإدارية.
+            تقدر تطلب حذف حسابك بالتواصل مع الإدارة.';
 }
 
 function render_google_button(): string {
@@ -1767,9 +1733,14 @@ function register_inner(): string {
       <div class="field"><label>رقم الهاتف</label><div class="input-icon-wrap"><input type="tel" name="phone" value="<?= h($old['phone'] ?? '') ?>" placeholder="أدخل رقم هاتفك" required><i class="fas fa-phone field-ic"></i></div></div>
       <div class="field"><label>كلمة المرور</label><div class="input-icon-wrap"><input type="password" name="password" minlength="6" placeholder="أدخل كلمة مرور قوية" required><button type="button" class="pw-toggle"><i class="fas fa-eye-slash"></i></button></div></div>
       <div class="field">
-        <label>كود التحقق</label>
-        <?= render_captcha() ?>
-        <input type="text" name="captcha" placeholder="اكتب الكود اللي فوق" required autocomplete="off" autocapitalize="characters" autocorrect="off" spellcheck="false" style="margin-top:8px">
+        <details>
+            <summary style="cursor:pointer;font-size:.72rem;color:var(--accent);font-weight:700;list-style:none">عرض الشروط وسياسة الخصوصية</summary>
+            <p style="margin-top:8px;font-size:.72rem;color:var(--muted);line-height:1.9"><?= privacy_policy_text() ?></p>
+        </details>
+        <label style="display:flex;align-items:center;gap:8px;margin-top:10px;font-size:.78rem;cursor:pointer">
+            <input type="checkbox" name="agree_policy" value="1" required style="width:auto">
+            أوافق على الشروط وسياسة الخصوصية
+        </label>
       </div>
       <button class="btn" type="submit"><i class="fas fa-arrow-left"></i> إنشاء الحساب</button>
     </form>
@@ -2178,11 +2149,7 @@ function page_account(): string {
 
     <details class="nav-row an" style="display:block">
         <summary style="display:flex;align-items:center;gap:12px;cursor:pointer;list-style:none"><i class="fas fa-shield-halved lead"></i><div class="t"><strong>سياسة الخصوصية</strong><span>كيف نتعامل مع بياناتك</span></div></summary>
-        <p style="margin-top:12px;font-size:.76rem;color:var(--muted);line-height:1.9">
-            نستخدم بياناتك (الاسم، البريد، الهاتف) فقط لتشغيل حسابك وطلباتك داخل <?= h(APP_NAME) ?>.
-            ما نبيع ولا نشارك بياناتك مع أي جهة خارجية. صور الوصولات والمستندات تُستخدم فقط للمراجعة الإدارية.
-            تقدر تطلب حذف حسابك بالتواصل مع الإدارة.
-        </p>
+        <p style="margin-top:12px;font-size:.76rem;color:var(--muted);line-height:1.9"><?= privacy_policy_text() ?></p>
     </details>
 
     <div class="nav-row an">

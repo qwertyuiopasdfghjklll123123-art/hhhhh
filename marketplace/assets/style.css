@@ -156,8 +156,6 @@ button,input,select,textarea{font-family:inherit;color:inherit}
 .auth-forgot{display:block;width:fit-content;margin:-6px 0 6px;font-size:.7rem;color:var(--accent);cursor:pointer;list-style:none}
 .auth-forgot::-webkit-details-marker{display:none}
 .auth-forgot-note{font-size:.68rem;color:var(--muted);margin:-4px 0 12px;line-height:1.7}
-.captcha-box{display:flex;gap:10px;justify-content:center;padding:14px 10px;background:repeating-linear-gradient(135deg,var(--hover-bg),var(--hover-bg) 6px,transparent 6px,transparent 12px);border-radius:12px;border:1px dashed var(--border);user-select:none;-webkit-user-select:none;-moz-user-select:none;pointer-events:none}
-.captcha-box span{font-size:1.3rem;font-weight:900;font-family:monospace;letter-spacing:2px;color:var(--text);display:inline-block}
 .stepper{display:flex;justify-content:space-between;position:relative;margin:18px 0 6px}
 .stepper::before{content:'';position:absolute;top:7px;right:6%;left:6%;height:2px;background:var(--border);z-index:0}
 .step{flex:1;text-align:center;position:relative;z-index:1}
