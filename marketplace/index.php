@@ -44,6 +44,12 @@ session_set_cookie_params([
 ]);
 session_start();
 header('Content-Type: text/html; charset=utf-8');
+/* منع صريح لأي تخزين مؤقت (متصفح أو CDN أو طبقة تسريع بالاستضافة مثل
+   LiteSpeed Cache) — الموقع بالكامل ديناميكي لكل زائر (سلة، جلسة دخول،
+   كود تحقق موقّع بمهلة صلاحية...)، فأي نسخة مخزّنة قديمة تُعرض لزائر لاحق
+   تسبب أخطاء يصعب تفسيرها (كودَ تحقق "صحيح بصرياً" يُرفض دائماً مثلاً). */
+header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0');
+header('Pragma: no-cache');
 
 // نحمي مجلد البيانات (JSON + الجلسات) من الوصول المباشر عبر الويب — عكس مجلد uploads الذي يجب أن يبقى مفتوحاً لعرض الصور
 $__dataHt = DATA_DIR . '/.htaccess';
