@@ -1,5 +1,8 @@
 /* ===== تصفح بلا فتح صفحات جديدة (نفس الرابط من الدخول لآخر شي) ===== */
-function setLoading(v){ document.getElementById('app-root')?.classList.toggle('nav-loading', v); }
+function setLoading(v){
+  document.getElementById('app-root')?.classList.toggle('nav-loading', v);
+  document.getElementById('navLoader')?.toggleAttribute('hidden', !v);
+}
 
 function applySwap(data){
   const doSwap = () => {
@@ -142,6 +145,7 @@ document.addEventListener('click', function(e){
 document.addEventListener('submit', function(e){
   const form = e.target;
   if (!form.closest('#app-root')) return;
+  if (e.defaultPrevented) return; // onsubmit="return confirm(...)" already cancelled (المستخدم ضغط إلغاء)
   e.preventDefault();
   if (form.id === 'aiChatForm') { handleAiChatSubmit(form); return; }
   if (form.id === 'checkoutForm') {

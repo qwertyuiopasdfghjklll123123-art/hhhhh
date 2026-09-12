@@ -155,6 +155,34 @@ function db_write(string $name, array $data): void {
     $cache[$name] = $data;
 }
 
+/* يقرأ كل مجموعات البيانات كما هي مخزَّنة فعلياً بـkv_store مباشرة (بلا
+   الاعتماد على قائمة أسماء ثابتة بالكود) — تُستخدم للنسخ الاحتياطي الكامل. */
+function export_all_data(): array {
+    $conn = db_connect();
+    if (!$conn) db_fail_no_connection();
+    $out = [];
+    $res = $conn->query("SELECT name, data FROM kv_store");
+    while ($res && ($row = $res->fetch_assoc())) {
+        $data = json_decode($row['data'], true);
+        if (is_array($data)) $out[$row['name']] = $data;
+    }
+    return $out;
+}
+
+/* يستعيد نسخة احتياطية سابقة (من export_all_data) بالكامل — يستبدل كل
+   مجموعة بيانات موجودة بما بالنسخة. يتحقق من صحة كل اسم مجموعة قبل الكتابة
+   حتى لا يُكتب اسم مصفوفة غريب كصف بجدول kv_store. */
+function import_all_data(array $collections): int {
+    $count = 0;
+    foreach ($collections as $name => $data) {
+        if (!is_string($name) || !preg_match('/^[a-z_]{1,64}$/', $name)) continue;
+        if (!is_array($data)) continue;
+        db_write($name, $data);
+        $count++;
+    }
+    return $count;
+}
+
 /* اختبار بيانات اتصال قبل حفظها فعلياً (من install.php أو لوحة الأدمن) —
    يمنع حفظ بيانات خاطئة تقفل صاحب الموقع عن بياناته. */
 function db_test_connection(string $host, string $name, string $user, string $pass): ?string {

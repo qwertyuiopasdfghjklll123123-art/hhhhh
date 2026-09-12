@@ -135,23 +135,26 @@ release_matured_earnings();
    الأرشفة الفعلية فقط عند مرور المدة. */
 define('BACKUP_INTERVAL_SECONDS', 6 * 3600);
 
+/* تُصدَّر البيانات كملف JSON واحد يضم كل المجموعات (مصدرها MySQL مباشرة عبر
+   export_all_data) — نفس صيغة الملف صالحة للإرسال بتيليجرام أو للتنزيل
+   المباشر من لوحة الأدمن، وصالحة أيضاً لإعادة الاستيراد لاحقاً. */
+function build_backup_json(): string {
+    return (string)json_encode([
+        'app' => site_name(),
+        'exported_at' => time(),
+        'collections' => export_all_data(),
+    ], JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT);
+}
+
 function run_backup_now(): array {
     $settings = get_settings();
     $token = trim((string)($settings['telegram_bot_token'] ?? ''));
     $chatId = trim((string)($settings['telegram_chat_id'] ?? ''));
     if ($token === '' || $chatId === '') return ['ok' => false, 'msg' => 'الرجاء إدخال توكن البوت ومعرف المحادثة أولاً'];
-    if (!class_exists('ZipArchive')) return ['ok' => false, 'msg' => 'امتداد ZipArchive غير مفعّل على هذه الاستضافة'];
 
-    $files = glob(DATA_DIR . '/*.json');
-    if (!$files) return ['ok' => false, 'msg' => 'لا توجد بيانات لنسخها احتياطياً بعد'];
-
-    $zipPath = sys_get_temp_dir() . '/souq_backup_' . time() . '.zip';
-    $zip = new ZipArchive();
-    if ($zip->open($zipPath, ZipArchive::CREATE | ZipArchive::OVERWRITE) !== true) {
-        return ['ok' => false, 'msg' => 'تعذّر إنشاء ملف الأرشيف'];
-    }
-    foreach ($files as $f) $zip->addFile($f, 'data/' . basename($f));
-    $zip->close();
+    $json = build_backup_json();
+    $filePath = sys_get_temp_dir() . '/souq_backup_' . time() . '.json';
+    file_put_contents($filePath, $json);
 
     $ch = curl_init('https://api.telegram.org/bot' . $token . '/sendDocument');
     curl_setopt_array($ch, [
@@ -161,14 +164,14 @@ function run_backup_now(): array {
         CURLOPT_POSTFIELDS => [
             'chat_id' => $chatId,
             'caption' => site_name() . ' — نسخة احتياطية ' . date('Y-m-d H:i'),
-            'document' => new CURLFile($zipPath, 'application/zip', 'backup_' . date('Y-m-d_H-i') . '.zip'),
+            'document' => new CURLFile($filePath, 'application/json', 'backup_' . date('Y-m-d_H-i') . '.json'),
         ],
     ]);
     $res = curl_exec($ch);
     $err = curl_error($ch);
     $code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
     curl_close($ch);
-    @unlink($zipPath);
+    @unlink($filePath);
 
     $settings = get_settings();
     $settings['last_backup_at'] = time();
@@ -968,7 +971,7 @@ if ($action !== '') {
     }
 
     // إجراءات الأدمن
-    $adminActions = ['admin_approve','admin_reject','admin_topup','admin_toggle_featured','admin_collect_fee','admin_update_fee','admin_update_branding','admin_update_ai_key','admin_update_google_key','admin_add_payment_method','admin_delete_payment_method','admin_approve_topup','admin_reject_topup','admin_approve_withdraw','admin_reject_withdraw','admin_resolve_complaint','admin_toggle_suspend','admin_add_category','admin_delete_category','admin_toggle_admin','admin_broadcast','admin_add_coupon','admin_delete_coupon','admin_update_backup','admin_backup_now','admin_update_db_config'];
+    $adminActions = ['admin_approve','admin_reject','admin_topup','admin_toggle_featured','admin_collect_fee','admin_update_fee','admin_update_branding','admin_update_ai_key','admin_update_google_key','admin_add_payment_method','admin_delete_payment_method','admin_approve_topup','admin_reject_topup','admin_approve_withdraw','admin_reject_withdraw','admin_resolve_complaint','admin_toggle_suspend','admin_add_category','admin_delete_category','admin_toggle_admin','admin_broadcast','admin_add_coupon','admin_delete_coupon','admin_update_backup','admin_backup_now','admin_restore_backup','admin_update_db_config'];
     if (in_array($action, $adminActions, true)) {
         if (!is_admin_user()) redirect('index.php');
 
@@ -1159,6 +1162,24 @@ if ($action !== '') {
         if ($action === 'admin_backup_now') {
             $result = run_backup_now();
             flash($result['ok'] ? 'ok' : 'err', $result['msg']);
+            redirect('index.php?page=admin&section=backup');
+        }
+        if ($action === 'admin_restore_backup') {
+            $upErr = $_FILES['backup_file']['error'] ?? UPLOAD_ERR_NO_FILE;
+            if ($upErr === UPLOAD_ERR_INI_SIZE || $upErr === UPLOAD_ERR_FORM_SIZE) {
+                flash('err', 'حجم ملف النسخة الاحتياطية أكبر من الحد المسموح على هذه الاستضافة');
+            } elseif ($upErr !== UPLOAD_ERR_OK) {
+                flash('err', 'الرجاء اختيار ملف نسخة احتياطية صالح');
+            } else {
+                $content = file_get_contents($_FILES['backup_file']['tmp_name']);
+                $parsed = $content !== false ? json_decode($content, true) : null;
+                if (!is_array($parsed) || !isset($parsed['collections']) || !is_array($parsed['collections'])) {
+                    flash('err', 'ملف النسخة الاحتياطية غير صالح أو تالف');
+                } else {
+                    $count = import_all_data($parsed['collections']);
+                    flash('ok', 'تمت استعادة ' . $count . ' مجموعة بيانات بنجاح');
+                }
+            }
             redirect('index.php?page=admin&section=backup');
         }
         if ($action === 'admin_update_db_config') {
@@ -1531,7 +1552,7 @@ function app_shell_inner(string $body, ?string $activeTab = 'home', string $extr
 <nav class="tabbar">
   <a class="tab <?= $activeTab==='home'?'active':'' ?>" href="index.php"><i class="fas fa-house"></i><span>الرئيسية</span></a>
   <a class="tab <?= $activeTab==='stores'?'active':'' ?>" href="index.php?page=stores"><i class="fas fa-shop"></i><span>المتاجر</span></a>
-  <a class="tab tab-ai <?= $activeTab==='ai'?'active':'' ?>" href="index.php?page=ai"><i class="fas fa-sparkles"></i><span>المساعد الذكي</span></a>
+  <a class="tab tab-ai <?= $activeTab==='ai'?'active':'' ?>" href="index.php?page=ai"><i class="fas fa-robot"></i><span>المساعد الذكي</span></a>
   <a class="tab <?= $activeTab==='orders'?'active':'' ?>" href="index.php?page=orders"><i class="fas fa-receipt"></i><span>طلباتي</span></a>
   <a class="tab <?= $activeTab==='account'?'active':'' ?>" href="index.php?page=account"><i class="fas fa-user"></i><span>حسابي</span></a>
 </nav>
@@ -1585,6 +1606,7 @@ function full_document(string $title, string $inner): void {
 <body>
 <div class="bg-orb bo1"></div><div class="bg-orb bo2"></div>
 <div class="offline-banner" id="offlineBanner" hidden><i class="fas fa-wifi"></i> <span>لا يوجد اتصال بالإنترنت</span></div>
+<div class="nav-loader" id="navLoader" hidden><div class="nav-loader-icon"><i class="fas fa-shop"></i></div></div>
 <div id="app-root"><?= $inner ?></div>
 <script>window.APP_CONFIG = <?= json_encode(['siteName' => site_name(), 'googleClientId' => google_client_id()], JSON_UNESCAPED_UNICODE) ?>;</script>
 <script>try { history.replaceState(null, '', <?= json_encode(current_user() ? 'app' : '/') ?>); } catch (e) {}</script>
@@ -2988,6 +3010,15 @@ function page_admin(): string {
             </div>
             <p style="font-size:.68rem;color:var(--muted);margin-bottom:12px">تُرسل نسخة تلقائياً كل 6 ساعات طالما البوت مرتبط، أو اضغط الزر لإرسالها فوراً.</p>
             <form method="post"><input type="hidden" name="action" value="admin_backup_now"><button class="btn btn-sm btn-outline" type="submit"><i class="fas fa-cloud-arrow-up"></i> نسخ احتياطي الآن</button></form>
+        </div>
+        <div class="card an" style="margin-top:16px;border:1px solid var(--danger)">
+            <h3 style="font-size:.88rem;font-weight:800;margin-bottom:8px;color:var(--danger)"><i class="fas fa-cloud-arrow-down"></i> استعادة نسخة احتياطية</h3>
+            <p style="font-size:.68rem;color:var(--muted);margin-bottom:12px">رفع ملف نسخة احتياطية (JSON) يستبدل بيانات الموقع الحالية بالكامل (المتاجر، المنتجات، المستخدمين، الطلبات...) بما هو داخل الملف. تصرف لا يمكن التراجع عنه — تأكد أن الملف صحيح ومن مصدر موثوق قبل المتابعة.</p>
+            <form method="post" enctype="multipart/form-data" onsubmit="return confirm('استعادة هذه النسخة ستستبدل كل بيانات الموقع الحالية نهائياً ولا يمكن التراجع. متابعة؟')">
+                <input type="hidden" name="action" value="admin_restore_backup">
+                <div class="field"><input type="file" name="backup_file" accept="application/json,.json" required></div>
+                <button class="btn btn-sm" style="background:var(--danger);color:#fff" type="submit"><i class="fas fa-triangle-exclamation"></i> استعادة الآن</button>
+            </form>
         </div>
         <?php
     }
