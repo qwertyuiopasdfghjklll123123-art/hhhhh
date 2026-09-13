@@ -1776,8 +1776,19 @@
                 let basePath = window.location.pathname.replace(/index\.php$/, '');
                 if (!basePath.endsWith('/')) basePath += '/';
                 // وصل عبر صفحة لوحة التحكم (لا توجد صفحة دخول منفصلة لها) وحسابه مدير فعلاً:
-                // أعده مباشرة إليها بدل صفحة التطبيق العادية
-                const target = (window.ADMIN_REDIRECT === 'login' && currentUser.isAdmin) ? basePath + 'admin/' : basePath + 'app';
+                // أعده مباشرة إليها بدل صفحة التطبيق العادية، عبر رمز انتقال آمن (كما في
+                // openAdminPanel) يضمن الدخول حتى لو لم تُشارَك الجلسة بين المجلدين على بعض
+                // الاستضافات المشتركة
+                let target = basePath + 'app';
+                if (window.ADMIN_REDIRECT === 'login' && currentUser.isAdmin) {
+                    target = basePath + 'admin/';
+                    try {
+                        const handoff = await apiCall('admin_handoff', 'POST');
+                        if (handoff.success && handoff.token) {
+                            target += '?handoff=' + encodeURIComponent(handoff.token);
+                        }
+                    } catch (e) { /* رجوع آمن للرابط العادي بدون رمز */ }
+                }
                 setTimeout(() => {
                     window.location.href = target;
                 }, 1000);
@@ -2730,11 +2741,25 @@
         // ========== دوال لوحة التحكم ==========
         // ================================================================
 
-        function openAdminPanel() {
-            if(currentUser?.isAdmin && !isGuestMode){
-                window.location.href = 'admin/';
-            } else if(isGuestMode) {
+        async function openAdminPanel() {
+            if (isGuestMode || !currentUser?.isAdmin) {
                 showToast('⚠️ يجب تسجيل الدخول كمدير للوصول إلى لوحة التحكم');
+                return;
+            }
+            const adminUrl = window.location.origin + '/admin/';
+            // بعض الاستضافات المشتركة لا تُشارك جلسة تسجيل الدخول بشكل موثوق بين مجلد الموقع
+            // ومجلد admin/ (سياسات جلسات خاصة بها)، فيبدو المدير غير مسجَّل دخوله هناك رغم صحة
+            // جلسته هنا تماماً. رمز انتقال آمن لمرة واحدة عبر قاعدة البيانات يضمن الدخول دائماً
+            // بصرف النظر عن ذلك، مع رجوع آمن للرابط العادي إن تعذّر الحصول على الرمز لأي سبب
+            try {
+                const result = await apiCall('admin_handoff', 'POST');
+                if (result.success && result.token) {
+                    window.location.href = adminUrl + '?handoff=' + encodeURIComponent(result.token);
+                } else {
+                    showToast(result.message || '⚠️ تعذّر فتح لوحة التحكم، حاول تسجيل الدخول من جديد');
+                }
+            } catch (e) {
+                window.location.href = adminUrl;
             }
         }
 

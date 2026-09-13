@@ -15,6 +15,16 @@ CREATE TABLE IF NOT EXISTS users (
     UNIQUE KEY uniq_users_email (email)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+-- رمز عبور قصير العمر لمرة واحدة، يُستخدم عند الانتقال من الموقع الرئيسي إلى لوحة التحكم
+-- (admin/) لضمان الدخول حتى لو تعذّرت مشاركة جلسة تسجيل الدخول بين المجلدين على بعض
+-- الاستضافات المشتركة - القاعدة هي القناة الموثوقة المشتركة بدل الاعتماد فقط على الكوكيز
+CREATE TABLE IF NOT EXISTS admin_handoff_tokens (
+    token VARCHAR(64) NOT NULL,
+    user_id INT UNSIGNED NOT NULL,
+    expires_at DATETIME NOT NULL,
+    PRIMARY KEY (token)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 CREATE TABLE IF NOT EXISTS categories (
     id VARCHAR(64) NOT NULL,
     name VARCHAR(255) NOT NULL,

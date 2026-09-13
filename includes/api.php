@@ -86,6 +86,26 @@ if ($action === 'login') {
     exit;
 }
 
+// ===== رمز انتقال آمن للوحة التحكم =====
+// يُستدعى عند ضغط زر "تحكم" في الموقع الرئيسي. بعض الاستضافات المشتركة لا تُشارك جلسة تسجيل
+// الدخول بشكل موثوق بين مجلد الموقع الرئيسي ومجلد admin/ (سياسات جلسات خاصة بالاستضافة)، فيبدو
+// المدير وكأنه غير مسجَّل دخوله عند فتح لوحة التحكم رغم صحة جلسته هنا تماماً. القاعدة قناة
+// موثوقة مشتركة بين الاثنين بصرف النظر عن ذلك: رمز عشوائي طويل، صالح لمرة واحدة فقط ولمدة
+// 60 ثانية، ومرتبط بمعرّف المستخدم لا بأي بيانات حساسة.
+if ($action === 'admin_handoff') {
+    requireAuth();
+    if (!isAdmin()) {
+        echo json_encode(['success' => false, 'message' => 'ليس لدى حسابك صلاحية الوصول إلى لوحة التحكم']);
+        exit;
+    }
+    $pdo->exec("DELETE FROM admin_handoff_tokens WHERE expires_at < NOW()");
+    $token = bin2hex(random_bytes(32));
+    $stmt = $pdo->prepare("INSERT INTO admin_handoff_tokens (token, user_id, expires_at) VALUES (?, ?, DATE_ADD(NOW(), INTERVAL 60 SECOND))");
+    $stmt->execute([$token, $_SESSION['user_id']]);
+    echo json_encode(['success' => true, 'token' => $token]);
+    exit;
+}
+
 // ===== تسجيل الخروج =====
 if ($action === 'logout') {
     session_unset();

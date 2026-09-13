@@ -27,6 +27,26 @@ if (empty($_SESSION['csrf_token'])) {
 
 $pdo = getDb();
 
+// استهلاك رمز الانتقال الآمن القادم من زر "تحكم" في الموقع الرئيسي، إن وُجد، قبل فحص الجلسة
+// العادية - يضمن الدخول للوحة حتى لو لم تُشارَك جلسة تسجيل الدخول بشكل موثوق بين مجلد الموقع
+// ومجلد admin/ على بعض الاستضافات (انظر التعليق عند نقطة admin_handoff في includes/api.php)
+if (!isAdmin() && !empty($_GET['handoff'])) {
+    $stmt = $pdo->prepare("SELECT user_id FROM admin_handoff_tokens WHERE token = ? AND expires_at > NOW()");
+    $stmt->execute([(string)$_GET['handoff']]);
+    $row = $stmt->fetch();
+    if ($row) {
+        $pdo->prepare("DELETE FROM admin_handoff_tokens WHERE token = ?")->execute([(string)$_GET['handoff']]);
+        $handoffUser = db_get_user_by_id($pdo, $row['user_id']);
+        if ($handoffUser && (bool)$handoffUser['is_admin']) {
+            session_regenerate_id(true);
+            $_SESSION['user_id'] = (int)$handoffUser['id'];
+            $_SESSION['user_email'] = $handoffUser['email'];
+            $_SESSION['user_name'] = $handoffUser['fullname'];
+            $_SESSION['is_admin'] = true;
+        }
+    }
+}
+
 function admin_require_login() {
     if (!isAdmin()) {
         // تسجيل الدخول موحّد بالكامل عبر صفحة الموقع الرئيسية (نفس الجلسة)، لا توجد صفحة
