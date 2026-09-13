@@ -20,13 +20,21 @@ if (!is_array($input)) {
 // نقاط القراءة فقط لا تحتاج CSRF (لا تغيّر أي حالة) ويمكن أن تصل عبر GET
 $readOnlyActions = ['load_catalog', 'load_settings', 'get_whatsapp', 'get_most_requested', 'get_users', 'get_stats'];
 
+// تسجيل الدخول/إنشاء حساب يحدثان قبل وجود أي جلسة مصادَق عليها لحمايتها من تزوير الطلبات؛
+// لا يوجد امتياز CSRF فعلي يُنتهك هنا (خلافاً لبقية النقاط التي تُغيّر بيانات مستخدم مسجّل
+// دخوله بالفعل)، واشتراط رمز CSRF عليهما يُفشلهما بلا داعٍ إذا فُقد/تجدّد رمز الجلسة بسبب
+// طول مدة تصفح استمارة الدخول (تنظيف جلسات على السيرفر، تبويب آخر، إلخ). يبقى طلب POST إلزامياً.
+$csrfExemptActions = ['login', 'register'];
+
 if ($action && !in_array($action, $readOnlyActions, true)) {
     if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
         http_response_code(405);
         echo json_encode(['success' => false, 'message' => 'طريقة الطلب غير مسموحة']);
         exit;
     }
-    verifyCsrfToken($input['csrf_token'] ?? '');
+    if (!in_array($action, $csrfExemptActions, true)) {
+        verifyCsrfToken($input['csrf_token'] ?? '');
+    }
 }
 
 writeLog("طلب API: action=$action");

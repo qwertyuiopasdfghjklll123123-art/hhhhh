@@ -273,10 +273,12 @@ admin_header('استيراد بيانات', 'import.php', 'استيراد بيا
 </div>
 
 <div class="card">
-    <h2><i class="fas fa-file-code"></i> استيراد من نسخة Almulla القديمة (database.json)</h2>
+    <h2><i class="fas fa-file-code"></i> استيراد نسخة احتياطية / بيانات قديمة (JSON)</h2>
     <p class="field-hint" style="margin-bottom:14px;">
-        يستورد المستخدمين، الفئات، الشركات، المنتجات، الخدمات، الإعدادات والإحصائيات من ملف <code>database.json</code>
-        الذي كان يستخدمه التطبيق قبل الانتقال إلى MySQL.
+        يستورد المستخدمين، الفئات، الشركات، المنتجات، الخدمات، الإعدادات والإحصائيات (والصور المضمّنة
+        إن وُجدت) من ملف JSON. يقبل نفس الملف الذي تحمّله من "<a href="export.php">تصدير نسخة
+        احتياطية</a>" لاستعادته لاحقاً هنا أو في موقع آخر، أو ملف <code>database.json</code> من نسخة
+        Almulla القديمة قبل الانتقال إلى MySQL.
     </p>
     <form method="post" enctype="multipart/form-data">
         <?php echo admin_csrf_field(); ?>

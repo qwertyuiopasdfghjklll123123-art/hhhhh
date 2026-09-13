@@ -949,7 +949,14 @@ $page = isset($_GET['page']) ? $_GET['page'] : '';
         </div>
     </div>
 
-    <script>window.CSRF_TOKEN = "<?php echo htmlspecialchars($_SESSION['csrf_token'] ?? '', ENT_QUOTES, 'UTF-8'); ?>";</script>
+    <?php
+    $adminRedirectReason = $_GET['admin_redirect'] ?? '';
+    $adminRedirectReason = in_array($adminRedirectReason, ['login', 'not_admin'], true) ? $adminRedirectReason : '';
+    ?>
+    <script>
+    window.CSRF_TOKEN = "<?php echo htmlspecialchars($_SESSION['csrf_token'] ?? '', ENT_QUOTES, 'UTF-8'); ?>";
+    window.ADMIN_REDIRECT = "<?php echo htmlspecialchars($adminRedirectReason, ENT_QUOTES, 'UTF-8'); ?>";
+    </script>
     <script src="assets/js/app.js"></script>
 </body>
 </html>

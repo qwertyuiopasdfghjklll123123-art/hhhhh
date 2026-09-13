@@ -28,7 +28,10 @@ $pdo = getDb();
 
 function admin_require_login() {
     if (!isAdmin()) {
-        header('Location: login.php');
+        // تسجيل الدخول موحّد بالكامل عبر صفحة الموقع الرئيسية (نفس الجلسة)، لا توجد صفحة
+        // دخول منفصلة خاصة بلوحة التحكم - يعود المستخدم هنا تلقائياً إن كان حسابه مديراً
+        $reason = isLoggedIn() ? 'not_admin' : 'login';
+        header('Location: ../index.php?admin_redirect=' . $reason);
         exit;
     }
 

@@ -1773,10 +1773,13 @@
                 localStorage.removeItem('isGuest');
                 successDiv.innerText = `مرحباً ${currentUser.fullname}! جاري تحويلك...`;
                 successDiv.classList.add('sh');
+                let basePath = window.location.pathname.replace(/index\.php$/, '');
+                if (!basePath.endsWith('/')) basePath += '/';
+                // وصل عبر صفحة لوحة التحكم (لا توجد صفحة دخول منفصلة لها) وحسابه مدير فعلاً:
+                // أعده مباشرة إليها بدل صفحة التطبيق العادية
+                const target = (window.ADMIN_REDIRECT === 'login' && currentUser.isAdmin) ? basePath + 'admin/index.php' : basePath + 'app';
                 setTimeout(() => {
-                    let basePath = window.location.pathname.replace(/index\.php$/, '');
-                    if (!basePath.endsWith('/')) basePath += '/';
-                    window.location.href = basePath + 'app';
+                    window.location.href = target;
                 }, 1000);
             } else {
                 errorDiv.innerText = result.message || 'فشل تسجيل الدخول';
@@ -3103,8 +3106,10 @@
         const savedUser = localStorage.getItem('user');
         const savedGuest = localStorage.getItem('isGuest');
         // رابط "/app" النظيف (عبر .htaccess) لا يظهر "page=app" في window.location.search
-        // رغم أن PHP يستقبله بشكل صحيح، لذا يجب التعرف عليه أيضاً من المسار نفسه هنا
-        const isAppUrl = window.location.search.includes('page=app') || /\/app\/?$/.test(window.location.pathname);
+        // رغم أن PHP يستقبله بشكل صحيح، لذا يجب التعرف عليه أيضاً من المسار نفسه هنا.
+        // admin_redirect=not_admin يعني: وصل من لوحة التحكم وهو مسجّل دخوله فعلاً لكن حسابه
+        // ليس مديراً - يُعامَل كرابط تطبيق عادي (مع تنبيه) بدل إظهار نموذج الدخول من جديد
+        const isAppUrl = window.location.search.includes('page=app') || /\/app\/?$/.test(window.location.pathname) || window.ADMIN_REDIRECT === 'not_admin';
 
         if((savedUser || savedGuest === 'true') && isAppUrl){
             if(savedUser) { currentUser = JSON.parse(savedUser); isGuestMode = false; }
@@ -3113,6 +3118,9 @@
             const appScreen = document.getElementById('appScreen');
             if(loginScreen) loginScreen.classList.add('hide');
             if(appScreen) appScreen.style.display = 'block';
+            if (window.ADMIN_REDIRECT === 'not_admin') {
+                showToast('⚠️ ليس لدى حسابك صلاحية الوصول إلى لوحة التحكم');
+            }
             loadData();
         } else if(isAppUrl && !savedUser && savedGuest !== 'true'){
             window.location.href = window.location.pathname.replace(/\/app\/?$/, '/');
