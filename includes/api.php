@@ -64,7 +64,7 @@ if ($action === 'login') {
     $password = $input['password'] ?? '';
 
     $user = db_get_user_by_email($pdo, $email);
-    if ($user && password_verify($password, $user['password'])) {
+    if ($user && verifyUserPassword($pdo, $user, $password)) {
         $_SESSION['user_id'] = (int)$user['id'];
         $_SESSION['user_email'] = $user['email'];
         $_SESSION['user_name'] = $user['fullname'];
@@ -106,7 +106,7 @@ if ($action === 'update_profile') {
             echo json_encode(['success' => false, 'message' => 'يرجى إدخال كلمة المرور الحالية']);
             exit;
         }
-        if (!password_verify($currentPassword, $currentUser['password'])) {
+        if (!verifyUserPassword($pdo, $currentUser, $currentPassword)) {
             echo json_encode(['success' => false, 'message' => 'كلمة المرور الحالية غير صحيحة']);
             exit;
         }
@@ -153,7 +153,7 @@ if ($action === 'verify_password') {
     $password = $input['password'] ?? '';
     // نتحقق دائماً من صاحب الجلسة الحالية، ونتجاهل أي userId يرسله الطرف الآخر
     $currentUser = db_get_user_by_id($pdo, $_SESSION['user_id']);
-    if ($currentUser && password_verify($password, $currentUser['password'])) {
+    if ($currentUser && verifyUserPassword($pdo, $currentUser, $password)) {
         echo json_encode(['success' => true]);
     } else {
         echo json_encode(['success' => false, 'message' => 'كلمة المرور غير صحيحة']);
@@ -174,7 +174,7 @@ if ($action === 'delete_account') {
     if ($currentUser['is_admin'] && $currentUser['email'] === 'admin@Almulla.com') {
         echo json_encode(['success' => false, 'message' => 'لا يمكن حذف حساب المدير الرئيسي']); exit;
     }
-    if (!password_verify($password, $currentUser['password'])) {
+    if (!verifyUserPassword($pdo, $currentUser, $password)) {
         echo json_encode(['success' => false, 'message' => 'كلمة المرور غير صحيحة']); exit;
     }
 

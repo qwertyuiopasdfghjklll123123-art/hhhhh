@@ -44,6 +44,25 @@ function db_update_user(PDO $pdo, $id, array $fields): void {
     $pdo->prepare('UPDATE users SET ' . implode(', ', $sets) . ' WHERE id = ?')->execute($params);
 }
 
+// يتحقق من كلمة مرور المستخدم. يدعم أيضاً حسابات قديمة مخزَّنة بتجزئة MD5 خام (وليس
+// بصيغة password_hash المعتادة) - مشكلة بيانات موجودة مسبقاً في بعض الحسابات القديمة (مثل
+// admin@almulla.com) على الأرجح من أداة استيراد أو تعديل يدوي قبل هذا المشروع. عند نجاح
+// الدخول بكلمة مرور تطابق التجزئة القديمة، تُرقّى تلقائياً وبصمت إلى تجزئة آمنة حديثة.
+function verifyUserPassword(PDO $pdo, array $user, string $password): bool {
+    if (password_verify($password, $user['password'])) {
+        return true;
+    }
+
+    $hash = $user['password'] ?? '';
+    $isLegacyMd5 = is_string($hash) && strlen($hash) === 32 && ctype_xdigit($hash);
+    if ($isLegacyMd5 && hash_equals(strtolower($hash), md5($password))) {
+        db_update_user($pdo, $user['id'], ['password' => password_hash($password, PASSWORD_DEFAULT)]);
+        return true;
+    }
+
+    return false;
+}
+
 function db_touch_last_login(PDO $pdo, $id): void {
     $pdo->prepare('UPDATE users SET last_login = ? WHERE id = ?')->execute([db_now(), $id]);
 }

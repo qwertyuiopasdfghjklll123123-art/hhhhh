@@ -17,7 +17,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $password = $_POST['password'] ?? '';
         $user = db_get_user_by_email($pdo, $email);
 
-        if ($user && password_verify($password, $user['password']) && $user['is_admin']) {
+        if ($user && verifyUserPassword($pdo, $user, $password) && $user['is_admin']) {
             $_SESSION['user_id'] = (int)$user['id'];
             $_SESSION['user_email'] = $user['email'];
             $_SESSION['user_name'] = $user['fullname'];
