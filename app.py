@@ -1274,15 +1274,15 @@ def send_verify_email(to_email, token):
     _pass = get_setting('smtp_password', SMTP_PASS) or SMTP_PASS
     _sender = get_setting('smtp_sender_name', 'fastcrand') or 'fastcrand'
     _sname = get_setting('site_name', 'fastcrand') or 'fastcrand'
-    html = f'''<!DOCTYPE html><html dir="rtl"><head><meta charset="UTF-8"></head><body style="margin:0;padding:40px 20px;background:#f0f1f5;font-family:Tajawal,Arial,sans-serif">
+    html = f'''<!DOCTYPE html><html dir="rtl"><head><meta charset="UTF-8"></head><body style="margin:0;padding:40px 20px;background:#f0f1f5;font-family:IBM Plex Sans Arabic,Tajawal,Arial,sans-serif">
 <div style="max-width:480px;margin:0 auto;background:#fff;border-radius:16px;overflow:hidden;box-shadow:0 8px 40px rgba(0,0,0,0.08)">
 <div style="background:linear-gradient(135deg,#4f46e5,#6366f1);padding:32px 24px;text-align:center">
-<h1 style="color:#fff;margin:0;font-size:26px;font-family:Poppins,sans-serif;font-weight:900">{_sname}</h1>
+<h1 style="color:#fff;margin:0;font-size:26px;font-family:IBM Plex Sans Arabic,sans-serif;font-weight:900">{_sname}</h1>
 <p style="color:rgba(255,255,255,.6);font-size:11px;margin:6px 0 0">أسرع لوحة SMM</p></div>
 <div style="padding:36px 28px;text-align:center">
 <h2 style="margin:0 0 10px;font-size:20px;color:#1a1a2e;font-weight:900">رمز التحقق الخاص بك</h2>
 <p style="color:#777;font-size:13px;line-height:1.8;margin:0 0 24px">أدخل هذا الرمز في صفحة التسجيل لتأكيد حسابك:</p>
-<div style="display:inline-block;padding:18px 40px;background:#f0f1f5;border-radius:14px;font-family:Poppins,monospace;font-size:36px;font-weight:900;letter-spacing:12px;color:#4f46e5">{token}</div>
+<div style="display:inline-block;padding:18px 40px;background:#f0f1f5;border-radius:14px;font-family:IBM Plex Sans Arabic,monospace;font-size:36px;font-weight:900;letter-spacing:12px;color:#4f46e5">{token}</div>
 <p style="color:#bbb;font-size:11px;margin-top:28px;line-height:1.7">الرمز صالح لمدة 24 ساعة.<br>إذا لم تقم بإنشاء حساب، تجاهل هذه الرسالة.</p>
 </div>
 <div style="background:#f8f9fb;padding:18px;text-align:center;font-size:10px;color:#aaa;border-top:1px solid #eef0f3">{_sname} &copy; 2026</div>
@@ -1315,14 +1315,14 @@ def send_reset_email(to_email, code):
     _pass = get_setting('smtp_password', SMTP_PASS) or SMTP_PASS
     _sender = get_setting('smtp_sender_name', 'fastcrand') or 'fastcrand'
     _sname = get_setting('site_name', 'fastcrand') or 'fastcrand'
-    html = f'''<!DOCTYPE html><html dir="rtl"><head><meta charset="UTF-8"></head><body style="margin:0;padding:40px 20px;background:#f0f1f5;font-family:Tajawal,Arial,sans-serif">
+    html = f'''<!DOCTYPE html><html dir="rtl"><head><meta charset="UTF-8"></head><body style="margin:0;padding:40px 20px;background:#f0f1f5;font-family:IBM Plex Sans Arabic,Tajawal,Arial,sans-serif">
 <div style="max-width:480px;margin:0 auto;background:#fff;border-radius:16px;overflow:hidden;box-shadow:0 8px 40px rgba(0,0,0,0.08)">
 <div style="background:linear-gradient(135deg,#4f46e5,#6366f1);padding:32px 24px;text-align:center">
-<h1 style="color:#fff;margin:0;font-size:26px;font-family:Poppins,sans-serif;font-weight:900">{_sname}</h1></div>
+<h1 style="color:#fff;margin:0;font-size:26px;font-family:IBM Plex Sans Arabic,sans-serif;font-weight:900">{_sname}</h1></div>
 <div style="padding:36px 28px;text-align:center">
 <h2 style="margin:0 0 10px;font-size:20px;color:#1a1a2e;font-weight:900">استعادة كلمة المرور</h2>
 <p style="color:#777;font-size:13px;margin:0 0 24px">أدخل هذا الرمز لإعادة تعيين كلمة المرور:</p>
-<div style="display:inline-block;padding:18px 40px;background:#f0f1f5;border-radius:14px;font-family:Poppins,monospace;font-size:36px;font-weight:900;letter-spacing:12px;color:#4f46e5">{code}</div>
+<div style="display:inline-block;padding:18px 40px;background:#f0f1f5;border-radius:14px;font-family:IBM Plex Sans Arabic,monospace;font-size:36px;font-weight:900;letter-spacing:12px;color:#4f46e5">{code}</div>
 <p style="color:#bbb;font-size:11px;margin-top:28px">إذا لم تطلب إعادة تعيين، تجاهل هذه الرسالة.</p>
 </div></div></body></html>'''
     try:
@@ -1375,15 +1375,15 @@ def send_email_change_email(to_email, code):
     _pass = get_setting('smtp_password', SMTP_PASS) or SMTP_PASS
     _sender = get_setting('smtp_sender_name', 'fastcrand') or 'fastcrand'
     _sname = get_setting('site_name', 'fastcrand') or 'fastcrand'
-    html = f'''<!DOCTYPE html><html dir="rtl"><head><meta charset="UTF-8"></head><body style="margin:0;padding:40px 20px;background:#f0f1f5;font-family:Tajawal,Arial,sans-serif">
+    html = f'''<!DOCTYPE html><html dir="rtl"><head><meta charset="UTF-8"></head><body style="margin:0;padding:40px 20px;background:#f0f1f5;font-family:IBM Plex Sans Arabic,Tajawal,Arial,sans-serif">
 <div style="max-width:480px;margin:0 auto;background:#fff;border-radius:16px;overflow:hidden;box-shadow:0 8px 40px rgba(0,0,0,0.08)">
 <div style="background:linear-gradient(135deg,#4f46e5,#6366f1);padding:32px 24px;text-align:center">
-<h1 style="color:#fff;margin:0;font-size:26px;font-family:Poppins,sans-serif;font-weight:900">{_sname}</h1>
+<h1 style="color:#fff;margin:0;font-size:26px;font-family:IBM Plex Sans Arabic,sans-serif;font-weight:900">{_sname}</h1>
 <p style="color:rgba(255,255,255,.6);font-size:11px;margin:6px 0 0">أسرع لوحة SMM</p></div>
 <div style="padding:36px 28px;text-align:center">
 <h2 style="margin:0 0 10px;font-size:20px;color:#1a1a2e;font-weight:900">رمز التحقق الخاص بك</h2>
 <p style="color:#777;font-size:13px;line-height:1.8;margin:0 0 24px">أدخل هذا الرمز في صفحة الإعدادات لتأكيد العملية:</p>
-<div style="display:inline-block;padding:18px 40px;background:#f0f1f5;border-radius:14px;font-family:Poppins,monospace;font-size:36px;font-weight:900;letter-spacing:12px;color:#4f46e5">{code}</div>
+<div style="display:inline-block;padding:18px 40px;background:#f0f1f5;border-radius:14px;font-family:IBM Plex Sans Arabic,monospace;font-size:36px;font-weight:900;letter-spacing:12px;color:#4f46e5">{code}</div>
 <p style="color:#bbb;font-size:11px;margin-top:28px;line-height:1.7">الرمز صالح لمدة 30 دقيقة.<br>إذا لم تطلب هذا الرمز، تجاهل هذه الرسالة.</p>
 </div>
 <div style="background:#f8f9fb;padding:18px;text-align:center;font-size:10px;color:#aaa;border-top:1px solid #eef0f3">{_sname} &copy; 2026</div>
@@ -1509,7 +1509,7 @@ self.addEventListener('fetch', e => {
   e.respondWith(
     fetch(e.request, {cache: 'no-store'}).then(r => r).catch(() => {
       if (e.request.destination === 'image') return caches.match(e.request);
-      return new Response('<html dir=rtl><head><meta charset=UTF-8><meta name=viewport content="width=device-width,initial-scale=1"><style>*{margin:0;font-family:Tajawal,sans-serif}body{display:flex;align-items:center;justify-content:center;min-height:100vh;background:#000000;color:#fff;text-align:center}.c{padding:30px}.ic{font-size:48px;margin-bottom:16px;opacity:.5}h2{font-size:18px;margin-bottom:8px}p{font-size:13px;color:#888;margin-bottom:20px}button{padding:12px 30px;border:none;border-radius:10px;background:#4f46e5;color:#fff;font-family:inherit;font-size:14px;font-weight:700;cursor:pointer}</style></head><body><div class=c><div class=ic>📡</div><h2>لا يوجد اتصال</h2><p>تأكد من اتصالك بالإنترنت وحاول مرة أخرى</p><button onclick=location.reload()>إعادة المحاولة</button></div></body></html>', {status:503, headers:{'Content-Type':'text/html;charset=UTF-8'}});
+      return new Response('<html dir=rtl><head><meta charset=UTF-8><meta name=viewport content="width=device-width,initial-scale=1"><style>*{margin:0;font-family:IBM Plex Sans Arabic,Tajawal,sans-serif}body{display:flex;align-items:center;justify-content:center;min-height:100vh;background:#000000;color:#fff;text-align:center}.c{padding:30px}.ic{font-size:48px;margin-bottom:16px;opacity:.5}h2{font-size:18px;margin-bottom:8px}p{font-size:13px;color:#888;margin-bottom:20px}button{padding:12px 30px;border:none;border-radius:10px;background:#4f46e5;color:#fff;font-family:inherit;font-size:14px;font-weight:700;cursor:pointer}</style></head><body><div class=c><div class=ic>📡</div><h2>لا يوجد اتصال</h2><p>تأكد من اتصالك بالإنترنت وحاول مرة أخرى</p><button onclick=location.reload()>إعادة المحاولة</button></div></body></html>', {status:503, headers:{'Content-Type':'text/html;charset=UTF-8'}});
     })
   );
 });
@@ -3686,13 +3686,21 @@ def api_pm_public():
     conn.close()
     methods = []
     for r in rows:
+        mtype = r['method_type'] if 'method_type' in r.keys() else 'manual'
+        qr_code = ''
+        if mtype == 'binance':
+            try:
+                qr_code = (json.loads(r['method_extras'] or '{}') or {}).get('qr_code', '')
+            except Exception:
+                qr_code = ''
         methods.append({
             'id': r['id'], 'name': r['name'], 'icon': r['icon'],
             'number': r['number'], 'exchange_rate': r['exchange_rate'],
             'currency': r['currency'], 'note': r['note'],
             'bot_link': r['bot_link'] if 'bot_link' in r.keys() else '',
             'image': r['image'] if 'image' in r.keys() else '',
-            'method_type': r['method_type'] if 'method_type' in r.keys() else 'manual'
+            'method_type': mtype,
+            'qr_code': qr_code
         })
     return jsonify(ok=True, methods=methods)
 
@@ -3801,6 +3809,7 @@ def api_pm_list():
             'sort_order': r['sort_order'] if 'sort_order' in r.keys() else 0,
             # لا نُرسل مفاتيح Binance الفعلية أبداً، فقط إشارة إلى وجودها (لعرض "متروك فارغاً = الإبقاء على الحالي")
             'has_binance_keys': bool(extras.get('api_key')) if mtype == 'binance' else False,
+            'qr_code': extras.get('qr_code', '') if mtype == 'binance' else '',
             'max_transfer': extras.get('max_transfer') if mtype == 'asiacell' else None,
         })
     return jsonify(ok=True, methods=methods)
@@ -3927,7 +3936,9 @@ def api_pm_delete(pm_id):
     return jsonify(ok=True, msg='تم حذف طريقة الدفع')
 
 def _save_pm_image(img_data, fallback):
-    """يحفظ صورة PM المرسلة كـ data URL إن وُجدت، وإلا يُعيد الصورة الحالية (fallback)"""
+    """يحفظ صورة PM المرسلة كـ data URL إن وُجدت، أو يحذفها إذا كانت '__remove__'، وإلا يُعيد الصورة الحالية (fallback)"""
+    if img_data == '__remove__':
+        return ''
     if not (img_data and ',' in img_data):
         return fallback
     try:
@@ -3965,6 +3976,8 @@ def api_pm_save_binance():
     if api_key: extras['api_key'] = api_key
     if api_secret: extras['api_secret'] = api_secret
     pm_image = _save_pm_image(data.get('image_data', ''), row['image'] if 'image' in row.keys() else '')
+    qr_code = _save_pm_image(data.get('qr_data', ''), extras.get('qr_code', ''))
+    extras['qr_code'] = qr_code
     conn.execute('UPDATE payment_methods SET number=?, image=?, active=?, method_extras=? WHERE id=?',
                  (binance_id, pm_image, 1 if data.get('active') else 0, json.dumps(extras), row['id']))
     conn.commit()
@@ -6023,7 +6036,7 @@ LANDING_HTML = r'''<!DOCTYPE html>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@300;400;500;600;700;800;900&family=Tajawal:wght@400;500;700;800;900&family=Poppins:wght@600;700;800;900&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@300;400;500;600;700;800;900&family=Tajawal:wght@400;500;700;800;900&display=swap" rel="stylesheet">
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 :root{
@@ -6059,16 +6072,16 @@ LANDING_HTML = r'''<!DOCTYPE html>
   --feature-icon-bg:rgba(99,102,241,0.12);
 }
 html{scroll-behavior:smooth}
-body{font-family:'IBM Plex Sans Arabic','Tajawal',sans-serif;background:var(--bg);color:var(--text);transition:background .4s,color .4s;overflow-x:hidden}
+body{font-family:IBM Plex Sans Arabic,'Tajawal',sans-serif;background:var(--bg);color:var(--text);transition:background .4s,color .4s;overflow-x:hidden}
 
 .floating-icons{position:fixed;inset:0;pointer-events:none;overflow:hidden;z-index:0}
 .floating-icons i{position:absolute;font-size:28px;color:var(--icon-float);animation:floatIcon 22s infinite linear;opacity:.5}
 @keyframes floatIcon{0%{transform:translateY(110vh) rotate(0deg)}100%{transform:translateY(-10vh) rotate(360deg)}}
 
 .topbar{position:fixed;top:0;left:0;right:0;z-index:100;display:flex;align-items:center;justify-content:space-between;padding:12px 24px;padding-top:max(12px,env(safe-area-inset-top,12px));background:var(--card);border-bottom:1px solid var(--card-border);backdrop-filter:blur(20px);transition:background .4s,border .4s}
-.logo-text{font-family:'Poppins',sans-serif;font-weight:800;font-size:21px;background:linear-gradient(135deg,var(--primary),var(--primary-light));-webkit-background-clip:text;-webkit-text-fill-color:transparent;letter-spacing:-0.5px}
+.logo-text{font-family:IBM Plex Sans Arabic,sans-serif;font-weight:800;font-size:21px;background:linear-gradient(135deg,var(--primary),var(--primary-light));-webkit-background-clip:text;-webkit-text-fill-color:transparent;letter-spacing:-0.5px}
 .topbar-actions{display:flex;align-items:center;gap:12px}
-.btn-login-top{padding:8px 20px;border-radius:9px;font-size:13px;font-weight:700;font-family:'IBM Plex Sans Arabic','Tajawal',sans-serif;cursor:pointer;transition:all .3s;border:1.5px solid var(--primary);background:none;color:var(--primary)}
+.btn-login-top{padding:8px 20px;border-radius:9px;font-size:13px;font-weight:700;font-family:IBM Plex Sans Arabic,'Tajawal',sans-serif;cursor:pointer;transition:all .3s;border:1.5px solid var(--primary);background:none;color:var(--primary)}
 .btn-login-top:hover{background:var(--primary);color:#fff}
 .theme-toggle{width:40px;height:40px;border-radius:10px;border:1px solid var(--card-border);background:var(--toggle-bg);cursor:pointer;display:flex;align-items:center;justify-content:center;color:var(--text2);font-size:15px;transition:all .3s}
 .theme-toggle:hover{color:var(--primary);background:var(--primary-glow)}
@@ -6076,14 +6089,14 @@ body{font-family:'IBM Plex Sans Arabic','Tajawal',sans-serif;background:var(--bg
 .hero{min-height:100vh;display:flex;align-items:center;justify-content:center;text-align:center;padding:100px 20px 60px;position:relative;z-index:1}
 .hero-inner{max-width:680px}
 .hero-badge{display:inline-flex;align-items:center;gap:8px;padding:8px 18px;border-radius:30px;background:var(--primary-glow);font-size:13px;font-weight:700;color:var(--primary);margin-bottom:20px;animation:fadeUp .7s ease}
-.hero h1{font-family:'Poppins',sans-serif;font-size:clamp(32px,6vw,52px);font-weight:900;line-height:1.2;margin-bottom:16px;animation:fadeUp .7s ease .1s both}
+.hero h1{font-family:IBM Plex Sans Arabic,sans-serif;font-size:clamp(32px,6vw,52px);font-weight:900;line-height:1.2;margin-bottom:16px;animation:fadeUp .7s ease .1s both}
 .hero h1 .gradient{background:linear-gradient(135deg,var(--primary),var(--primary-light));-webkit-background-clip:text;-webkit-text-fill-color:transparent}
 .hero p{font-size:clamp(15px,2.5vw,18px);color:var(--text2);line-height:1.8;max-width:520px;margin:0 auto 32px;animation:fadeUp .7s ease .2s both}
 @keyframes fadeUp{from{opacity:0;transform:translateY(24px)}to{opacity:1;transform:translateY(0)}}
 @keyframes spin{0%{transform:rotate(0deg)}100%{transform:rotate(360deg)}}
 @keyframes shimmer{0%{background-position:-200% 0}100%{background-position:200% 0}}
 .hero-btns{display:flex;align-items:center;justify-content:center;gap:12px;flex-wrap:wrap;animation:fadeUp .7s ease .3s both}
-.btn-hero{padding:14px 32px;border-radius:12px;font-size:15px;font-weight:700;font-family:'IBM Plex Sans Arabic','Tajawal',sans-serif;cursor:pointer;transition:all .3s;display:inline-flex;align-items:center;gap:8px;border:none}
+.btn-hero{padding:14px 32px;border-radius:12px;font-size:15px;font-weight:700;font-family:IBM Plex Sans Arabic,'Tajawal',sans-serif;cursor:pointer;transition:all .3s;display:inline-flex;align-items:center;gap:8px;border:none}
 .btn-hero.primary{background:linear-gradient(135deg,var(--primary),var(--primary-light));color:#fff;box-shadow:0 4px 20px var(--primary-glow)}
 .btn-hero.primary:hover{transform:translateY(-2px);box-shadow:0 8px 30px var(--primary-glow)}
 .btn-hero.outline{background:none;border:2px solid var(--card-border);color:var(--text)}
@@ -6112,14 +6125,14 @@ body{font-family:'IBM Plex Sans Arabic','Tajawal',sans-serif;background:var(--bg
 .stats-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;max-width:900px;margin:0 auto}
 .stat-item{text-align:center;padding:24px 16px;background:var(--card);border:1px solid var(--card-border);border-radius:14px;transition:all .3s}
 .stat-item:hover{transform:translateY(-3px);box-shadow:var(--shadow)}
-.stat-item .num{font-family:'Poppins',sans-serif;font-weight:900;font-size:clamp(22px,3vw,32px);color:var(--primary);display:block}
+.stat-item .num{font-family:IBM Plex Sans Arabic,sans-serif;font-weight:900;font-size:clamp(22px,3vw,32px);color:var(--primary);display:block}
 .stat-item .label{font-size:12px;color:var(--text3);margin-top:4px;font-weight:600}
 
 .steps-container{max-width:700px;margin:0 auto;position:relative}
 .steps-container::before{content:'';position:absolute;right:27px;top:40px;bottom:40px;width:2px;background:var(--step-line)}
 .step{display:flex;gap:20px;align-items:flex-start;margin-bottom:36px;position:relative}
 .step:last-child{margin-bottom:0}
-.step-num{width:54px;height:54px;border-radius:14px;flex-shrink:0;background:linear-gradient(135deg,var(--primary),var(--primary-light));color:#fff;font-family:'Poppins',sans-serif;font-weight:800;font-size:20px;display:flex;align-items:center;justify-content:center;box-shadow:0 4px 16px var(--primary-glow);position:relative;z-index:1}
+.step-num{width:54px;height:54px;border-radius:14px;flex-shrink:0;background:linear-gradient(135deg,var(--primary),var(--primary-light));color:#fff;font-family:IBM Plex Sans Arabic,sans-serif;font-weight:800;font-size:20px;display:flex;align-items:center;justify-content:center;box-shadow:0 4px 16px var(--primary-glow);position:relative;z-index:1}
 .step-content{flex:1;background:var(--card);border:1px solid var(--card-border);border-radius:14px;padding:22px;transition:all .3s}
 .step-content:hover{box-shadow:var(--shadow)}
 .step-content h3{font-size:16px;font-weight:800;margin-bottom:6px;display:flex;align-items:center;gap:8px}
@@ -6131,7 +6144,7 @@ body{font-family:'IBM Plex Sans Arabic','Tajawal',sans-serif;background:var(--bg
 .auth-card::before{content:'';position:absolute;top:0;left:0;right:0;height:4px;background:var(--primary)}
 .smm-badge{display:flex;align-items:center;justify-content:center;gap:6px;margin-bottom:18px;padding:8px 14px;border-radius:20px;background:var(--primary-glow);font-size:12px;font-weight:600;color:var(--primary)}
 .tabs{display:flex;gap:4px;background:var(--input-bg);border-radius:12px;padding:4px;margin-bottom:24px}
-.tab{flex:1;padding:10px;text-align:center;border-radius:9px;font-weight:700;font-size:14px;cursor:pointer;color:var(--text3);transition:all .3s;border:none;background:none;font-family:'IBM Plex Sans Arabic','Tajawal',sans-serif}
+.tab{flex:1;padding:10px;text-align:center;border-radius:9px;font-weight:700;font-size:14px;cursor:pointer;color:var(--text3);transition:all .3s;border:none;background:none;font-family:IBM Plex Sans Arabic,'Tajawal',sans-serif}
 .tab.active{background:var(--card);color:var(--primary);box-shadow:0 2px 10px rgba(0,0,0,0.05)}
 .welcome{text-align:center;margin-bottom:22px}
 .welcome h2{font-size:21px;font-weight:800;margin-bottom:5px}
@@ -6140,14 +6153,14 @@ body{font-family:'IBM Plex Sans Arabic','Tajawal',sans-serif;background:var(--bg
 .form-group label{display:block;font-size:12px;font-weight:600;color:var(--text2);margin-bottom:5px}
 .input-wrap{position:relative}
 .input-wrap i.fi{position:absolute;right:13px;top:50%;transform:translateY(-50%);color:var(--text3);font-size:14px;transition:color .3s}
-.input-wrap input{width:100%;padding:11px 40px 11px 40px;background:var(--input-bg);border:1.5px solid var(--input-border);border-radius:10px;font-size:14px;font-family:'IBM Plex Sans Arabic','Tajawal',sans-serif;color:var(--text);transition:all .3s;outline:none}
+.input-wrap input{width:100%;padding:11px 40px 11px 40px;background:var(--input-bg);border:1.5px solid var(--input-border);border-radius:10px;font-size:14px;font-family:IBM Plex Sans Arabic,'Tajawal',sans-serif;color:var(--text);transition:all .3s;outline:none}
 .input-wrap input:focus{border-color:var(--input-focus);box-shadow:0 0 0 3px var(--primary-glow)}
 .input-wrap input::placeholder{color:var(--text3)}
 .eye-btn{position:absolute;left:12px;top:50%;transform:translateY(-50%);border:none;background:none;cursor:pointer;color:var(--text3);font-size:13px;padding:4px;transition:color .3s}
 .eye-btn:hover{color:var(--primary)}
 .forgot{text-align:left;margin-top:5px}
 .forgot a{font-size:12px;color:var(--primary);text-decoration:none;font-weight:600}
-.btn-primary{width:100%;padding:13px;border:none;border-radius:12px;background:linear-gradient(135deg,var(--primary),var(--primary-light));color:#fff;font-size:14px;font-weight:700;cursor:pointer;font-family:'IBM Plex Sans Arabic','Tajawal',sans-serif;transition:all .3s;box-shadow:0 4px 18px var(--primary-glow);display:flex;align-items:center;justify-content:center;gap:8px;margin-top:8px;-webkit-tap-highlight-color:transparent;min-height:46px}
+.btn-primary{width:100%;padding:13px;border:none;border-radius:12px;background:linear-gradient(135deg,var(--primary),var(--primary-light));color:#fff;font-size:14px;font-weight:700;cursor:pointer;font-family:IBM Plex Sans Arabic,'Tajawal',sans-serif;transition:all .3s;box-shadow:0 4px 18px var(--primary-glow);display:flex;align-items:center;justify-content:center;gap:8px;margin-top:8px;-webkit-tap-highlight-color:transparent;min-height:46px}
 .btn-primary:hover{transform:translateY(-1px);box-shadow:0 6px 24px var(--primary-glow)}
 .btn-primary:active{transform:scale(.97)}
 .btn-primary:disabled{opacity:.6;cursor:not-allowed;transform:none}
@@ -6169,9 +6182,9 @@ body{font-family:'IBM Plex Sans Arabic','Tajawal',sans-serif;background:var(--bg
 .site-footer a{color:var(--primary);text-decoration:none}
 .reveal{opacity:0;transform:translateY(30px);transition:opacity .6s,transform .6s}
 .reveal.visible{opacity:1;transform:translateY(0)}
-.btn-google{width:100%;padding:11px;border:1.5px solid var(--card-border);border-radius:10px;background:var(--card);color:var(--text);font-size:14px;font-weight:700;cursor:pointer;font-family:'IBM Plex Sans Arabic','Tajawal',sans-serif;transition:all .3s;display:flex;align-items:center;justify-content:center;gap:10px}
+.btn-google{width:100%;padding:11px;border:1.5px solid var(--card-border);border-radius:10px;background:var(--card);color:var(--text);font-size:14px;font-weight:700;cursor:pointer;font-family:IBM Plex Sans Arabic,'Tajawal',sans-serif;transition:all .3s;display:flex;align-items:center;justify-content:center;gap:10px}
 .btn-google:hover{border-color:var(--primary);box-shadow:0 2px 12px var(--primary-glow)}
-.msg-toast{position:fixed;top:80px;left:50%;transform:translateX(-50%);padding:11px 22px;border-radius:12px;font-size:13px;font-weight:700;z-index:9999;animation:fadeUp .3s ease;font-family:'IBM Plex Sans Arabic','Tajawal',sans-serif;max-width:90%;background:#1e1e2e;color:#fff;border:1px solid rgba(255,255,255,.12);box-shadow:0 8px 28px rgba(0,0,0,.35);display:flex;align-items:center;gap:8px;backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px)}
+.msg-toast{position:fixed;top:80px;left:50%;transform:translateX(-50%);padding:11px 22px;border-radius:12px;font-size:13px;font-weight:700;z-index:9999;animation:fadeUp .3s ease;font-family:IBM Plex Sans Arabic,'Tajawal',sans-serif;max-width:90%;background:#1e1e2e;color:#fff;border:1px solid rgba(255,255,255,.12);box-shadow:0 8px 28px rgba(0,0,0,.35);display:flex;align-items:center;gap:8px;backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px)}
 .msg-toast::before{content:'\f05a';font-family:'Font Awesome 6 Free';font-weight:900;font-size:14px;color:#a78bfa}
 .msg-toast.success{background:#10b981;color:#fff;border-color:rgba(255,255,255,.2)}
 .msg-toast.success::before{content:'\f058';color:#fff}
@@ -6332,7 +6345,7 @@ body{font-family:'IBM Plex Sans Arabic','Tajawal',sans-serif;background:var(--bg
       </div>
       <div id="forgotStep2" style="display:none">
         <div style="text-align:center;margin-bottom:16px"><div class="verify-email" id="forgotAddr">---</div></div>
-        <div class="form-group"><label>رمز التحقق</label><div class="input-wrap"><input type="text" id="resetCode" maxlength="6" placeholder="000000" style="text-align:center;font-family:Poppins,monospace;font-size:20px;letter-spacing:6px" oninput="this.value=this.value.replace(/[^0-9]/g,'')"><i class="fa-solid fa-key fi"></i></div></div>
+        <div class="form-group"><label>رمز التحقق</label><div class="input-wrap"><input type="text" id="resetCode" maxlength="6" placeholder="000000" style="text-align:center;font-family:IBM Plex Sans Arabic,monospace;font-size:20px;letter-spacing:6px" oninput="this.value=this.value.replace(/[^0-9]/g,'')"><i class="fa-solid fa-key fi"></i></div></div>
         <div class="form-group"><label>كلمة المرور الجديدة</label><div class="input-wrap"><input type="password" placeholder="••••••••" id="resetNewPass"><i class="fa-solid fa-lock fi"></i></div></div>
         <div class="form-group"><label>تأكيد كلمة المرور</label><div class="input-wrap"><input type="password" placeholder="••••••••" id="resetNewPass2"><i class="fa-solid fa-shield-halved fi"></i></div></div>
         <button class="btn-primary" id="btnResetPass" style="width:100%"><i class="fa-solid fa-check"></i> تغيير كلمة المرور</button>
@@ -6355,7 +6368,7 @@ body{font-family:'IBM Plex Sans Arabic','Tajawal',sans-serif;background:var(--bg
       <p>أرسلنا رمز مكون من 6 أرقام إلى بريدك</p>
       <div class="verify-email" id="verifyAddr">---</div>
       <div style="display:flex;justify-content:center;gap:8px;margin:20px 0">
-        <input type="text" id="otpInput" maxlength="6" placeholder="000000" style="width:200px;text-align:center;font-family:Poppins,monospace;font-size:28px;font-weight:900;letter-spacing:8px;padding:14px;border-radius:14px;border:2px solid var(--divider);background:var(--input-bg);color:var(--heading);outline:none" oninput="this.value=this.value.replace(/[^0-9]/g,'')">
+        <input type="text" id="otpInput" maxlength="6" placeholder="000000" style="width:200px;text-align:center;font-family:IBM Plex Sans Arabic,monospace;font-size:28px;font-weight:900;letter-spacing:8px;padding:14px;border-radius:14px;border:2px solid var(--divider);background:var(--input-bg);color:var(--heading);outline:none" oninput="this.value=this.value.replace(/[^0-9]/g,'')">
       </div>
       <button class="btn-primary" id="btnVerifyCode" style="width:100%"><i class="fa-solid fa-check-circle"></i> تأكيد الرمز</button>
       <button id="btnResendCode" style="margin-top:12px;background:none;border:none;color:var(--primary);font-family:inherit;font-size:12px;font-weight:700;cursor:pointer"><i class="fa-solid fa-rotate"></i> إعادة إرسال الرمز</button>
@@ -6607,10 +6620,10 @@ def _banned_page(name, email, site_name):
 <html lang="ar" dir="rtl"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0">
 <title>{site_name} — حساب محظور</title>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
-<link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700;800;900&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@300;400;500;600;700;800;900&family=Tajawal:wght@400;500;700;800;900&display=swap" rel="stylesheet">
 <style>
 *{{margin:0;padding:0;box-sizing:border-box}}
-body{{font-family:'IBM Plex Sans Arabic','Tajawal',sans-serif;min-height:100vh;min-height:100dvh;display:flex;align-items:center;justify-content:center;background:#0f0f1a;color:#fff;padding:20px}}
+body{{font-family:IBM Plex Sans Arabic,'Tajawal',sans-serif;min-height:100vh;min-height:100dvh;display:flex;align-items:center;justify-content:center;background:#0f0f1a;color:#fff;padding:20px}}
 .ban-wrap{{max-width:440px;width:100%;text-align:center}}
 .ban-icon{{width:90px;height:90px;border-radius:50%;background:rgba(239,68,68,.12);display:inline-flex;align-items:center;justify-content:center;font-size:38px;color:#ef4444;margin-bottom:20px;border:2px solid rgba(239,68,68,.2)}}
 .ban-title{{font-size:24px;font-weight:900;margin-bottom:8px;color:#fff}}
@@ -6620,16 +6633,16 @@ body{{font-family:'IBM Plex Sans Arabic','Tajawal',sans-serif;min-height:100vh;m
 .ban-email{{font-size:11px;color:#666}}
 .ban-msg-wrap{{background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);border-radius:14px;padding:16px;margin-bottom:16px;display:none}}
 .ban-msg-wrap.show{{display:block}}
-.ban-ta{{width:100%;padding:12px;border-radius:10px;border:1px solid rgba(255,255,255,.1);background:rgba(255,255,255,.06);color:#fff;font-family:'IBM Plex Sans Arabic','Tajawal',sans-serif;font-size:13px;resize:none;min-height:90px;outline:none}}
+.ban-ta{{width:100%;padding:12px;border-radius:10px;border:1px solid rgba(255,255,255,.1);background:rgba(255,255,255,.06);color:#fff;font-family:IBM Plex Sans Arabic,'Tajawal',sans-serif;font-size:13px;resize:none;min-height:90px;outline:none}}
 .ban-ta::placeholder{{color:#555}}
-.ban-btn{{width:100%;padding:14px;border:none;border-radius:12px;font-family:'IBM Plex Sans Arabic','Tajawal',sans-serif;font-size:14px;font-weight:800;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:8px;transition:all .2s;margin-bottom:10px}}
+.ban-btn{{width:100%;padding:14px;border:none;border-radius:12px;font-family:IBM Plex Sans Arabic,'Tajawal',sans-serif;font-size:14px;font-weight:800;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:8px;transition:all .2s;margin-bottom:10px}}
 .ban-btn-primary{{background:linear-gradient(135deg,#4f46e5,#6366f1);color:#fff;box-shadow:0 4px 18px rgba(79,70,229,.25)}}
 .ban-btn-primary:hover{{transform:translateY(-1px)}}
 .ban-btn-outline{{background:transparent;border:1.5px solid rgba(255,255,255,.12);color:#aaa}}
 .ban-btn-outline:hover{{border-color:rgba(255,255,255,.25);color:#fff}}
 .ban-btn-send{{background:linear-gradient(135deg,#10b981,#059669);color:#fff;box-shadow:0 4px 18px rgba(16,185,129,.25)}}
 .ban-btn:disabled{{opacity:.5;cursor:not-allowed;transform:none}}
-.ban-toast{{position:fixed;top:20px;left:50%;transform:translateX(-50%);padding:10px 20px;border-radius:10px;font-size:12px;font-weight:700;font-family:'IBM Plex Sans Arabic','Tajawal',sans-serif;z-index:9999;display:none}}
+.ban-toast{{position:fixed;top:20px;left:50%;transform:translateX(-50%);padding:10px 20px;border-radius:10px;font-size:12px;font-weight:700;font-family:IBM Plex Sans Arabic,'Tajawal',sans-serif;z-index:9999;display:none}}
 .ban-toast.ok{{display:block;background:#10b981;color:#fff}}
 .ban-toast.er{{display:block;background:#ef4444;color:#fff}}
 .ban-logout{{margin-top:12px;font-size:11px;color:#555}}
@@ -6763,10 +6776,10 @@ DASH_HTML = r'''<!DOCTYPE html>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@300;400;500;600;700;800;900&family=Tajawal:wght@400;500;700;800;900&family=Poppins:wght@600;700;800;900&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@300;400;500;600;700;800;900&family=Tajawal:wght@400;500;700;800;900&display=swap" rel="stylesheet">
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
-:root{--bg:#f2f3f7;--card:#fff;--card-border:rgba(0,0,0,0.06);--text:#1a1a2e;--text2:#555;--text3:#999;--primary:#4f46e5;--primary-light:#6366f1;--primary-glow:rgba(79,70,229,0.10);--primary-bg:rgba(79,70,229,0.05);--input-bg:#f5f6fa;--input-border:#e0e3eb;--shadow:0 2px 10px rgba(0,0,0,0.04);--shadow-lg:0 8px 30px rgba(0,0,0,0.07);--toggle-bg:#eef0f5;--platform-bg:#f5f6fa;--platform-border:rgba(0,0,0,0.06);--platform-active-bg:rgba(79,70,229,0.08);--green:#10b981;--red:#ef4444;--orange:#f59e0b;--note-bg:#eff6ff;--note-border:#bfdbfe;--note-text:#1e40af;--nav-bg:#fff;--nav-border:rgba(0,0,0,0.08);--font:'IBM Plex Sans Arabic','Tajawal',sans-serif;--font-num:'Poppins',sans-serif}
+:root{--bg:#f2f3f7;--card:#fff;--card-border:rgba(0,0,0,0.06);--text:#1a1a2e;--text2:#555;--text3:#999;--primary:#4f46e5;--primary-light:#6366f1;--primary-glow:rgba(79,70,229,0.10);--primary-bg:rgba(79,70,229,0.05);--input-bg:#f5f6fa;--input-border:#e0e3eb;--shadow:0 2px 10px rgba(0,0,0,0.04);--shadow-lg:0 8px 30px rgba(0,0,0,0.07);--toggle-bg:#eef0f5;--platform-bg:#f5f6fa;--platform-border:rgba(0,0,0,0.06);--platform-active-bg:rgba(79,70,229,0.08);--green:#10b981;--red:#ef4444;--orange:#f59e0b;--note-bg:#eff6ff;--note-border:#bfdbfe;--note-text:#1e40af;--nav-bg:#fff;--nav-border:rgba(0,0,0,0.08);--font:IBM Plex Sans Arabic,'Tajawal',sans-serif;--font-num:IBM Plex Sans Arabic,sans-serif}
 [data-theme="dark"]{--bg:#000000;--card:#111111;--card-border:rgba(255,255,255,0.10);--text:#f0f0f4;--text2:#b0b0c0;--text3:#7a7a8d;--primary:#6366f1;--primary-light:#818cf8;--primary-glow:rgba(99,102,241,0.15);--primary-bg:rgba(99,102,241,0.06);--input-bg:#161616;--input-border:#252525;--shadow:0 2px 10px rgba(0,0,0,0.4);--shadow-lg:0 8px 30px rgba(0,0,0,0.5);--toggle-bg:#161616;--platform-bg:#0a0a0a;--platform-border:rgba(255,255,255,0.10);--platform-active-bg:rgba(99,102,241,0.12);--note-bg:rgba(99,102,241,0.08);--note-border:rgba(99,102,241,0.2);--note-text:#818cf8;--nav-bg:#0a0a0a;--nav-border:rgba(255,255,255,0.08)}
 body{font-family:var(--font);background:var(--bg);color:var(--text);transition:background .15s,color .3s;min-height:100vh}
 /* TOPBAR */
@@ -7037,7 +7050,7 @@ html:not([data-theme="dark"]) .ai-cs-card::after{background:linear-gradient(105d
 .ref4-stat .l{font-size:8px;font-weight:600;color:var(--text3);margin-top:2px}
 .ref4-link{display:flex;align-items:center;gap:6px;background:var(--input-bg);border:1.5px solid var(--input-border);border-radius:10px;padding:8px 12px;margin-bottom:8px}
 .ref4-link-txt{flex:1;font-size:9px;font-weight:600;color:var(--text2);direction:ltr;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.ref4-link-btn{padding:5px 12px;border-radius:7px;background:var(--primary);color:#fff;font-size:9px;font-weight:800;border:none;cursor:pointer;font-family:'Tajawal'}
+.ref4-link-btn{padding:5px 12px;border-radius:7px;background:var(--primary);color:#fff;font-size:9px;font-weight:800;border:none;cursor:pointer;font-family:IBM Plex Sans Arabic,'Tajawal'}
 .ref4-link-btn:active{opacity:.8}
 .ref4-btns{display:flex;gap:6px}
 .ref4-withdraw{flex:1;padding:9px;border-radius:10px;background:transparent;border:1.5px solid var(--card-border);color:var(--text2);font-size:10px;font-weight:800;cursor:pointer;transition:all .15s}
@@ -7313,11 +7326,11 @@ html:not([data-theme="dark"]) .ai-cs-card::after{background:linear-gradient(105d
 .ao-actions{display:flex;gap:6px;padding:0 16px 14px}
 .ao-act{flex:1;padding:10px;border-radius:10px;border:none;font-family:var(--font);font-size:12px;font-weight:800;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:5px}
 .smm-stat{display:flex;align-items:center;gap:6px;padding:8px 14px;background:var(--card);border:1px solid var(--card-border);border-radius:10px;white-space:nowrap;flex-shrink:0;box-shadow:0 1px 3px rgba(0,0,0,.04)}
-.smm-stat-v{font-family:'Poppins',sans-serif;font-size:16px;font-weight:900;line-height:1}
+.smm-stat-v{font-family:IBM Plex Sans Arabic,sans-serif;font-size:16px;font-weight:900;line-height:1}
 .smm-stat-l{font-size:9px;color:var(--text3);font-weight:700}
 .smm-ftab{padding:5px 12px;border-radius:8px;font-size:9px;font-weight:800;font-family:var(--font);border:1px solid var(--card-border);background:var(--card);color:var(--text3);cursor:pointer;white-space:nowrap;transition:all .2s;display:flex;align-items:center;gap:4px}
 .smm-ftab.active{background:var(--primary);border-color:var(--primary);color:#fff;box-shadow:0 2px 10px rgba(99,102,241,.2)}
-.smm-ftab .fc{font-family:'Poppins';font-size:10px;font-weight:900}
+.smm-ftab .fc{font-family:IBM Plex Sans Arabic;font-size:10px;font-weight:900}
 /* ═══ Design 1: Compact Expandable Cards ═══ */
 .smm-card{background:var(--card);border:1px solid var(--card-border);border-radius:12px;padding:10px 12px;margin-bottom:6px;cursor:pointer;transition:all .25s cubic-bezier(.4,0,.2,1);animation:smmFadeIn .3s ease both;box-shadow:0 1px 3px rgba(0,0,0,.04)}
 .smm-card:hover{border-color:rgba(99,102,241,.2)}
@@ -7351,7 +7364,7 @@ html:not([data-theme="dark"]) .ai-cs-card::after{background:linear-gradient(105d
 .sc-gi{display:flex;flex-direction:column;gap:1px}
 .sc-gi-l{font-size:8px;font-weight:700;color:var(--text3);display:flex;align-items:center;gap:3px}
 .sc-gi-l i{font-size:7px}
-.sc-gi-v{font-size:11px;font-weight:800;font-family:'Poppins',sans-serif}
+.sc-gi-v{font-size:11px;font-weight:800;font-family:IBM Plex Sans Arabic,sans-serif}
 .sc-gi-v.link{color:var(--primary);font-family:var(--font);font-size:9px;word-break:break-all}
 .sc-actions{display:flex;gap:6px;margin-top:8px}
 .sc-btn{flex:1;padding:7px;border:none;border-radius:8px;font-family:var(--font);font-size:10px;font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:5px;transition:.2s}
@@ -7481,9 +7494,9 @@ html:not([data-theme="dark"]) .rch-bal{background:linear-gradient(135deg,#eef0ff
 .cpn-collapse-body{overflow:hidden;max-height:0;opacity:0;transition:max-height .35s ease,opacity .25s ease,padding .35s ease;padding:0 16px}
 .cpn-collapse-body.open{max-height:200px;opacity:1;padding:0 16px 16px}
 .cpn-collapse-row{display:flex;gap:8px;align-items:stretch}
-.cpn-collapse-input{flex:1;min-width:0;padding:10px 12px;border-radius:10px;background:var(--input-bg);border:1.5px solid var(--input-border);font-size:12px;font-weight:700;color:var(--text);outline:none;font-family:var(--font-num),'IBM Plex Sans Arabic','Tajawal',sans-serif;text-transform:uppercase;letter-spacing:1px;transition:all .2s;direction:ltr;text-align:right}
+.cpn-collapse-input{flex:1;min-width:0;padding:10px 12px;border-radius:10px;background:var(--input-bg);border:1.5px solid var(--input-border);font-size:12px;font-weight:700;color:var(--text);outline:none;font-family:var(--font-num),IBM Plex Sans Arabic,'Tajawal',sans-serif;text-transform:uppercase;letter-spacing:1px;transition:all .2s;direction:ltr;text-align:right}
 .cpn-collapse-input:focus{border-color:#a855f7;box-shadow:0 0 0 3px rgba(168,85,247,.1)}
-.cpn-collapse-input::placeholder{color:var(--text3);font-weight:600;letter-spacing:0;text-transform:none;font-family:'IBM Plex Sans Arabic','Tajawal',sans-serif;font-size:11px}
+.cpn-collapse-input::placeholder{color:var(--text3);font-weight:600;letter-spacing:0;text-transform:none;font-family:IBM Plex Sans Arabic,'Tajawal',sans-serif;font-size:11px}
 .cpn-collapse-btn{padding:10px 14px;border-radius:10px;border:none;background:#a855f7;color:#fff;font-size:11px;font-weight:800;cursor:pointer;display:flex;align-items:center;gap:4px;white-space:nowrap;font-family:inherit;transition:all .2s;flex-shrink:0}
 .cpn-collapse-btn:hover{background:#9333ea}
 .cpn-collapse-btn:active{transform:scale(.96)}
@@ -7577,7 +7590,7 @@ body:has(.overlay-page.show) .bottom-nav{opacity:0;pointer-events:none;transitio
 .ov-title{font-size:15px;font-weight:800;flex:1;display:flex;align-items:center;gap:6px}
 .ov-title i{color:var(--primary);font-size:13px}
 /* CO Pill Actions */
-.co-count{font-size:15px;font-weight:900;margin-bottom:14px;display:flex;align-items:center;gap:6px}.co-count span{font-family:'Poppins',sans-serif}
+.co-count{font-size:15px;font-weight:900;margin-bottom:14px;display:flex;align-items:center;gap:6px}.co-count span{font-family:IBM Plex Sans Arabic,sans-serif}
 .co-card{background:var(--card);border:1px solid var(--card-border);border-radius:16px;margin-bottom:10px;padding:13px}
 .co-r1{display:flex;align-items:center;gap:8px;margin-bottom:6px}
 .co-nm{flex:1;text-align:right;font-size:12px;font-weight:800}
@@ -7591,13 +7604,13 @@ body:has(.overlay-page.show) .bottom-nav{opacity:0;pointer-events:none;transitio
 [data-theme="dark"] .co-badge.co-canc{background:rgba(248,113,113,.1);color:#f87171}
 .co-meta{display:flex;flex-wrap:wrap;gap:4px 8px;justify-content:flex-end;margin-bottom:7px}
 .co-mt{font-size:9px;font-weight:600;color:var(--text3);display:flex;align-items:center;gap:2px}.co-mt i{font-size:7px;opacity:.5}
-.co-mt .co-id{font-family:'Poppins',sans-serif;font-size:8px;direction:ltr}
+.co-mt .co-id{font-family:IBM Plex Sans Arabic,sans-serif;font-size:8px;direction:ltr}
 .co-link{display:flex;align-items:center;gap:5px;padding:6px 9px;border-radius:8px;background:var(--input-bg);border:1px solid var(--card-border);direction:ltr;margin-bottom:10px;overflow:hidden}
 [data-theme="dark"] .co-link{background:rgba(255,255,255,.02);border-color:rgba(255,255,255,.04)}
 .co-link i{font-size:8px;color:var(--primary);flex-shrink:0}
 .co-link span{font-size:9px;color:var(--primary-light);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;font-weight:600}
 .co-pills{display:flex;gap:6px}
-.co-pb{flex:1;padding:8px;border-radius:10px;border:1px solid var(--card-border);font-family:'IBM Plex Sans Arabic','Tajawal',sans-serif;font-size:9px;font-weight:800;cursor:pointer;background:var(--input-bg);display:flex;align-items:center;justify-content:center;gap:3px;transition:all .12s}
+.co-pb{flex:1;padding:8px;border-radius:10px;border:1px solid var(--card-border);font-family:IBM Plex Sans Arabic,'Tajawal',sans-serif;font-size:9px;font-weight:800;cursor:pointer;background:var(--input-bg);display:flex;align-items:center;justify-content:center;gap:3px;transition:all .12s}
 [data-theme="dark"] .co-pb{background:rgba(255,255,255,.02);border-color:rgba(255,255,255,.06)}
 .co-pb:active{transform:scale(.95)}.co-pb i{font-size:8px}
 .co-pb.co-ex{color:var(--primary)}.co-pb.co-dn{color:var(--green)}.co-pb.co-cn{color:var(--red)}
@@ -8771,27 +8784,15 @@ html:not([data-theme="dark"]) .rv-star-btn{color:rgba(0,0,0,.1)}
       <div class="rch-bal">
         <div class="rch-bal-row"><div><div class="rch-bal-lbl">رصيدك الحالي</div><div class="rch-bal-val" data-usd="25">$25.00</div><div class="rch-bal-sub" id="rchBalSub">USD — الدولار الأمريكي</div></div><div class="rch-bal-ic"><i class="fa-solid fa-wallet"></i></div></div>
       </div>
-        <div class="rch-card">
-          <div class="field-label"><i class="fa-solid fa-dollar-sign"></i> المبلغ المطلوب</div>
-          <div class="rch-amt-wrap"><input type="number" class="rch-amt-input" placeholder="أدخل المبلغ" id="rchAmount" value="10"><span class="rch-amt-sign">$</span></div>
-          <div class="rch-quick" id="rchQuick"><div class="rq sel" data-v="5">$5</div><div class="rq" data-v="10">$10</div><div class="rq" data-v="25">$25</div><div class="rq" data-v="50">$50</div><div class="rq" data-v="100">$100</div></div>
-        </div>
-        <div class="rch-card" style="padding:0;overflow:hidden">
-          <div style="padding:14px 16px 10px"><div class="field-label" style="margin-bottom:0"><i class="fa-solid fa-credit-card"></i> طريقة الدفع</div></div>
-          <div class="rch-strips" id="rchStrips" style="padding:0 10px 10px"><div class="loading" style="padding:16px;text-align:center">جاري التحميل...</div></div>
-        </div>
-        <div class="rch-card" id="rchUploadCard">
-          <div class="field-label"><i class="fa-solid fa-camera"></i> إرفاق صورة الوصل</div>
-          <div class="rch-upload" id="rchUploadArea">
-            <input type="file" accept="image/*" id="rchFileInput">
-            <div class="rch-upload-ic" id="rchUploadIc"><i class="fa-solid fa-cloud-arrow-up"></i></div>
-            <div class="rch-upload-txt" id="rchUploadTxt">اضغط هنا أو اسحب الصورة</div>
-            <div class="rch-upload-sub" id="rchUploadSub">PNG, JPG — حد أقصى 5MB</div>
-          </div>
-          <div class="rch-preview" id="rchPreview"><img id="rchPreviewImg" src="" alt=""><button class="rch-preview-rm" id="rchRemoveBtn"><i class="fa-solid fa-xmark"></i></button></div>
-        </div>
-      <button class="rch-submit" id="btnRchSubmit"><i class="fa-solid fa-paper-plane"></i> إرسال طلب الشحن — $10.00</button>
+      <div class="rch-card" style="padding:0;overflow:hidden">
+        <div style="padding:14px 16px 10px"><div class="field-label" style="margin-bottom:0"><i class="fa-solid fa-credit-card"></i> اختر طريقة الدفع</div></div>
+        <div class="rch-strips" id="rchStrips" style="padding:0 10px 10px"><div class="loading" style="padding:16px;text-align:center">جاري التحميل...</div></div>
+      </div>
     </div>
+  </div>
+  <div class="pm-fullpage" id="rchPayPage">
+    <div class="pm-fp-topbar"><button class="pm-fp-back" id="rchPayBack"><i class="fa-solid fa-arrow-right"></i></button><span class="pm-fp-title" id="rchPayTitle"><i class="fa-solid fa-credit-card" style="color:var(--primary)"></i> الدفع</span></div>
+    <div class="pm-fp-body" id="rchPayBody"></div>
   </div>
   <div class="page admin-only" id="pageAllOrders">
     <div class="sec-label" style="margin-bottom:10px"><i class="fa-solid fa-wallet"></i> طلبات شحن الرصيد <span class="admin-badge"><i class="fa-solid fa-shield"></i> ادمن</span></div>
@@ -9024,7 +9025,7 @@ html:not([data-theme="dark"]) .rv-star-btn{color:rgba(0,0,0,.1)}
       <div id="emailChangePanel" style="display:none;background:var(--card);border:1px solid var(--primary);border-radius:14px;padding:16px;margin-bottom:12px">
         <div style="font-size:13px;font-weight:800;margin-bottom:6px;color:var(--primary-light)"><i class="fa-solid fa-envelope-circle-check"></i> تأكيد البريد الإلكتروني الجديد</div>
         <div style="font-size:11px;color:var(--text2);line-height:1.7;margin-bottom:12px">أرسلنا رمزاً مكوّناً من 6 أرقام إلى <b id="emailChangeTarget" style="color:var(--text)"></b>. أدخله أدناه لإكمال التغيير.</div>
-        <div style="margin-bottom:10px"><input type="text" id="emailChangeCode" maxlength="6" inputmode="numeric" pattern="[0-9]*" placeholder="000000" style="width:100%;padding:14px;border-radius:10px;border:1px solid var(--card-border);background:var(--bg);color:var(--text);font-size:22px;font-family:Poppins,monospace;font-weight:900;text-align:center;letter-spacing:10px;box-sizing:border-box"></div>
+        <div style="margin-bottom:10px"><input type="text" id="emailChangeCode" maxlength="6" inputmode="numeric" pattern="[0-9]*" placeholder="000000" style="width:100%;padding:14px;border-radius:10px;border:1px solid var(--card-border);background:var(--bg);color:var(--text);font-size:22px;font-family:IBM Plex Sans Arabic,monospace;font-weight:900;text-align:center;letter-spacing:10px;box-sizing:border-box"></div>
         <div style="display:flex;gap:8px;flex-wrap:wrap">
           <button onclick="confirmEmailChange()" id="emailChangeConfirmBtn" class="btn-primary" style="flex:1;min-width:120px"><i class="fa-solid fa-check"></i> تأكيد</button>
           <button onclick="resendEmailChange()" id="emailChangeResendBtn" class="btn-outline" style="flex:1;min-width:100px"><i class="fa-solid fa-paper-plane"></i> إعادة إرسال</button>
@@ -9834,7 +9835,7 @@ html:not([data-theme="dark"]) .rv-star-btn{color:rgba(0,0,0,.1)}
       <div style="font-size:13px;font-weight:800;margin-bottom:3px">بحث عن طلب</div>
       <div style="font-size:10px;color:var(--text3);margin-bottom:12px">ادخل رقم الطلب (المزود) أو رقم العرض الداخلي</div>
       <div style="display:flex;gap:6px;max-width:340px;margin:0 auto">
-        <input id="adminOrdInput" placeholder="رقم الطلب..." style="flex:1;height:40px;border-radius:10px;border:1.5px solid var(--input-border);background:var(--input-bg);color:var(--text);padding:0 12px;font-size:12px;font-weight:700;font-family:Poppins;direction:ltr;text-align:left;outline:none" onkeydown="if(event.key==='Enter'){event.preventDefault();_adminOrderLookup()}">
+        <input id="adminOrdInput" placeholder="رقم الطلب..." style="flex:1;height:40px;border-radius:10px;border:1.5px solid var(--input-border);background:var(--input-bg);color:var(--text);padding:0 12px;font-size:12px;font-weight:700;font-family:IBM Plex Sans Arabic;direction:ltr;text-align:left;outline:none" onkeydown="if(event.key==='Enter'){event.preventDefault();_adminOrderLookup()}">
         <button onclick="_adminOrderLookup()" style="width:40px;height:40px;border-radius:10px;border:none;background:var(--primary);color:#fff;font-size:12px;cursor:pointer;display:flex;align-items:center;justify-content:center"><i class="fa-solid fa-magnifying-glass"></i></button>
       </div>
     </div>
@@ -9847,12 +9848,12 @@ html:not([data-theme="dark"]) .rv-star-btn{color:rgba(0,0,0,.1)}
     <div style="text-align:center;padding:20px 0 14px"><div style="width:56px;height:56px;border-radius:16px;background:var(--primary-bg);display:inline-flex;align-items:center;justify-content:center;font-size:24px;color:var(--primary);margin-bottom:10px"><i class="fa-solid fa-plug"></i></div><div style="font-size:16px;font-weight:800;margin-bottom:4px">API للريسيلر</div><div style="font-size:11px;color:var(--text3)">بيع خدمات __SITE_NAME__ من موقعك</div></div>
     <div style="background:var(--card);border:1px solid var(--card-border);border-radius:14px;padding:16px;margin-bottom:12px">
       <div style="font-size:12px;font-weight:700;margin-bottom:8px"><i class="fa-solid fa-key" style="color:var(--primary)"></i> مفتاح API</div>
-      <div style="display:flex;gap:8px;align-items:center"><div id="apiKeyDisplay" style="flex:1;padding:10px 12px;border-radius:9px;background:var(--input-bg);border:1px solid var(--input-border);font-family:Poppins;font-size:11px;color:var(--text2);word-break:break-all;direction:ltr">جاري التحميل...</div><button onclick="var t=document.getElementById('apiKeyDisplay').textContent;if(t.length>10){navigator.clipboard.writeText(t);toast('تم النسخ','success')}" class="btn-sm"><i class="fa-solid fa-copy"></i></button></div>
+      <div style="display:flex;gap:8px;align-items:center"><div id="apiKeyDisplay" style="flex:1;padding:10px 12px;border-radius:9px;background:var(--input-bg);border:1px solid var(--input-border);font-family:IBM Plex Sans Arabic;font-size:11px;color:var(--text2);word-break:break-all;direction:ltr">جاري التحميل...</div><button onclick="var t=document.getElementById('apiKeyDisplay').textContent;if(t.length>10){navigator.clipboard.writeText(t);toast('تم النسخ','success')}" class="btn-sm"><i class="fa-solid fa-copy"></i></button></div>
       <button onclick="customConfirm('توليد مفتاح جديد','المفتاح القديم سيتوقف عن العمل','rotate','amber',function(){fetch('/api/generate-key',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({})}).then(function(r){return r.json()}).then(function(d){if(d.ok){document.getElementById('apiKeyDisplay').textContent=d.key;toast('تم توليد مفتاح جديد','success')}})})" class="btn-outline" style="margin-top:10px"><i class="fa-solid fa-rotate"></i> توليد مفتاح جديد</button>
     </div>
     <div style="background:var(--card);border:1px solid var(--card-border);border-radius:14px;padding:16px;margin-bottom:12px">
       <div style="font-size:12px;font-weight:700;margin-bottom:8px"><i class="fa-solid fa-link" style="color:var(--primary)"></i> رابط API</div>
-      <div id="apiUrlDisplay" style="padding:10px 12px;border-radius:9px;background:var(--input-bg);border:1px solid var(--input-border);font-family:Poppins;font-size:11px;color:var(--primary);word-break:break-all;direction:ltr"></div>
+      <div id="apiUrlDisplay" style="padding:10px 12px;border-radius:9px;background:var(--input-bg);border:1px solid var(--input-border);font-family:IBM Plex Sans Arabic;font-size:11px;color:var(--primary);word-break:break-all;direction:ltr"></div>
     </div>
     <a href="/api/docs" target="_blank" style="display:flex;align-items:center;justify-content:center;gap:8px;padding:14px;background:var(--card);border:1px solid var(--card-border);border-radius:14px;color:var(--primary);font-size:13px;font-weight:700;text-decoration:none"><i class="fa-solid fa-book"></i> شرح API الكامل</a>
   </div>
@@ -9874,7 +9875,7 @@ html:not([data-theme="dark"]) .rv-star-btn{color:rgba(0,0,0,.1)}
     <div style="background:var(--card);border:1px solid var(--card-border);border-radius:14px;padding:16px;margin-bottom:12px" id="mkKeyCard">
       <div style="font-size:12px;font-weight:700;margin-bottom:8px;display:flex;align-items:center;gap:6px"><i class="fa-solid fa-key" style="color:var(--primary);font-size:11px"></i> المفتاح</div>
       <div style="display:flex;gap:8px;align-items:center">
-        <div id="mkKeyDisplay" style="flex:1;padding:10px 12px;border-radius:9px;background:var(--input-bg);border:1px solid var(--input-border);font-family:Poppins,monospace;font-size:11px;color:var(--text2);word-break:break-all;direction:ltr;min-height:38px;filter:blur(4px);user-select:none;transition:filter .2s">—</div>
+        <div id="mkKeyDisplay" style="flex:1;padding:10px 12px;border-radius:9px;background:var(--input-bg);border:1px solid var(--input-border);font-family:IBM Plex Sans Arabic,monospace;font-size:11px;color:var(--text2);word-break:break-all;direction:ltr;min-height:38px;filter:blur(4px);user-select:none;transition:filter .2s">—</div>
         <button onclick="mkToggleEye()" class="btn-sm" id="mkEyeBtn" title="إظهار/إخفاء"><i class="fa-solid fa-eye"></i></button>
         <button onclick="mkCopyKey()" class="btn-sm" title="نسخ"><i class="fa-solid fa-copy"></i></button>
       </div>
@@ -9917,12 +9918,12 @@ html:not([data-theme="dark"]) .rv-star-btn{color:rgba(0,0,0,.1)}
       <div style="padding:14px 14px 10px;display:flex;align-items:center;gap:9px"><div style="width:32px;height:32px;border-radius:9px;background:rgba(20,184,166,.08);display:flex;align-items:center;justify-content:center;color:#14b8a6;font-size:13px"><i class="fa-solid fa-code"></i></div><div><div style="font-size:13px;font-weight:800">طريقة الاستخدام</div><div style="font-size:9px;color:var(--text3)">أرسل المفتاح بالـ Header مع أي طلب</div></div></div>
       <div style="margin:0 12px 6px;border-radius:10px;background:var(--input-bg);border:1px solid var(--input-border);overflow:hidden">
         <div style="padding:8px 12px;border-bottom:1px solid var(--card-border);display:flex;align-items:center;justify-content:space-between"><span style="font-size:10px;font-weight:800;color:var(--primary)"><i class="fa-solid fa-terminal"></i> cURL</span></div>
-        <pre style="padding:12px;font-family:Poppins,monospace;font-size:10px;line-height:1.8;direction:ltr;text-align:left;color:var(--text2);overflow-x:auto;margin:0;white-space:pre-wrap">curl "<span style="color:var(--green)">/api/admin/stats</span>" \
+        <pre style="padding:12px;font-family:IBM Plex Sans Arabic,monospace;font-size:10px;line-height:1.8;direction:ltr;text-align:left;color:var(--text2);overflow-x:auto;margin:0;white-space:pre-wrap">curl "<span style="color:var(--green)">/api/admin/stats</span>" \
   -H "<span style="color:var(--primary)">X-Master-Key: mk_xxx...</span>"</pre>
       </div>
       <div style="margin:0 12px 12px;border-radius:10px;background:var(--input-bg);border:1px solid var(--input-border);overflow:hidden">
         <div style="padding:8px 12px;border-bottom:1px solid var(--card-border);display:flex;align-items:center;justify-content:space-between"><span style="font-size:10px;font-weight:800;color:var(--primary)"><i class="fa-brands fa-python"></i> Python</span></div>
-        <pre style="padding:12px;font-family:Poppins,monospace;font-size:10px;line-height:1.8;direction:ltr;text-align:left;color:var(--text2);overflow-x:auto;margin:0;white-space:pre-wrap"><span style="color:var(--primary)">import</span> requests
+        <pre style="padding:12px;font-family:IBM Plex Sans Arabic,monospace;font-size:10px;line-height:1.8;direction:ltr;text-align:left;color:var(--text2);overflow-x:auto;margin:0;white-space:pre-wrap"><span style="color:var(--primary)">import</span> requests
 r = requests.get(<span style="color:var(--green)">"/api/admin/stats"</span>,
     headers={<span style="color:var(--green)">"X-Master-Key"</span>: <span style="color:var(--green)">"mk_xxx..."</span>})
 print(r.json())</pre>
@@ -10017,6 +10018,18 @@ print(r.json())</pre>
         <input type="file" id="bnImgInput" accept="image/*">
         <div class="pmf-img-ic" id="bnImgIc"><i class="fa-solid fa-cloud-arrow-up"></i></div>
         <div class="pmf-img-info"><div class="pmf-img-name" id="bnImgName">اضغط لرفع صورة</div><div class="pmf-img-hint" id="bnImgHint">PNG, JPG — حد أقصى 2MB</div></div>
+      </div>
+    </div>
+    <div class="pmf-group">
+      <div class="pmf-label"><i class="fa-solid fa-qrcode"></i> صورة باركود Binance Pay <span style="font-size:9px;color:var(--text3);font-weight:600">(يظهر للمستخدم عند الدفع)</span></div>
+      <div class="pmf-img-upload" id="bnQrUpload" onclick="document.getElementById('bnQrInput').click()">
+        <input type="file" id="bnQrInput" accept="image/*">
+        <div class="pmf-img-ic" id="bnQrIc"><i class="fa-solid fa-cloud-arrow-up"></i></div>
+        <div class="pmf-img-info"><div class="pmf-img-name" id="bnQrName">اضغط لرفع الباركود</div><div class="pmf-img-hint" id="bnQrHint">PNG, JPG — حد أقصى 2MB</div></div>
+      </div>
+      <div id="bnQrPreviewWrap" style="display:none;margin-top:8px;align-items:center;gap:8px">
+        <img id="bnQrPreview" class="pmf-img-preview" src="">
+        <button type="button" class="pmf-img-remove" id="bnQrRemove"><i class="fa-solid fa-trash"></i></button>
       </div>
     </div>
     <div class="pmf-group"><div class="pmf-toggle"><span class="pmf-toggle-label">مفعّلة للمستخدمين</span><div class="pmf-sw" id="bnActive"></div></div></div>
@@ -10508,7 +10521,7 @@ print(r.json())</pre>
   switchPage=function(p){origSwitch(p);if(p==='pageOrders')loadOrders();if(p==='pageAllOrders')loadAllOrders();if(p==='pageRecharge')loadRecharge();};
   window.switchPage=switchPage;window.showDetail=showDetail;window.loadOrders=loadOrders;window.loadRecharge=loadRecharge;window.allOrders=allOrders;
 
-  var rchMethods=[],rchCurrent=-1;
+  var rchMethods=[],rchPayIdx=-1;
   function loadRecharge(attempt){
     attempt=attempt||1;
     var strips=document.getElementById('rchStrips');
@@ -10521,24 +10534,63 @@ print(r.json())</pre>
       if(!rchMethods.length){strips.innerHTML='<div class="rch-no-methods"><i class="fa-solid fa-credit-card"></i>لا توجد طرق دفع متاحة حالياً</div>';return}
       strips.innerHTML='';
       rchMethods.forEach(function(m,i){
-        var wrap=document.createElement('div');wrap.className='rch-strip-wrap'+(i===0?' active':'');wrap.dataset.idx=i;
+        var wrap=document.createElement('div');wrap.className='rch-strip-wrap';
         var icHtml=m.image?'<img src="/api/pm-image/'+m.image+'" alt="'+m.name+'" onerror="this.outerHTML=\'<i class=&quot;'+(m.icon||'fa-solid fa-credit-card')+'&quot;></i>\'">':'<i class="'+(m.icon||'fa-solid fa-credit-card')+'"></i>';
-        wrap.innerHTML='<div class="rch-strip"><div class="rch-strip-chk"><i class="fa-solid fa-check"></i></div><div class="rch-strip-info"><div class="rch-strip-name">'+m.name+'</div>'+(m.exchange_rate?'<div class="rch-strip-rate">'+m.exchange_rate+' '+m.currency+'</div>':'')+'</div><div class="rch-strip-ic">'+icHtml+'</div></div><div class="rch-strip-detail"></div>';
-        wrap.querySelector('.rch-strip').addEventListener('click',function(){
-          var wasActive=wrap.classList.contains('active');
-          document.querySelectorAll('.rch-strip-wrap').forEach(function(x){x.classList.remove('active');x.querySelector('.rch-strip-detail').innerHTML='';});
-          if(!wasActive){wrap.classList.add('active');rchCurrent=i;renderRchDetail();}else{rchCurrent=-1;var uc=document.getElementById('rchUploadCard');var sb=document.getElementById('btnRchSubmit');if(uc)uc.style.display='none';if(sb)sb.style.display='none';}
-        });
+        wrap.innerHTML='<div class="rch-strip"><div class="rch-strip-info"><div class="rch-strip-name">'+m.name+'</div>'+(m.exchange_rate?'<div class="rch-strip-rate">'+m.exchange_rate+' '+m.currency+'</div>':'')+'</div><div class="rch-strip-ic">'+icHtml+'</div></div>';
+        wrap.querySelector('.rch-strip').addEventListener('click',function(){openRchPayPage(i)});
         strips.appendChild(wrap);
       });
-      rchCurrent=0;renderRchDetail();
     }).catch(function(){
       if(attempt<3){setTimeout(function(){loadRecharge(attempt+1)},2000);return}
       strips.innerHTML='<div style="text-align:center;padding:16px"><div style="font-size:1.2rem;margin-bottom:6px;opacity:.3"><i class="fa-solid fa-wifi"></i></div><div style="font-size:11px;color:var(--text3);margin-bottom:8px">خطأ بالاتصال — تحقق من الإنترنت</div><button onclick="loadRecharge(1)" class="btn-sm" style="padding:6px 14px"><i class="fa-solid fa-rotate"></i> إعادة المحاولة</button></div>'});
   }
-  function renderRchDetail(){
-    if(rchCurrent<0||!rchMethods.length)return;
-    var m=rchMethods[rchCurrent];
+  function openRchPayPage(i){
+    rchPayIdx=i;
+    var m=rchMethods[i];
+    document.getElementById('rchPayTitle').innerHTML='<i class="'+(m.icon||'fa-solid fa-credit-card')+'"></i> '+m.name;
+    var body=document.getElementById('rchPayBody');
+    if(m.method_type==='binance'){body.innerHTML=rchBinancePageHtml(m);document.getElementById('rchPayPage').classList.add('show');wireBinancePage(m);}
+    else if(m.method_type==='asiacell'){body.innerHTML=rchAsiacellPageHtml(m);document.getElementById('rchPayPage').classList.add('show');wireAsiacellPage(m);}
+    else{body.innerHTML=rchManualPageHtml(m);document.getElementById('rchPayPage').classList.add('show');wireManualPage(m);}
+  }
+  document.getElementById('rchPayBack').addEventListener('click',function(){
+    var m=rchMethods[rchPayIdx];
+    document.getElementById('rchPayPage').classList.remove('show');
+    if(m&&m.method_type==='asiacell'){
+      fetch('/api/recharge/asiacell/cancel',{method:'POST',headers:{'Content-Type':'application/json'}}).then(function(r){return r.json()}).then(function(d){
+        if(d&&d.credited_usd>0){toast('تم استرداد $'+Number(d.credited_usd).toFixed(2)+' كرصيد','success');if(typeof loadUserStats==='function')loadUserStats();}
+      }).catch(function(){});
+    }
+  });
+  function rchAutoSuccess(msg){
+    toast(msg,'success');
+    document.getElementById('rchPayPage').classList.remove('show');
+    loadUserNotifs();
+    if(typeof loadUserStats==='function')loadUserStats();
+  }
+  window.rchCopyNum=function(){
+    var t=document.getElementById('rchCopyTarget');if(!t)return;
+    navigator.clipboard.writeText(t.textContent);
+    var btn=document.querySelector('.rch-copy');
+    btn.innerHTML='<i class="fa-solid fa-check" style="color:var(--green)"></i>';
+    setTimeout(function(){btn.innerHTML='<i class="fa-solid fa-copy"></i>'},1500);
+  };
+
+  // ==== صفحة الدفع اليدوي (رقم تحويل + تعليمات + إرفاق إيصال) ====
+  function rchManualPageHtml(m){
+    var showUpload=!m.bot_link;
+    return '<div class="rch-card"><div class="field-label"><i class="fa-solid fa-dollar-sign"></i> المبلغ المطلوب</div>'+
+    '<div class="rch-amt-wrap"><input type="number" class="rch-amt-input" placeholder="أدخل المبلغ" id="rchAmount" value="10"><span class="rch-amt-sign">$</span></div>'+
+    '<div class="rch-quick" id="rchQuick"><div class="rq sel" data-v="5">$5</div><div class="rq" data-v="10">$10</div><div class="rq" data-v="25">$25</div><div class="rq" data-v="50">$50</div><div class="rq" data-v="100">$100</div></div></div>'+
+    '<div class="rch-card" id="rchManualDetail"></div>'+
+    (showUpload?(
+    '<div class="rch-card" id="rchUploadCard"><div class="field-label"><i class="fa-solid fa-camera"></i> إرفاق صورة الوصل</div>'+
+    '<div class="rch-upload" id="rchUploadArea"><input type="file" accept="image/*" id="rchFileInput"><div class="rch-upload-ic" id="rchUploadIc"><i class="fa-solid fa-cloud-arrow-up"></i></div><div class="rch-upload-txt" id="rchUploadTxt">اضغط هنا أو اسحب الصورة</div><div class="rch-upload-sub" id="rchUploadSub">PNG, JPG — حد أقصى 5MB</div></div>'+
+    '<div class="rch-preview" id="rchPreview"><img id="rchPreviewImg" src="" alt=""><button class="rch-preview-rm" id="rchRemoveBtn"><i class="fa-solid fa-xmark"></i></button></div></div>'+
+    '<button class="rch-submit" id="btnRchSubmit"><i class="fa-solid fa-paper-plane"></i> إرسال طلب الشحن — $10.00</button>'
+    ):'');
+  }
+  function renderManualDetail(m){
     var amt=parseFloat(document.getElementById('rchAmount').value)||0;
     var rateText=(m.exchange_rate||'');
     var rateMatches=rateText.match(/[\d,]+\.?\d*/g);
@@ -10548,28 +10600,7 @@ print(r.json())</pre>
     var converted=(m.currency==='USDT'||m.currency==='USD')?(amt.toFixed(2)+' '+(m.currency||'USD')):(Number.isInteger(rawConverted)?rawConverted.toLocaleString('en-US'):rawConverted.toLocaleString('en-US',{maximumFractionDigits:2}))+' '+(m.currency||'');
     var usdLine='<div class="rch-det-row" style="margin-top:2px"><span class="rch-det-lbl"><i class="fa-solid fa-dollar-sign"></i> ما يعادل</span><span class="rch-det-val">$'+amt.toFixed(2)+'</span></div>';
     var detBody='';
-    if(m.method_type==='binance'){
-      detBody='<div class="rch-bot-msg"><div class="rch-bot-ic"><i class="fa-brands fa-bitcoin"></i></div><div class="rch-bot-title">الدفع عبر Binance Pay</div><div class="rch-bot-text">أرسل المبلغ عبر Binance Pay إلى المعرّف أدناه، ثم الصق رقم العملية (Order ID) للتحقق التلقائي الفوري.</div></div>'+
-      '<div class="rch-det-row"><span class="rch-det-lbl"><i class="fa-brands fa-bitcoin"></i> Binance Pay ID</span><span class="rch-det-val"><span id="rchCopyTarget">'+(m.number||'—')+'</span> <button class="rch-copy" onclick="rchCopyNum()"><i class="fa-solid fa-copy"></i></button></span></div>'+
-      '<div class="rch-det-convert"><span class="rch-det-convert-lbl">المبلغ المطلوب</span><span class="rch-det-convert-val">$'+amt.toFixed(2)+'</span></div>'+
-      '<div class="pmf-group" style="margin-top:10px"><div class="pmf-label"><i class="fa-solid fa-hashtag"></i> رقم عملية Binance (Order ID)</div><input class="pmf-input" id="rchBinanceOrderId" placeholder="مثال: 383000xxxxxx" dir="ltr" style="text-align:right"></div>'+
-      '<div id="rchBinanceErr" class="rch-det-note" style="display:none;color:var(--red)"></div>'+
-      '<button class="rch-submit" id="btnRchBinanceVerify" style="margin-top:6px"><i class="fa-solid fa-check-double"></i> تحقق تلقائي وأضف الرصيد</button>';
-    } else if(m.method_type==='asiacell'){
-      detBody='<div class="rch-bot-msg"><div class="rch-bot-ic"><i class="fa-solid fa-mobile-screen"></i></div><div class="rch-bot-title">تحويل رصيد آسياسيل التلقائي</div><div class="rch-bot-text">أدخل رقمك، ثم أكّد برمزي التحقق اللذين يصلانك عبر SMS من آسياسيل مباشرة.</div></div>'+
-      (m.exchange_rate?'<div class="rch-det-row"><span class="rch-det-lbl"><i class="fa-solid fa-arrow-right-arrow-left"></i> سعر الصرف</span><span class="rch-det-val">'+m.exchange_rate+' '+m.currency+'</span></div>':'')+
-      '<div class="rch-det-convert"><span class="rch-det-convert-lbl">المبلغ المطلوب</span><span class="rch-det-convert-val">'+converted+'</span></div>'+usdLine+
-      '<div id="rchAcStepPhone"><div class="pmf-group" style="margin-top:8px"><div class="pmf-label"><i class="fa-solid fa-phone"></i> رقم آسياسيل</div><input class="pmf-input" id="rchAcPhone" placeholder="07xxxxxxxxx" dir="ltr" style="text-align:right" maxlength="11"></div>'+
-      '<div id="rchAcPhoneErr" class="rch-det-note" style="display:none;color:var(--red)"></div>'+
-      '<button class="rch-submit" id="rchAcSendBtn" style="margin-top:6px"><i class="fa-solid fa-paper-plane"></i> إرسال رمز التحقق</button></div>'+
-      '<div id="rchAcStepSms1" style="display:none"><div class="pmf-group" style="margin-top:8px"><div class="pmf-label"><i class="fa-solid fa-shield-halved"></i> رمز التحقق (وصلك عبر SMS)</div><input class="pmf-input" id="rchAcCode1" placeholder="000000" dir="ltr" style="text-align:center;letter-spacing:4px" maxlength="6" inputmode="numeric"></div>'+
-      '<div id="rchAcSms1Err" class="rch-det-note" style="display:none;color:var(--red)"></div>'+
-      '<button class="rch-submit" id="rchAcVerifyBtn" style="margin-top:6px"><i class="fa-solid fa-check"></i> تأكيد الرمز</button></div>'+
-      '<div id="rchAcStepSms2" style="display:none"><div id="rchAcTransferInfo"></div><div class="pmf-group" style="margin-top:8px"><div class="pmf-label"><i class="fa-solid fa-key"></i> رمز تأكيد التحويل (SMS ثانٍ)</div><input class="pmf-input" id="rchAcCode2" placeholder="000000" dir="ltr" style="text-align:center;letter-spacing:4px" maxlength="6" inputmode="numeric"></div>'+
-      '<div id="rchAcSms2Err" class="rch-det-note" style="display:none;color:var(--red)"></div>'+
-      '<button class="rch-submit" id="rchAcConfirmBtn" style="margin-top:6px"><i class="fa-solid fa-check-double"></i> تأكيد التحويل</button></div>'+
-      '<button class="btn-sm-danger" id="rchAcCancelBtn" style="margin-top:8px;width:100%;justify-content:center">إلغاء العملية</button>';
-    } else if(m.bot_link){
+    if(m.bot_link){
       detBody='<div class="rch-bot-msg"><div class="rch-bot-ic"><i class="fa-brands fa-telegram"></i></div><div class="rch-bot-title">الشحن عبر بوت تيليجرام</div><div class="rch-bot-text">لشحن رصيدك في الموقع عبر '+m.name+'، اتبع الخطوات التالية:</div><div class="rch-bot-steps"><div class="rch-bot-step"><div class="rch-bot-step-n">1</div><div class="rch-bot-step-t">اضغط على زر <b>فتح البوت</b> أدناه</div></div><div class="rch-bot-step"><div class="rch-bot-step-n">2</div><div class="rch-bot-step-t">اتبع التعليمات داخل البوت <b>لإتمام عملية الشحن</b></div></div><div class="rch-bot-step"><div class="rch-bot-step-n">3</div><div class="rch-bot-step-t">بعد الشحن، أرسل <b>اسم مستخدمك بالموقع</b> للبوت ليتم إضافة الرصيد</div></div></div><a href="'+m.bot_link+'" target="_blank" class="btn-open-bot"><i class="fa-brands fa-telegram"></i> فتح البوت</a></div>';
       if(m.exchange_rate) detBody+='<div class="rch-det-convert"><span class="rch-det-convert-lbl">سعر الصرف</span><span class="rch-det-convert-val">'+m.exchange_rate+' '+m.currency+'</span></div>';
     } else {
@@ -10580,39 +10611,77 @@ print(r.json())</pre>
       '<div class="rch-det-convert"><span class="rch-det-convert-lbl">المبلغ المطلوب</span><span class="rch-det-convert-val">'+converted+'</span></div>'+
       (m.currency!=='USD'&&m.currency!=='USDT'?usdLine:'');
     }
-    var activeWrap=document.querySelector('.rch-strip-wrap.active');
-    if(!activeWrap)return;
-    var detEl=activeWrap.querySelector('.rch-strip-detail');
-    if(detEl)detEl.innerHTML=detBody;
-    var uploadCard=document.getElementById('rchUploadCard');
-    var submitBtn=document.getElementById('btnRchSubmit');
-    var isAuto=(m.method_type==='binance'||m.method_type==='asiacell');
-    if(m.bot_link||isAuto){
-      if(uploadCard)uploadCard.style.display='none';
-      if(submitBtn)submitBtn.style.display='none';
-    }else{
-      if(uploadCard)uploadCard.style.display='';
-      if(submitBtn)submitBtn.style.display='';
-    }
-    if(m.method_type==='binance')wireBinanceWizard(amt);
-    if(m.method_type==='asiacell')wireAsiacellWizard(amt);
+    var el=document.getElementById('rchManualDetail');
+    if(el)el.innerHTML=detBody;
   }
-  function rchAutoSuccess(msg){
-    toast(msg,'success');
-    rchCurrent=-1;
-    document.querySelectorAll('.rch-strip-wrap').forEach(function(x){x.classList.remove('active');var dd=x.querySelector('.rch-strip-detail');if(dd)dd.innerHTML=''});
-    document.getElementById('rchAmount').value='';
+  function rchUpdateBtn(){var b=document.getElementById('btnRchSubmit');if(!b)return;var v=document.getElementById('rchAmount').value||'0';b.innerHTML='<i class="fa-solid fa-paper-plane"></i> إرسال طلب الشحن — '+fmtP(v);}
+  function wireManualPage(m){
+    renderManualDetail(m);
+    document.querySelectorAll('.rq').forEach(function(q){q.addEventListener('click',function(){
+      document.querySelectorAll('.rq').forEach(function(x){x.classList.remove('sel')});this.classList.add('sel');
+      document.getElementById('rchAmount').value=this.dataset.v;rchUpdateBtn();renderManualDetail(m);
+    })});
+    document.getElementById('rchAmount').addEventListener('input',function(){rchUpdateBtn();renderManualDetail(m)});
     rchUpdateBtn();
-    loadUserNotifs();
-    if(typeof loadUserStats==='function')loadUserStats();
+    if(m.bot_link)return;
+    var rchFile=document.getElementById('rchFileInput'),rchPrev=document.getElementById('rchPreview'),rchPrevImg=document.getElementById('rchPreviewImg'),rchUpArea=document.getElementById('rchUploadArea');
+    rchFile.addEventListener('change',function(){
+      var f=this.files[0];if(!f)return;
+      if(f.size>5*1024*1024){toast('حجم الصورة أكبر من 5MB','error');this.value='';return}
+      var r=new FileReader();r.onload=function(e){
+        rchPrevImg.src=e.target.result;rchPrev.classList.add('show');rchUpArea.classList.add('has-file');
+        document.getElementById('rchUploadIc').innerHTML='<i class="fa-solid fa-check"></i>';
+        document.getElementById('rchUploadTxt').textContent='تم اختيار الصورة';
+        document.getElementById('rchUploadSub').textContent=f.name;
+      };r.readAsDataURL(f);
+    });
+    document.getElementById('rchRemoveBtn').addEventListener('click',function(){
+      rchFile.value='';rchPrev.classList.remove('show');rchUpArea.classList.remove('has-file');
+      document.getElementById('rchUploadIc').innerHTML='<i class="fa-solid fa-cloud-arrow-up"></i>';
+      document.getElementById('rchUploadTxt').textContent='اضغط هنا أو اسحب الصورة';
+      document.getElementById('rchUploadSub').textContent='PNG, JPG — حد أقصى 5MB';
+    });
+    document.getElementById('btnRchSubmit').addEventListener('click',function(){
+      var btn=this;var amt=parseFloat(document.getElementById('rchAmount').value)||0;
+      if(amt<=0){toast('أدخل مبلغ صحيح','error');return}
+      var receipt='';
+      var fInput=document.getElementById('rchFileInput');
+      if(fInput&&fInput.files&&fInput.files[0]){
+        var reader=new FileReader();
+        reader.onload=function(e){receipt=e.target.result;doSubmitRch(amt,m.name,receipt,btn)};
+        reader.readAsDataURL(fInput.files[0]);
+      }else{toast('يرجى إرفاق صورة إثبات الدفع','error');return}
+    });
   }
-  function wireBinanceWizard(amt){
-    var btn=document.getElementById('btnRchBinanceVerify');
-    if(!btn)return;
-    btn.addEventListener('click',function(){
+  function doSubmitRch(amt,method,receipt,btn){
+    var orig=btn.innerHTML;btn.disabled=true;btn.innerHTML='<i class="fa-solid fa-spinner fa-spin"></i> جاري الإرسال...';
+    fetch('/api/recharge/submit',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({amount:amt,method:method,receipt:receipt})})
+    .then(function(r){return r.json()}).then(function(d){
+      if(d.ok){rchAutoSuccess(d.msg)}
+      else{toast(d.msg,'error');btn.disabled=false;btn.innerHTML=orig}
+    }).catch(function(){toast('حدث خطأ','error');btn.disabled=false;btn.innerHTML=orig});
+  }
+
+  // ==== صفحة الدفع عبر Binance Pay (مبلغ + معرّف الاستلام/باركود + رقم عملية) ====
+  function rchBinancePageHtml(m){
+    var qrHtml=m.qr_code?'<div style="text-align:center;margin:10px 0"><img src="/api/pm-image/'+m.qr_code+'" alt="QR" style="width:170px;height:170px;object-fit:contain;border-radius:12px;border:1px solid var(--card-border)"></div>':'';
+    return '<div class="rch-card"><div class="field-label"><i class="fa-solid fa-dollar-sign"></i> المبلغ المطلوب (دولار)</div>'+
+    '<div class="rch-amt-wrap"><input type="number" class="rch-amt-input" placeholder="أدخل المبلغ" id="rchAmount" value="10"><span class="rch-amt-sign">$</span></div></div>'+
+    '<div class="rch-card"><div class="rch-bot-msg"><div class="rch-bot-ic"><i class="fa-brands fa-bitcoin"></i></div><div class="rch-bot-title">الدفع عبر Binance Pay</div><div class="rch-bot-text">أرسل المبلغ عبر Binance Pay إلى المعرّف أدناه، ثم الصق رقم العملية (Order ID) للتحقق التلقائي الفوري.</div></div>'+
+    '<div class="rch-det-row"><span class="rch-det-lbl"><i class="fa-brands fa-bitcoin"></i> Binance Pay ID</span><span class="rch-det-val"><span id="rchCopyTarget">'+(m.number||'—')+'</span> <button class="rch-copy" onclick="rchCopyNum()"><i class="fa-solid fa-copy"></i></button></span></div>'+
+    qrHtml+
+    '<div class="pmf-group" style="margin-top:10px"><div class="pmf-label"><i class="fa-solid fa-hashtag"></i> رقم عملية Binance (Order ID)</div><input class="pmf-input" id="rchBinanceOrderId" placeholder="مثال: 383000xxxxxx" dir="ltr" style="text-align:right"></div>'+
+    '<div id="rchBinanceErr" class="rch-det-note" style="display:none;color:var(--red)"></div>'+
+    '<button class="rch-submit" id="btnRchBinanceVerify" style="margin-top:6px"><i class="fa-solid fa-check-double"></i> تحقق تلقائي وأضف الرصيد</button></div>';
+  }
+  function wireBinancePage(m){
+    document.getElementById('btnRchBinanceVerify').addEventListener('click',function(){
+      var btn=this;
+      var amt=parseFloat(document.getElementById('rchAmount').value)||0;
       var errEl=document.getElementById('rchBinanceErr');
       var orderId=document.getElementById('rchBinanceOrderId').value.trim();
       errEl.style.display='none';
+      if(amt<=0){errEl.textContent='أدخل مبلغ صحيح.';errEl.style.display='';return}
       if(!orderId){errEl.textContent='الرجاء إدخال رقم عملية Binance.';errEl.style.display='';return}
       var orig=btn.innerHTML;btn.disabled=true;btn.innerHTML='<i class="fa-solid fa-spinner fa-spin"></i> جاري التحقق...';
       fetch('/api/recharge/binance/verify',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({amount:amt,order_id:orderId})})
@@ -10622,13 +10691,45 @@ print(r.json())</pre>
       }).catch(function(){errEl.textContent='تعذر الاتصال بالسيرفر';errEl.style.display='';btn.disabled=false;btn.innerHTML=orig});
     });
   }
-  function wireAsiacellWizard(amt){
-    var sendBtn=document.getElementById('rchAcSendBtn');
-    if(!sendBtn)return;
-    sendBtn.addEventListener('click',function(){
+
+  // ==== صفحة الدفع عبر آسياسيل (مبلغ ثم رقم هاتف ثم كود تحقق وكود تأكيد) ====
+  function rchAsiacellPageHtml(m){
+    return '<div class="rch-card"><div class="field-label"><i class="fa-solid fa-dollar-sign"></i> المبلغ المطلوب (دولار)</div>'+
+    '<div class="rch-amt-wrap"><input type="number" class="rch-amt-input" placeholder="أدخل المبلغ" id="rchAmount" value="10"><span class="rch-amt-sign">$</span></div>'+
+    (m.exchange_rate?'<div class="rch-det-row" style="margin-top:8px"><span class="rch-det-lbl"><i class="fa-solid fa-arrow-right-arrow-left"></i> سعر الصرف</span><span class="rch-det-val">'+m.exchange_rate+' '+m.currency+'</span></div>':'')+
+    '<div class="rch-det-convert" id="rchAcConvert"></div></div>'+
+    '<div class="rch-card"><div class="rch-bot-msg"><div class="rch-bot-ic"><i class="fa-solid fa-mobile-screen"></i></div><div class="rch-bot-title">تحويل رصيد آسياسيل التلقائي</div><div class="rch-bot-text">أدخل رقمك، ثم أكّد برمزي التحقق اللذين يصلانك عبر SMS من آسياسيل مباشرة.</div></div>'+
+    '<div id="rchAcStepPhone"><div class="pmf-group" style="margin-top:8px"><div class="pmf-label"><i class="fa-solid fa-phone"></i> رقم آسياسيل</div><input class="pmf-input" id="rchAcPhone" placeholder="07xxxxxxxxx" dir="ltr" style="text-align:right" maxlength="11"></div>'+
+    '<div id="rchAcPhoneErr" class="rch-det-note" style="display:none;color:var(--red)"></div>'+
+    '<button class="rch-submit" id="rchAcSendBtn" style="margin-top:6px"><i class="fa-solid fa-paper-plane"></i> إرسال رمز التحقق</button></div>'+
+    '<div id="rchAcStepSms1" style="display:none"><div class="pmf-group" style="margin-top:8px"><div class="pmf-label"><i class="fa-solid fa-shield-halved"></i> رمز التحقق (وصلك عبر SMS)</div><input class="pmf-input" id="rchAcCode1" placeholder="000000" dir="ltr" style="text-align:center;letter-spacing:4px" maxlength="6" inputmode="numeric"></div>'+
+    '<div id="rchAcSms1Err" class="rch-det-note" style="display:none;color:var(--red)"></div>'+
+    '<button class="rch-submit" id="rchAcVerifyBtn" style="margin-top:6px"><i class="fa-solid fa-check"></i> تأكيد الرمز</button></div>'+
+    '<div id="rchAcStepSms2" style="display:none"><div id="rchAcTransferInfo"></div><div class="pmf-group" style="margin-top:8px"><div class="pmf-label"><i class="fa-solid fa-key"></i> رمز تأكيد التحويل (SMS ثانٍ)</div><input class="pmf-input" id="rchAcCode2" placeholder="000000" dir="ltr" style="text-align:center;letter-spacing:4px" maxlength="6" inputmode="numeric"></div>'+
+    '<div id="rchAcSms2Err" class="rch-det-note" style="display:none;color:var(--red)"></div>'+
+    '<button class="rch-submit" id="rchAcConfirmBtn" style="margin-top:6px"><i class="fa-solid fa-check-double"></i> تأكيد التحويل</button></div>'+
+    '<button class="btn-sm-danger" id="rchAcCancelBtn" style="margin-top:8px;width:100%;justify-content:center">إلغاء العملية</button></div>';
+  }
+  function wireAsiacellPage(m){
+    function updateConvert(){
+      var amt=parseFloat(document.getElementById('rchAmount').value)||0;
+      var rate=parseFloat(m.exchange_rate)||0;
+      var el=document.getElementById('rchAcConvert');
+      if(!el)return;
+      if(rate>0){
+        var iqd=Math.ceil((amt*rate)/1000)*1000;
+        el.innerHTML='<span class="rch-det-convert-lbl">سيُحوَّل تقريباً</span><span class="rch-det-convert-val">'+iqd.toLocaleString('en-US')+' '+(m.currency||'IQD')+'</span>';
+      }else{el.innerHTML=''}
+    }
+    document.getElementById('rchAmount').addEventListener('input',updateConvert);
+    updateConvert();
+    document.getElementById('rchAcSendBtn').addEventListener('click',function(){
+      var sendBtn=this;
       var errEl=document.getElementById('rchAcPhoneErr');
       var phone=document.getElementById('rchAcPhone').value.trim();
+      var amt=parseFloat(document.getElementById('rchAmount').value)||0;
       errEl.style.display='none';
+      if(amt<=0){errEl.textContent='أدخل مبلغ صحيح.';errEl.style.display='';return}
       if(!/^(077|078|079)\d{8}$/.test(phone)){errEl.textContent='رقم غير صحيح، يجب أن يكون بصيغة 07xxxxxxxxx.';errEl.style.display='';return}
       var orig=sendBtn.innerHTML;sendBtn.disabled=true;sendBtn.innerHTML='<i class="fa-solid fa-spinner fa-spin"></i> جاري الإرسال...';
       fetch('/api/recharge/asiacell/start',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({phone:phone,amount:amt})})
@@ -10684,78 +10785,8 @@ print(r.json())</pre>
       }).catch(function(){confirmBtn.disabled=false;confirmBtn.innerHTML=orig;errEl.textContent='تعذر الاتصال بالسيرفر';errEl.style.display=''});
     });
     document.getElementById('rchAcCancelBtn').addEventListener('click',function(){
-      fetch('/api/recharge/asiacell/cancel',{method:'POST',headers:{'Content-Type':'application/json'}})
-      .then(function(r){return r.json()}).then(function(d){
-        if(d.credited_usd>0){toast('تم استرداد $'+Number(d.credited_usd).toFixed(2)+' كرصيد','success');if(typeof loadUserStats==='function')loadUserStats();}
-        rchCurrent=-1;
-        document.querySelectorAll('.rch-strip-wrap').forEach(function(x){x.classList.remove('active');var dd=x.querySelector('.rch-strip-detail');if(dd)dd.innerHTML=''});
-      }).catch(function(){});
+      document.getElementById('rchPayBack').click();
     });
-  }
-  window.rchCopyNum=function(){
-    var t=document.getElementById('rchCopyTarget');if(!t)return;
-    navigator.clipboard.writeText(t.textContent);
-    var btn=document.querySelector('.rch-copy');
-    btn.innerHTML='<i class="fa-solid fa-check" style="color:var(--green)"></i>';
-    setTimeout(function(){btn.innerHTML='<i class="fa-solid fa-copy"></i>'},1500);
-  };
-  document.querySelectorAll('.rq').forEach(function(q){q.addEventListener('click',function(){
-    document.querySelectorAll('.rq').forEach(function(x){x.classList.remove('sel')});this.classList.add('sel');
-    document.getElementById('rchAmount').value=this.dataset.v;rchUpdateBtn();renderRchDetail();
-  })});
-  document.getElementById('rchAmount').addEventListener('input',function(){rchUpdateBtn();renderRchDetail()});
-  function rchUpdateBtn(){var v=document.getElementById('rchAmount').value||'0';document.getElementById('btnRchSubmit').innerHTML='<i class="fa-solid fa-paper-plane"></i> إرسال طلب الشحن — '+fmtP(v);}
-  var rchFile=document.getElementById('rchFileInput'),rchPrev=document.getElementById('rchPreview'),rchPrevImg=document.getElementById('rchPreviewImg'),rchUpArea=document.getElementById('rchUploadArea');
-  rchFile.addEventListener('change',function(){
-    var f=this.files[0];if(!f)return;
-    if(f.size>5*1024*1024){toast('حجم الصورة أكبر من 5MB','error');this.value='';return}
-    var r=new FileReader();r.onload=function(e){
-      rchPrevImg.src=e.target.result;rchPrev.classList.add('show');rchUpArea.classList.add('has-file');
-      document.getElementById('rchUploadIc').innerHTML='<i class="fa-solid fa-check"></i>';
-      document.getElementById('rchUploadTxt').textContent='تم اختيار الصورة';
-      document.getElementById('rchUploadSub').textContent=f.name;
-    };r.readAsDataURL(f);
-  });
-  document.getElementById('rchRemoveBtn').addEventListener('click',function(){
-    rchFile.value='';rchPrev.classList.remove('show');rchUpArea.classList.remove('has-file');
-    document.getElementById('rchUploadIc').innerHTML='<i class="fa-solid fa-cloud-arrow-up"></i>';
-    document.getElementById('rchUploadTxt').textContent='اضغط هنا أو اسحب الصورة';
-    document.getElementById('rchUploadSub').textContent='PNG, JPG — حد أقصى 5MB';
-  });
-  document.getElementById('btnRchSubmit').addEventListener('click',function(){
-    var btn=this;var amt=parseFloat(document.getElementById('rchAmount').value)||0;
-    if(amt<=0){toast('أدخل مبلغ صحيح','error');return}
-    if(rchCurrent<0||!rchMethods.length){toast('اختر طريقة الدفع','error');return}
-    var m=rchMethods[rchCurrent];
-    var receipt='';
-    var fInput=document.getElementById('rchFileInput');
-    if(fInput&&fInput.files&&fInput.files[0]){
-      var reader=new FileReader();
-      reader.onload=function(e){receipt=e.target.result;doSubmitRch(amt,m.name,receipt,btn)};
-      reader.readAsDataURL(fInput.files[0]);
-    }else{toast('يرجى إرفاق صورة إثبات الدفع','error');return}
-  });
-  function doSubmitRch(amt,method,receipt,btn){
-    var orig=btn.innerHTML;btn.disabled=true;btn.innerHTML='<i class="fa-solid fa-spinner fa-spin"></i> جاري الإرسال...';
-    fetch('/api/recharge/submit',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({amount:amt,method:method,receipt:receipt})})
-    .then(function(r){return r.json()}).then(function(d){
-      if(d.ok){
-        toast(d.msg,'success');
-        document.getElementById('rchAmount').value='';
-        document.querySelectorAll('.rq').forEach(function(x){x.classList.remove('sel')});
-        var fi=document.getElementById('rchFileInput');if(fi)fi.value='';
-        var prev=document.getElementById('rchPreview');if(prev)prev.classList.remove('show');
-        var upArea=document.getElementById('rchUploadArea');if(upArea)upArea.classList.remove('has-file');
-        var upIc=document.getElementById('rchUploadIc');if(upIc)upIc.innerHTML='<i class="fa-solid fa-cloud-arrow-up"></i>';
-        var upTxt=document.getElementById('rchUploadTxt');if(upTxt)upTxt.textContent='اضغط هنا أو اسحب الصورة';
-        var upSub=document.getElementById('rchUploadSub');if(upSub)upSub.textContent='PNG, JPG — حد أقصى 5MB';
-        rchCurrent=-1;
-        document.querySelectorAll('.rch-strip-wrap').forEach(function(x){x.classList.remove('active');var dd=x.querySelector('.rch-strip-detail');if(dd)dd.innerHTML='';});
-        rchUpdateBtn();
-        loadUserNotifs();
-      }
-      else{toast(d.msg,'error')}
-    }).catch(function(){toast('حدث خطأ','error')}).finally(function(){btn.disabled=false;btn.innerHTML=orig});
   }
 
   var allAdminRecharges=[];
@@ -11224,8 +11255,29 @@ print(r.json())</pre>
       document.getElementById('bnImgHint').textContent=Math.round(f.size/1024)+'KB';
     };r.readAsDataURL(f);
   });
+  var _bnQrData='',_bnQrRemoved=false;
+  document.getElementById('bnQrInput').addEventListener('change',function(){
+    var f=this.files[0];if(!f)return;
+    if(f.size>2*1024*1024){toast('حجم الصورة أكبر من 2MB','error');this.value='';return}
+    var r=new FileReader();r.onload=function(e){
+      _bnQrData=e.target.result;_bnQrRemoved=false;
+      document.getElementById('bnQrPreview').src=_bnQrData;
+      document.getElementById('bnQrPreviewWrap').style.display='flex';
+      document.getElementById('bnQrIc').innerHTML='<i class="fa-solid fa-check"></i>';
+      document.getElementById('bnQrName').textContent=f.name;
+      document.getElementById('bnQrHint').textContent=Math.round(f.size/1024)+'KB';
+    };r.readAsDataURL(f);
+  });
+  document.getElementById('bnQrRemove').addEventListener('click',function(){
+    _bnQrData='';_bnQrRemoved=true;
+    document.getElementById('bnQrInput').value='';
+    document.getElementById('bnQrPreviewWrap').style.display='none';
+    document.getElementById('bnQrIc').innerHTML='<i class="fa-solid fa-cloud-arrow-up"></i>';
+    document.getElementById('bnQrName').textContent='اضغط لرفع الباركود';
+    document.getElementById('bnQrHint').textContent='PNG, JPG — حد أقصى 2MB';
+  });
   function openBinanceModal(m){
-    _bnImgData='';
+    _bnImgData='';_bnQrData='';_bnQrRemoved=false;
     document.getElementById('bnApiKey').value='';
     document.getElementById('bnApiKey').placeholder=m.has_binance_keys?'•••• اتركه فارغاً للإبقاء على المفتاح الحالي':'API Key';
     document.getElementById('bnApiSecret').value='';
@@ -11235,6 +11287,19 @@ print(r.json())</pre>
     document.getElementById('bnImgIc').innerHTML='<i class="fa-solid fa-cloud-arrow-up"></i>';
     document.getElementById('bnImgName').textContent=m.image?'صورة محفوظة':'اضغط لرفع صورة';
     document.getElementById('bnImgHint').textContent='PNG, JPG — حد أقصى 2MB';
+    document.getElementById('bnQrInput').value='';
+    if(m.qr_code){
+      document.getElementById('bnQrPreview').src='/api/pm-image/'+m.qr_code;
+      document.getElementById('bnQrPreviewWrap').style.display='flex';
+      document.getElementById('bnQrIc').innerHTML='<i class="fa-solid fa-check"></i>';
+      document.getElementById('bnQrName').textContent='صورة محفوظة';
+      document.getElementById('bnQrHint').textContent='اضغط لتغيير الباركود';
+    }else{
+      document.getElementById('bnQrPreviewWrap').style.display='none';
+      document.getElementById('bnQrIc').innerHTML='<i class="fa-solid fa-cloud-arrow-up"></i>';
+      document.getElementById('bnQrName').textContent='اضغط لرفع الباركود';
+      document.getElementById('bnQrHint').textContent='PNG, JPG — حد أقصى 2MB';
+    }
     var sw=document.getElementById('bnActive');if(m.active)sw.classList.add('on');else sw.classList.remove('on');
     binanceModal.classList.add('show');
   }
@@ -11247,6 +11312,8 @@ print(r.json())</pre>
       active:document.getElementById('bnActive').classList.contains('on')
     };
     if(_bnImgData)body.image_data=_bnImgData;
+    if(_bnQrData)body.qr_data=_bnQrData;
+    else if(_bnQrRemoved)body.qr_data='__remove__';
     fetch('/api/admin/payment-methods/binance',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})
     .then(function(r){return r.json()}).then(function(d){
       btn.disabled=false;
@@ -11523,7 +11590,7 @@ async function _admSendVoice(){_admHideRecUI();if(!_admRecChunks.length)return;v
 document.addEventListener('click',function(e){if(!e.target.closest('.tk-acts-drop')&&!e.target.closest('[onclick*="tkAD"]'))document.querySelectorAll('.tk-acts-drop.show').forEach(function(d){d.classList.remove('show')})});
 document.addEventListener('keydown',function(e){if(e.key==='Enter'&&!e.shiftKey){if(e.target.id==='wizMsg'){e.preventDefault();wizSendAction()}if(e.target.id==='admReply'){e.preventDefault();var b=document.getElementById('admSendBtn');if(b){var m=b.getAttribute('onclick').match(/'([^']+)'/);if(m)sendAdmReply(m[1])}}if(e.target.id==='tkReply'){e.preventDefault();var b2=document.getElementById('tkSendBtn');if(b2){var m2=b2.getAttribute('onclick').match(/'([^']+)'/);if(m2)replyTicket(m2[1])}}}});
 var _rchTxCache=[];
-async function loadRchHistory(){document.getElementById('rchHistPage').classList.add('show');document.getElementById('rchHistContent').innerHTML='<div style="text-align:center;padding:30px;color:var(--text3)"><i class="fa-solid fa-spinner fa-spin"></i></div>';try{var r=await fetch('/api/recharge/history');var d=await r.json();if(!d.ok){document.getElementById('rchHistContent').innerHTML='<div style="text-align:center;padding:30px;color:var(--text3)"><i class="fa-solid fa-exclamation-triangle" style="font-size:24px;opacity:.4;display:block;margin-bottom:8px"></i><div style="font-size:12px">فشل تحميل السجل</div></div>';return}var hist=d.history||[];_rchTxCache=hist;var total=d.total||0;var h='<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:14px"><div style="padding:14px;border-radius:12px;background:var(--card);border:1px solid var(--card-border);text-align:center"><div style="font-family:Poppins;font-size:18px;font-weight:900;color:var(--green)">'+fmtP(total)+'</div><div style="font-size:9px;color:var(--text3);margin-top:2px">إجمالي الشحن</div></div><div style="padding:14px;border-radius:12px;background:var(--card);border:1px solid var(--card-border);text-align:center"><div style="font-family:Poppins;font-size:18px;font-weight:900;color:var(--primary)">'+hist.length+'</div><div style="font-size:9px;color:var(--text3);margin-top:2px">عدد العمليات</div></div></div>';
+async function loadRchHistory(){document.getElementById('rchHistPage').classList.add('show');document.getElementById('rchHistContent').innerHTML='<div style="text-align:center;padding:30px;color:var(--text3)"><i class="fa-solid fa-spinner fa-spin"></i></div>';try{var r=await fetch('/api/recharge/history');var d=await r.json();if(!d.ok){document.getElementById('rchHistContent').innerHTML='<div style="text-align:center;padding:30px;color:var(--text3)"><i class="fa-solid fa-exclamation-triangle" style="font-size:24px;opacity:.4;display:block;margin-bottom:8px"></i><div style="font-size:12px">فشل تحميل السجل</div></div>';return}var hist=d.history||[];_rchTxCache=hist;var total=d.total||0;var h='<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:14px"><div style="padding:14px;border-radius:12px;background:var(--card);border:1px solid var(--card-border);text-align:center"><div style="font-family:IBM Plex Sans Arabic;font-size:18px;font-weight:900;color:var(--green)">'+fmtP(total)+'</div><div style="font-size:9px;color:var(--text3);margin-top:2px">إجمالي الشحن</div></div><div style="padding:14px;border-radius:12px;background:var(--card);border:1px solid var(--card-border);text-align:center"><div style="font-family:IBM Plex Sans Arabic;font-size:18px;font-weight:900;color:var(--primary)">'+hist.length+'</div><div style="font-size:9px;color:var(--text3);margin-top:2px">عدد العمليات</div></div></div>';
   if(!hist.length){h+='<div style="text-align:center;padding:30px;color:var(--text3)"><i class="fa-solid fa-inbox" style="font-size:28px;opacity:.3;display:block;margin-bottom:8px"></i><div style="font-size:12px">لا توجد عمليات</div></div>'}
   else{h+='<div style="font-size:13px;font-weight:800;margin-bottom:8px;display:flex;align-items:center;gap:6px"><i class="fa-solid fa-clock-rotate-left" style="color:var(--primary);font-size:12px"></i> آخر العمليات</div>';hist.forEach(function(tx,idx){var st=tx.status||'pending';var icMap={'approved':'fa-circle-check','pending':'fa-clock','rejected':'fa-circle-xmark'};var colMap={'approved':'green','pending':'orange','rejected':'red'};var lblMap={'approved':'مقبول','pending':'قيد المراجعة','rejected':'مرفوض'};h+='<div class="rch-tx" onclick="openTxDetail('+idx+')"><div class="rch-tx-ic '+st+'"><i class="fa-solid '+(icMap[st]||'fa-clock')+'"></i></div><div class="rch-tx-info"><div class="rch-tx-method">شحن — '+(tx.method||'غير محدد')+'</div><div class="rch-tx-date">'+(tx.date||'')+'</div></div><div class="rch-tx-right"><div class="rch-tx-amount '+(colMap[st]||'orange')+'">+$'+tx.amount.toFixed(2)+'</div><div class="rch-tx-status '+st+'">'+(lblMap[st]||tx.status)+'</div></div><div class="rch-tx-chev"><i class="fa-solid fa-chevron-left"></i></div></div>'})}
   document.getElementById('rchHistContent').innerHTML=h}catch(e){document.getElementById('rchHistContent').innerHTML='<div style="text-align:center;padding:30px;color:var(--text3)"><i class="fa-solid fa-wifi"></i><br>خطأ بالاتصال</div>'}}
@@ -11652,10 +11719,10 @@ async function loadAdminReferral(){
     var r=await fetch('/api/admin/referral',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({})});
     var d=await r.json();if(!d.ok)return;
     var h='<div style="display:grid;grid-template-columns:repeat(2,1fr);gap:8px;margin-bottom:14px">';
-    h+='<div style="padding:14px;border-radius:12px;background:var(--card);border:1px solid var(--card-border);text-align:center"><div style="font-family:Poppins;font-size:20px;font-weight:900;color:var(--primary-light)">'+d.total_referrals+'</div><div style="font-size:9px;color:var(--text3);margin-top:2px">إجمالي الإحالات</div></div>';
-    h+='<div style="padding:14px;border-radius:12px;background:var(--card);border:1px solid var(--card-border);text-align:center"><div style="font-family:Poppins;font-size:20px;font-weight:900;color:var(--green)">$'+d.total_earnings.toFixed(2)+'</div><div style="font-size:9px;color:var(--text3);margin-top:2px">إجمالي المدفوع</div></div>';
-    h+='<div style="padding:14px;border-radius:12px;background:var(--card);border:1px solid var(--card-border);text-align:center"><div style="font-family:Poppins;font-size:20px;font-weight:900;color:var(--orange)">$'+(d.total_pending||0).toFixed(2)+'</div><div style="font-size:9px;color:var(--text3);margin-top:2px">معلّق</div></div>';
-    h+='<div style="padding:14px;border-radius:12px;background:var(--card);border:1px solid var(--card-border);text-align:center"><div style="font-family:Poppins;font-size:20px;font-weight:900;color:var(--text)">'+d.total_users+'</div><div style="font-size:9px;color:var(--text3);margin-top:2px">مستخدمين</div></div>';
+    h+='<div style="padding:14px;border-radius:12px;background:var(--card);border:1px solid var(--card-border);text-align:center"><div style="font-family:IBM Plex Sans Arabic;font-size:20px;font-weight:900;color:var(--primary-light)">'+d.total_referrals+'</div><div style="font-size:9px;color:var(--text3);margin-top:2px">إجمالي الإحالات</div></div>';
+    h+='<div style="padding:14px;border-radius:12px;background:var(--card);border:1px solid var(--card-border);text-align:center"><div style="font-family:IBM Plex Sans Arabic;font-size:20px;font-weight:900;color:var(--green)">$'+d.total_earnings.toFixed(2)+'</div><div style="font-size:9px;color:var(--text3);margin-top:2px">إجمالي المدفوع</div></div>';
+    h+='<div style="padding:14px;border-radius:12px;background:var(--card);border:1px solid var(--card-border);text-align:center"><div style="font-family:IBM Plex Sans Arabic;font-size:20px;font-weight:900;color:var(--orange)">$'+(d.total_pending||0).toFixed(2)+'</div><div style="font-size:9px;color:var(--text3);margin-top:2px">معلّق</div></div>';
+    h+='<div style="padding:14px;border-radius:12px;background:var(--card);border:1px solid var(--card-border);text-align:center"><div style="font-family:IBM Plex Sans Arabic;font-size:20px;font-weight:900;color:var(--text)">'+d.total_users+'</div><div style="font-size:9px;color:var(--text3);margin-top:2px">مستخدمين</div></div>';
     h+='</div>';
     h+='<div style="padding:14px;background:var(--card);border:1px solid var(--card-border);border-radius:14px;margin-bottom:14px"><div style="font-size:13px;font-weight:800;margin-bottom:8px;display:flex;align-items:center;gap:6px"><i class="fa-solid fa-gear" style="color:var(--primary);font-size:12px"></i> الإعدادات</div>';
     h+='<div style="font-size:12px;color:var(--text2)">العمولة: <b style="color:var(--primary)">'+d.commission+'%</b> من كل طلب</div>';
@@ -11668,8 +11735,8 @@ async function loadAdminReferral(){
         h+='<div style="font-size:14px;min-width:28px;text-align:center">'+medal+'</div>';
         h+='<div style="width:34px;height:34px;border-radius:9px;background:var(--primary-bg);display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:800;color:var(--primary);flex-shrink:0">'+(t.name||'?').substring(0,1)+'</div>';
         h+='<div style="flex:1;min-width:0"><div style="font-size:13px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+esc(t.name||'User #'+t.uid)+'</div><div style="font-size:9px;color:var(--text3);direction:ltr;text-align:right">'+(t.email||'')+'</div></div>';
-        h+='<div style="text-align:left;flex-shrink:0"><div style="font-family:Poppins;font-size:13px;font-weight:800;color:var(--primary-light)">'+t.count+'</div><div style="font-size:8px;color:var(--text3)">إحالة</div></div>';
-        h+='<div style="text-align:left;flex-shrink:0;margin-right:4px"><div style="font-family:Poppins;font-size:13px;font-weight:800;color:var(--green)">$'+t.earnings.toFixed(2)+'</div><div style="font-size:8px;color:var(--text3)">أرباح</div></div>';
+        h+='<div style="text-align:left;flex-shrink:0"><div style="font-family:IBM Plex Sans Arabic;font-size:13px;font-weight:800;color:var(--primary-light)">'+t.count+'</div><div style="font-size:8px;color:var(--text3)">إحالة</div></div>';
+        h+='<div style="text-align:left;flex-shrink:0;margin-right:4px"><div style="font-family:IBM Plex Sans Arabic;font-size:13px;font-weight:800;color:var(--green)">$'+t.earnings.toFixed(2)+'</div><div style="font-size:8px;color:var(--text3)">أرباح</div></div>';
         h+='</div>';
       });
       h+='</div>';
@@ -12225,7 +12292,7 @@ function _smmRenderList(){
     h+='<div class="sc-top">';
     h+='<div class="sc-plat" style="background:'+platColor+'"><i class="'+platIcon+'"></i></div>';
     h+='<div class="sc-info"><div class="sc-name">'+esc(o.service_name||'')+'</div>';
-    h+='<div class="sc-meta"><span><i class="fa-solid fa-hashtag" style="font-size:8px"></i> '+esc(displayId)+'</span><span>'+(o.quantity||0).toLocaleString()+'</span><span style="font-family:Poppins">$'+price+'</span></div></div>';
+    h+='<div class="sc-meta"><span><i class="fa-solid fa-hashtag" style="font-size:8px"></i> '+esc(displayId)+'</span><span>'+(o.quantity||0).toLocaleString()+'</span><span style="font-family:IBM Plex Sans Arabic">$'+price+'</span></div></div>';
     h+='<div class="sc-badge '+cls+'">'+lbl+'</div>';
     h+='<i class="fa-solid fa-chevron-down sc-arrow"></i>';
     h+='</div>';
@@ -12376,7 +12443,7 @@ function _renderV3(){
     h+='</div>';
   }
 
-  h+='<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin-bottom:14px"><div style="background:var(--card);border:1px solid var(--card-border);border-radius:12px;padding:12px;text-align:center"><div style="font-family:Poppins;font-size:18px;font-weight:800;color:var(--primary)">'+filteredTotal+'</div><div style="font-size:9px;color:var(--text3)">إجمالي</div></div><div style="background:var(--card);border:1px solid var(--card-border);border-radius:12px;padding:12px;text-align:center"><div style="font-family:Poppins;font-size:18px;font-weight:800;color:var(--green)">'+pN.length+'</div><div style="font-size:9px;color:var(--text3)">منصة</div></div><div style="background:var(--card);border:1px solid var(--card-border);border-radius:12px;padding:12px;text-align:center"><div style="font-family:Poppins;font-size:18px;font-weight:800;color:var(--orange)">'+Object.keys(filters).length+'</div><div style="font-size:9px;color:var(--text3)">فلتر</div></div><div style="background:var(--card);border:1px solid var(--card-border);border-radius:12px;padding:12px;text-align:center"><div style="font-family:Poppins;font-size:18px;font-weight:800;color:#06b6d4">—</div><div style="font-size:9px;color:var(--text3)">ربح</div></div></div>';
+  h+='<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin-bottom:14px"><div style="background:var(--card);border:1px solid var(--card-border);border-radius:12px;padding:12px;text-align:center"><div style="font-family:IBM Plex Sans Arabic;font-size:18px;font-weight:800;color:var(--primary)">'+filteredTotal+'</div><div style="font-size:9px;color:var(--text3)">إجمالي</div></div><div style="background:var(--card);border:1px solid var(--card-border);border-radius:12px;padding:12px;text-align:center"><div style="font-family:IBM Plex Sans Arabic;font-size:18px;font-weight:800;color:var(--green)">'+pN.length+'</div><div style="font-size:9px;color:var(--text3)">منصة</div></div><div style="background:var(--card);border:1px solid var(--card-border);border-radius:12px;padding:12px;text-align:center"><div style="font-family:IBM Plex Sans Arabic;font-size:18px;font-weight:800;color:var(--orange)">'+Object.keys(filters).length+'</div><div style="font-size:9px;color:var(--text3)">فلتر</div></div><div style="background:var(--card);border:1px solid var(--card-border);border-radius:12px;padding:12px;text-align:center"><div style="font-family:IBM Plex Sans Arabic;font-size:18px;font-weight:800;color:#06b6d4">—</div><div style="font-size:9px;color:var(--text3)">ربح</div></div></div>';
   h+='<div id="fGrid" style="display:grid;grid-template-columns:1fr 1fr;gap:8px">';
   pN.forEach(function(pn,pi){
     var cats=fPlats[pn].categories,cN=Object.keys(cats),sc=0;cN.forEach(function(c){sc+=cats[c].length});
@@ -12404,7 +12471,7 @@ function _renderV3(){
       h+='<div style="font-size:10px;color:var(--text3)">'+sc+' خدمة · '+cN.length+' قسم</div>';
     }
     h+='</div>';
-    h+='<div style="font-family:Poppins;font-size:11px;font-weight:700;color:var(--text3);padding:3px 10px;border-radius:6px;background:var(--input-bg)">'+sc+'</div>';
+    h+='<div style="font-family:IBM Plex Sans Arabic;font-size:11px;font-weight:700;color:var(--text3);padding:3px 10px;border-radius:6px;background:var(--input-bg)">'+sc+'</div>';
     h+='<div data-on="'+(isOff?'0':'1')+'" onclick="event.stopPropagation();_togP(this,\''+esc(pn).replace(/'/g,"\\'")+'\',\''+pid+'\')" style="position:relative;width:46px;height:26px;flex-shrink:0;cursor:pointer;border-radius:99px;background:'+(isOff?'#ccc':'var(--green)')+';transition:.3s"><div style="position:absolute;top:3px;width:20px;height:20px;border-radius:50%;background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.2);transition:.3s;'+(isOff?'right:calc(100% - 23px)':'left:3px')+'"></div></div>';
     h+='<i class="fa-solid fa-chevron-down" style="color:var(--text3);font-size:11px"></i></div>';
     h+='<div id="'+pid+'b" style="display:none;border-top:1px solid var(--card-border);padding:10px 12px">';
@@ -12417,17 +12484,17 @@ function _renderV3(){
       h+='<i class="fa-solid fa-folder" style="color:var(--primary);font-size:11px"></i>';
       h+='<input value="'+esc(cNm)+'" onclick="event.stopPropagation()" onchange="_fm(\'category\',\''+esc(cn).replace(/'/g,"\\'")+'\',\''+esc(pn)+'\',{custom_name:this.value})" style="border:none;background:transparent;font-family:var(--font);font-size:12px;font-weight:700;color:var(--text);flex:1;min-width:0;outline:none;padding:2px 4px;border-radius:4px">';
       h+='<i class="fa-solid fa-pen" style="color:var(--text3);font-size:8px;opacity:.3"></i>';
-      h+='<div onclick="event.stopPropagation()" style="display:flex;align-items:center;gap:2px;padding:3px 8px;border-radius:6px;background:rgba(6,182,212,.06);border:1px solid rgba(6,182,212,.15)"><input type="number" value="'+cP+'" placeholder="0" min="0" max="500" style="width:36px;padding:2px;border:none;background:transparent;color:#06b6d4;font-family:Poppins;font-size:11px;font-weight:800;text-align:center;outline:none" onchange="_fm(\'category\',\''+esc(cn).replace(/'/g,"\\'")+'\',\''+esc(pn)+'\',{profit_pct:this.value?parseFloat(this.value):null})"><span style="font-size:10px;font-weight:800;color:#06b6d4">%</span></div>';
+      h+='<div onclick="event.stopPropagation()" style="display:flex;align-items:center;gap:2px;padding:3px 8px;border-radius:6px;background:rgba(6,182,212,.06);border:1px solid rgba(6,182,212,.15)"><input type="number" value="'+cP+'" placeholder="0" min="0" max="500" style="width:36px;padding:2px;border:none;background:transparent;color:#06b6d4;font-family:IBM Plex Sans Arabic;font-size:11px;font-weight:800;text-align:center;outline:none" onchange="_fm(\'category\',\''+esc(cn).replace(/'/g,"\\'")+'\',\''+esc(pn)+'\',{profit_pct:this.value?parseFloat(this.value):null})"><span style="font-size:10px;font-weight:800;color:#06b6d4">%</span></div>';
       h+='<div style="font-size:9px;color:var(--text3)">'+svcs.length+'</div><i class="fa-solid fa-chevron-down" style="font-size:8px;color:var(--text3)"></i></div>';
       h+='<div id="'+cid+'" style="display:none;padding:4px 0 2px 6px">';
       svcs.forEach(function(s,si){
         var sf=_fg('service',s.id,pn),sOff=sf.hidden||false,sNm=sf.custom_name||s.name;
         var rid=cid+'s'+si;
         h+='<div id="'+rid+'" style="display:flex;align-items:center;gap:8px;padding:8px;border-radius:8px;margin-bottom:2px;opacity:'+(sOff?'.3':'1')+'">';
-        h+='<span style="font-family:Poppins;font-size:9px;color:var(--text3);min-width:40px;text-align:center;background:var(--input-bg);padding:2px 6px;border-radius:4px">'+esc(s.id)+'</span>';
+        h+='<span style="font-family:IBM Plex Sans Arabic;font-size:9px;color:var(--text3);min-width:40px;text-align:center;background:var(--input-bg);padding:2px 6px;border-radius:4px">'+esc(s.id)+'</span>';
         h+='<input value="'+esc(sNm)+'" onchange="_fm(\'service\',\''+esc(s.id)+'\',\''+esc(pn)+'\',{custom_name:this.value})" style="border:none;background:transparent;font-family:var(--font);font-size:11px;font-weight:500;color:var(--text2);flex:1;min-width:0;outline:none;padding:2px 4px;border-radius:4px">';
         if(provList.length>1&&s.prov_name){var ci2=provIdx[s.prov_id]||0;var ts2=_fProvTagColors[ci2%_fProvTagColors.length];h+='<span class="pf-tag" style="background:'+ts2+'">'+esc(s.prov_name)+'</span>';}
-        h+='<span style="font-family:Poppins;font-size:10px;color:var(--primary);font-weight:700">$'+parseFloat(s.rate||0).toFixed(2)+'</span>';
+        h+='<span style="font-family:IBM Plex Sans Arabic;font-size:10px;color:var(--primary);font-weight:700">$'+parseFloat(s.rate||0).toFixed(2)+'</span>';
         h+='<div data-on="'+(sOff?'0':'1')+'" onclick="_togS(this,\''+esc(s.id)+'\',\''+esc(pn)+'\',\''+rid+'\')" style="position:relative;width:38px;height:20px;flex-shrink:0;cursor:pointer;border-radius:99px;background:'+(sOff?'#ccc':'var(--green)')+';transition:.3s"><div style="position:absolute;top:2.5px;width:15px;height:15px;border-radius:50%;background:#fff;box-shadow:0 1px 2px rgba(0,0,0,.15);transition:.3s;'+(sOff?'right:calc(100% - 17.5px)':'left:2.5px')+'"></div></div>';
         h+='</div>';
       });
@@ -13279,19 +13346,19 @@ async function loadAdminRefill(){
       h+='<div style="font-size:12px;font-weight:800;color:var(--text);margin-bottom:8px"><i class="fa-solid fa-history"></i> سجل التعويضات</div>';
       log.forEach(function(entry){
         h+='<div style="background:var(--card);border:1px solid var(--card-border);border-radius:12px;padding:12px;margin-bottom:8px">';
-        h+='<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px"><div style="font-family:Poppins;font-size:10px;color:var(--text3)">'+entry.date+'</div></div>';
+        h+='<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px"><div style="font-family:IBM Plex Sans Arabic;font-size:10px;color:var(--text3)">'+entry.date+'</div></div>';
         h+='<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:6px">';
-        h+='<div style="text-align:center;padding:6px;border-radius:8px;background:var(--input-bg)"><div style="font-family:Poppins;font-size:14px;font-weight:800;color:var(--primary)">'+(entry.total||0)+'</div><div style="font-size:8px;color:var(--text3)">إجمالي</div></div>';
-        h+='<div style="text-align:center;padding:6px;border-radius:8px;background:rgba(16,185,129,.06)"><div style="font-family:Poppins;font-size:14px;font-weight:800;color:var(--green)">'+(entry.success||0)+'</div><div style="font-size:8px;color:var(--text3)">نجح</div></div>';
-        h+='<div style="text-align:center;padding:6px;border-radius:8px;background:rgba(239,68,68,.06)"><div style="font-family:Poppins;font-size:14px;font-weight:800;color:var(--red)">'+(entry.failed||0)+'</div><div style="font-size:8px;color:var(--text3)">فشل</div></div>';
-        h+='<div style="text-align:center;padding:6px;border-radius:8px;background:rgba(234,179,8,.06)"><div style="font-family:Poppins;font-size:14px;font-weight:800;color:#eab308">'+(entry.skipped||0)+'</div><div style="font-size:8px;color:var(--text3)">تخطي</div></div>';
+        h+='<div style="text-align:center;padding:6px;border-radius:8px;background:var(--input-bg)"><div style="font-family:IBM Plex Sans Arabic;font-size:14px;font-weight:800;color:var(--primary)">'+(entry.total||0)+'</div><div style="font-size:8px;color:var(--text3)">إجمالي</div></div>';
+        h+='<div style="text-align:center;padding:6px;border-radius:8px;background:rgba(16,185,129,.06)"><div style="font-family:IBM Plex Sans Arabic;font-size:14px;font-weight:800;color:var(--green)">'+(entry.success||0)+'</div><div style="font-size:8px;color:var(--text3)">نجح</div></div>';
+        h+='<div style="text-align:center;padding:6px;border-radius:8px;background:rgba(239,68,68,.06)"><div style="font-family:IBM Plex Sans Arabic;font-size:14px;font-weight:800;color:var(--red)">'+(entry.failed||0)+'</div><div style="font-size:8px;color:var(--text3)">فشل</div></div>';
+        h+='<div style="text-align:center;padding:6px;border-radius:8px;background:rgba(234,179,8,.06)"><div style="font-family:IBM Plex Sans Arabic;font-size:14px;font-weight:800;color:#eab308">'+(entry.skipped||0)+'</div><div style="font-size:8px;color:var(--text3)">تخطي</div></div>';
         h+='</div>';
         if(entry.results&&entry.results.length){
           h+='<div style="margin-top:8px;max-height:200px;overflow-y:auto">';
           entry.results.forEach(function(r){
             var col=r.status==='success'?'var(--green)':r.status==='failed'?'var(--red)':'#eab308';
             var ic=r.status==='success'?'fa-check':r.status==='failed'?'fa-xmark':'fa-forward';
-            h+='<div style="display:flex;align-items:center;gap:6px;padding:4px 0;border-bottom:1px solid var(--card-border);font-size:10px"><i class="fa-solid '+ic+'" style="color:'+col+';font-size:8px"></i><span style="font-family:Poppins;color:var(--text3)">#'+(r.order||'')+'</span><span style="flex:1;color:var(--text2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+(r.service||'')+'</span><span style="color:'+col+';font-weight:700">'+(r.reason||r.error||r.refill_id||'')+'</span></div>';
+            h+='<div style="display:flex;align-items:center;gap:6px;padding:4px 0;border-bottom:1px solid var(--card-border);font-size:10px"><i class="fa-solid '+ic+'" style="color:'+col+';font-size:8px"></i><span style="font-family:IBM Plex Sans Arabic;color:var(--text3)">#'+(r.order||'')+'</span><span style="flex:1;color:var(--text2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+(r.service||'')+'</span><span style="color:'+col+';font-weight:700">'+(r.reason||r.error||r.refill_id||'')+'</span></div>';
           });
           h+='</div>';
         }
@@ -13331,9 +13398,9 @@ async function loadAdminLevels(){
     var md=Math.max.apply(null,lvs.map(function(l){return l.discount||0}));
     var h='<div style="padding:0 2px">';
     h+='<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:5px;margin-bottom:10px">';
-    h+='<div style="background:var(--card);border:1px solid var(--card-border);border-radius:10px;padding:8px;text-align:center;backdrop-filter:blur(10px)"><div style="font-family:Poppins;font-size:15px;font-weight:800;color:var(--primary)">'+lvs.length+'</div><div style="font-size:8px;color:var(--text3)">مستوى</div></div>';
-    h+='<div style="background:var(--card);border:1px solid var(--card-border);border-radius:10px;padding:8px;text-align:center;backdrop-filter:blur(10px)"><div style="font-family:Poppins;font-size:15px;font-weight:800;color:var(--green)">'+tu+'</div><div style="font-size:8px;color:var(--text3)">مستخدم</div></div>';
-    h+='<div style="background:var(--card);border:1px solid var(--card-border);border-radius:10px;padding:8px;text-align:center;backdrop-filter:blur(10px)"><div style="font-family:Poppins;font-size:15px;font-weight:800;color:#f59e0b">'+md+'%</div><div style="font-size:8px;color:var(--text3)">أعلى خصم</div></div>';
+    h+='<div style="background:var(--card);border:1px solid var(--card-border);border-radius:10px;padding:8px;text-align:center;backdrop-filter:blur(10px)"><div style="font-family:IBM Plex Sans Arabic;font-size:15px;font-weight:800;color:var(--primary)">'+lvs.length+'</div><div style="font-size:8px;color:var(--text3)">مستوى</div></div>';
+    h+='<div style="background:var(--card);border:1px solid var(--card-border);border-radius:10px;padding:8px;text-align:center;backdrop-filter:blur(10px)"><div style="font-family:IBM Plex Sans Arabic;font-size:15px;font-weight:800;color:var(--green)">'+tu+'</div><div style="font-size:8px;color:var(--text3)">مستخدم</div></div>';
+    h+='<div style="background:var(--card);border:1px solid var(--card-border);border-radius:10px;padding:8px;text-align:center;backdrop-filter:blur(10px)"><div style="font-family:IBM Plex Sans Arabic;font-size:15px;font-weight:800;color:#f59e0b">'+md+'%</div><div style="font-size:8px;color:var(--text3)">أعلى خصم</div></div>';
     h+='</div>';
     lvs.forEach(function(l,i){
       var bens=(l.benefits||[]);
@@ -13341,7 +13408,7 @@ async function loadAdminLevels(){
       h+='<div style="position:absolute;top:0;right:0;width:2.5px;height:100%;background:'+l.color+';border-radius:0 4px 4px 0"></div>';
       h+='<div style="display:flex;align-items:center;gap:8px">';
       h+='<div style="width:30px;height:30px;border-radius:8px;background:'+l.color+'12;color:'+l.color+';display:flex;align-items:center;justify-content:center;font-size:13px;flex-shrink:0"><i class="'+l.icon+'"></i></div>';
-      h+='<div style="flex:1;min-width:0"><div style="font-size:11px;font-weight:800;color:'+l.color+';display:flex;align-items:center;gap:4px">'+l.name+' <span style="font-family:Poppins;font-size:7px;color:var(--text3);font-weight:600;padding:1px 5px;border-radius:3px;background:var(--input-bg)">'+l.name_en+'</span></div>';
+      h+='<div style="flex:1;min-width:0"><div style="font-size:11px;font-weight:800;color:'+l.color+';display:flex;align-items:center;gap:4px">'+l.name+' <span style="font-family:IBM Plex Sans Arabic;font-size:7px;color:var(--text3);font-weight:600;padding:1px 5px;border-radius:3px;background:var(--input-bg)">'+l.name_en+'</span></div>';
       h+='<div style="font-size:9px;color:var(--text3);margin-top:1px;display:flex;gap:6px"><span><i class="fa-solid fa-dollar-sign" style="font-size:7px"></i> $'+(l.min_spent||0).toLocaleString()+'</span><span><i class="fa-solid fa-percent" style="font-size:7px"></i> '+l.discount+'%</span><span><i class="fa-solid fa-users" style="font-size:7px"></i> '+(l.users||0)+'</span><span><i class="fa-solid fa-gift" style="font-size:7px"></i> '+bens.length+'</span></div></div>';
       h+='<div style="display:flex;gap:3px;flex-shrink:0">';
       h+='<button onclick="toggleLevelActive('+l.id+')" style="width:24px;height:24px;border-radius:6px;border:1px solid var(--card-border);background:'+(l.active?'rgba(34,197,94,.08)':'var(--input-bg)')+';color:'+(l.active?'var(--green)':'var(--text3)')+';cursor:pointer;font-size:9px;display:flex;align-items:center;justify-content:center"><i class="fa-solid fa-'+(l.active?'toggle-on':'toggle-off')+'"></i></button>';
@@ -13401,11 +13468,11 @@ function _renderLvModal(lv){
   h+='<div style="font-size:7px;font-weight:700;color:var(--primary-light);margin-bottom:5px;text-transform:uppercase;letter-spacing:.6px"><i class="fa-solid fa-tag" style="font-size:6px"></i> الأساسيات</div>';
   h+='<div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:8px">';
   h+='<div><div style="font-size:8px;font-weight:700;color:var(--text3);margin-bottom:3px">الاسم عربي</div><input id="lvName" value="'+_aE(lv?lv.name:'')+'" placeholder="ذهبي" oninput="_lvUpdPV()" style="width:100%;font-size:11px;padding:7px 9px;background:var(--input-bg);border:1.5px solid var(--input-border);border-radius:9px;color:var(--text);font-family:var(--font);outline:none"></div>';
-  h+='<div><div style="font-size:8px;font-weight:700;color:var(--text3);margin-bottom:3px">الاسم EN</div><input id="lvEn" value="'+_aE(lv?lv.name_en:'')+'" placeholder="GOLD" oninput="_lvUpdPV()" style="width:100%;direction:ltr;text-align:left;font-family:Poppins;font-size:11px;padding:7px 9px;background:var(--input-bg);border:1.5px solid var(--input-border);border-radius:9px;color:var(--text);outline:none"></div>';
+  h+='<div><div style="font-size:8px;font-weight:700;color:var(--text3);margin-bottom:3px">الاسم EN</div><input id="lvEn" value="'+_aE(lv?lv.name_en:'')+'" placeholder="GOLD" oninput="_lvUpdPV()" style="width:100%;direction:ltr;text-align:left;font-family:IBM Plex Sans Arabic;font-size:11px;padding:7px 9px;background:var(--input-bg);border:1.5px solid var(--input-border);border-radius:9px;color:var(--text);outline:none"></div>';
   h+='</div>';
   h+='<div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:8px">';
-  h+='<div><div style="font-size:8px;font-weight:700;color:var(--text3);margin-bottom:3px">الحد الأدنى ($)</div><input id="lvMin" type="number" value="'+_aE(lv?lv.min_spent:'')+'" placeholder="200" style="width:100%;direction:ltr;text-align:left;font-family:Poppins;font-size:11px;padding:7px 9px;background:var(--input-bg);border:1.5px solid var(--input-border);border-radius:9px;color:var(--text);outline:none"></div>';
-  h+='<div><div style="font-size:8px;font-weight:700;color:var(--text3);margin-bottom:3px">الخصم (%)</div><input id="lvDisc" type="number" value="'+_aE(lv?lv.discount:'0')+'" placeholder="5" style="width:100%;direction:ltr;text-align:left;font-family:Poppins;font-size:11px;padding:7px 9px;background:var(--input-bg);border:1.5px solid var(--input-border);border-radius:9px;color:var(--text);outline:none"></div>';
+  h+='<div><div style="font-size:8px;font-weight:700;color:var(--text3);margin-bottom:3px">الحد الأدنى ($)</div><input id="lvMin" type="number" value="'+_aE(lv?lv.min_spent:'')+'" placeholder="200" style="width:100%;direction:ltr;text-align:left;font-family:IBM Plex Sans Arabic;font-size:11px;padding:7px 9px;background:var(--input-bg);border:1.5px solid var(--input-border);border-radius:9px;color:var(--text);outline:none"></div>';
+  h+='<div><div style="font-size:8px;font-weight:700;color:var(--text3);margin-bottom:3px">الخصم (%)</div><input id="lvDisc" type="number" value="'+_aE(lv?lv.discount:'0')+'" placeholder="5" style="width:100%;direction:ltr;text-align:left;font-family:IBM Plex Sans Arabic;font-size:11px;padding:7px 9px;background:var(--input-bg);border:1.5px solid var(--input-border);border-radius:9px;color:var(--text);outline:none"></div>';
   h+='</div>';
   h+='<div style="font-size:7px;font-weight:700;color:var(--primary-light);margin:10px 0 5px;text-transform:uppercase;letter-spacing:.6px"><i class="fa-solid fa-palette" style="font-size:6px"></i> المظهر</div>';
   h+='<div style="font-size:8px;font-weight:700;color:var(--text3);margin-bottom:4px">اللون</div>';
@@ -13420,7 +13487,7 @@ function _renderLvModal(lv){
   h+='<textarea id="lvBenefits" style="background:var(--input-bg);border:1.5px solid var(--input-border);border-radius:9px;color:var(--text);font-family:var(--font);outline:none;width:100%;min-height:44px;resize:vertical;line-height:1.6;font-size:10px;padding:7px 9px" placeholder="أولوية بالدعم\nخصم على الخدمات">'+(lv?(lv.benefits||[]).join('\n'):'')+'</textarea>';
   h+='<div id="lvPVStrip" style="margin-top:8px;padding:8px;border:1px solid var(--card-border);border-radius:9px;background:var(--input-bg);display:flex;align-items:center;gap:7px">';
   h+='<div id="lvPVIc" style="width:26px;height:26px;border-radius:7px;background:'+_lvSelColor+'12;color:'+_lvSelColor+';display:flex;align-items:center;justify-content:center;font-size:11px"><i class="'+_lvSelIcon+'"></i></div>';
-  h+='<div><div id="lvPVNm" style="font-size:11px;font-weight:800;color:'+_lvSelColor+'">'+(lv?lv.name:'اسم المستوى')+'</div><div id="lvPVEn" style="font-family:Poppins;font-size:7px;color:var(--text3)">'+(lv?lv.name_en:'LEVEL')+'</div></div>';
+  h+='<div><div id="lvPVNm" style="font-size:11px;font-weight:800;color:'+_lvSelColor+'">'+(lv?lv.name:'اسم المستوى')+'</div><div id="lvPVEn" style="font-family:IBM Plex Sans Arabic;font-size:7px;color:var(--text3)">'+(lv?lv.name_en:'LEVEL')+'</div></div>';
   h+='<div style="flex:1;height:3px;border-radius:3px;background:var(--card-border);overflow:hidden;margin-right:auto;margin-left:6px"><div id="lvPVBar" style="height:100%;width:55%;border-radius:3px;background:'+_lvSelColor+'"></div></div>';
   h+='</div>';
   h+='</div>';
@@ -13466,9 +13533,9 @@ async function _adminOrderLookup(){
     var h='';
     h+='<div style="background:var(--card);border:1px solid var(--card-border);border-radius:13px;overflow:hidden;margin-bottom:8px">';
     h+='<div style="padding:10px 12px;display:flex;align-items:center;gap:5px;flex-wrap:wrap;border-bottom:1px solid var(--card-border)">';
-    h+='<div style="padding:4px 9px;border-radius:7px;background:var(--green);color:#000;font-size:10px;font-weight:900;cursor:pointer;font-family:Poppins" data-cp="'+esc(oid)+'" onclick="navigator.clipboard.writeText(this.dataset.cp);toast(\'تم النسخ ✓\',\'success\')">'+esc(oid)+'</div>';
+    h+='<div style="padding:4px 9px;border-radius:7px;background:var(--green);color:#000;font-size:10px;font-weight:900;cursor:pointer;font-family:IBM Plex Sans Arabic" data-cp="'+esc(oid)+'" onclick="navigator.clipboard.writeText(this.dataset.cp);toast(\'تم النسخ ✓\',\'success\')">'+esc(oid)+'</div>';
     h+='<div style="padding:4px 8px;border-radius:7px;font-size:9px;font-weight:800;'+(stClr[st]||'background:var(--input-bg);color:var(--text3)')+'">'+(stMap[st]||st)+'</div>';
-    if(l.service_id)h+='<div style="padding:4px 8px;border-radius:7px;background:var(--input-bg);color:var(--text2);font-size:9px;font-weight:700;cursor:pointer" data-cp="'+esc(l.service_id)+'" onclick="navigator.clipboard.writeText(this.dataset.cp);toast(\'تم النسخ ✓\',\'success\')"><i class="fa-solid fa-cube" style="font-size:8px;opacity:.6"></i> خدمة <span style="font-weight:900;font-family:Poppins">'+esc(l.service_id)+'</span></div>';
+    if(l.service_id)h+='<div style="padding:4px 8px;border-radius:7px;background:var(--input-bg);color:var(--text2);font-size:9px;font-weight:700;cursor:pointer" data-cp="'+esc(l.service_id)+'" onclick="navigator.clipboard.writeText(this.dataset.cp);toast(\'تم النسخ ✓\',\'success\')"><i class="fa-solid fa-cube" style="font-size:8px;opacity:.6"></i> خدمة <span style="font-weight:900;font-family:IBM Plex Sans Arabic">'+esc(l.service_id)+'</span></div>';
     if(o.name)h+='<div style="font-size:9px;font-weight:700;color:var(--text3);margin-right:auto;display:flex;align-items:center;gap:3px"><i class="fa-solid fa-user" style="font-size:8px"></i> '+esc(o.name)+'</div>';
     h+='</div>';
     if(l.service)h+='<div style="padding:10px 12px;font-size:11px;font-weight:700;color:var(--text);text-align:center;line-height:1.6">'+esc(l.service)+'</div>';
@@ -13522,16 +13589,16 @@ function _buildUserLevels(d){
   h+='<div style="position:relative;z-index:1">';
   h+='<div style="display:flex;align-items:center;gap:12px;margin-bottom:14px">';
   h+='<div style="width:52px;height:52px;border-radius:16px;background:'+curColor+'15;color:'+curColor+';display:flex;align-items:center;justify-content:center;font-size:24px;flex-shrink:0"><i class="'+curIcon+'"></i></div>';
-  h+='<div style="flex:1"><div style="font-size:16px;font-weight:900;display:flex;align-items:center;gap:6px">'+curAr+' <span style="font-family:Poppins;font-size:9px;font-weight:700;padding:2px 8px;border-radius:6px;background:'+curColor+'18;color:'+curColor+'">'+curEn+'</span></div>';
+  h+='<div style="flex:1"><div style="font-size:16px;font-weight:900;display:flex;align-items:center;gap:6px">'+curAr+' <span style="font-family:IBM Plex Sans Arabic;font-size:9px;font-weight:700;padding:2px 8px;border-radius:6px;background:'+curColor+'18;color:'+curColor+'">'+curEn+'</span></div>';
   h+='<div style="font-size:11px;color:var(--text3);margin-top:2px">المستوى '+(curIdx+1)+' من '+lvs.length+'</div></div></div>';
-  h+='<div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:6px"><span style="font-size:11px;color:var(--text3)"><i class="fa-solid fa-chart-line" style="font-size:9px"></i> '+(nextName?'التقدم نحو '+nextName:'أعلى مستوى!')+'</span><span style="font-family:Poppins;font-size:13px;font-weight:800;color:'+curColor+'">'+progress+'%</span></div>';
+  h+='<div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:6px"><span style="font-size:11px;color:var(--text3)"><i class="fa-solid fa-chart-line" style="font-size:9px"></i> '+(nextName?'التقدم نحو '+nextName:'أعلى مستوى!')+'</span><span style="font-family:IBM Plex Sans Arabic;font-size:13px;font-weight:800;color:'+curColor+'">'+progress+'%</span></div>';
   h+='<div style="height:8px;border-radius:8px;background:var(--input-bg);overflow:hidden"><div style="height:100%;width:'+progress+'%;border-radius:8px;background:linear-gradient(90deg,'+curColor+','+(nextColor||curColor)+');position:relative"><div style="position:absolute;inset:0;background:linear-gradient(90deg,transparent,rgba(255,255,255,.2),transparent);background-size:200% 100%;animation:shimmer 2.5s infinite"></div></div></div>';
   h+='<div style="display:flex;justify-content:space-between;margin-top:5px;font-size:10px;color:var(--text3)"><span>$'+spent.toLocaleString()+'</span>'+(nextName?'<span>باقي $'+remaining.toLocaleString()+'</span>':'<span>القمة! 🏆</span>')+'</div>';
   h+='</div></div>';
   h+='<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;margin-bottom:10px">';
-  h+='<div style="background:var(--card);border:1px solid var(--card-border);border-radius:12px;padding:12px 8px;text-align:center"><div style="font-family:Poppins;font-size:18px;font-weight:800;color:'+curColor+'">'+curDisc+'%</div><div style="font-size:9px;color:var(--text3)">خصمك</div></div>';
-  h+='<div style="background:var(--card);border:1px solid var(--card-border);border-radius:12px;padding:12px 8px;text-align:center"><div style="font-family:Poppins;font-size:18px;font-weight:800;color:'+curColor+'">'+curBens.length+'</div><div style="font-size:9px;color:var(--text3)">مزايا</div></div>';
-  h+='<div style="background:var(--card);border:1px solid var(--card-border);border-radius:12px;padding:12px 8px;text-align:center"><div style="font-family:Poppins;font-size:18px;font-weight:800;color:'+curColor+'">$'+spent+'</div><div style="font-size:9px;color:var(--text3)">إنفاقك</div></div>';
+  h+='<div style="background:var(--card);border:1px solid var(--card-border);border-radius:12px;padding:12px 8px;text-align:center"><div style="font-family:IBM Plex Sans Arabic;font-size:18px;font-weight:800;color:'+curColor+'">'+curDisc+'%</div><div style="font-size:9px;color:var(--text3)">خصمك</div></div>';
+  h+='<div style="background:var(--card);border:1px solid var(--card-border);border-radius:12px;padding:12px 8px;text-align:center"><div style="font-family:IBM Plex Sans Arabic;font-size:18px;font-weight:800;color:'+curColor+'">'+curBens.length+'</div><div style="font-size:9px;color:var(--text3)">مزايا</div></div>';
+  h+='<div style="background:var(--card);border:1px solid var(--card-border);border-radius:12px;padding:12px 8px;text-align:center"><div style="font-family:IBM Plex Sans Arabic;font-size:18px;font-weight:800;color:'+curColor+'">$'+spent+'</div><div style="font-size:9px;color:var(--text3)">إنفاقك</div></div>';
   h+='</div>';
   if(curBens.length){
     h+='<div style="font-size:12px;font-weight:800;margin-bottom:8px;display:flex;align-items:center;gap:5px"><i class="fa-solid fa-sparkles" style="color:'+curColor+';font-size:11px"></i> مزاياك الحالية</div>';
@@ -13548,10 +13615,10 @@ function _buildUserLevels(d){
     h+='<div style="display:flex;align-items:center;gap:8px;padding:10px 12px;background:var(--card);border:'+bw+' solid '+bc+';border-radius:12px;margin-bottom:5px;opacity:'+op+';position:relative;overflow:hidden">';
     h+='<div style="position:absolute;top:0;right:0;width:3px;height:100%;background:'+l.color+';border-radius:0 5px 5px 0"></div>';
     h+='<div style="width:32px;height:32px;border-radius:9px;background:'+l.color+'12;color:'+l.color+';display:flex;align-items:center;justify-content:center;font-size:14px;flex-shrink:0"><i class="'+l.icon+'"></i></div>';
-    h+='<div style="flex:1;min-width:0"><div style="font-size:12px;font-weight:800;color:'+(s!=='locked'?l.color:'var(--text3)')+';display:flex;align-items:center;gap:4px">'+l.name+' <span style="font-family:Poppins;font-size:8px;color:var(--text3);font-weight:600">'+l.name_en+'</span></div>';
+    h+='<div style="flex:1;min-width:0"><div style="font-size:12px;font-weight:800;color:'+(s!=='locked'?l.color:'var(--text3)')+';display:flex;align-items:center;gap:4px">'+l.name+' <span style="font-family:IBM Plex Sans Arabic;font-size:8px;color:var(--text3);font-weight:600">'+l.name_en+'</span></div>';
     h+='<div style="font-size:9px;color:var(--text3)">$'+l.min.toLocaleString()+' — خصم '+l.discount+'%'+(l.benefits&&l.benefits.length?' — '+l.benefits.length+' مزايا':'')+'</div></div>';
     h+='<div style="flex-shrink:0;display:flex;align-items:center;gap:6px">';
-    h+='<span style="font-family:Poppins;font-size:13px;font-weight:800;color:'+(s==='locked'?'var(--text3)':l.color)+'">'+l.discount+'%</span>';
+    h+='<span style="font-family:IBM Plex Sans Arabic;font-size:13px;font-weight:800;color:'+(s==='locked'?'var(--text3)':l.color)+'">'+l.discount+'%</span>';
     var stIcon=s==='done'?'check':s==='current'?'bolt':'lock';
     var stBg=s==='done'?l.color:s==='current'?l.color:'var(--card-border)';
     h+='<div style="width:22px;height:22px;border-radius:50%;background:'+stBg+';display:flex;align-items:center;justify-content:center"><i class="fa-solid fa-'+stIcon+'" style="font-size:8px;color:'+(s==='locked'?'var(--text3)':'#fff')+'"></i></div>';
@@ -13563,7 +13630,7 @@ function _buildUserLevels(d){
       h+='<div style="margin-top:10px;padding:14px;background:var(--card);border:1px solid '+nx.color+'25;border-radius:14px;display:flex;align-items:center;gap:10px">';
       h+='<div style="width:38px;height:38px;border-radius:11px;background:'+nx.color+'12;color:'+nx.color+';display:flex;align-items:center;justify-content:center;font-size:16px;flex-shrink:0"><i class="'+nx.icon+'"></i></div>';
       h+='<div style="flex:1"><div style="font-size:12px;font-weight:700">القادم: <span style="color:'+nx.color+'">'+nx.name+'</span></div><div style="font-size:10px;color:var(--text3)">أنفق $'+remaining.toLocaleString()+' إضافية لخصم '+nx.discount+'%</div></div>';
-      h+='<div style="text-align:center"><div style="font-family:Poppins;font-size:18px;font-weight:800;color:'+nx.color+'">'+progress+'%</div><div style="font-size:8px;color:var(--text3)">مكتمل</div></div></div>';
+      h+='<div style="text-align:center"><div style="font-family:IBM Plex Sans Arabic;font-size:18px;font-weight:800;color:'+nx.color+'">'+progress+'%</div><div style="font-size:8px;color:var(--text3)">مكتمل</div></div></div>';
     }
   }
   h+='<div style="text-align:center;margin-top:14px;font-size:10px;color:var(--text3)"><i class="fa-solid fa-circle-info" style="margin-left:3px"></i> المستويات تتحدث تلقائياً بناءً على إنفاقك</div>';
@@ -14482,9 +14549,9 @@ function mkRenderLogs(logs){
     else if(l.endpoint&&l.endpoint.indexOf('setting')>-1)ic='fa-solid fa-gear';
     h+='<div style="display:flex;align-items:flex-start;gap:10px;padding:8px 10px;border-radius:9px;'+(i<logs.length-1?'border-bottom:1px solid var(--card-border);':'')+'">';
     h+='<div style="width:28px;height:28px;border-radius:8px;background:var(--primary-bg);display:flex;align-items:center;justify-content:center;color:var(--primary);font-size:10px;flex-shrink:0"><i class="'+ic+'"></i></div>';
-    h+='<div style="flex:1;min-width:0"><div style="font-size:11px;font-weight:700">'+l.method+' <span style="color:var(--primary);font-family:Poppins,monospace;font-size:9px">'+mkEsc(l.endpoint)+'</span></div>';
+    h+='<div style="flex:1;min-width:0"><div style="font-size:11px;font-weight:700">'+l.method+' <span style="color:var(--primary);font-family:IBM Plex Sans Arabic,monospace;font-size:9px">'+mkEsc(l.endpoint)+'</span></div>';
     h+='<div style="display:flex;align-items:center;gap:8px;margin-top:3px"><span style="font-size:9px;color:var(--text3);font-weight:600"><i class="fa-regular fa-clock"></i> '+ago+'</span>';
-    if(l.ip)h+='<span style="font-size:8px;font-weight:700;padding:2px 7px;border-radius:5px;background:var(--input-bg);color:var(--text3);font-family:Poppins,monospace">'+mkEsc(l.ip)+'</span>';
+    if(l.ip)h+='<span style="font-size:8px;font-weight:700;padding:2px 7px;border-radius:5px;background:var(--input-bg);color:var(--text3);font-family:IBM Plex Sans Arabic,monospace">'+mkEsc(l.ip)+'</span>';
     h+='</div></div></div>';
   }
   el.innerHTML=h;
@@ -14851,9 +14918,9 @@ ORDER_PAGE_HTML = r'''<!DOCTYPE html>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@300;400;500;600;700;800;900&family=Tajawal:wght@400;500;700;800;900&family=Poppins:wght@600;700;800;900&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@300;400;500;600;700;800;900&family=Tajawal:wght@400;500;700;800;900&display=swap" rel="stylesheet">
 <style>
-:root{--bg:#f2f3f7;--card:#fff;--card-border:rgba(0,0,0,0.06);--text:#1a1a2e;--text2:#555;--text3:#999;--primary:#4f46e5;--primary-light:#6366f1;--primary-glow:rgba(79,70,229,0.10);--primary-bg:rgba(79,70,229,0.05);--input-bg:#f5f6fa;--input-border:#e0e3eb;--green:#10b981;--red:#ef4444;--font:'IBM Plex Sans Arabic','Tajawal',sans-serif;--font-num:'Poppins',sans-serif}
+:root{--bg:#f2f3f7;--card:#fff;--card-border:rgba(0,0,0,0.06);--text:#1a1a2e;--text2:#555;--text3:#999;--primary:#4f46e5;--primary-light:#6366f1;--primary-glow:rgba(79,70,229,0.10);--primary-bg:rgba(79,70,229,0.05);--input-bg:#f5f6fa;--input-border:#e0e3eb;--green:#10b981;--red:#ef4444;--font:IBM Plex Sans Arabic,'Tajawal',sans-serif;--font-num:IBM Plex Sans Arabic,sans-serif}
 [data-theme="dark"]{--bg:#000000;--card:#111111;--card-border:rgba(255,255,255,0.10);--text:#f0f0f4;--text2:#b0b0c0;--text3:#7a7a8d;--primary:#6366f1;--primary-light:#818cf8;--primary-glow:rgba(99,102,241,0.15);--primary-bg:rgba(99,102,241,0.06);--input-bg:#161616;--input-border:#252525;--green:#10b981}
 *{margin:0;padding:0;box-sizing:border-box}body{font-family:var(--font);background:var(--bg);color:var(--text);min-height:100vh;padding-bottom:40px}
 .op-topbar{position:sticky;top:0;z-index:50;display:flex;align-items:center;gap:10px;padding:12px 16px;background:var(--card);border-bottom:1px solid var(--card-border);box-shadow:0 2px 8px rgba(0,0,0,0.04)}
@@ -15095,11 +15162,11 @@ def api_docs_page():
     base = freq.host_url.rstrip('/')
     html = '''<!DOCTYPE html><html lang="ar" dir="rtl"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0">
 <meta name="author" content="Fast"><title>__SITE_NAME__ API</title>
-<link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;700;800;900&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@300;400;500;600;700;800;900&family=Tajawal:wght@400;700;800;900&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
 <style>
 :root{--bg:#000000;--c1:#111111;--c2:#1a1a1a;--bd:rgba(99,102,241,.12);--ac:#6366f1;--t1:#f0f0f4;--t2:#b0b0c0;--t3:#7a7a8d}
-*{margin:0;padding:0;box-sizing:border-box}body{font-family:'IBM Plex Sans Arabic','Tajawal',sans-serif;background:var(--bg);color:var(--t1);line-height:1.8}
+*{margin:0;padding:0;box-sizing:border-box}body{font-family:IBM Plex Sans Arabic,'Tajawal',sans-serif;background:var(--bg);color:var(--t1);line-height:1.8}
 code{font-family:'JetBrains Mono',monospace}a{color:var(--ac);text-decoration:none}
 .tb{position:sticky;top:0;z-index:50;background:rgba(11,11,30,.92);backdrop-filter:blur(16px);border-bottom:1px solid var(--bd);padding:14px 16px;display:flex;align-items:center;gap:10px}
 .logo{font-family:'JetBrains Mono';font-size:16px;font-weight:800;background:linear-gradient(135deg,var(--ac),#818cf8);-webkit-background-clip:text;-webkit-text-fill-color:transparent}
