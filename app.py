@@ -911,6 +911,26 @@ def init_db():
         created_at REAL DEFAULT (strftime('%s','now'))
     )''')
     conn.commit()
+    conn.execute('''CREATE TABLE IF NOT EXISTS ai_conversations(
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER,
+        title TEXT DEFAULT '',
+        created_at REAL DEFAULT (strftime('%s','now')),
+        updated_at REAL DEFAULT (strftime('%s','now'))
+    )''')
+    conn.execute('''CREATE TABLE IF NOT EXISTS ai_messages(
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        conversation_id INTEGER,
+        role TEXT DEFAULT 'user',
+        content TEXT DEFAULT '',
+        created_at REAL DEFAULT (strftime('%s','now'))
+    )''')
+    conn.commit()
+    try:
+        conn.execute('CREATE INDEX IF NOT EXISTS idx_ai_conv_user ON ai_conversations(user_id, updated_at DESC)')
+        conn.execute('CREATE INDEX IF NOT EXISTS idx_ai_msg_conv ON ai_messages(conversation_id, id ASC)')
+        conn.commit()
+    except: pass
     conn.execute('''CREATE TABLE IF NOT EXISTS notifications(
         id TEXT PRIMARY KEY,
         user_id INTEGER,
@@ -3716,6 +3736,152 @@ ASIACELL_TIER_AMOUNTS = [1000, 2000, 3000, 4000, 5000, 6000, 7000, 8000, 9000, 1
 
 def _default_asiacell_tiers():
     return [{'iqd': v, 'bonus': 0} for v in ASIACELL_TIER_AMOUNTS]
+
+# ============================================================
+# المساعد الذكي (AI) - DeepSeek API
+# ============================================================
+
+def call_ai_api(messages):
+    api_key = get_setting('deepseek_api_key', '')
+    model = get_setting('deepseek_model', 'deepseek-chat') or 'deepseek-chat'
+    if not api_key:
+        return None, 'لم يتم إعداد مفتاح المساعد الذكي بعد. الرجاء التواصل مع الإدارة.'
+    try:
+        resp = requests.post('https://api.deepseek.com/chat/completions',
+            headers={'Content-Type': 'application/json', 'Authorization': f'Bearer {api_key}'},
+            json={'model': model, 'messages': messages, 'temperature': 0.6, 'top_p': 0.9, 'max_tokens': 500, 'stream': False},
+            timeout=30)
+    except requests.exceptions.Timeout:
+        return None, 'استغرق رد المساعد الذكي وقتاً أطول من المعتاد، حاول مرة أخرى.'
+    except Exception:
+        return None, 'تعذر الاتصال بخدمة الذكاء الاصطناعي، تحقق من اتصالك وحاول مرة أخرى.'
+    if resp.status_code != 200:
+        return None, 'تعذر الحصول على رد من المساعد الذكي حالياً، حاول مرة أخرى.'
+    try:
+        reply = resp.json()['choices'][0]['message']['content']
+    except Exception:
+        reply = None
+    if not reply:
+        return None, 'لم يصل رد من خدمة الذكاء الاصطناعي.'
+    return reply, None
+
+def ai_account_status_context(user_id):
+    conn = get_db()
+    lines = []
+    orders = conn.execute("SELECT order_id, service_name, created_at FROM orders WHERE user_id=? AND status IN ('Pending','Processing') ORDER BY created_at DESC LIMIT 5", (user_id,)).fetchall()
+    for o in orders:
+        when = time.strftime('%Y-%m-%d %H:%M', time.localtime(o['created_at']))
+        lines.append(f"- طلب #{o['order_id']} لخدمة \"{o['service_name']}\" بتاريخ {when}، لا يزال قيد التنفيذ.")
+    recharges = conn.execute("SELECT id, amount, method, created_at FROM recharge_requests WHERE user_id=? AND status='pending' ORDER BY created_at DESC LIMIT 5", (user_id,)).fetchall()
+    for r in recharges:
+        when = time.strftime('%Y-%m-%d %H:%M', time.localtime(r['created_at']))
+        lines.append(f"- طلب شحن رصيد رقم #{r['id']} بمبلغ ${r['amount']:.2f} عبر {r['method']} بتاريخ {when}، لا يزال قيد المراجعة من الإدارة.")
+    conn.close()
+    if not lines:
+        return "\n\nملاحظة: لا توجد لدى هذا المستخدم حالياً أي طلبات أو شحن رصيد معلّق."
+    return ("\n\nمعلومات حقيقية عن حساب هذا المستخدم الآن (استخدمها فقط إذا سأل عن حالة طلب أو شحن رصيد أو تأخير):\n"
+            + "\n".join(lines)
+            + "\nإذا سأل عن سبب التأخير: اذكر رقم الطلب/الشحن أعلاه، وطمئنه أن الفريق يعمل على مراجعته، دون الوعد بوقت محدد.")
+
+@app.route('/api/ai/chat', methods=['POST'])
+def api_ai_chat():
+    if 'user_id' not in session:
+        return jsonify(ok=False, msg='غير مصرح'), 401
+    uid = session['user_id']
+    data = freq.get_json() or {}
+    user_message = (data.get('message') or '').strip()
+    if not user_message:
+        return jsonify(ok=False, msg='الرسالة فارغة')
+
+    conn = get_db()
+    conversation_id = int(data.get('conversation_id') or 0)
+    if conversation_id:
+        chk = conn.execute('SELECT id FROM ai_conversations WHERE id=? AND user_id=?', (conversation_id, uid)).fetchone()
+        if not chk:
+            conversation_id = 0
+    if not conversation_id:
+        title = user_message[:60] + ('…' if len(user_message) > 60 else '')
+        cur = conn.execute('INSERT INTO ai_conversations(user_id, title, created_at, updated_at) VALUES(?,?,?,?)',
+                            (uid, title, time.time(), time.time()))
+        conversation_id = cur.lastrowid
+
+    conn.execute('INSERT INTO ai_messages(conversation_id, role, content, created_at) VALUES(?,?,?,?)',
+                 (conversation_id, 'user', user_message, time.time()))
+    conn.execute('UPDATE ai_conversations SET updated_at=? WHERE id=?', (time.time(), conversation_id))
+    conn.commit()
+
+    site_name = get_setting('site_name', 'المتجر')
+    system_prompt = (f'أنت "المساعد الذكي" داخل موقع "{site_name}" لبيع خدمات التسويق عبر منصات التواصل الاجتماعي (SMM) — متابعين، لايكات، مشاهدات، وخدمات مشابهة. '
+                      'تساعد المستخدمين في كيفية تقديم الطلبات، فهم الخدمات المتاحة، شحن الرصيد وطرق الدفع، متابعة حالة الطلبات، وفتح التذاكر عند وجود مشكلة.')
+    system_prompt += (' أجب بالعربية دائماً، بإيجاز شديد ووضوح (فقرة أو نقاط قصيرة، بدون حشو)، إلا إذا طلب المستخدم تفصيلاً أكبر صراحة.'
+                       ' اقتصر حصرياً على مواضيع هذا الموقع: الخدمات، الطلبات، الرصيد، الدفع، والحساب.'
+                       ' إن سألك المستخدم عن أي موضوع آخر لا علاقة له بذلك، اعتذر بلطف بجملة واحدة ووضّح أنك مخصص فقط لمواضيع الموقع، ولا تجب خارج هذا النطاق مهما كان.')
+    system_prompt += ai_account_status_context(uid)
+
+    hist = conn.execute('SELECT role, content FROM ai_messages WHERE conversation_id=? ORDER BY id DESC LIMIT 12', (conversation_id,)).fetchall()
+    conn.close()
+    messages = [{'role': 'system', 'content': system_prompt}]
+    for h in reversed(hist):
+        messages.append({'role': h['role'], 'content': h['content']})
+
+    reply, err = call_ai_api(messages)
+    if err:
+        return jsonify(ok=False, msg=err, conversation_id=conversation_id)
+
+    conn = get_db()
+    conn.execute('INSERT INTO ai_messages(conversation_id, role, content, created_at) VALUES(?,?,?,?)',
+                 (conversation_id, 'assistant', reply, time.time()))
+    conn.execute('UPDATE ai_conversations SET updated_at=? WHERE id=?', (time.time(), conversation_id))
+    conn.commit()
+    conn.close()
+    return jsonify(ok=True, reply=reply, conversation_id=conversation_id)
+
+@app.route('/api/ai/conversations')
+def api_ai_conversations():
+    if 'user_id' not in session:
+        return jsonify(ok=False, msg='غير مصرح'), 401
+    conn = get_db()
+    rows = conn.execute('''SELECT c.id, c.title, c.updated_at,
+        (SELECT content FROM ai_messages WHERE conversation_id=c.id ORDER BY id DESC LIMIT 1) AS last_message
+        FROM ai_conversations c WHERE c.user_id=? ORDER BY c.updated_at DESC LIMIT 50''', (session['user_id'],)).fetchall()
+    conn.close()
+    out = []
+    for r in rows:
+        out.append({
+            'id': r['id'],
+            'title': r['title'] or 'محادثة بدون عنوان',
+            'preview': (r['last_message'] or '')[:80],
+            'time': time.strftime('%Y-%m-%d %H:%M', time.localtime(r['updated_at'])),
+        })
+    return jsonify(ok=True, conversations=out)
+
+@app.route('/api/ai/conversation/<int:cid>')
+def api_ai_conversation_load(cid):
+    if 'user_id' not in session:
+        return jsonify(ok=False, msg='غير مصرح'), 401
+    conn = get_db()
+    chk = conn.execute('SELECT id FROM ai_conversations WHERE id=? AND user_id=?', (cid, session['user_id'])).fetchone()
+    if not chk:
+        conn.close()
+        return jsonify(ok=False, msg='المحادثة غير موجودة'), 404
+    rows = conn.execute('SELECT role, content FROM ai_messages WHERE conversation_id=? ORDER BY id ASC', (cid,)).fetchall()
+    conn.close()
+    return jsonify(ok=True, messages=[{'role': r['role'], 'content': r['content']} for r in rows])
+
+@app.route('/api/ai/clear', methods=['POST'])
+def api_ai_clear():
+    if 'user_id' not in session:
+        return jsonify(ok=False, msg='غير مصرح'), 401
+    uid = session['user_id']
+    conn = get_db()
+    ids = [r['id'] for r in conn.execute('SELECT id FROM ai_conversations WHERE user_id=?', (uid,)).fetchall()]
+    if ids:
+        qs = ','.join('?' * len(ids))
+        conn.execute(f'DELETE FROM ai_messages WHERE conversation_id IN ({qs})', ids)
+        conn.execute(f'DELETE FROM ai_conversations WHERE id IN ({qs})', ids)
+        conn.commit()
+    conn.close()
+    return jsonify(ok=True, msg='تم مسح جميع المحادثات')
 
 @app.route('/api/payment-methods')
 def api_pm_public():
@@ -8695,6 +8861,7 @@ html:not([data-theme="dark"]) .rv-star-btn{color:rgba(0,0,0,.1)}
     <div class="md-item active" onclick="mdGo('pageHome')"><i class="fa-solid fa-house"></i> الرئيسية</div>
     <div class="md-item" onclick="mdGo('pageOrders')"><i class="fa-solid fa-clock-rotate-left"></i> طلباتي</div>
     <div class="md-item nonadmin-only" onclick="mdGo('pageRecharge')"><i class="fa-solid fa-wallet"></i> شحن الرصيد</div>
+    <div class="md-item nonadmin-only" onclick="toggleMobDrawer();document.getElementById('aiChatPage').classList.add('show');openAiConversation(0)"><i class="fa-solid fa-robot"></i> المساعد الذكي</div>
     <div class="md-item admin-only" onclick="mdGo('pageAllOrders')"><i class="fa-solid fa-list-check"></i> طلبات الشحن</div>
     <div class="md-sec nonadmin-only">الحساب</div>
     <div class="md-item nonadmin-only" onclick="toggleMobDrawer();document.getElementById('accSettingsPage').classList.add('show')"><i class="fa-solid fa-user-gear"></i> إعدادات الحساب</div>
@@ -8811,6 +8978,11 @@ html:not([data-theme="dark"]) .rv-star-btn{color:rgba(0,0,0,.1)}
       </div>
     </div>
     <div id="annBoxWrap" class="nonadmin-only" style="display:none"></div>
+    <div class="nonadmin-only" onclick="document.getElementById('aiChatPage').classList.add('show');openAiConversation(0)" style="display:flex;align-items:center;gap:12px;background:linear-gradient(135deg,var(--primary),var(--primary-light));border-radius:16px;padding:14px 16px;margin-bottom:10px;cursor:pointer;box-shadow:0 4px 16px var(--primary-glow)">
+      <div style="width:42px;height:42px;border-radius:12px;background:rgba(255,255,255,.2);display:flex;align-items:center;justify-content:center;font-size:18px;color:#fff;flex-shrink:0"><i class="fa-solid fa-robot"></i></div>
+      <div style="flex:1;min-width:0"><div style="font-size:13px;font-weight:800;color:#fff">اسأل المساعد الذكي</div><div style="font-size:10px;color:rgba(255,255,255,.85)">جاهز يساعدك بخدماتك، طلباتك، ورصيدك</div></div>
+      <i class="fa-solid fa-chevron-left" style="color:rgba(255,255,255,.8);font-size:12px"></i>
+    </div>
     <div style="margin-bottom:10px">
       <div id="customSvcsSec"></div>
       <div class="platforms-card" style="margin-top:10px">
@@ -9096,6 +9268,20 @@ html:not([data-theme="dark"]) .rv-star-btn{color:rgba(0,0,0,.1)}
   <div class="ov-topbar"><button class="ov-back" onclick="document.getElementById('customerTicketsPage').classList.remove('show')"><i class="fa-solid fa-arrow-right"></i></button><div class="ov-title"><i class="fa-solid fa-ticket"></i> تذاكري</div></div>
   <div class="ov-body" id="ctkContent"></div>
 </div>
+<div class="overlay-page nonadmin-only" id="aiChatPage">
+  <div class="ov-topbar"><button class="ov-back" onclick="document.getElementById('aiChatPage').classList.remove('show')"><i class="fa-solid fa-arrow-right"></i></button><div class="ov-title"><i class="fa-solid fa-robot"></i> المساعد الذكي</div><button class="ov-back" onclick="toggleAiHistory()" title="محادثات سابقة" style="margin-right:auto"><i class="fa-solid fa-clock-rotate-left"></i></button></div>
+  <div style="display:flex;flex-direction:column;height:calc(100vh - 56px)">
+    <div id="aiHistoryPanel" style="display:none;padding:12px;border-bottom:1px solid var(--card-border);max-height:220px;overflow-y:auto;flex-shrink:0">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px"><span style="font-size:11px;font-weight:800;color:var(--text3)">محادثات سابقة</span><button class="btn-sm-danger" style="padding:4px 10px;font-size:10px" onclick="clearAiConversations()"><i class="fa-solid fa-trash"></i> مسح الكل</button></div>
+      <div id="aiConvList"></div>
+    </div>
+    <div id="aiChatLog" style="flex:1;overflow-y:auto;padding:14px"></div>
+    <div style="padding:10px 12px;border-top:1px solid var(--card-border);display:flex;gap:8px;background:var(--card);flex-shrink:0">
+      <input type="text" id="aiInputField" placeholder="اكتب سؤالك هنا..." style="flex:1;padding:11px 14px;border-radius:12px;border:1px solid var(--input-border);background:var(--input-bg);color:var(--text);font-size:13px;font-family:inherit" onkeydown="if(event.key==='Enter')sendAiMessage()">
+      <button id="aiSendBtn" onclick="sendAiMessage()" style="width:42px;height:42px;border-radius:12px;border:none;background:var(--primary);color:#fff;cursor:pointer;flex-shrink:0"><i class="fa-solid fa-paper-plane"></i></button>
+    </div>
+  </div>
+</div>
 <div class="overlay-page nonadmin-only" id="rchHistPage">
   <div class="ov-topbar"><button class="ov-back" onclick="document.getElementById('rchHistPage').classList.remove('show')"><i class="fa-solid fa-arrow-right"></i></button><div class="ov-title"><i class="fa-solid fa-money-bill-transfer"></i> سجل المعاملات</div></div>
   <div class="ov-body" id="rchHistContent"><div style="text-align:center;padding:30px;color:var(--text3)"><i class="fa-solid fa-spinner fa-spin"></i></div></div>
@@ -9182,6 +9368,7 @@ html:not([data-theme="dark"]) .rv-star-btn{color:rgba(0,0,0,.1)}
       <div class="set-item" onclick="openAdmOV('couponPage');loadCoupons();loadDailyGiftAdmin()"><div class="set-ic" style="background:rgba(236,72,153,.1);color:#ec4899"><i class="fa-solid fa-gift"></i></div><div class="set-info"><div class="set-name">كوبونات الهدية</div><div class="set-desc">إنشاء كوبونات مجانية للمستخدمين</div></div><i class="fa-solid fa-chevron-left set-arr"></i></div>
       <div class="set-item" onclick="openAdmOV('reviewsAdmPage');loadAdminReviews()"><div class="set-ic" style="background:rgba(245,158,11,.1);color:#f59e0b"><i class="fa-solid fa-star"></i></div><div class="set-info"><div class="set-name">إدارة التقييمات</div><div class="set-desc">عرض وإخفاء تقييمات العملاء</div></div><i class="fa-solid fa-chevron-left set-arr"></i></div>
       <div class="set-item" onclick="openAdmOV('currencyPage');loadCurrencySettings()"><div class="set-ic" style="background:rgba(245,158,11,.1);color:#f59e0b"><i class="fa-solid fa-coins"></i></div><div class="set-info"><div class="set-name">أسعار صرف العملات</div><div class="set-desc">تحكم بأسعار الصرف المعروضة للمستخدمين</div></div><i class="fa-solid fa-chevron-left set-arr"></i></div>
+      <div class="set-item" onclick="openAdmOV('aiSettingsPage');loadAiSettings()"><div class="set-ic" style="background:var(--primary-bg);color:var(--primary)"><i class="fa-solid fa-robot"></i></div><div class="set-info"><div class="set-name">المساعد الذكي (AI)</div><div class="set-desc">مفتاح DeepSeek API الذي يشغّل مساعد الدردشة</div></div><i class="fa-solid fa-chevron-left set-arr"></i></div>
       <div class="set-item" onclick="openAdmOV('googlePage');loadGoogleSettings()"><div class="set-ic" style="background:rgba(66,133,244,.1);color:#4285F4"><i class="fa-brands fa-google"></i></div><div class="set-info"><div class="set-name">تسجيل Google</div><div class="set-desc">ربط تسجيل الدخول بحساب Google</div></div><i class="fa-solid fa-chevron-left set-arr"></i></div>
     </div>
   </div>
@@ -9477,6 +9664,18 @@ html:not([data-theme="dark"]) .rv-star-btn{color:rgba(0,0,0,.1)}
       <div>7. انسخ الـ Client ID وحطه فوق</div>
     </div>
     <button onclick="saveGoogleSettings()" class="btn-primary"><i class="fa-solid fa-check"></i> حفظ</button>
+  </div>
+</div>
+<div class="overlay-page admin-only" id="aiSettingsPage">
+  <div class="ov-topbar"><button class="ov-back" onclick="document.getElementById('aiSettingsPage').classList.remove('show')"><i class="fa-solid fa-arrow-right"></i></button><div class="ov-title"><i class="fa-solid fa-robot"></i> المساعد الذكي (AI)</div></div>
+  <div class="ov-body">
+    <div style="text-align:center;padding:8px 0 16px"><div style="width:52px;height:52px;border-radius:14px;background:var(--primary-bg);display:inline-flex;align-items:center;justify-content:center;font-size:22px;color:var(--primary);margin-bottom:8px"><i class="fa-solid fa-robot"></i></div><div style="font-size:15px;font-weight:800">مساعد الذكاء الاصطناعي</div><div style="font-size:10px;color:var(--text3)">يعمل عبر DeepSeek API — يجاوب المستخدمين عن الخدمات، الطلبات، والرصيد</div></div>
+    <div style="background:var(--card);border:1px solid var(--card-border);border-radius:14px;padding:16px;margin-bottom:12px">
+      <div class="field-group"><div class="field-label"><i class="fa-solid fa-key"></i> DeepSeek API Key</div><input type="text" class="text-input" id="deepseekKeyIn" placeholder="sk-xxxxxxxxxxxxxxxx" dir="ltr" style="text-align:left;font-family:var(--font-num);font-size:11px"></div>
+      <div class="field-group" style="margin-bottom:0"><div class="field-label"><i class="fa-solid fa-microchip"></i> الموديل</div><input type="text" class="text-input" id="deepseekModelIn" placeholder="deepseek-chat" dir="ltr" style="text-align:left;font-family:var(--font-num);font-size:11px"></div>
+    </div>
+    <div style="padding:10px 14px;border-radius:10px;background:var(--primary-bg);border:1px solid var(--card-border);font-size:10px;color:var(--text2);line-height:1.8;font-weight:600;margin-bottom:12px"><i class="fa-solid fa-lightbulb"></i> احصل على مفتاح API من <a href="https://platform.deepseek.com" target="_blank" style="color:var(--primary);font-weight:800">platform.deepseek.com</a> — المساعد لن يعمل للمستخدمين قبل إدخال مفتاح صالح هنا.</div>
+    <button onclick="saveAiSettings()" class="btn-primary"><i class="fa-solid fa-check"></i> حفظ</button>
   </div>
 </div>
 <div class="overlay-page admin-only" id="currencyPage">
@@ -11714,6 +11913,86 @@ async function _admSendVoice(){_admHideRecUI();if(!_admRecChunks.length)return;v
 document.addEventListener('click',function(e){if(!e.target.closest('.tk-acts-drop')&&!e.target.closest('[onclick*="tkAD"]'))document.querySelectorAll('.tk-acts-drop.show').forEach(function(d){d.classList.remove('show')})});
 document.addEventListener('keydown',function(e){if(e.key==='Enter'&&!e.shiftKey){if(e.target.id==='wizMsg'){e.preventDefault();wizSendAction()}if(e.target.id==='admReply'){e.preventDefault();var b=document.getElementById('admSendBtn');if(b){var m=b.getAttribute('onclick').match(/'([^']+)'/);if(m)sendAdmReply(m[1])}}if(e.target.id==='tkReply'){e.preventDefault();var b2=document.getElementById('tkSendBtn');if(b2){var m2=b2.getAttribute('onclick').match(/'([^']+)'/);if(m2)replyTicket(m2[1])}}}});
 var _rchTxCache=[];
+var aiCurrentConv=0;
+function openAiConversation(cid){
+  aiCurrentConv=cid||0;
+  document.getElementById('aiHistoryPanel').style.display='none';
+  var log=document.getElementById('aiChatLog');
+  if(!cid){
+    log.innerHTML='<div style="text-align:center;padding:30px 16px;color:var(--text3)"><i class="fa-solid fa-robot" style="font-size:32px;opacity:.3;display:block;margin-bottom:10px"></i><div style="font-size:13px;font-weight:700">مرحباً! كيف أقدر أساعدك اليوم؟</div><div style="font-size:11px;margin-top:4px">اسألني عن الخدمات، طلباتك، أو رصيدك</div></div>';
+    return;
+  }
+  log.innerHTML='<div style="text-align:center;padding:20px"><i class="fa-solid fa-spinner fa-spin"></i></div>';
+  fetch('/api/ai/conversation/'+cid).then(function(r){return r.json()}).then(function(d){
+    if(!d.ok){log.innerHTML='';return}
+    log.innerHTML='';
+    (d.messages||[]).forEach(function(m){appendAiMessage(m.role,m.content)});
+    log.scrollTop=log.scrollHeight;
+  }).catch(function(){});
+}
+function appendAiMessage(role,content){
+  var log=document.getElementById('aiChatLog');
+  var isUser=role==='user';
+  var row=document.createElement('div');
+  row.style.cssText='display:flex;'+(isUser?'justify-content:flex-end':'justify-content:flex-start')+';margin-bottom:10px';
+  row.innerHTML='<div style="max-width:80%;padding:10px 14px;border-radius:14px;font-size:13px;line-height:1.7;white-space:pre-wrap;'+(isUser?'background:var(--primary);color:#fff;border-bottom-left-radius:4px':'background:var(--input-bg);color:var(--text);border-bottom-right-radius:4px')+'">'+esc(content)+'</div>';
+  log.appendChild(row);
+  log.scrollTop=log.scrollHeight;
+}
+function sendAiMessage(){
+  var input=document.getElementById('aiInputField');
+  var msg=input.value.trim();
+  if(!msg)return;
+  input.value='';
+  appendAiMessage('user',msg);
+  var typingEl=document.createElement('div');
+  typingEl.id='aiTypingIndicator';
+  typingEl.style.cssText='display:flex;justify-content:flex-start;margin-bottom:10px';
+  typingEl.innerHTML='<div style="padding:10px 14px;border-radius:14px;background:var(--input-bg);color:var(--text3);font-size:12px"><i class="fa-solid fa-ellipsis fa-fade"></i></div>';
+  var log=document.getElementById('aiChatLog');
+  log.appendChild(typingEl);log.scrollTop=log.scrollHeight;
+  var btn=document.getElementById('aiSendBtn');btn.disabled=true;
+  fetch('/api/ai/chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({message:msg,conversation_id:aiCurrentConv})})
+  .then(function(r){return r.json()}).then(function(d){
+    var t=document.getElementById('aiTypingIndicator');if(t)t.remove();
+    btn.disabled=false;
+    if(d.conversation_id)aiCurrentConv=d.conversation_id;
+    if(d.ok){appendAiMessage('assistant',d.reply)}
+    else{appendAiMessage('assistant',d.msg||'حدث خطأ، حاول مرة أخرى.')}
+  }).catch(function(){
+    var t=document.getElementById('aiTypingIndicator');if(t)t.remove();
+    btn.disabled=false;
+    appendAiMessage('assistant','تعذر الاتصال بالسيرفر.');
+  });
+}
+function toggleAiHistory(){
+  var panel=document.getElementById('aiHistoryPanel');
+  var willShow=panel.style.display==='none';
+  panel.style.display=willShow?'block':'none';
+  if(willShow)loadAiConversations();
+}
+function loadAiConversations(){
+  var list=document.getElementById('aiConvList');
+  list.innerHTML='<div style="text-align:center;padding:12px;color:var(--text3);font-size:11px">جاري التحميل...</div>';
+  fetch('/api/ai/conversations').then(function(r){return r.json()}).then(function(d){
+    if(!d.ok||!d.conversations.length){list.innerHTML='<div style="text-align:center;padding:12px;color:var(--text3);font-size:11px">لا توجد محادثات سابقة</div>';return}
+    list.innerHTML='';
+    d.conversations.forEach(function(c){
+      var row=document.createElement('div');
+      row.style.cssText='padding:10px;border-radius:10px;background:var(--input-bg);margin-bottom:6px;cursor:pointer';
+      row.innerHTML='<div style="font-size:12px;font-weight:700;color:var(--text)">'+esc(c.title)+'</div><div style="font-size:10px;color:var(--text3);margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc(c.preview||'')+'</div>';
+      row.addEventListener('click',function(){openAiConversation(c.id)});
+      list.appendChild(row);
+    });
+  }).catch(function(){list.innerHTML='<div style="text-align:center;padding:12px;color:var(--text3);font-size:11px">خطأ بالاتصال</div>'});
+}
+function clearAiConversations(){
+  customConfirm('مسح جميع المحادثات','هل تريد حذف جميع محادثاتك مع المساعد الذكي؟','trash','red',function(){
+    fetch('/api/ai/clear',{method:'POST',headers:{'Content-Type':'application/json'}}).then(function(r){return r.json()}).then(function(d){
+      if(d.ok){toast(d.msg,'success');openAiConversation(0);document.getElementById('aiHistoryPanel').style.display='none'}
+    }).catch(function(){});
+  });
+}
 async function loadRchHistory(){document.getElementById('rchHistPage').classList.add('show');document.getElementById('rchHistContent').innerHTML='<div style="text-align:center;padding:30px;color:var(--text3)"><i class="fa-solid fa-spinner fa-spin"></i></div>';try{var r=await fetch('/api/recharge/history');var d=await r.json();if(!d.ok){document.getElementById('rchHistContent').innerHTML='<div style="text-align:center;padding:30px;color:var(--text3)"><i class="fa-solid fa-exclamation-triangle" style="font-size:24px;opacity:.4;display:block;margin-bottom:8px"></i><div style="font-size:12px">فشل تحميل السجل</div></div>';return}var hist=d.history||[];_rchTxCache=hist;var total=d.total||0;var h='<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:14px"><div style="padding:14px;border-radius:12px;background:var(--card);border:1px solid var(--card-border);text-align:center"><div style="font-family:IBM Plex Sans Arabic;font-size:18px;font-weight:900;color:var(--green)">'+fmtP(total)+'</div><div style="font-size:9px;color:var(--text3);margin-top:2px">إجمالي الشحن</div></div><div style="padding:14px;border-radius:12px;background:var(--card);border:1px solid var(--card-border);text-align:center"><div style="font-family:IBM Plex Sans Arabic;font-size:18px;font-weight:900;color:var(--primary)">'+hist.length+'</div><div style="font-size:9px;color:var(--text3);margin-top:2px">عدد العمليات</div></div></div>';
   if(!hist.length){h+='<div style="text-align:center;padding:30px;color:var(--text3)"><i class="fa-solid fa-inbox" style="font-size:28px;opacity:.3;display:block;margin-bottom:8px"></i><div style="font-size:12px">لا توجد عمليات</div></div>'}
   else{h+='<div style="font-size:13px;font-weight:800;margin-bottom:8px;display:flex;align-items:center;gap:6px"><i class="fa-solid fa-clock-rotate-left" style="color:var(--primary);font-size:12px"></i> آخر العمليات</div>';hist.forEach(function(tx,idx){var st=tx.status||'pending';var icMap={'approved':'fa-circle-check','pending':'fa-clock','rejected':'fa-circle-xmark'};var colMap={'approved':'green','pending':'orange','rejected':'red'};var lblMap={'approved':'مقبول','pending':'قيد المراجعة','rejected':'مرفوض'};h+='<div class="rch-tx" onclick="openTxDetail('+idx+')"><div class="rch-tx-ic '+st+'"><i class="fa-solid '+(icMap[st]||'fa-clock')+'"></i></div><div class="rch-tx-info"><div class="rch-tx-method">شحن — '+(tx.method||'غير محدد')+'</div><div class="rch-tx-date">'+(tx.date||'')+'</div></div><div class="rch-tx-right"><div class="rch-tx-amount '+(colMap[st]||'orange')+'">+$'+tx.amount.toFixed(2)+'</div><div class="rch-tx-status '+st+'">'+(lblMap[st]||tx.status)+'</div></div><div class="rch-tx-chev"><i class="fa-solid fa-chevron-left"></i></div></div>'})}
@@ -12145,6 +12424,21 @@ function renderCurrencyRatesList(settings){
     var q=this.value.trim().toLowerCase();
     document.querySelectorAll('.curr-rate-row').forEach(function(row){row.style.display=row.dataset.name.indexOf(q)>-1?'':'none'});
   };
+}
+async function loadAiSettings(){
+  try{var r=await fetch('/api/admin/site-settings');var d=await r.json();
+    if(d.ok){var s=d.settings||d;
+      if(s.deepseek_api_key)document.getElementById('deepseekKeyIn').value=s.deepseek_api_key;
+      document.getElementById('deepseekModelIn').value=s.deepseek_model||'deepseek-chat';
+    }
+  }catch(e){}
+}
+async function saveAiSettings(){
+  var data={deepseek_api_key:document.getElementById('deepseekKeyIn').value.trim(),deepseek_model:document.getElementById('deepseekModelIn').value.trim()||'deepseek-chat'};
+  try{var r=await fetch('/api/admin/site-settings',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});
+    var d=await r.json();
+    if(d.ok)toast('تم حفظ إعدادات المساعد الذكي','success');else toast('حدث خطأ','error');
+  }catch(e){toast('حدث خطأ','error')}
 }
 async function loadCurrencySettings(){
   try{var r=await fetch('/api/admin/site-settings');var d=await r.json();
