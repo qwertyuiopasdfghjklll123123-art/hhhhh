@@ -15,4 +15,11 @@ RewriteEngine On
 RewriteCond %{REQUEST_FILENAME} !-f
 RewriteCond %{REQUEST_FILENAME} !-d
 RewriteRule ^app/?$ index.php?page=app [L,QSA]
+
+# روابط نظيفة للوحة التحكم: /admin/categories بدل /admin/categories.php وهكذا لبقية
+# الصفحات (لا تمس /admin/ نفسها، فهي مجلد حقيقي يُخدَّم عبر index.php تلقائياً من السيرفر،
+# ولا تمس أي ملف أو مجلد حقيقي موجود فعلاً مثل admin/assets/)
+RewriteCond %{REQUEST_FILENAME} !-f
+RewriteCond %{REQUEST_FILENAME} !-d
+RewriteRule ^admin/([a-zA-Z_]+)/?$ admin/$1.php [L,QSA]
 </IfModule>

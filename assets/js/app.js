@@ -1777,7 +1777,7 @@
                 if (!basePath.endsWith('/')) basePath += '/';
                 // وصل عبر صفحة لوحة التحكم (لا توجد صفحة دخول منفصلة لها) وحسابه مدير فعلاً:
                 // أعده مباشرة إليها بدل صفحة التطبيق العادية
-                const target = (window.ADMIN_REDIRECT === 'login' && currentUser.isAdmin) ? basePath + 'admin/index.php' : basePath + 'app';
+                const target = (window.ADMIN_REDIRECT === 'login' && currentUser.isAdmin) ? basePath + 'admin/' : basePath + 'app';
                 setTimeout(() => {
                     window.location.href = target;
                 }, 1000);
@@ -2234,10 +2234,6 @@
             updateCartUI(); 
         }
 
-        function toggleCart() {
-            switchPage(currentPage === 'cart' ? 'home' : 'cart');
-        }
-
         function clearCart() {
             showConfirmModal(
                 '🛒 تفريغ السلة',
@@ -2248,10 +2244,6 @@
                     showToast('🗑️ تم تفريغ السلة');
                 }
             );
-        }
-
-        function closeCartSidebar() {
-            switchPage('home');
         }
 
         function checkout() {
@@ -2369,14 +2361,6 @@
                     render();
                 }
             );
-        }
-
-        function toggleFavorites() {
-            switchPage(currentPage === 'favorites' ? 'home' : 'favorites');
-        }
-
-        function closeFavoritesSidebar() {
-            switchPage('home');
         }
 
         function isProductInFavorites(product) {
@@ -2748,7 +2732,7 @@
 
         function openAdminPanel() {
             if(currentUser?.isAdmin && !isGuestMode){
-                window.location.href = 'admin/index.php';
+                window.location.href = 'admin/';
             } else if(isGuestMode) {
                 showToast('⚠️ يجب تسجيل الدخول كمدير للوصول إلى لوحة التحكم');
             }

@@ -32,7 +32,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         admin_flash($name !== null ? 'success' : 'error', $name !== null ? "تم حذف الفئة \"$name\" نهائياً مع كل الشركات والمنتجات والخدمات التابعة لها." : 'تعذّر حذف الفئة.');
     }
 
-    header('Location: categories.php');
+    header('Location: categories');
     exit;
 }
 
@@ -48,7 +48,7 @@ if ($editId) {
 
 $categories = db_list_categories_admin($pdo);
 
-admin_header('الفئات', 'categories.php', 'إدارة أقسام الكتالوج الرئيسية');
+admin_header('الفئات', 'categories', 'إدارة أقسام الكتالوج الرئيسية');
 ?>
 
 <div class="card">
@@ -72,7 +72,7 @@ admin_header('الفئات', 'categories.php', 'إدارة أقسام الكتا
         </div>
         <div style="margin-top:18px;display:flex;gap:10px;">
             <button type="submit" class="btn btn-primary"><i class="fas fa-check"></i> حفظ</button>
-            <?php if ($editRow): ?><a href="categories.php" class="btn btn-outline">إلغاء</a><?php endif; ?>
+            <?php if ($editRow): ?><a href="categories" class="btn btn-outline">إلغاء</a><?php endif; ?>
         </div>
     </form>
 </div>
@@ -92,7 +92,7 @@ admin_header('الفئات', 'categories.php', 'إدارة أقسام الكتا
                     <td><?php echo e($c['name']); ?></td>
                     <td><span class="badge <?php echo $hidden ? 'badge-off' : 'badge-ok'; ?>"><?php echo $hidden ? 'مخفية' : 'ظاهرة'; ?></span></td>
                     <td class="actions-cell">
-                        <a class="btn btn-sm btn-outline" href="categories.php?edit=<?php echo urlencode($c['id']); ?>"><i class="fas fa-pen"></i></a>
+                        <a class="btn btn-sm btn-outline" href="categories?edit=<?php echo urlencode($c['id']); ?>"><i class="fas fa-pen"></i></a>
                         <form method="post" style="display:inline;">
                             <?php echo admin_csrf_field(); ?>
                             <input type="hidden" name="id" value="<?php echo e($c['id']); ?>">

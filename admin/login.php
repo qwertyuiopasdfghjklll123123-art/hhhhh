@@ -5,9 +5,9 @@ require_once __DIR__ . '/includes/bootstrap.php';
 // الموقع الرئيسي (نفس الجلسة وحساب المستخدم نفسه). من كان مسجَّلاً بالفعل وحسابه مدير
 // يدخل مباشرة؛ غير ذلك يُعاد توجيهه لصفحة الدخول الرئيسية وتُعيده تلقائياً هنا بعد الدخول.
 if (isAdmin()) {
-    header('Location: index.php');
+    header('Location: ./');
 } else {
     $reason = isLoggedIn() ? 'not_admin' : 'login';
-    header('Location: ../index.php?admin_redirect=' . $reason);
+    header('Location: ../?admin_redirect=' . $reason);
 }
 exit;

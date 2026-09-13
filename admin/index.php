@@ -5,7 +5,7 @@ require_once __DIR__ . '/includes/layout.php';
 
 $stats = db_get_full_stats($pdo);
 
-admin_header('لوحة المعلومات', 'index.php', 'نظرة عامة سريعة على المتجر');
+admin_header('لوحة المعلومات', 'index', 'نظرة عامة سريعة على المتجر');
 ?>
 
 <div class="grid cols-4">
@@ -25,11 +25,11 @@ admin_header('لوحة المعلومات', 'index.php', 'نظرة عامة سر
 <div class="card" style="margin-top:24px;">
     <h2><i class="fas fa-bolt"></i> اختصارات سريعة</h2>
     <div style="display:flex;gap:10px;flex-wrap:wrap;">
-        <a class="btn btn-outline" href="categories.php"><i class="fas fa-plus"></i> إضافة فئة</a>
-        <a class="btn btn-outline" href="companies.php"><i class="fas fa-plus"></i> إضافة شركة</a>
-        <a class="btn btn-outline" href="products.php"><i class="fas fa-plus"></i> إضافة منتج</a>
-        <a class="btn btn-outline" href="services.php"><i class="fas fa-plus"></i> إضافة خدمة</a>
-        <a class="btn btn-outline" href="import.php"><i class="fas fa-file-import"></i> استيراد بيانات قديمة</a>
+        <a class="btn btn-outline" href="categories"><i class="fas fa-plus"></i> إضافة فئة</a>
+        <a class="btn btn-outline" href="companies"><i class="fas fa-plus"></i> إضافة شركة</a>
+        <a class="btn btn-outline" href="products"><i class="fas fa-plus"></i> إضافة منتج</a>
+        <a class="btn btn-outline" href="services"><i class="fas fa-plus"></i> إضافة خدمة</a>
+        <a class="btn btn-outline" href="import"><i class="fas fa-file-import"></i> استيراد بيانات قديمة</a>
     </div>
 </div>
 

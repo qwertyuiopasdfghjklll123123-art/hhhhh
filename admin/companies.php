@@ -33,7 +33,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         admin_flash($name !== null ? 'success' : 'error', $name !== null ? "تم حذف الشركة \"$name\" نهائياً مع كل منتجاتها." : 'تعذّر حذف الشركة.');
     }
 
-    header('Location: companies.php');
+    header('Location: companies');
     exit;
 }
 
@@ -50,7 +50,7 @@ if ($editId) {
     }
 }
 
-admin_header('الشركات', 'companies.php', 'الشركات المصنّفة تحت كل فئة');
+admin_header('الشركات', 'companies', 'الشركات المصنّفة تحت كل فئة');
 ?>
 
 <div class="card">
@@ -82,7 +82,7 @@ admin_header('الشركات', 'companies.php', 'الشركات المصنّفة
         </div>
         <div style="margin-top:18px;display:flex;gap:10px;">
             <button type="submit" class="btn btn-primary"><i class="fas fa-check"></i> حفظ</button>
-            <?php if ($editRow): ?><a href="companies.php" class="btn btn-outline">إلغاء</a><?php endif; ?>
+            <?php if ($editRow): ?><a href="companies" class="btn btn-outline">إلغاء</a><?php endif; ?>
         </div>
     </form>
     <?php endif; ?>
@@ -104,7 +104,7 @@ admin_header('الشركات', 'companies.php', 'الشركات المصنّفة
                     <td><?php echo e($c['category_name']); ?></td>
                     <td><span class="badge <?php echo $hidden ? 'badge-off' : 'badge-ok'; ?>"><?php echo $hidden ? 'مخفية' : 'ظاهرة'; ?></span></td>
                     <td class="actions-cell">
-                        <a class="btn btn-sm btn-outline" href="companies.php?edit=<?php echo urlencode($c['id']); ?>"><i class="fas fa-pen"></i></a>
+                        <a class="btn btn-sm btn-outline" href="companies?edit=<?php echo urlencode($c['id']); ?>"><i class="fas fa-pen"></i></a>
                         <form method="post" style="display:inline;">
                             <?php echo admin_csrf_field(); ?>
                             <input type="hidden" name="id" value="<?php echo e($c['id']); ?>">

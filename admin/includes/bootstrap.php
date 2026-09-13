@@ -31,7 +31,7 @@ function admin_require_login() {
         // تسجيل الدخول موحّد بالكامل عبر صفحة الموقع الرئيسية (نفس الجلسة)، لا توجد صفحة
         // دخول منفصلة خاصة بلوحة التحكم - يعود المستخدم هنا تلقائياً إن كان حسابه مديراً
         $reason = isLoggedIn() ? 'not_admin' : 'login';
-        header('Location: ../index.php?admin_redirect=' . $reason);
+        header('Location: ../?admin_redirect=' . $reason);
         exit;
     }
 
@@ -58,7 +58,9 @@ function admin_verify_csrf() {
     $token = $_POST['csrf_token'] ?? '';
     if (empty($_SESSION['csrf_token']) || !hash_equals($_SESSION['csrf_token'], $token)) {
         admin_flash('error', 'انتهت صلاحية الجلسة، حاول مرة أخرى.');
-        header('Location: ' . basename($_SERVER['PHP_SELF']));
+        // basename(PHP_SELF) يُرجع دائماً اسم الملف الفعلي بامتداد .php (بصرف النظر عن
+        // إعادة كتابة الرابط)، لذا يُزال الامتداد صراحة حتى يبقى المستخدم على الرابط النظيف
+        header('Location: ' . preg_replace('/\.php$/', '', basename($_SERVER['PHP_SELF'])));
         exit;
     }
 }

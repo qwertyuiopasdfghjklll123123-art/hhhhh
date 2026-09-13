@@ -29,7 +29,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     db_save_settings($pdo, $data);
     admin_flash('success', 'تم حفظ الإعدادات بنجاح.');
-    header('Location: settings.php');
+    header('Location: settings');
     exit;
 }
 
@@ -37,7 +37,7 @@ require_once __DIR__ . '/includes/layout.php';
 $settings = db_get_settings($pdo);
 $welcome = $settings['welcomeCard'] ?? [];
 
-admin_header('الإعدادات', 'settings.php', 'إعدادات التطبيق العامة والبطاقة الترحيبية');
+admin_header('الإعدادات', 'settings', 'إعدادات التطبيق العامة والبطاقة الترحيبية');
 ?>
 
 <form method="post" enctype="multipart/form-data">

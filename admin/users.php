@@ -30,14 +30,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
     }
 
-    header('Location: users.php');
+    header('Location: users');
     exit;
 }
 
 require_once __DIR__ . '/includes/layout.php';
 $users = db_list_users($pdo);
 
-admin_header('المستخدمون', 'users.php', 'حسابات العملاء والمدراء');
+admin_header('المستخدمون', 'users', 'حسابات العملاء والمدراء');
 ?>
 
 <div class="card">

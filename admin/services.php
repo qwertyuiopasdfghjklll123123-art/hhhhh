@@ -42,7 +42,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         admin_flash($name !== null ? 'success' : 'error', $name !== null ? "تم حذف الخدمة \"$name\" نهائياً." : 'تعذّر حذف الخدمة.');
     }
 
-    header('Location: services.php');
+    header('Location: services');
     exit;
 }
 
@@ -59,7 +59,7 @@ if ($editId) {
     }
 }
 
-admin_header('الخدمات', 'services.php', 'الخدمات المرتبطة مباشرة بكل فئة');
+admin_header('الخدمات', 'services', 'الخدمات المرتبطة مباشرة بكل فئة');
 ?>
 
 <div class="card">
@@ -100,7 +100,7 @@ admin_header('الخدمات', 'services.php', 'الخدمات المرتبطة 
         </div>
         <div style="margin-top:18px;display:flex;gap:10px;">
             <button type="submit" class="btn btn-primary"><i class="fas fa-check"></i> حفظ</button>
-            <?php if ($editRow): ?><a href="services.php" class="btn btn-outline">إلغاء</a><?php endif; ?>
+            <?php if ($editRow): ?><a href="services" class="btn btn-outline">إلغاء</a><?php endif; ?>
         </div>
     </form>
     <?php endif; ?>
@@ -133,7 +133,7 @@ admin_header('الخدمات', 'services.php', 'الخدمات المرتبطة 
                     </td>
                     <td><span class="badge <?php echo $hidden ? 'badge-off' : 'badge-muted'; ?>"><?php echo $hidden ? 'مخفية' : 'ظاهرة'; ?></span></td>
                     <td class="actions-cell">
-                        <a class="btn btn-sm btn-outline" href="services.php?edit=<?php echo urlencode($s['id']); ?>"><i class="fas fa-pen"></i></a>
+                        <a class="btn btn-sm btn-outline" href="services?edit=<?php echo urlencode($s['id']); ?>"><i class="fas fa-pen"></i></a>
                         <form method="post" style="display:inline;">
                             <?php echo admin_csrf_field(); ?>
                             <input type="hidden" name="id" value="<?php echo e($s['id']); ?>">

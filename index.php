@@ -445,9 +445,8 @@ $page = isset($_GET['page']) ? $_GET['page'] : '';
 
     <!-- ========== السلة والمفضلات ========== -->
     <div id="cartSidebar" class="cart-sidebar">
-        <div class="cart-header" style="padding:15px; border-bottom:1px solid var(--cardBd); display:flex; justify-content:space-between; align-items:center;">
+        <div class="cart-header" style="padding:15px; border-bottom:1px solid var(--cardBd);">
             <h3>🛒 السلة</h3>
-            <button onclick="toggleCart()" style="background:none; border:none; font-size:1.2rem; cursor:pointer; color:var(--t4);">✕</button>
         </div>
         <div class="cart-items" id="cartItems" style="flex:1; overflow-y:auto; padding:10px;"></div>
         <div class="cart-footer" id="cartFooter" style="display:none; padding:15px; border-top:1px solid var(--cardBd);">
@@ -457,9 +456,8 @@ $page = isset($_GET['page']) ? $_GET['page'] : '';
     </div>
 
     <div id="favoritesSidebar" class="favorites-sidebar">
-        <div class="favorites-header" style="padding:15px; border-bottom:1px solid var(--cardBd); display:flex; justify-content:space-between; align-items:center;">
+        <div class="favorites-header" style="padding:15px; border-bottom:1px solid var(--cardBd);">
             <h3><i class="fas fa-heart" style="color:#ff4757;"></i> المفضلات</h3>
-            <button onclick="toggleFavorites()" style="background:none; border:none; font-size:1.2rem; cursor:pointer; color:var(--t4);">✕</button>
         </div>
         <div class="favorites-items" id="favoritesItems" style="flex:1; overflow-y:auto; padding:10px;"></div>
         <div class="favorites-footer" style="padding:15px; border-top:1px solid var(--cardBd);">

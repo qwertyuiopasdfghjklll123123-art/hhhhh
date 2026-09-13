@@ -151,7 +151,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
     }
 
-    header('Location: import.php');
+    header('Location: import');
     exit;
 }
 
@@ -160,7 +160,7 @@ $legacyImportsDir = __DIR__ . '/../logs/legacy-imports';
 $imageFolders = find_legacy_image_folders($legacyImportsDir);
 $imageZips = find_legacy_image_zips($legacyImportsDir);
 
-admin_header('الاستيراد والتصدير', 'import.php', 'سحب نسخة احتياطية كاملة أو استعادتها، واستيراد بيانات من نظام آخر');
+admin_header('الاستيراد والتصدير', 'import', 'سحب نسخة احتياطية كاملة أو استعادتها، واستيراد بيانات من نظام آخر');
 ?>
 
 <div class="card">
@@ -170,7 +170,7 @@ admin_header('الاستيراد والتصدير', 'import.php', 'سحب نسخ
         الإعدادات والإحصائيات) مع كل الصور الفعلية مضمَّنة بداخله. يمكنك رفعه لاحقاً من قسم الاستيراد
         أدناه لاستعادته - في هذا الموقع نفسه أو موقع آخر - في أي وقت تشاء.
     </p>
-    <a href="export.php" class="btn btn-primary"><i class="fas fa-download"></i> تحميل نسخة احتياطية الآن</a>
+    <a href="export" class="btn btn-primary"><i class="fas fa-download"></i> تحميل نسخة احتياطية الآن</a>
 </div>
 
 <div class="card">

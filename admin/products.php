@@ -44,7 +44,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         admin_flash($name !== null ? 'success' : 'error', $name !== null ? "تم حذف المنتج \"$name\" نهائياً." : 'تعذّر حذف المنتج.');
     }
 
-    header('Location: products.php');
+    header('Location: products');
     exit;
 }
 
@@ -61,7 +61,7 @@ if ($editId) {
     }
 }
 
-admin_header('المنتجات', 'products.php', 'كل المنتجات عبر جميع الشركات والفئات');
+admin_header('المنتجات', 'products', 'كل المنتجات عبر جميع الشركات والفئات');
 ?>
 
 <div class="card">
@@ -120,7 +120,7 @@ admin_header('المنتجات', 'products.php', 'كل المنتجات عبر �
         </div>
         <div style="margin-top:18px;display:flex;gap:10px;">
             <button type="submit" class="btn btn-primary"><i class="fas fa-check"></i> حفظ</button>
-            <?php if ($editRow): ?><a href="products.php" class="btn btn-outline">إلغاء</a><?php endif; ?>
+            <?php if ($editRow): ?><a href="products" class="btn btn-outline">إلغاء</a><?php endif; ?>
         </div>
     </form>
     <?php endif; ?>
@@ -155,7 +155,7 @@ admin_header('المنتجات', 'products.php', 'كل المنتجات عبر �
                     </td>
                     <td><span class="badge <?php echo $hidden ? 'badge-off' : 'badge-muted'; ?>"><?php echo $hidden ? 'مخفي' : 'ظاهر'; ?></span></td>
                     <td class="actions-cell">
-                        <a class="btn btn-sm btn-outline" href="products.php?edit=<?php echo urlencode($p['id']); ?>"><i class="fas fa-pen"></i></a>
+                        <a class="btn btn-sm btn-outline" href="products?edit=<?php echo urlencode($p['id']); ?>"><i class="fas fa-pen"></i></a>
                         <form method="post" style="display:inline;">
                             <?php echo admin_csrf_field(); ?>
                             <input type="hidden" name="id" value="<?php echo e($p['id']); ?>">
