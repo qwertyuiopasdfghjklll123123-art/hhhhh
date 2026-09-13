@@ -1,6 +1,3 @@
-        // ========== تعريف مسار مجلد الصور ==========
-        const UPLOADS_PATH = 'uploads/';
-
         // ========== تحميل الصور مسبقاً ==========
         function preloadImages() {
             const preloadContainer = document.getElementById('preloadImages');
@@ -9,20 +6,20 @@
             const imagePaths = [];
             if (catalogData && catalogData.categories) {
                 catalogData.categories.forEach(cat => {
-                    if (cat.image) imagePaths.push(UPLOADS_PATH + cat.image);
+                    if (cat.image) imagePaths.push(cat.image);
                     if (cat.companies) {
                         cat.companies.forEach(comp => {
-                            if (comp.logo) imagePaths.push(UPLOADS_PATH + comp.logo);
+                            if (comp.logo) imagePaths.push(comp.logo);
                             if (comp.products) {
                                 comp.products.forEach(prod => {
-                                    if (prod.img) imagePaths.push(UPLOADS_PATH + prod.img);
+                                    if (prod.img) imagePaths.push(prod.img);
                                 });
                             }
                         });
                     }
                     if (cat.services) {
                         cat.services.forEach(service => {
-                            if (service.img) imagePaths.push(UPLOADS_PATH + service.img);
+                            if (service.img) imagePaths.push(service.img);
                         });
                     }
                 });
@@ -59,14 +56,11 @@
             console.log(`✅ تم تحميل ${uniquePaths.length} صورة مسبقاً`);
         }
 
-        // ========== دالة مساعدة لإضافة مسار المجلد للصورة ==========
+        // ========== دالة مساعدة لعرض رابط الصورة ==========
+        // القيمة القادمة من الخادم (catalogData) هي دائماً رابط جاهز للعرض مباشرة (رابط
+        // خارجي، أو نقطة عرض BLOB من MySQL)، أو data: مؤقتة عند معاينة صورة قبل حفظها
         function getImageUrl(imageName, defaultImage = 'https://iili.io/CKP5shF.jpg') {
-            if (!imageName) return defaultImage;
-            if (imageName.startsWith('http://') || imageName.startsWith('https://')) {
-                return imageName;
-            }
-            if (imageName.startsWith('data:') || imageName.startsWith('http')) return imageName;
-            return UPLOADS_PATH + imageName;
+            return imageName || defaultImage;
         }
 
         // إخفاء شاشة التحميل بعد تحميل الصفحة

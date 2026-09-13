@@ -114,15 +114,15 @@ function import_flat_products_sqlite(PDO $pdo, string $sqliteFilePath, string $t
             $available = !in_array($status, $hiddenStatuses, true);
 
             $img = trim((string)($row['img'] ?? ''));
-            $imgToStore = null;
+            $imgBlob = null;
+            $imageUrl = null;
             if ($img !== '') {
                 if (strpos($img, 'data:image') === 0) {
-                    $imgToStore = handleImageUpload($img, 'prod');
+                    $imgBlob = decodeImageBase64($img); // يُخزَّن مباشرة كـ BLOB في MySQL
                 } elseif (strpos($img, 'http') === 0) {
-                    $imgToStore = null; // يُحفظ كرابط خارجي عبر image_url بدل img
-                } else {
-                    $imgToStore = $img; // اسم ملف يُفترض أنه سيُنسخ يدوياً إلى uploads/
+                    $imageUrl = $img; // يُحفظ كرابط خارجي عبر image_url بدل img
                 }
+                // اسم ملف مجرّد بلا محتوى فعلي: يُترك بلا صورة الآن (لا يوجد ملف قابل للقراءة هنا)
             }
 
             db_create_product($pdo, $companyId, [
@@ -130,9 +130,9 @@ function import_flat_products_sqlite(PDO $pdo, string $sqliteFilePath, string $t
                 'code' => $row['code'] ?? null,
                 'color' => $row['color'] ?? null,
                 'price' => $row['price'] ?? null,
-                'image_url' => (strpos($img, 'http') === 0) ? $img : null,
+                'image_url' => $imageUrl,
                 'available' => $available,
-            ], $imgToStore);
+            ], $imgBlob);
 
             $summary['products']++;
         }
@@ -195,8 +195,8 @@ function import_images_as_products(PDO $pdo, string $folderPath, string $categor
         $companyId = db_create_company($pdo, $categoryId, $companyName, null);
 
         foreach ($files as $originalName => $path) {
-            $savedFilename = handleLocalImageFile($path, 'prod');
-            if (!$savedFilename) {
+            $imgBlob = readLocalImageFile($path);
+            if (!$imgBlob) {
                 $summary['skipped']++;
                 continue;
             }
@@ -207,7 +207,7 @@ function import_images_as_products(PDO $pdo, string $folderPath, string $categor
             db_create_product($pdo, $companyId, [
                 'name' => $name,
                 'available' => true,
-            ], $savedFilename);
+            ], $imgBlob);
 
             $summary['products']++;
         }
@@ -255,26 +255,54 @@ function find_legacy_image_zips(string $legacyImportsDir): array {
     return $found;
 }
 
-// يتحقق من أن الملف صورة حقيقية (وليس مجرد امتداد صورة) وامتداده مسموح، ثم ينسخه إلى
-// uploads/ باسمه الأصلي كما هو (لأن المنتجات/الخدمات المستوردة مسبقاً من database.json
-// تشير للصور بهذا الاسم بالضبط). لا يُنشئ أي منتج جديد ولا يُغيّر قاعدة البيانات إطلاقاً.
-function copyValidatedImageToUploads(string $srcPath, string $uploadsDir, string $displayName): bool {
+// يتحقق من أن الملف صورة حقيقية فعلاً (وليس مجرد امتداد) ويُرجع بياناتها الثنائية ونوعها
+// جاهزة للتخزين المباشر كـ BLOB، أو null إن لم تكن صورة صالحة
+function validatedImageBytes(string $srcPath, string $displayName): ?array {
     $ext = strtolower(pathinfo($displayName, PATHINFO_EXTENSION));
-    if (!in_array($ext, ['jpg', 'jpeg', 'png', 'gif', 'webp'], true)) return false;
-    if (@getimagesize($srcPath) === false) return false;
-
-    $safeName = basename($displayName);
-    if ($safeName === '' || $safeName === '.' || $safeName === '..') return false;
-
-    return @copy($srcPath, rtrim($uploadsDir, '/') . '/' . $safeName);
+    if (!in_array($ext, ['jpg', 'jpeg', 'png', 'gif', 'webp'], true)) return null;
+    $info = @getimagesize($srcPath);
+    if ($info === false) return null;
+    $data = @file_get_contents($srcPath);
+    if ($data === false) return null;
+    return ['data' => $data, 'mime' => $info['mime']];
 }
 
-// ينسخ صور موجودة مسبقاً (منتجات/خدمات مستوردة من database.json تشير لصور بالاسم فقط)
-// إلى مجلد uploads/ دون إنشاء أي منتجات جديدة أو تعديل القاعدة. $files اختياري:
-// مصفوفة [اسم الملف => المسار الكامل] لملفات مرفوعة؛ إن تُرك فارغاً يُقرأ $folderPath
-// من القرص (بما فيه المجلدات الفرعية، لدعم مجلدات منظمة حسب الفئة/الشركة).
-function import_images_into_uploads(PDO $pdo, string $uploadsDir, string $folderPath, ?array $files = null): array {
-    $summary = ['copied' => 0, 'skipped' => 0, 'matched' => 0, 'unmatched' => 0, 'referenced_total' => 0, 'error' => null];
+// يخزّن بيانات صورة واحدة داخل أي صف (فئة/شركة/منتج/خدمة/إعدادات) يشير عمود صورته الحالي
+// (image/logo/img/app_logo) بالاسم نفسه بالضبط - مطابقة بالاسم فقط، دون إنشاء أي صف جديد
+// ودون تعديل أي عمود آخر. يُرجع عدد الصفوف التي تحدّثت فعلياً.
+function storeImageByFilename(PDO $pdo, string $filename, string $data, string $mime): int {
+    $updated = 0;
+
+    $stmt = $pdo->prepare('UPDATE categories SET image_data = ?, image_mime = ? WHERE image = ?');
+    $stmt->execute([$data, $mime, $filename]);
+    $updated += $stmt->rowCount();
+
+    $stmt = $pdo->prepare('UPDATE companies SET logo_data = ?, logo_mime = ? WHERE logo = ?');
+    $stmt->execute([$data, $mime, $filename]);
+    $updated += $stmt->rowCount();
+
+    $stmt = $pdo->prepare('UPDATE products SET img_data = ?, img_mime = ? WHERE img = ?');
+    $stmt->execute([$data, $mime, $filename]);
+    $updated += $stmt->rowCount();
+
+    $stmt = $pdo->prepare('UPDATE services SET img_data = ?, img_mime = ? WHERE img = ?');
+    $stmt->execute([$data, $mime, $filename]);
+    $updated += $stmt->rowCount();
+
+    $stmt = $pdo->prepare('UPDATE settings SET app_logo_data = ?, app_logo_mime = ? WHERE id = 1 AND app_logo = ?');
+    $stmt->execute([$data, $mime, $filename]);
+    $updated += $stmt->rowCount();
+
+    return $updated;
+}
+
+// يقرأ صوراً من مجلد (بما فيه المجلدات الفرعية) أو من خريطة ملفات مرفوعة، ويخزّن محتوى كل
+// صورة مباشرة داخل MySQL (BLOB) لأي فئة/شركة/منتج/خدمة/شعار يشير عمود صورته الحالي لنفس
+// اسم الملف بالضبط (كما استوردته database.json). لا يُنشئ أي صف جديد ولا يكتب أي ملف على
+// القرص - هذا استكمال لبيانات صور مُشار إليها بالاسم فقط. $files اختياري: مصفوفة
+// [اسم الملف => المسار الكامل] لملفات مرفوعة؛ إن تُرك فارغاً يُقرأ $folderPath من القرص.
+function import_images_into_mysql(PDO $pdo, string $folderPath, ?array $files = null): array {
+    $summary = ['stored' => 0, 'skipped' => 0, 'matched' => 0, 'unmatched' => 0, 'referenced_total' => 0, 'error' => null];
 
     if ($files === null) {
         if (!is_dir($folderPath)) {
@@ -297,24 +325,27 @@ function import_images_into_uploads(PDO $pdo, string $uploadsDir, string $folder
         return $summary;
     }
 
-    if (!is_dir($uploadsDir)) @mkdir($uploadsDir, 0755, true);
-
     foreach ($files as $originalName => $path) {
-        if (copyValidatedImageToUploads($path, $uploadsDir, $originalName)) {
-            $summary['copied']++;
-        } else {
+        $img = validatedImageBytes($path, $originalName);
+        if (!$img) {
             $summary['skipped']++;
+            continue;
         }
+        $matches = storeImageByFilename($pdo, basename($originalName), $img['data'], $img['mime']);
+        $matches > 0 ? $summary['stored']++ : $summary['skipped']++;
     }
 
-    db_report_image_coverage($pdo, $uploadsDir, $summary);
+    $coverage = db_count_stored_images($pdo);
+    $summary['referenced_total'] = $coverage['total'];
+    $summary['matched'] = $coverage['stored'];
+    $summary['unmatched'] = $coverage['missing'];
     return $summary;
 }
 
-// نفس فكرة import_images_into_uploads لكن المصدر ملف ZIP واحد (أسهل للرفع من لوحة
-// التحكم لمجلد كبير من الصور دفعة واحدة، بدل اختيار كل صورة على حدة).
-function import_images_zip_into_uploads(PDO $pdo, string $uploadsDir, string $zipPath): array {
-    $summary = ['copied' => 0, 'skipped' => 0, 'matched' => 0, 'unmatched' => 0, 'referenced_total' => 0, 'error' => null];
+// نفس فكرة import_images_into_mysql لكن المصدر ملف ZIP واحد (أسهل لرفع عدد كبير من
+// الصور دفعة واحدة من لوحة التحكم بدل اختيار كل صورة على حدة)
+function import_images_zip_into_mysql(PDO $pdo, string $zipPath): array {
+    $summary = ['stored' => 0, 'skipped' => 0, 'matched' => 0, 'unmatched' => 0, 'referenced_total' => 0, 'error' => null];
 
     $zip = new ZipArchive();
     if ($zip->open($zipPath) !== true) {
@@ -322,52 +353,29 @@ function import_images_zip_into_uploads(PDO $pdo, string $uploadsDir, string $zi
         return $summary;
     }
 
-    if (!is_dir($uploadsDir)) @mkdir($uploadsDir, 0755, true);
-
-    $tmpDir = sys_get_temp_dir() . '/almulla_zip_' . bin2hex(random_bytes(6));
-    @mkdir($tmpDir, 0755, true);
-
     for ($i = 0; $i < $zip->numFiles; $i++) {
         $entryName = $zip->getNameIndex($i);
         if ($entryName === false || substr($entryName, -1) === '/') continue; // مجلد، تجاهله
 
         $baseName = basename($entryName);
-        $tmpPath = $tmpDir . '/' . bin2hex(random_bytes(6)) . '_' . $baseName;
-        $stream = $zip->getStream($entryName);
-        if (!$stream) { $summary['skipped']++; continue; }
+        $ext = strtolower(pathinfo($baseName, PATHINFO_EXTENSION));
+        if (!in_array($ext, ['jpg', 'jpeg', 'png', 'gif', 'webp'], true)) { $summary['skipped']++; continue; }
 
-        $out = @fopen($tmpPath, 'wb');
-        if ($out) {
-            stream_copy_to_stream($stream, $out);
-            fclose($out);
-        }
-        fclose($stream);
+        $data = $zip->getFromIndex($i);
+        if ($data === false) { $summary['skipped']++; continue; }
 
-        if (is_file($tmpPath) && copyValidatedImageToUploads($tmpPath, $uploadsDir, $baseName)) {
-            $summary['copied']++;
-        } else {
-            $summary['skipped']++;
-        }
-        @unlink($tmpPath);
+        $info = @getimagesizefromstring($data);
+        if ($info === false) { $summary['skipped']++; continue; }
+
+        $matches = storeImageByFilename($pdo, $baseName, $data, $info['mime']);
+        $matches > 0 ? $summary['stored']++ : $summary['skipped']++;
     }
 
     $zip->close();
-    @rmdir($tmpDir);
 
-    db_report_image_coverage($pdo, $uploadsDir, $summary);
+    $coverage = db_count_stored_images($pdo);
+    $summary['referenced_total'] = $coverage['total'];
+    $summary['matched'] = $coverage['stored'];
+    $summary['unmatched'] = $coverage['missing'];
     return $summary;
-}
-
-// يحدّث $summary بعدد الصور المطلوبة (يشير إليها الكتالوج الحالي) المتوفرة فعلاً
-// داخل uploads/ بعد النسخ، مقابل ما زال ناقصاً
-function db_report_image_coverage(PDO $pdo, string $uploadsDir, array &$summary): void {
-    $referenced = db_list_referenced_images($pdo);
-    $summary['referenced_total'] = count($referenced);
-    foreach ($referenced as $refName) {
-        if (is_file(rtrim($uploadsDir, '/') . '/' . $refName)) {
-            $summary['matched']++;
-        } else {
-            $summary['unmatched']++;
-        }
-    }
 }

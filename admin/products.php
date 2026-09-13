@@ -21,7 +21,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if ($name === '' || $companyId === '') {
             admin_flash('error', 'اسم المنتج والشركة مطلوبان.');
         } else {
-            $newImg = handleFileUpload($_FILES['img'] ?? null, 'prod');
+            $newImg = readUploadedImage($_FILES['img'] ?? null);
             if ($id === '') {
                 db_create_product($pdo, $companyId, $fields, $newImg);
                 admin_flash('success', 'تمت إضافة المنتج بنجاح.');
@@ -137,7 +137,7 @@ admin_header('المنتجات', 'products.php', 'كل المنتجات عبر �
             <tbody>
             <?php foreach ($products as $p): $hidden = $p['deleted_card'] === 'ok'; ?>
                 <tr>
-                    <td><img class="cell-img" src="<?php echo $p['img'] ? '../uploads/' . e($p['img']) : ($p['image_url'] ?: 'https://iili.io/CKP5shF.jpg'); ?>" alt=""></td>
+                    <td><img class="cell-img" src="<?php echo $p['img'] ? '../index.php?image=product&id=' . urlencode($p['id']) : ($p['image_url'] ?: 'https://iili.io/CKP5shF.jpg'); ?>" alt=""></td>
                     <td><?php echo e($p['name']); ?><?php if ($p['code']): ?><br><small style="color:var(--muted)"><?php echo e($p['code']); ?></small><?php endif; ?></td>
                     <td><?php echo e($p['company_name'] . ' / ' . $p['category_name']); ?></td>
                     <td><?php echo e($p['price'] ?: '—'); ?></td>

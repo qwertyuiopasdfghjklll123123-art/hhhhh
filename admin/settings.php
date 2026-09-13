@@ -20,9 +20,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         ],
     ];
 
-    $newLogo = handleFileUpload($_FILES['appLogoFile'] ?? null, 'logo');
+    $newLogo = readUploadedImage($_FILES['appLogoFile'] ?? null);
     if ($newLogo) {
-        $data['appLogo'] = 'uploads/' . $newLogo;
+        $data['appLogoBlob'] = $newLogo;
     } elseif (!empty(trim($_POST['appLogoUrl'] ?? ''))) {
         $data['appLogo'] = trim($_POST['appLogoUrl']);
     }
@@ -62,7 +62,7 @@ admin_header('الإعدادات', 'settings.php', 'إعدادات التطبي�
     <div class="form-row">
         <div>
             <label>رابط شعار التطبيق (اختياري)</label>
-            <input type="text" name="appLogoUrl" value="<?php echo (strpos($settings['appLogo'] ?? '', 'uploads/') === 0) ? '' : e($settings['appLogo'] ?? ''); ?>" placeholder="https://...">
+            <input type="text" name="appLogoUrl" value="<?php echo (strpos($settings['appLogo'] ?? '', 'index.php?image=') === 0) ? '' : e($settings['appLogo'] ?? ''); ?>" placeholder="https://...">
         </div>
         <div>
             <label>أو ارفع ملف شعار جديد</label>

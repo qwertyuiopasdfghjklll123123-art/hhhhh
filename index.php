@@ -6,12 +6,6 @@ ini_set('log_errors', 1);
 
 require_once __DIR__ . '/includes/functions.php';
 
-// إنشاء مجلد uploads إذا لم يكن موجوداً
-$uploadsDir = __DIR__ . '/uploads';
-if (!file_exists($uploadsDir)) {
-    @mkdir($uploadsDir, 0755, true);
-}
-
 // إذا لم يكتمل التنصيب بعد، وجّه المستخدم إلى ملف التنصيب
 if (!file_exists(__DIR__ . '/config.php')) {
     header('Location: install.php');
@@ -61,6 +55,31 @@ if (!$action && $_SERVER['REQUEST_METHOD'] === 'POST') {
 
 if ($action) {
     require __DIR__ . '/includes/api.php';
+    exit;
+}
+
+// ===== عرض صورة مخزَّنة كبيانات BLOB داخل MySQL (فئة/شركة/منتج/خدمة/شعار) =====
+if (isset($_GET['image'])) {
+    $pdo = getDb();
+    $imageType = $_GET['image'];
+    $blob = null;
+    if ($imageType === 'logo') {
+        $blob = db_get_logo_blob($pdo);
+    } elseif (in_array($imageType, ['category', 'company', 'product', 'service'], true)) {
+        $entityId = (string)($_GET['id'] ?? '');
+        if ($entityId !== '') {
+            $blob = db_get_image_blob($pdo, $imageType, $entityId);
+        }
+    }
+
+    if ($blob) {
+        header('Content-Type: ' . $blob['mime']);
+        header('Content-Length: ' . (string)strlen($blob['data']));
+        header('Cache-Control: public, max-age=31536000, immutable');
+        echo $blob['data'];
+    } else {
+        header('Location: https://iili.io/CKP5shF.jpg');
+    }
     exit;
 }
 

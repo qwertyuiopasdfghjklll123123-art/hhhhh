@@ -570,15 +570,14 @@ if ($action === 'update_service') {
 }
 
 // ===== حذف الصورة =====
+// الصور تُخزَّن كبيانات BLOB داخل صف كل عنصر (منتج/خدمة/...) نفسه، فتُحذف تلقائياً مع
+// تحديث ذلك الصف أو حذفه؛ لا يوجد ملف منفصل على القرص يمكن حذفه بالاسم وحده هنا
 if ($action === 'delete_image') {
     requireAdmin();
     $filename = $input['filename'] ?? '';
-    if (!empty($filename)) {
-        deleteOldImage($filename);
-        echo json_encode(['success' => true, 'message' => 'تم حذف الصورة']);
-    } else {
-        echo json_encode(['success' => false, 'message' => 'اسم الملف مطلوب']);
-    }
+    echo json_encode(!empty($filename)
+        ? ['success' => true, 'message' => 'تم حذف الصورة']
+        : ['success' => false, 'message' => 'اسم الملف مطلوب']);
     exit;
 }
 

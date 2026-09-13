@@ -19,7 +19,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if ($name === '' || $categoryId === '') {
             admin_flash('error', 'اسم الخدمة والفئة مطلوبان.');
         } else {
-            $newImg = handleFileUpload($_FILES['img'] ?? null, 'service');
+            $newImg = readUploadedImage($_FILES['img'] ?? null);
             if ($id === '') {
                 db_create_service($pdo, $categoryId, $fields, $newImg);
                 admin_flash('success', 'تمت إضافة الخدمة بنجاح.');
@@ -117,7 +117,7 @@ admin_header('الخدمات', 'services.php', 'الخدمات المرتبطة 
             <tbody>
             <?php foreach ($services as $s): $hidden = $s['deleted_card'] === 'ok'; ?>
                 <tr>
-                    <td><img class="cell-img" src="<?php echo $s['img'] ? '../uploads/' . e($s['img']) : 'https://iili.io/CKP5shF.jpg'; ?>" alt=""></td>
+                    <td><img class="cell-img" src="<?php echo $s['img'] ? '../index.php?image=service&id=' . urlencode($s['id']) : 'https://iili.io/CKP5shF.jpg'; ?>" alt=""></td>
                     <td><?php echo e($s['name']); ?></td>
                     <td><?php echo e($s['category_name']); ?></td>
                     <td>

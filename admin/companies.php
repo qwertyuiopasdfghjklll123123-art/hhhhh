@@ -13,7 +13,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if ($name === '' || $categoryId === '') {
             admin_flash('error', 'اسم الشركة والفئة مطلوبان.');
         } else {
-            $newLogo = handleFileUpload($_FILES['logo'] ?? null, 'logo');
+            $newLogo = readUploadedImage($_FILES['logo'] ?? null);
             if ($id === '') {
                 db_create_company($pdo, $categoryId, $name, $newLogo);
                 admin_flash('success', 'تمت إضافة الشركة بنجاح.');
@@ -99,7 +99,7 @@ admin_header('الشركات', 'companies.php', 'الشركات المصنّفة
             <tbody>
             <?php foreach ($companies as $c): $hidden = $c['deleted_card'] === 'ok'; ?>
                 <tr>
-                    <td><img class="cell-img" src="<?php echo $c['logo'] ? '../uploads/' . e($c['logo']) : 'https://iili.io/CKP5shF.jpg'; ?>" alt=""></td>
+                    <td><img class="cell-img" src="<?php echo $c['logo'] ? '../index.php?image=company&id=' . urlencode($c['id']) : 'https://iili.io/CKP5shF.jpg'; ?>" alt=""></td>
                     <td><?php echo e($c['name']); ?></td>
                     <td><?php echo e($c['category_name']); ?></td>
                     <td><span class="badge <?php echo $hidden ? 'badge-off' : 'badge-ok'; ?>"><?php echo $hidden ? 'مخفية' : 'ظاهرة'; ?></span></td>

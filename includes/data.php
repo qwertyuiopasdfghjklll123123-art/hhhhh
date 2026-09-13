@@ -124,8 +124,8 @@ function db_get_settings(PDO $pdo): array {
         $welcomeCard = json_decode($row['welcome_card'], true);
     }
     $appLogo = $row['app_logo'];
-    if (!empty($appLogo) && strpos($appLogo, 'http') !== 0 && strpos($appLogo, '/') === false) {
-        $appLogo = 'uploads/' . $appLogo;
+    if (!empty($appLogo) && strpos($appLogo, 'http') !== 0) {
+        $appLogo = !empty($row['app_logo_data']) ? 'index.php?image=logo' : null;
     }
     return [
         'appName' => $row['app_name'],
@@ -142,14 +142,26 @@ function db_save_settings(PDO $pdo, array $input): void {
     $sets = [];
     $params = [];
 
-    if (isset($input['appLogo'])) {
-        // شعار مضمّن كـ base64 يُحفظ كملف حقيقي في uploads/ بدل تخزينه نصاً ضخماً في القاعدة.
-        // القيمة المخزّنة اسم ملف مجرّد (كبقية أعمدة الصور)؛ db_get_settings() تضيف "uploads/" عند القراءة.
-        $existing = fetchOneValue($pdo, 'SELECT app_logo FROM settings WHERE id = 1', [], 'app_logo');
-        $existingBare = (!empty($existing) && strpos($existing, 'uploads/') === 0) ? substr($existing, strlen('uploads/')) : $existing;
-        $logo = resolveImageField($input['appLogo'], $existingBare, 'logo');
+    // الشعار يُخزَّن كبيانات BLOB مباشرة داخل MySQL (app_logo_data/app_logo_mime)، وعمود
+    // app_logo نفسه يبقى اسماً تعريفياً فقط (أو رابطاً خارجياً كما هو). appLogoBlob: بيانات
+    // مُتحقَّق منها مسبقاً (رفع ملف من لوحة التحكم)؛ appLogo: رابط/اسم أو data: base64 (من SPA)
+    if (isset($input['appLogoBlob']) && is_array($input['appLogoBlob'])) {
         $sets[] = 'app_logo = ?';
-        $params[] = $logo;
+        $params[] = newImageFilename('logo', $input['appLogoBlob']['mime']);
+        $sets[] = 'app_logo_data = ?';
+        $params[] = $input['appLogoBlob']['data'];
+        $sets[] = 'app_logo_mime = ?';
+        $params[] = $input['appLogoBlob']['mime'];
+    } elseif (isset($input['appLogo'])) {
+        $row = $pdo->query('SELECT app_logo, app_logo_data, app_logo_mime FROM settings WHERE id = 1')->fetch();
+        $existing = ['name' => $row['app_logo'] ?? null, 'data' => $row['app_logo_data'] ?? null, 'mime' => $row['app_logo_mime'] ?? null];
+        $resolved = resolveImageBlobField($input['appLogo'], $existing, 'logo');
+        $sets[] = 'app_logo = ?';
+        $params[] = $resolved['name'];
+        $sets[] = 'app_logo_data = ?';
+        $params[] = $resolved['data'];
+        $sets[] = 'app_logo_mime = ?';
+        $params[] = $resolved['mime'];
     }
 
     $map = [
@@ -260,25 +272,74 @@ function db_delete_most_requested(PDO $pdo, string $name, string $category): voi
     $pdo->prepare('DELETE FROM most_requested_items WHERE name = ? AND category = ?')->execute([$name, $category]);
 }
 
-// يجمع كل أسماء ملفات الصور التي يشير إليها الكتالوج الحالي فعلياً (منتجات، خدمات،
-// شعار الموقع) دون تكرار. تُستخدم لمعرفة أي الصور ما زالت ناقصة داخل uploads/ بعد
-// استيراد بيانات تشير للصور بالاسم فقط (بلا محتوى الصورة نفسه).
+// يجمع كل أسماء ملفات الصور التي يشير إليها الكتالوج الحالي فعلياً (فئات، شركات، منتجات،
+// خدمات، شعار الموقع) دون تكرار. تُستخدم لمعرفة أي الصور ما زال محتواها ناقصاً داخل MySQL
+// بعد استيراد بيانات تشير للصور بالاسم فقط (بلا محتوى الصورة نفسه).
 function db_list_referenced_images(PDO $pdo): array {
     $names = [];
-    foreach ($pdo->query("SELECT img FROM products WHERE img IS NOT NULL AND img <> ''")->fetchAll() as $row) {
-        $names[] = $row['img'];
+    $queries = [
+        "SELECT image AS n FROM categories WHERE image IS NOT NULL AND image <> '' AND image NOT LIKE 'http%'",
+        "SELECT logo AS n FROM companies WHERE logo IS NOT NULL AND logo <> '' AND logo NOT LIKE 'http%'",
+        "SELECT img AS n FROM products WHERE img IS NOT NULL AND img <> '' AND img NOT LIKE 'http%'",
+        "SELECT img AS n FROM services WHERE img IS NOT NULL AND img <> '' AND img NOT LIKE 'http%'",
+        "SELECT app_logo AS n FROM settings WHERE id = 1 AND app_logo IS NOT NULL AND app_logo <> '' AND app_logo NOT LIKE 'http%'",
+    ];
+    foreach ($queries as $sql) {
+        foreach ($pdo->query($sql)->fetchAll() as $row) {
+            $names[] = $row['n'];
+        }
     }
-    foreach ($pdo->query("SELECT img FROM services WHERE img IS NOT NULL AND img <> ''")->fetchAll() as $row) {
-        $names[] = $row['img'];
-    }
-    $logo = fetchOneValue($pdo, "SELECT app_logo FROM settings WHERE id = 1 AND app_logo IS NOT NULL AND app_logo <> ''", [], 'app_logo');
-    if ($logo) $names[] = $logo;
-
-    $names = array_map(function ($n) {
-        return strpos($n, 'uploads/') === 0 ? substr($n, strlen('uploads/')) : $n;
-    }, $names);
-
     return array_values(array_unique($names));
+}
+
+// يعدّ كم صورة من الصور التي يشير إليها الكتالوج الحالي (عبر db_list_referenced_images)
+// أصبح محتواها الفعلي مخزَّناً في MySQL (img_data/logo_data/... ليس NULL) مقابل ما زال ناقصاً
+function db_count_stored_images(PDO $pdo): array {
+    $referenced = db_list_referenced_images($pdo);
+    $total = count($referenced);
+    if ($total === 0) return ['total' => 0, 'stored' => 0, 'missing' => 0];
+
+    $ph = implode(',', array_fill(0, $total, '?'));
+    $stmt = $pdo->prepare("SELECT COUNT(*) c FROM categories WHERE image IN ($ph) AND image_data IS NOT NULL");
+    $stmt->execute($referenced); $stored = (int)$stmt->fetch()['c'];
+
+    $stmt = $pdo->prepare("SELECT COUNT(*) c FROM companies WHERE logo IN ($ph) AND logo_data IS NOT NULL");
+    $stmt->execute($referenced); $stored += (int)$stmt->fetch()['c'];
+
+    $stmt = $pdo->prepare("SELECT COUNT(*) c FROM products WHERE img IN ($ph) AND img_data IS NOT NULL");
+    $stmt->execute($referenced); $stored += (int)$stmt->fetch()['c'];
+
+    $stmt = $pdo->prepare("SELECT COUNT(*) c FROM services WHERE img IN ($ph) AND img_data IS NOT NULL");
+    $stmt->execute($referenced); $stored += (int)$stmt->fetch()['c'];
+
+    $stmt = $pdo->prepare("SELECT COUNT(*) c FROM settings WHERE id = 1 AND app_logo IN ($ph) AND app_logo_data IS NOT NULL");
+    $stmt->execute($referenced); $stored += (int)$stmt->fetch()['c'];
+
+    return ['total' => $total, 'stored' => $stored, 'missing' => $total - $stored];
+}
+
+// يجلب بيانات صورة واحدة (ثنائية + نوعها) لعرضها عبر نقطة index.php?image=... . يُستخدم
+// من نقطة العرض فقط، لذلك $type يأتي من قائمة ثابتة داخل index.php وليس من مُدخل حر.
+function db_get_image_blob(PDO $pdo, string $type, string $id): ?array {
+    $map = [
+        'category' => ['categories', 'image_data', 'image_mime'],
+        'company' => ['companies', 'logo_data', 'logo_mime'],
+        'product' => ['products', 'img_data', 'img_mime'],
+        'service' => ['services', 'img_data', 'img_mime'],
+    ];
+    if (!isset($map[$type])) return null;
+    [$table, $dataCol, $mimeCol] = $map[$type];
+    $stmt = $pdo->prepare("SELECT $dataCol AS data, $mimeCol AS mime FROM $table WHERE id = ?");
+    $stmt->execute([$id]);
+    $row = $stmt->fetch();
+    if (!$row || empty($row['data'])) return null;
+    return ['data' => $row['data'], 'mime' => $row['mime'] ?: 'image/jpeg'];
+}
+
+function db_get_logo_blob(PDO $pdo): ?array {
+    $row = $pdo->query('SELECT app_logo_data AS data, app_logo_mime AS mime FROM settings WHERE id = 1')->fetch();
+    if (!$row || empty($row['data'])) return null;
+    return ['data' => $row['data'], 'mime' => $row['mime'] ?: 'image/jpeg'];
 }
 
 // ---------------------------------------------------------------
@@ -291,27 +352,46 @@ function fetchOneValue(PDO $pdo, string $sql, array $params, string $col) {
     return $row ? $row[$col] : null;
 }
 
-// يقرر القيمة النهائية لحقل صورة عند التزامن: يرفع صورة base64 جديدة إن وُجدت
-// ويحذف القديمة، أو يُبقي القيمة كما هي (رابط/اسم ملف موجود مسبقاً)
-function resolveImageField($newValue, $existingValue, string $prefix) {
+// يقرر القيم النهائية لحقل صورة عند التزامن/التعديل: صورة base64 جديدة تُفكّ وتُتحقق ثم
+// تُعاد كبيانات BLOB جاهزة للتخزين المباشر في MySQL باسم تعريفي جديد، أو تبقى القيم
+// الحالية (اسم + بيانات) كما هي إن لم تُرسل صورة جديدة أو كان الاسم نفسه لم يتغيّر، أو
+// اسم/رابط مختلف بلا بيانات بعد (بانتظار مزامنة الصور الفعلية).
+// $existing = ['name' => ?string, 'data' => ?string, 'mime' => ?string]
+//
+// ملاحظة مهمة: الواجهة (save_catalog) تُعيد إرسال الشجرة كاملة في كل حفظ، بما فيها حقول
+// صور عناصر لم تتغيّر إطلاقاً - وقيمتها عندها هي رابط العرض الذي ولّدناه نحن في
+// catalogImageUrl() (مثل index.php?image=product&id=x)، وليس الاسم المجرّد المخزَّن. لذا
+// أي قيمة بهذا الشكل تُعامَل دائماً على أنها "بلا تغيير"، وإلا لكانت كل عملية حفظ تمسح
+// بيانات الصورة الفعلية لكل عنصر لم تُعدَّل صورته.
+function resolveImageBlobField($newValue, array $existing, string $prefix): array {
     if (!empty($newValue) && is_string($newValue) && strpos($newValue, 'data:image') === 0) {
-        $saved = handleImageUpload($newValue, $prefix);
-        if ($saved) {
-            if (!empty($existingValue) && strpos($existingValue, 'data:') !== 0 && strpos($existingValue, 'http') !== 0) {
-                deleteOldImage($existingValue);
-            }
-            return $saved;
+        $decoded = decodeImageBase64($newValue);
+        if ($decoded) {
+            return ['name' => newImageFilename($prefix, $decoded['mime']), 'data' => $decoded['data'], 'mime' => $decoded['mime']];
         }
-        return $existingValue;
+        return $existing; // فشل فك الصورة الجديدة: أبقِ كل شيء كما هو
     }
-    if ($newValue === null || $newValue === '') {
-        return $existingValue;
+    $isOwnDisplayUrl = is_string($newValue) && strpos($newValue, 'index.php?image=') === 0;
+    if ($newValue === null || $newValue === '' || $newValue === ($existing['name'] ?? null) || $isOwnDisplayUrl) {
+        return $existing; // لا تغيير فعلي
     }
-    return $newValue;
+    // اسم/رابط مختلف تماماً (مثلاً استيراد جديد يشير لصورة لم تُخزَّن بياناتها بعد)
+    return ['name' => $newValue, 'data' => null, 'mime' => null];
 }
 
 function normalizeDeletedCard($value): string {
     return ($value === 'ok') ? 'ok' : 'no';
+}
+
+// يحوّل قيمة عمود صورة مخزَّنة (اسم مجرّد أو رابط خارجي) إلى رابط جاهز للعرض مباشرة في
+// الواجهة: رابط خارجي يبقى كما هو، أي قيمة أخرى (اسم ملف) تتحول لرابط نقطة عرض BLOB حسب
+// النوع والمعرّف. القيمة الفارغة تبقى فارغة (تُستخدم في الواجهة كمؤشر "لا توجد صورة")
+function catalogImageUrl($storedValue, string $type, string $id): ?string {
+    if (empty($storedValue)) return null;
+    if (strpos($storedValue, 'http://') === 0 || strpos($storedValue, 'https://') === 0) {
+        return $storedValue;
+    }
+    return 'index.php?image=' . $type . '&id=' . urlencode($id);
 }
 
 // ---------------------------------------------------------------
@@ -338,7 +418,7 @@ function db_get_catalog_tree(PDO $pdo): array {
                     'code' => $p['code'],
                     'color' => $p['color'],
                     'price' => $p['price'],
-                    'img' => $p['img'],
+                    'img' => catalogImageUrl($p['img'], 'product', $p['id']),
                     'image_url' => $p['image_url'],
                     'available' => (bool)$p['available'],
                     'deletedCard' => $p['deleted_card'],
@@ -347,7 +427,7 @@ function db_get_catalog_tree(PDO $pdo): array {
             $companies[] = [
                 'id' => $comp['id'],
                 'name' => $comp['name'],
-                'logo' => $comp['logo'],
+                'logo' => catalogImageUrl($comp['logo'], 'company', $comp['id']),
                 'deletedCard' => $comp['deleted_card'],
                 'products' => $products,
             ];
@@ -361,7 +441,7 @@ function db_get_catalog_tree(PDO $pdo): array {
                 'name' => $s['name'],
                 'color' => $s['color'],
                 'notes' => $s['notes'],
-                'img' => $s['img'],
+                'img' => catalogImageUrl($s['img'], 'service', $s['id']),
                 'available' => (bool)$s['available'],
                 'deletedCard' => $s['deleted_card'],
             ];
@@ -370,7 +450,7 @@ function db_get_catalog_tree(PDO $pdo): array {
         $categories[] = [
             'id' => $cat['id'],
             'name' => $cat['name'],
-            'image' => $cat['image'],
+            'image' => catalogImageUrl($cat['image'], 'category', $cat['id']),
             'deletedCard' => $cat['deleted_card'],
             'companies' => $companies,
             'services' => $services,
@@ -383,91 +463,33 @@ function db_get_catalog_tree(PDO $pdo): array {
 // ---------------------------------------------------------------
 // حذف العناصر المحذوفة من الشجرة مع تنظيف صورها (تُستخدم داخل db_sync_catalog)
 // ---------------------------------------------------------------
-function syncDeleteMissingSimple(PDO $pdo, string $table, string $parentCol, string $parentId, array $keepIds, string $imageCol): void {
+// ملاحظة: لا حاجة لأي تنظيف يدوي لصور العناصر المحذوفة - بياناتها (img_data/...) عمود
+// عادي في نفس الصف، يُحذف تلقائياً مع الصف نفسه، بخلاف الملفات على القرص سابقاً.
+function syncDeleteMissingSimple(PDO $pdo, string $table, string $parentCol, string $parentId, array $keepIds): void {
     if (empty($keepIds)) {
-        $stmt = $pdo->prepare("SELECT id, $imageCol AS img FROM $table WHERE $parentCol = ?");
-        $stmt->execute([$parentId]);
+        $pdo->prepare("DELETE FROM $table WHERE $parentCol = ?")->execute([$parentId]);
     } else {
         $ph = implode(',', array_fill(0, count($keepIds), '?'));
-        $stmt = $pdo->prepare("SELECT id, $imageCol AS img FROM $table WHERE $parentCol = ? AND id NOT IN ($ph)");
-        $stmt->execute(array_merge([$parentId], $keepIds));
+        $pdo->prepare("DELETE FROM $table WHERE $parentCol = ? AND id NOT IN ($ph)")->execute(array_merge([$parentId], $keepIds));
     }
-    $toDelete = $stmt->fetchAll();
-    if (!$toDelete) return;
-    foreach ($toDelete as $row) {
-        if (!empty($row['img'])) deleteOldImage($row['img']);
-    }
-    $ids = array_column($toDelete, 'id');
-    $ph2 = implode(',', array_fill(0, count($ids), '?'));
-    $pdo->prepare("DELETE FROM $table WHERE id IN ($ph2)")->execute($ids);
 }
 
 function syncDeleteMissingCompanies(PDO $pdo, string $catId, array $keepCompIds): void {
     if (empty($keepCompIds)) {
-        $stmt = $pdo->prepare('SELECT id, logo FROM companies WHERE category_id = ?');
-        $stmt->execute([$catId]);
+        $pdo->prepare('DELETE FROM companies WHERE category_id = ?')->execute([$catId]);
     } else {
         $ph = implode(',', array_fill(0, count($keepCompIds), '?'));
-        $stmt = $pdo->prepare("SELECT id, logo FROM companies WHERE category_id = ? AND id NOT IN ($ph)");
-        $stmt->execute(array_merge([$catId], $keepCompIds));
+        $pdo->prepare("DELETE FROM companies WHERE category_id = ? AND id NOT IN ($ph)")->execute(array_merge([$catId], $keepCompIds));
     }
-    $companies = $stmt->fetchAll();
-    if (!$companies) return;
-
-    $compIds = array_column($companies, 'id');
-    $ph2 = implode(',', array_fill(0, count($compIds), '?'));
-    $prodStmt = $pdo->prepare("SELECT img FROM products WHERE company_id IN ($ph2)");
-    $prodStmt->execute($compIds);
-    foreach ($prodStmt->fetchAll() as $p) {
-        if (!empty($p['img'])) deleteOldImage($p['img']);
-    }
-    foreach ($companies as $c) {
-        if (!empty($c['logo'])) deleteOldImage($c['logo']);
-    }
-    $pdo->prepare("DELETE FROM companies WHERE id IN ($ph2)")->execute($compIds);
 }
 
 function syncDeleteMissingCategories(PDO $pdo, array $keepCatIds): void {
     if (empty($keepCatIds)) {
-        $rows = $pdo->query('SELECT id, image FROM categories')->fetchAll();
+        $pdo->exec('DELETE FROM categories');
     } else {
         $ph = implode(',', array_fill(0, count($keepCatIds), '?'));
-        $stmt = $pdo->prepare("SELECT id, image FROM categories WHERE id NOT IN ($ph)");
-        $stmt->execute($keepCatIds);
-        $rows = $stmt->fetchAll();
+        $pdo->prepare("DELETE FROM categories WHERE id NOT IN ($ph)")->execute($keepCatIds);
     }
-    if (!$rows) return;
-
-    $catIds = array_column($rows, 'id');
-    $ph2 = implode(',', array_fill(0, count($catIds), '?'));
-
-    $compStmt = $pdo->prepare("SELECT id, logo FROM companies WHERE category_id IN ($ph2)");
-    $compStmt->execute($catIds);
-    $companies = $compStmt->fetchAll();
-    if ($companies) {
-        $compIds = array_column($companies, 'id');
-        $ph3 = implode(',', array_fill(0, count($compIds), '?'));
-        $prodStmt = $pdo->prepare("SELECT img FROM products WHERE company_id IN ($ph3)");
-        $prodStmt->execute($compIds);
-        foreach ($prodStmt->fetchAll() as $p) {
-            if (!empty($p['img'])) deleteOldImage($p['img']);
-        }
-        foreach ($companies as $c) {
-            if (!empty($c['logo'])) deleteOldImage($c['logo']);
-        }
-    }
-
-    $svcStmt = $pdo->prepare("SELECT img FROM services WHERE category_id IN ($ph2)");
-    $svcStmt->execute($catIds);
-    foreach ($svcStmt->fetchAll() as $s) {
-        if (!empty($s['img'])) deleteOldImage($s['img']);
-    }
-
-    foreach ($rows as $r) {
-        if (!empty($r['image'])) deleteOldImage($r['image']);
-    }
-
-    $pdo->prepare("DELETE FROM categories WHERE id IN ($ph2)")->execute($catIds);
 }
 
 // ---------------------------------------------------------------
@@ -488,15 +510,18 @@ function db_sync_catalog(PDO $pdo, array $catalog): void {
             $catId = !empty($cat['id']) ? (string)$cat['id'] : newEntityId('cat');
             $keepCatIds[] = $catId;
 
-            $existingImage = fetchOneValue($pdo, 'SELECT image FROM categories WHERE id = ?', [$catId], 'image');
-            $image = resolveImageField($cat['image'] ?? null, $existingImage, 'cat');
+            $existingCatRow = $pdo->prepare('SELECT image, image_data, image_mime FROM categories WHERE id = ?');
+            $existingCatRow->execute([$catId]);
+            $existingCat = $existingCatRow->fetch() ?: ['image' => null, 'image_data' => null, 'image_mime' => null];
+            $image = resolveImageBlobField($cat['image'] ?? null, ['name' => $existingCat['image'], 'data' => $existingCat['image_data'], 'mime' => $existingCat['image_mime']], 'cat');
             $deletedCard = normalizeDeletedCard($cat['deletedCard'] ?? 'no');
 
             $pdo->prepare('
-                INSERT INTO categories (id, name, image, deleted_card, sort_order)
-                VALUES (?, ?, ?, ?, ?)
-                ON DUPLICATE KEY UPDATE name = VALUES(name), image = VALUES(image), deleted_card = VALUES(deleted_card), sort_order = VALUES(sort_order)
-            ')->execute([$catId, (string)($cat['name'] ?? ''), $image, $deletedCard, $catOrder]);
+                INSERT INTO categories (id, name, image, image_data, image_mime, deleted_card, sort_order)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                ON DUPLICATE KEY UPDATE name = VALUES(name), image = VALUES(image), image_data = VALUES(image_data),
+                    image_mime = VALUES(image_mime), deleted_card = VALUES(deleted_card), sort_order = VALUES(sort_order)
+            ')->execute([$catId, (string)($cat['name'] ?? ''), $image['name'], $image['data'], $image['mime'], $deletedCard, $catOrder]);
             $catOrder++;
 
             // الشركات
@@ -507,15 +532,18 @@ function db_sync_catalog(PDO $pdo, array $catalog): void {
                 $compId = !empty($comp['id']) ? (string)$comp['id'] : newEntityId('comp');
                 $keepCompIds[] = $compId;
 
-                $existingLogo = fetchOneValue($pdo, 'SELECT logo FROM companies WHERE id = ?', [$compId], 'logo');
-                $logo = resolveImageField($comp['logo'] ?? null, $existingLogo, 'logo');
+                $existingCompRow = $pdo->prepare('SELECT logo, logo_data, logo_mime FROM companies WHERE id = ?');
+                $existingCompRow->execute([$compId]);
+                $existingComp = $existingCompRow->fetch() ?: ['logo' => null, 'logo_data' => null, 'logo_mime' => null];
+                $logo = resolveImageBlobField($comp['logo'] ?? null, ['name' => $existingComp['logo'], 'data' => $existingComp['logo_data'], 'mime' => $existingComp['logo_mime']], 'logo');
                 $compDeletedCard = normalizeDeletedCard($comp['deletedCard'] ?? 'no');
 
                 $pdo->prepare('
-                    INSERT INTO companies (id, category_id, name, logo, deleted_card, sort_order)
-                    VALUES (?, ?, ?, ?, ?, ?)
-                    ON DUPLICATE KEY UPDATE category_id = VALUES(category_id), name = VALUES(name), logo = VALUES(logo), deleted_card = VALUES(deleted_card), sort_order = VALUES(sort_order)
-                ')->execute([$compId, $catId, (string)($comp['name'] ?? ''), $logo, $compDeletedCard, $compOrder]);
+                    INSERT INTO companies (id, category_id, name, logo, logo_data, logo_mime, deleted_card, sort_order)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    ON DUPLICATE KEY UPDATE category_id = VALUES(category_id), name = VALUES(name), logo = VALUES(logo),
+                        logo_data = VALUES(logo_data), logo_mime = VALUES(logo_mime), deleted_card = VALUES(deleted_card), sort_order = VALUES(sort_order)
+                ')->execute([$compId, $catId, (string)($comp['name'] ?? ''), $logo['name'], $logo['data'], $logo['mime'], $compDeletedCard, $compOrder]);
                 $compOrder++;
 
                 // المنتجات
@@ -526,24 +554,27 @@ function db_sync_catalog(PDO $pdo, array $catalog): void {
                     $prodId = !empty($prod['id']) ? (string)$prod['id'] : newEntityId('prod');
                     $keepProdIds[] = $prodId;
 
-                    $existingImg = fetchOneValue($pdo, 'SELECT img FROM products WHERE id = ?', [$prodId], 'img');
-                    $img = resolveImageField($prod['img'] ?? null, $existingImg, 'prod');
+                    $existingProdRow = $pdo->prepare('SELECT img, img_data, img_mime FROM products WHERE id = ?');
+                    $existingProdRow->execute([$prodId]);
+                    $existingProd = $existingProdRow->fetch() ?: ['img' => null, 'img_data' => null, 'img_mime' => null];
+                    $img = resolveImageBlobField($prod['img'] ?? null, ['name' => $existingProd['img'], 'data' => $existingProd['img_data'], 'mime' => $existingProd['img_mime']], 'prod');
                     $available = array_key_exists('available', $prod) ? (bool)$prod['available'] : true;
                     $prodDeletedCard = normalizeDeletedCard($prod['deletedCard'] ?? 'no');
 
                     $pdo->prepare('
-                        INSERT INTO products (id, company_id, name, code, color, price, img, image_url, available, deleted_card, sort_order)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        INSERT INTO products (id, company_id, name, code, color, price, img, img_data, img_mime, image_url, available, deleted_card, sort_order)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                         ON DUPLICATE KEY UPDATE company_id = VALUES(company_id), name = VALUES(name), code = VALUES(code),
-                            color = VALUES(color), price = VALUES(price), img = VALUES(img), image_url = VALUES(image_url),
+                            color = VALUES(color), price = VALUES(price), img = VALUES(img), img_data = VALUES(img_data),
+                            img_mime = VALUES(img_mime), image_url = VALUES(image_url),
                             available = VALUES(available), deleted_card = VALUES(deleted_card), sort_order = VALUES(sort_order)
                     ')->execute([
                         $prodId, $compId, (string)($prod['name'] ?? ''), $prod['code'] ?? null, $prod['color'] ?? null,
-                        $prod['price'] ?? null, $img, $prod['image_url'] ?? null, $available ? 1 : 0, $prodDeletedCard, $prodOrder,
+                        $prod['price'] ?? null, $img['name'], $img['data'], $img['mime'], $prod['image_url'] ?? null, $available ? 1 : 0, $prodDeletedCard, $prodOrder,
                     ]);
                     $prodOrder++;
                 }
-                syncDeleteMissingSimple($pdo, 'products', 'company_id', $compId, $keepProdIds, 'img');
+                syncDeleteMissingSimple($pdo, 'products', 'company_id', $compId, $keepProdIds);
             }
             syncDeleteMissingCompanies($pdo, $catId, $keepCompIds);
 
@@ -555,24 +586,26 @@ function db_sync_catalog(PDO $pdo, array $catalog): void {
                 $svcId = !empty($svc['id']) ? (string)$svc['id'] : newEntityId('service');
                 $keepSvcIds[] = $svcId;
 
-                $existingImg = fetchOneValue($pdo, 'SELECT img FROM services WHERE id = ?', [$svcId], 'img');
-                $img = resolveImageField($svc['img'] ?? null, $existingImg, 'service');
+                $existingSvcRow = $pdo->prepare('SELECT img, img_data, img_mime FROM services WHERE id = ?');
+                $existingSvcRow->execute([$svcId]);
+                $existingSvc = $existingSvcRow->fetch() ?: ['img' => null, 'img_data' => null, 'img_mime' => null];
+                $img = resolveImageBlobField($svc['img'] ?? null, ['name' => $existingSvc['img'], 'data' => $existingSvc['img_data'], 'mime' => $existingSvc['img_mime']], 'service');
                 $available = array_key_exists('available', $svc) ? (bool)$svc['available'] : true;
                 $svcDeletedCard = normalizeDeletedCard($svc['deletedCard'] ?? 'no');
 
                 $pdo->prepare('
-                    INSERT INTO services (id, category_id, name, color, notes, img, available, deleted_card, sort_order)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    INSERT INTO services (id, category_id, name, color, notes, img, img_data, img_mime, available, deleted_card, sort_order)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     ON DUPLICATE KEY UPDATE category_id = VALUES(category_id), name = VALUES(name), color = VALUES(color),
-                        notes = VALUES(notes), img = VALUES(img), available = VALUES(available),
-                        deleted_card = VALUES(deleted_card), sort_order = VALUES(sort_order)
+                        notes = VALUES(notes), img = VALUES(img), img_data = VALUES(img_data), img_mime = VALUES(img_mime),
+                        available = VALUES(available), deleted_card = VALUES(deleted_card), sort_order = VALUES(sort_order)
                 ')->execute([
                     $svcId, $catId, (string)($svc['name'] ?? ''), $svc['color'] ?? null, $svc['notes'] ?? $svc['desc'] ?? null,
-                    $img, $available ? 1 : 0, $svcDeletedCard, $svcOrder,
+                    $img['name'], $img['data'], $img['mime'], $available ? 1 : 0, $svcDeletedCard, $svcOrder,
                 ]);
                 $svcOrder++;
             }
-            syncDeleteMissingSimple($pdo, 'services', 'category_id', $catId, $keepSvcIds, 'img');
+            syncDeleteMissingSimple($pdo, 'services', 'category_id', $catId, $keepSvcIds);
         }
 
         syncDeleteMissingCategories($pdo, $keepCatIds);
@@ -641,7 +674,6 @@ function db_delete_product_permanent(PDO $pdo, string $catId, string $compId, st
     if (!$comp) return null;
     $prod = db_find_product($pdo, $compId, $productId);
     if (!$prod) return null;
-    if (!empty($prod['img'])) deleteOldImage($prod['img']);
     $pdo->prepare('DELETE FROM products WHERE id = ?')->execute([$productId]);
     return $prod['name'];
 }
@@ -683,16 +715,18 @@ function db_edit_product_info(PDO $pdo, string $catId, string $compId, string $p
     }
 
     if (isset($productData['img']) && !empty($productData['img']) && strpos($productData['img'], 'data:image') === 0) {
-        $newFilename = handleImageUpload($productData['img'], 'prod');
-        if (!$newFilename) {
+        $decoded = decodeImageBase64($productData['img']);
+        if (!$decoded) {
             return ['error' => 'فشل حفظ الصورة الجديدة'];
         }
+        $newFilename = newImageFilename('prod', $decoded['mime']);
         $newImage = $newFilename;
-        if (!empty($oldImage) && strpos($oldImage, 'data:') !== 0 && strpos($oldImage, 'http') !== 0) {
-            deleteOldImage($oldImage);
-        }
         $sets[] = 'img = ?';
         $params[] = $newFilename;
+        $sets[] = 'img_data = ?';
+        $params[] = $decoded['data'];
+        $sets[] = 'img_mime = ?';
+        $params[] = $decoded['mime'];
     }
 
     if ($sets) {
@@ -722,7 +756,6 @@ function db_set_service_deleted_card(PDO $pdo, string $catId, string $serviceId,
 function db_delete_service_permanent(PDO $pdo, string $catId, string $serviceId): ?string {
     $svc = db_find_service($pdo, $catId, $serviceId);
     if (!$svc) return null;
-    if (!empty($svc['img'])) deleteOldImage($svc['img']);
     $pdo->prepare('DELETE FROM services WHERE id = ?')->execute([$serviceId]);
     return $svc['name'];
 }
@@ -737,16 +770,19 @@ function db_update_service(PDO $pdo, string $catId, string $serviceId, array $se
     $available = isset($serviceData['available']) ? (bool)$serviceData['available'] : (bool)$svc['available'];
 
     $img = $svc['img'];
+    $imgData = $svc['img_data'];
+    $imgMime = $svc['img_mime'];
     if (isset($serviceData['img']) && !empty($serviceData['img']) && strpos($serviceData['img'], 'data:image') === 0) {
-        $newFilename = handleImageUpload($serviceData['img'], 'service');
-        if ($newFilename) {
-            deleteOldImage($svc['img']);
-            $img = $newFilename;
+        $decoded = decodeImageBase64($serviceData['img']);
+        if ($decoded) {
+            $img = newImageFilename('service', $decoded['mime']);
+            $imgData = $decoded['data'];
+            $imgMime = $decoded['mime'];
         }
     }
 
-    $pdo->prepare('UPDATE services SET name = ?, color = ?, notes = ?, available = ?, img = ? WHERE id = ?')
-        ->execute([$name, $color, $notes, $available ? 1 : 0, $img, $serviceId]);
+    $pdo->prepare('UPDATE services SET name = ?, color = ?, notes = ?, available = ?, img = ?, img_data = ?, img_mime = ? WHERE id = ?')
+        ->execute([$name, $color, $notes, $available ? 1 : 0, $img, $imgData, $imgMime, $serviceId]);
     return true;
 }
 
@@ -767,12 +803,6 @@ function db_restore_company(PDO $pdo, string $catId, string $compId): ?string {
 function db_delete_company_permanent(PDO $pdo, string $catId, string $compId): ?string {
     $comp = db_find_company($pdo, $catId, $compId);
     if (!$comp) return null;
-    $stmt = $pdo->prepare('SELECT img FROM products WHERE company_id = ?');
-    $stmt->execute([$compId]);
-    foreach ($stmt->fetchAll() as $p) {
-        if (!empty($p['img'])) deleteOldImage($p['img']);
-    }
-    if (!empty($comp['logo'])) deleteOldImage($comp['logo']);
     $pdo->prepare('DELETE FROM companies WHERE id = ?')->execute([$compId]);
     return $comp['name'];
 }
@@ -783,15 +813,18 @@ function db_update_company(PDO $pdo, string $catId, string $compId, array $compa
 
     $name = $companyData['name'] ?? $comp['name'];
     $logo = $comp['logo'];
+    $logoData = $comp['logo_data'];
+    $logoMime = $comp['logo_mime'];
     if (isset($companyData['logo']) && !empty($companyData['logo']) && strpos($companyData['logo'], 'data:image') === 0) {
-        $newFilename = handleImageUpload($companyData['logo'], 'logo');
-        if ($newFilename) {
-            deleteOldImage($comp['logo']);
-            $logo = $newFilename;
+        $decoded = decodeImageBase64($companyData['logo']);
+        if ($decoded) {
+            $logo = newImageFilename('logo', $decoded['mime']);
+            $logoData = $decoded['data'];
+            $logoMime = $decoded['mime'];
         }
     }
 
-    $pdo->prepare('UPDATE companies SET name = ?, logo = ? WHERE id = ?')->execute([$name, $logo, $compId]);
+    $pdo->prepare('UPDATE companies SET name = ?, logo = ?, logo_data = ?, logo_mime = ? WHERE id = ?')->execute([$name, $logo, $logoData, $logoMime, $compId]);
     return true;
 }
 
@@ -837,19 +870,21 @@ function db_list_categories_admin(PDO $pdo): array {
     return $pdo->query('SELECT * FROM categories ORDER BY sort_order ASC, created_at ASC')->fetchAll();
 }
 
-function db_create_category(PDO $pdo, string $name, ?string $image): string {
+// $imageBlob: ['data' => binary, 'mime' => string] أو null إن لم تُرفع صورة
+function db_create_category(PDO $pdo, string $name, ?array $imageBlob): string {
     $id = newEntityId('cat');
     $order = db_next_sort_order($pdo, 'categories');
-    $pdo->prepare("INSERT INTO categories (id, name, image, deleted_card, sort_order) VALUES (?, ?, ?, 'no', ?)")
-        ->execute([$id, $name, $image, $order]);
+    $imageName = $imageBlob ? newImageFilename('cat', $imageBlob['mime']) : null;
+    $pdo->prepare("INSERT INTO categories (id, name, image, image_data, image_mime, deleted_card, sort_order) VALUES (?, ?, ?, ?, ?, 'no', ?)")
+        ->execute([$id, $name, $imageName, $imageBlob['data'] ?? null, $imageBlob['mime'] ?? null, $order]);
     return $id;
 }
 
-function db_update_category_fields(PDO $pdo, string $id, string $name, ?string $newImage): void {
-    if ($newImage !== null) {
-        $old = fetchOneValue($pdo, 'SELECT image FROM categories WHERE id = ?', [$id], 'image');
-        if ($old) deleteOldImage($old);
-        $pdo->prepare('UPDATE categories SET name = ?, image = ? WHERE id = ?')->execute([$name, $newImage, $id]);
+function db_update_category_fields(PDO $pdo, string $id, string $name, ?array $newImageBlob): void {
+    if ($newImageBlob !== null) {
+        $imageName = newImageFilename('cat', $newImageBlob['mime']);
+        $pdo->prepare('UPDATE categories SET name = ?, image = ?, image_data = ?, image_mime = ? WHERE id = ?')
+            ->execute([$name, $imageName, $newImageBlob['data'], $newImageBlob['mime'], $id]);
     } else {
         $pdo->prepare('UPDATE categories SET name = ? WHERE id = ?')->execute([$name, $id]);
     }
@@ -863,19 +898,20 @@ function db_list_companies_admin(PDO $pdo): array {
     ')->fetchAll();
 }
 
-function db_create_company(PDO $pdo, string $categoryId, string $name, ?string $logo): string {
+function db_create_company(PDO $pdo, string $categoryId, string $name, ?array $logoBlob): string {
     $id = newEntityId('comp');
     $order = db_next_sort_order($pdo, 'companies', 'category_id', $categoryId);
-    $pdo->prepare("INSERT INTO companies (id, category_id, name, logo, deleted_card, sort_order) VALUES (?, ?, ?, ?, 'no', ?)")
-        ->execute([$id, $categoryId, $name, $logo, $order]);
+    $logoName = $logoBlob ? newImageFilename('logo', $logoBlob['mime']) : null;
+    $pdo->prepare("INSERT INTO companies (id, category_id, name, logo, logo_data, logo_mime, deleted_card, sort_order) VALUES (?, ?, ?, ?, ?, ?, 'no', ?)")
+        ->execute([$id, $categoryId, $name, $logoName, $logoBlob['data'] ?? null, $logoBlob['mime'] ?? null, $order]);
     return $id;
 }
 
-function db_update_company_fields(PDO $pdo, string $id, string $categoryId, string $name, ?string $newLogo): void {
-    if ($newLogo !== null) {
-        $old = fetchOneValue($pdo, 'SELECT logo FROM companies WHERE id = ?', [$id], 'logo');
-        if ($old) deleteOldImage($old);
-        $pdo->prepare('UPDATE companies SET category_id = ?, name = ?, logo = ? WHERE id = ?')->execute([$categoryId, $name, $newLogo, $id]);
+function db_update_company_fields(PDO $pdo, string $id, string $categoryId, string $name, ?array $newLogoBlob): void {
+    if ($newLogoBlob !== null) {
+        $logoName = newImageFilename('logo', $newLogoBlob['mime']);
+        $pdo->prepare('UPDATE companies SET category_id = ?, name = ?, logo = ?, logo_data = ?, logo_mime = ? WHERE id = ?')
+            ->execute([$categoryId, $name, $logoName, $newLogoBlob['data'], $newLogoBlob['mime'], $id]);
     } else {
         $pdo->prepare('UPDATE companies SET category_id = ?, name = ? WHERE id = ?')->execute([$categoryId, $name, $id]);
     }
@@ -891,30 +927,31 @@ function db_list_products_admin(PDO $pdo): array {
     ')->fetchAll();
 }
 
-function db_create_product(PDO $pdo, string $companyId, array $fields, ?string $img): string {
+function db_create_product(PDO $pdo, string $companyId, array $fields, ?array $imgBlob): string {
     $id = newEntityId('prod');
     $order = db_next_sort_order($pdo, 'products', 'company_id', $companyId);
+    $imgName = $imgBlob ? newImageFilename('prod', $imgBlob['mime']) : null;
     $pdo->prepare("
-        INSERT INTO products (id, company_id, name, code, color, price, img, image_url, available, deleted_card, sort_order)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'no', ?)
+        INSERT INTO products (id, company_id, name, code, color, price, img, img_data, img_mime, image_url, available, deleted_card, sort_order)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'no', ?)
     ")->execute([
         $id, $companyId, $fields['name'], $fields['code'] ?? null, $fields['color'] ?? null, $fields['price'] ?? null,
-        $img, $fields['image_url'] ?? null, !empty($fields['available']) ? 1 : 0, $order,
+        $imgName, $imgBlob['data'] ?? null, $imgBlob['mime'] ?? null, $fields['image_url'] ?? null, !empty($fields['available']) ? 1 : 0, $order,
     ]);
     return $id;
 }
 
-function db_update_product_fields(PDO $pdo, string $id, string $companyId, array $fields, ?string $newImg): void {
+function db_update_product_fields(PDO $pdo, string $id, string $companyId, array $fields, ?array $newImgBlob): void {
     $sets = 'company_id = ?, name = ?, code = ?, color = ?, price = ?, image_url = ?, available = ?';
     $params = [
         $companyId, $fields['name'], $fields['code'] ?? null, $fields['color'] ?? null, $fields['price'] ?? null,
         $fields['image_url'] ?? null, !empty($fields['available']) ? 1 : 0,
     ];
-    if ($newImg !== null) {
-        $old = fetchOneValue($pdo, 'SELECT img FROM products WHERE id = ?', [$id], 'img');
-        if ($old) deleteOldImage($old);
-        $sets .= ', img = ?';
-        $params[] = $newImg;
+    if ($newImgBlob !== null) {
+        $sets .= ', img = ?, img_data = ?, img_mime = ?';
+        $params[] = newImageFilename('prod', $newImgBlob['mime']);
+        $params[] = $newImgBlob['data'];
+        $params[] = $newImgBlob['mime'];
     }
     $params[] = $id;
     $pdo->prepare("UPDATE products SET $sets WHERE id = ?")->execute($params);
@@ -928,27 +965,28 @@ function db_list_services_admin(PDO $pdo): array {
     ')->fetchAll();
 }
 
-function db_create_service(PDO $pdo, string $categoryId, array $fields, ?string $img): string {
+function db_create_service(PDO $pdo, string $categoryId, array $fields, ?array $imgBlob): string {
     $id = newEntityId('service');
     $order = db_next_sort_order($pdo, 'services', 'category_id', $categoryId);
+    $imgName = $imgBlob ? newImageFilename('service', $imgBlob['mime']) : null;
     $pdo->prepare("
-        INSERT INTO services (id, category_id, name, color, notes, img, available, deleted_card, sort_order)
-        VALUES (?, ?, ?, ?, ?, ?, ?, 'no', ?)
+        INSERT INTO services (id, category_id, name, color, notes, img, img_data, img_mime, available, deleted_card, sort_order)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'no', ?)
     ")->execute([
         $id, $categoryId, $fields['name'], $fields['color'] ?? null, $fields['notes'] ?? null,
-        $img, !empty($fields['available']) ? 1 : 0, $order,
+        $imgName, $imgBlob['data'] ?? null, $imgBlob['mime'] ?? null, !empty($fields['available']) ? 1 : 0, $order,
     ]);
     return $id;
 }
 
-function db_update_service_fields(PDO $pdo, string $id, string $categoryId, array $fields, ?string $newImg): void {
+function db_update_service_fields(PDO $pdo, string $id, string $categoryId, array $fields, ?array $newImgBlob): void {
     $sets = 'category_id = ?, name = ?, color = ?, notes = ?, available = ?';
     $params = [$categoryId, $fields['name'], $fields['color'] ?? null, $fields['notes'] ?? null, !empty($fields['available']) ? 1 : 0];
-    if ($newImg !== null) {
-        $old = fetchOneValue($pdo, 'SELECT img FROM services WHERE id = ?', [$id], 'img');
-        if ($old) deleteOldImage($old);
-        $sets .= ', img = ?';
-        $params[] = $newImg;
+    if ($newImgBlob !== null) {
+        $sets .= ', img = ?, img_data = ?, img_mime = ?';
+        $params[] = newImageFilename('service', $newImgBlob['mime']);
+        $params[] = $newImgBlob['data'];
+        $params[] = $newImgBlob['mime'];
     }
     $params[] = $id;
     $pdo->prepare("UPDATE services SET $sets WHERE id = ?")->execute($params);

@@ -3,14 +3,14 @@ require_once __DIR__ . '/includes/bootstrap.php';
 admin_require_login();
 require_once __DIR__ . '/../includes/import.php';
 
-// يعرض نتيجة مزامنة الصور (نسخ + مطابقة) كرسالة واحدة واضحة للمستخدم
+// يعرض نتيجة مزامنة الصور (تخزين داخل MySQL + مطابقة) كرسالة واحدة واضحة للمستخدم
 function admin_flash_image_sync_result(array $summary): void {
     if ($summary['error']) {
         admin_flash('error', $summary['error']);
         return;
     }
-    $msg = "تم نسخ {$summary['copied']} صورة إلى uploads/. ";
-    $msg .= "المنتجات والخدمات الحالية تحتاج {$summary['referenced_total']} صورة، ";
+    $msg = "تم تخزين {$summary['stored']} صورة داخل قاعدة البيانات مباشرة. ";
+    $msg .= "الفئات/الشركات/المنتجات/الخدمات الحالية تحتاج {$summary['referenced_total']} صورة، ";
     $msg .= "المتوفر منها الآن {$summary['matched']}";
     if ($summary['unmatched'] > 0) {
         $msg .= "، وما زال {$summary['unmatched']} ناقصاً (تأكد أن أسماء الملفات مطابقة تماماً).";
@@ -86,20 +86,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $folderName = basename($_POST['folder_name'] ?? '');
         $legacyImportsDir = __DIR__ . '/../logs/legacy-imports';
         $folderPath = $legacyImportsDir . '/' . $folderName;
-        $uploadsDir = __DIR__ . '/../uploads';
 
         $validFolders = array_column(find_legacy_image_folders($legacyImportsDir), 'name');
         if (!in_array($folderName, $validFolders, true)) {
             admin_flash('error', 'المجلد غير موجود.');
         } else {
-            $summary = import_images_into_uploads($pdo, $uploadsDir, $folderPath);
+            $summary = import_images_into_mysql($pdo, $folderPath);
             admin_flash_image_sync_result($summary);
         }
     } elseif ($action === 'sync_images_zip_folder') {
         $zipName = basename($_POST['zip_name'] ?? '');
         $legacyImportsDir = __DIR__ . '/../logs/legacy-imports';
         $zipPath = $legacyImportsDir . '/' . $zipName;
-        $uploadsDir = __DIR__ . '/../uploads';
 
         $validZips = array_column(find_legacy_image_zips($legacyImportsDir), 'name');
         if (!in_array($zipName, $validZips, true)) {
@@ -107,14 +105,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         } elseif (!class_exists('ZipArchive')) {
             admin_flash('error', 'إضافة PHP Zip غير مفعّلة على السيرفر، لا يمكن فك الضغط تلقائياً.');
         } else {
-            $summary = import_images_zip_into_uploads($pdo, $uploadsDir, $zipPath);
+            $summary = import_images_zip_into_mysql($pdo, $zipPath);
             admin_flash_image_sync_result($summary);
         }
     } elseif ($action === 'sync_images_upload') {
         $names = $_FILES['sync_images']['name'] ?? [];
         $tmpNames = $_FILES['sync_images']['tmp_name'] ?? [];
         $errorsArr = $_FILES['sync_images']['error'] ?? [];
-        $uploadsDir = __DIR__ . '/../uploads';
 
         $uploaded = [];
         foreach ($names as $i => $originalName) {
@@ -129,11 +126,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             if (!class_exists('ZipArchive')) {
                 admin_flash('error', 'إضافة PHP Zip غير مفعّلة على السيرفر، لا يمكن فك الضغط تلقائياً.');
             } else {
-                $summary = import_images_zip_into_uploads($pdo, $uploadsDir, reset($uploaded));
+                $summary = import_images_zip_into_mysql($pdo, reset($uploaded));
                 admin_flash_image_sync_result($summary);
             }
         } else {
-            $summary = import_images_into_uploads($pdo, $uploadsDir, '', $uploaded);
+            $summary = import_images_into_mysql($pdo, '', $uploaded);
             admin_flash_image_sync_result($summary);
         }
     } elseif ($action === 'import_sqlite') {
@@ -192,8 +189,8 @@ admin_header('استيراد بيانات', 'import.php', 'استيراد بيا
     <hr style="border-color:var(--border,#333);margin:18px 0;">
     <p class="field-hint" style="margin-bottom:14px;">
         أو، إن كانت هذه الصور تخص منتجات/خدمات مستوردة مسبقاً من <code>database.json</code> وتحتاج فقط
-        وضع ملفات الصور في مكانها الصحيح (لا تريد إنشاء منتجات جديدة): استخدم الزر التالي، سيتم نسخ
-        كل صورة إلى <code>uploads/</code> باسمها كما هي فقط.
+        استكمال محتواها الفعلي (لا تريد إنشاء منتجات جديدة): استخدم الزر التالي، سيتم تخزين كل صورة
+        داخل قاعدة البيانات مباشرة حسب اسمها فقط.
     </p>
     <form method="post">
         <?php echo admin_csrf_field(); ?>
@@ -208,8 +205,8 @@ admin_header('استيراد بيانات', 'import.php', 'استيراد بيا
 <div class="card">
     <h2><i class="fas fa-file-zipper"></i> ملف ZIP تم اكتشافه: "<?php echo e($zipInfo['name']); ?>"</h2>
     <p class="field-hint" style="margin-bottom:14px;">
-        سيتم فك ضغط <code><?php echo e('logs/legacy-imports/' . $zipInfo['name']); ?></code> ونسخ كل صورة بداخله
-        (بأي عمق مجلدات فرعية) إلى <code>uploads/</code> باسمها كما هي، لإكمال صور منتجات/خدمات مستوردة مسبقاً.
+        سيتم فك ضغط <code><?php echo e('logs/legacy-imports/' . $zipInfo['name']); ?></code> وتخزين كل صورة بداخله
+        (بأي عمق مجلدات فرعية) داخل قاعدة البيانات مباشرة حسب اسمها، لإكمال صور منتجات/خدمات مستوردة مسبقاً.
         لا يتم إنشاء أي منتج جديد.
     </p>
     <form method="post">
@@ -226,7 +223,7 @@ admin_header('استيراد بيانات', 'import.php', 'استيراد بيا
     <p class="field-hint" style="margin-bottom:14px;">
         لإكمال صور منتجات أو خدمات مستوردة مسبقاً من <code>database.json</code> وتشير للصور بالاسم فقط.
         اختر عدة صور دفعة واحدة، أو ملف <strong>ZIP واحد</strong> يحتوي كل الصور (حتى لو داخل مجلدات فرعية) —
-        سيتم التعرف عليه تلقائياً وفك ضغطه. كل صورة تُنسخ إلى <code>uploads/</code> باسمها كما هو، دون إنشاء أي منتج جديد.
+        سيتم التعرف عليه تلقائياً وفك ضغطه. كل صورة تُخزَّن داخل قاعدة البيانات مباشرة حسب اسمها، دون إنشاء أي منتج جديد.
         بعد الانتهاء ستظهر رسالة توضح كم صورة ما زالت ناقصة إن وُجدت.
     </p>
     <form method="post" enctype="multipart/form-data">
