@@ -260,6 +260,27 @@ function db_delete_most_requested(PDO $pdo, string $name, string $category): voi
     $pdo->prepare('DELETE FROM most_requested_items WHERE name = ? AND category = ?')->execute([$name, $category]);
 }
 
+// يجمع كل أسماء ملفات الصور التي يشير إليها الكتالوج الحالي فعلياً (منتجات، خدمات،
+// شعار الموقع) دون تكرار. تُستخدم لمعرفة أي الصور ما زالت ناقصة داخل uploads/ بعد
+// استيراد بيانات تشير للصور بالاسم فقط (بلا محتوى الصورة نفسه).
+function db_list_referenced_images(PDO $pdo): array {
+    $names = [];
+    foreach ($pdo->query("SELECT img FROM products WHERE img IS NOT NULL AND img <> ''")->fetchAll() as $row) {
+        $names[] = $row['img'];
+    }
+    foreach ($pdo->query("SELECT img FROM services WHERE img IS NOT NULL AND img <> ''")->fetchAll() as $row) {
+        $names[] = $row['img'];
+    }
+    $logo = fetchOneValue($pdo, "SELECT app_logo FROM settings WHERE id = 1 AND app_logo IS NOT NULL AND app_logo <> ''", [], 'app_logo');
+    if ($logo) $names[] = $logo;
+
+    $names = array_map(function ($n) {
+        return strpos($n, 'uploads/') === 0 ? substr($n, strlen('uploads/')) : $n;
+    }, $names);
+
+    return array_values(array_unique($names));
+}
+
 // ---------------------------------------------------------------
 // أدوات مساعدة للكتالوج
 // ---------------------------------------------------------------
@@ -802,7 +823,7 @@ function db_delete_category_permanent(PDO $pdo, string $catId): ?string {
 // عمليات إنشاء/تحديث/سرد مباشرة لصفحات لوحة التحكم (admin/*.php).
 // منفصلة عن db_sync_catalog التي تُستخدم لمزامنة الشجرة كاملة من الواجهة القديمة.
 // ---------------------------------------------------------------
-function db_next_sort_order(PDO $pdo, string $table, string $whereCol = null, $whereVal = null): int {
+function db_next_sort_order(PDO $pdo, string $table, ?string $whereCol = null, $whereVal = null): int {
     if ($whereCol) {
         $stmt = $pdo->prepare("SELECT COALESCE(MAX(sort_order), -1) AS m FROM $table WHERE $whereCol = ?");
         $stmt->execute([$whereVal]);

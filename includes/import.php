@@ -240,3 +240,134 @@ function find_legacy_image_folders(string $legacyImportsDir): array {
     }
     return $found;
 }
+
+// يبحث عن ملفات ZIP موضوعة مباشرة داخل logs/legacy-imports (بديل لمجلد مفكوك الضغط)
+function find_legacy_image_zips(string $legacyImportsDir): array {
+    $found = [];
+    if (!is_dir($legacyImportsDir)) return $found;
+    foreach (scandir($legacyImportsDir) as $entry) {
+        if ($entry === '.' || $entry === '..') continue;
+        $fullPath = $legacyImportsDir . '/' . $entry;
+        if (is_file($fullPath) && strtolower(pathinfo($entry, PATHINFO_EXTENSION)) === 'zip') {
+            $found[] = ['name' => $entry, 'path' => $fullPath];
+        }
+    }
+    return $found;
+}
+
+// يتحقق من أن الملف صورة حقيقية (وليس مجرد امتداد صورة) وامتداده مسموح، ثم ينسخه إلى
+// uploads/ باسمه الأصلي كما هو (لأن المنتجات/الخدمات المستوردة مسبقاً من database.json
+// تشير للصور بهذا الاسم بالضبط). لا يُنشئ أي منتج جديد ولا يُغيّر قاعدة البيانات إطلاقاً.
+function copyValidatedImageToUploads(string $srcPath, string $uploadsDir, string $displayName): bool {
+    $ext = strtolower(pathinfo($displayName, PATHINFO_EXTENSION));
+    if (!in_array($ext, ['jpg', 'jpeg', 'png', 'gif', 'webp'], true)) return false;
+    if (@getimagesize($srcPath) === false) return false;
+
+    $safeName = basename($displayName);
+    if ($safeName === '' || $safeName === '.' || $safeName === '..') return false;
+
+    return @copy($srcPath, rtrim($uploadsDir, '/') . '/' . $safeName);
+}
+
+// ينسخ صور موجودة مسبقاً (منتجات/خدمات مستوردة من database.json تشير لصور بالاسم فقط)
+// إلى مجلد uploads/ دون إنشاء أي منتجات جديدة أو تعديل القاعدة. $files اختياري:
+// مصفوفة [اسم الملف => المسار الكامل] لملفات مرفوعة؛ إن تُرك فارغاً يُقرأ $folderPath
+// من القرص (بما فيه المجلدات الفرعية، لدعم مجلدات منظمة حسب الفئة/الشركة).
+function import_images_into_uploads(PDO $pdo, string $uploadsDir, string $folderPath, ?array $files = null): array {
+    $summary = ['copied' => 0, 'skipped' => 0, 'matched' => 0, 'unmatched' => 0, 'referenced_total' => 0, 'error' => null];
+
+    if ($files === null) {
+        if (!is_dir($folderPath)) {
+            $summary['error'] = 'المجلد غير موجود.';
+            return $summary;
+        }
+        $files = [];
+        $iterator = new RecursiveIteratorIterator(
+            new RecursiveDirectoryIterator($folderPath, FilesystemIterator::SKIP_DOTS)
+        );
+        foreach ($iterator as $fileInfo) {
+            if ($fileInfo->isFile()) {
+                $files[$fileInfo->getFilename()] = $fileInfo->getPathname();
+            }
+        }
+    }
+
+    if (empty($files)) {
+        $summary['error'] = 'لا توجد ملفات داخل المجلد.';
+        return $summary;
+    }
+
+    if (!is_dir($uploadsDir)) @mkdir($uploadsDir, 0755, true);
+
+    foreach ($files as $originalName => $path) {
+        if (copyValidatedImageToUploads($path, $uploadsDir, $originalName)) {
+            $summary['copied']++;
+        } else {
+            $summary['skipped']++;
+        }
+    }
+
+    db_report_image_coverage($pdo, $uploadsDir, $summary);
+    return $summary;
+}
+
+// نفس فكرة import_images_into_uploads لكن المصدر ملف ZIP واحد (أسهل للرفع من لوحة
+// التحكم لمجلد كبير من الصور دفعة واحدة، بدل اختيار كل صورة على حدة).
+function import_images_zip_into_uploads(PDO $pdo, string $uploadsDir, string $zipPath): array {
+    $summary = ['copied' => 0, 'skipped' => 0, 'matched' => 0, 'unmatched' => 0, 'referenced_total' => 0, 'error' => null];
+
+    $zip = new ZipArchive();
+    if ($zip->open($zipPath) !== true) {
+        $summary['error'] = 'تعذّر فتح ملف ZIP، تأكد أنه غير تالف.';
+        return $summary;
+    }
+
+    if (!is_dir($uploadsDir)) @mkdir($uploadsDir, 0755, true);
+
+    $tmpDir = sys_get_temp_dir() . '/almulla_zip_' . bin2hex(random_bytes(6));
+    @mkdir($tmpDir, 0755, true);
+
+    for ($i = 0; $i < $zip->numFiles; $i++) {
+        $entryName = $zip->getNameIndex($i);
+        if ($entryName === false || substr($entryName, -1) === '/') continue; // مجلد، تجاهله
+
+        $baseName = basename($entryName);
+        $tmpPath = $tmpDir . '/' . bin2hex(random_bytes(6)) . '_' . $baseName;
+        $stream = $zip->getStream($entryName);
+        if (!$stream) { $summary['skipped']++; continue; }
+
+        $out = @fopen($tmpPath, 'wb');
+        if ($out) {
+            stream_copy_to_stream($stream, $out);
+            fclose($out);
+        }
+        fclose($stream);
+
+        if (is_file($tmpPath) && copyValidatedImageToUploads($tmpPath, $uploadsDir, $baseName)) {
+            $summary['copied']++;
+        } else {
+            $summary['skipped']++;
+        }
+        @unlink($tmpPath);
+    }
+
+    $zip->close();
+    @rmdir($tmpDir);
+
+    db_report_image_coverage($pdo, $uploadsDir, $summary);
+    return $summary;
+}
+
+// يحدّث $summary بعدد الصور المطلوبة (يشير إليها الكتالوج الحالي) المتوفرة فعلاً
+// داخل uploads/ بعد النسخ، مقابل ما زال ناقصاً
+function db_report_image_coverage(PDO $pdo, string $uploadsDir, array &$summary): void {
+    $referenced = db_list_referenced_images($pdo);
+    $summary['referenced_total'] = count($referenced);
+    foreach ($referenced as $refName) {
+        if (is_file(rtrim($uploadsDir, '/') . '/' . $refName)) {
+            $summary['matched']++;
+        } else {
+            $summary['unmatched']++;
+        }
+    }
+}
