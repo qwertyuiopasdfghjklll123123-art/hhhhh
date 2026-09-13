@@ -22,6 +22,7 @@ ini_set('session.gc_maxlifetime', 315360000);
 ini_set('session.cookie_lifetime', 315360000);
 
 // بدء الجلسة
+ensureAppSessionStorage();
 session_name('Almulla_SECURE');
 session_start();
 

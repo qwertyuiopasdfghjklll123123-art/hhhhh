@@ -17,6 +17,7 @@ ini_set('session.cookie_httponly', 1);
 ini_set('session.use_only_cookies', 1);
 ini_set('session.gc_maxlifetime', 315360000);
 ini_set('session.cookie_lifetime', 315360000);
+ensureAppSessionStorage();
 session_name('Almulla_SECURE');
 session_start();
 

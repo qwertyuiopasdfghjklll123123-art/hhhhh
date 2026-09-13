@@ -1,4 +1,19 @@
 <?php
+// بعض الاستضافات المشتركة تستخدم مجلد جلسات نظام مشترك بين عملاء كثيرين (غير قابل للكتابة
+// أحياناً، أو يُنظَّف بعدوانية بصرف النظر عن إعدادات التطبيق) مما يسبب فقدان الجلسة بين طلب
+// وآخر بلا أي سبب في كود التطبيق نفسه. تخزين الجلسات داخل مجلد التطبيق نفسه (الذي نعرف أنه
+// قابل للكتابة فعلاً) يزيل هذا الاعتماد على إعدادات PHP الافتراضية على السيرفر. يجب استدعاؤها
+// قبل session_start() في أي نقطة دخول (index.php و admin/includes/bootstrap.php).
+function ensureAppSessionStorage() {
+    $path = __DIR__ . '/../logs/sessions';
+    if (!is_dir($path)) {
+        @mkdir($path, 0700, true);
+    }
+    if (is_dir($path) && is_writable($path)) {
+        session_save_path($path);
+    }
+}
+
 // ========== دوال المصادقة والصلاحيات ==========
 function isLoggedIn() {
     return isset($_SESSION['user_id']);
