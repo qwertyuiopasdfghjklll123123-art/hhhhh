@@ -160,8 +160,18 @@ $legacyImportsDir = __DIR__ . '/../logs/legacy-imports';
 $imageFolders = find_legacy_image_folders($legacyImportsDir);
 $imageZips = find_legacy_image_zips($legacyImportsDir);
 
-admin_header('استيراد بيانات', 'import.php', 'استيراد بيانات من نسخة سابقة من التطبيق أو من نظام آخر');
+admin_header('الاستيراد والتصدير', 'import.php', 'سحب نسخة احتياطية كاملة أو استعادتها، واستيراد بيانات من نظام آخر');
 ?>
+
+<div class="card">
+    <h2><i class="fas fa-file-export"></i> تصدير نسخة احتياطية</h2>
+    <p class="field-hint" style="margin-bottom:14px;">
+        يحمّل ملف JSON يحتوي كل بيانات المتجر (المستخدمين، الفئات، الشركات، المنتجات، الخدمات،
+        الإعدادات والإحصائيات) مع كل الصور الفعلية مضمَّنة بداخله. يمكنك رفعه لاحقاً من قسم الاستيراد
+        أدناه لاستعادته - في هذا الموقع نفسه أو موقع آخر - في أي وقت تشاء.
+    </p>
+    <a href="export.php" class="btn btn-primary"><i class="fas fa-download"></i> تحميل نسخة احتياطية الآن</a>
+</div>
 
 <div class="card">
     <h2><i class="fas fa-wand-magic-sparkles"></i> مزامنة تلقائية للصور</h2>
@@ -276,9 +286,9 @@ admin_header('استيراد بيانات', 'import.php', 'استيراد بيا
     <h2><i class="fas fa-file-code"></i> استيراد نسخة احتياطية / بيانات قديمة (JSON)</h2>
     <p class="field-hint" style="margin-bottom:14px;">
         يستورد المستخدمين، الفئات، الشركات، المنتجات، الخدمات، الإعدادات والإحصائيات (والصور المضمّنة
-        إن وُجدت) من ملف JSON. يقبل نفس الملف الذي تحمّله من "<a href="export.php">تصدير نسخة
-        احتياطية</a>" لاستعادته لاحقاً هنا أو في موقع آخر، أو ملف <code>database.json</code> من نسخة
-        Almulla القديمة قبل الانتقال إلى MySQL.
+        إن وُجدت) من ملف JSON. يقبل نفس الملف الذي تحمّله من قسم "تصدير نسخة احتياطية" أعلاه
+        لاستعادته لاحقاً هنا أو في موقع آخر، أو ملف <code>database.json</code> من نسخة Almulla
+        القديمة قبل الانتقال إلى MySQL.
     </p>
     <form method="post" enctype="multipart/form-data">
         <?php echo admin_csrf_field(); ?>

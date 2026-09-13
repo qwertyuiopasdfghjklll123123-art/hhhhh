@@ -7,8 +7,7 @@ $ADMIN_NAV = [
     'services.php' => ['icon' => 'fa-concierge-bell', 'label' => 'الخدمات'],
     'users.php' => ['icon' => 'fa-users', 'label' => 'المستخدمون'],
     'settings.php' => ['icon' => 'fa-gear', 'label' => 'الإعدادات'],
-    'import.php' => ['icon' => 'fa-file-import', 'label' => 'استيراد بيانات'],
-    'export.php' => ['icon' => 'fa-file-export', 'label' => 'تصدير نسخة احتياطية'],
+    'import.php' => ['icon' => 'fa-rotate', 'label' => 'الاستيراد والتصدير'],
 ];
 
 function admin_header($title, $active = '', $subtitle = '') {

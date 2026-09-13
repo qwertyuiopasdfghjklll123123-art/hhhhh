@@ -2234,25 +2234,24 @@
             updateCartUI(); 
         }
 
-        function toggleCart() { 
-            document.getElementById('cartSidebar').classList.toggle('open'); 
+        function toggleCart() {
+            switchPage(currentPage === 'cart' ? 'home' : 'cart');
         }
 
-        function clearCart() { 
+        function clearCart() {
             showConfirmModal(
                 '🛒 تفريغ السلة',
                 'هل أنت متأكد من تفريغ السلة بالكامل؟ سيتم حذف جميع العناصر المضافة.',
                 function() {
-                    cart = []; 
-                    saveCart(); 
+                    cart = [];
+                    saveCart();
                     showToast('🗑️ تم تفريغ السلة');
-                    closeCartSidebar();
                 }
             );
         }
 
         function closeCartSidebar() {
-            document.getElementById('cartSidebar').classList.remove('open');
+            switchPage('home');
         }
 
         function checkout() {
@@ -2359,26 +2358,25 @@
             if (item.isService) trackServiceRequest(item.name, item.category);
         }
 
-        function clearFavorites() { 
+        function clearFavorites() {
             showConfirmModal(
                 '🗑️ مسح المفضلات',
                 'هل أنت متأكد من مسح جميع المواد والمنتجات من قائمة المفضلات؟',
                 function() {
-                    favorites = []; 
-                    saveFavorites(); 
+                    favorites = [];
+                    saveFavorites();
                     showToast('🗑️ تم مسح جميع المفضلات');
                     render();
-                    closeFavoritesSidebar();
                 }
             );
         }
 
         function toggleFavorites() {
-            document.getElementById('favoritesSidebar').classList.toggle('open');
+            switchPage(currentPage === 'favorites' ? 'home' : 'favorites');
         }
 
         function closeFavoritesSidebar() {
-            document.getElementById('favoritesSidebar').classList.remove('open');
+            switchPage('home');
         }
 
         function isProductInFavorites(product) {
@@ -2692,11 +2690,15 @@
             if (activeItem) activeItem.classList.add('active');
             const profilePage = document.getElementById('profilePage');
             const contentArea = document.getElementById('contentArea');
+            const cartPage = document.getElementById('cartSidebar');
+            const favoritesPage = document.getElementById('favoritesSidebar');
             const searchBar = document.querySelector('.search-bar');
             const welcomeContainer = document.getElementById('welcomeCardContainer');
             const topServices = document.getElementById('topServicesContainer');
             if (profilePage) profilePage.style.display = page === 'profile' ? 'block' : 'none';
             if (contentArea) contentArea.style.display = page === 'home' ? 'block' : 'none';
+            if (cartPage) cartPage.classList.toggle('open', page === 'cart');
+            if (favoritesPage) favoritesPage.classList.toggle('open', page === 'favorites');
             if (searchBar) searchBar.style.display = page === 'home' ? 'flex' : 'none';
             if (welcomeContainer) welcomeContainer.style.display = page === 'home' ? 'block' : 'none';
             if (topServices) topServices.style.display = page === 'home' ? 'block' : 'none';
@@ -3103,15 +3105,23 @@
         // ========== التشغيل الأولي ==========
         // ================================================================
 
+        // تسجيل خروج من لوحة التحكم يُدمّر الجلسة على السيرفر لكن لا يستطيع هو نفسه لمس
+        // localStorage الخاص بمتصفح الموقع الرئيسي (صفحة PHP منفصلة بلا تنفيذ JS هناك)؛
+        // بدونها يبقى المتصفح "يظن" أنه لا يزال مسجَّل دخوله بعد الخروج من لوحة التحكم.
+        // admin/logout.php يعيد التوجيه هنا مع force_logout=1 لتفريغها فعلياً الآن
+        if (window.FORCE_LOGOUT) {
+            localStorage.removeItem('user');
+            localStorage.removeItem('isGuest');
+            localStorage.removeItem('favorites');
+            localStorage.removeItem('cart');
+        }
+
         const savedUser = localStorage.getItem('user');
         const savedGuest = localStorage.getItem('isGuest');
-        // رابط "/app" النظيف (عبر .htaccess) لا يظهر "page=app" في window.location.search
-        // رغم أن PHP يستقبله بشكل صحيح، لذا يجب التعرف عليه أيضاً من المسار نفسه هنا.
-        // admin_redirect=not_admin يعني: وصل من لوحة التحكم وهو مسجّل دخوله فعلاً لكن حسابه
-        // ليس مديراً - يُعامَل كرابط تطبيق عادي (مع تنبيه) بدل إظهار نموذج الدخول من جديد
-        const isAppUrl = window.location.search.includes('page=app') || /\/app\/?$/.test(window.location.pathname) || window.ADMIN_REDIRECT === 'not_admin';
 
-        if((savedUser || savedGuest === 'true') && isAppUrl){
+        if(savedUser || savedGuest === 'true'){
+            // جلسة محفوظة موجودة: اعرض التطبيق دائماً بصرف النظر عن شكل الرابط الذي دخل منه
+            // المستخدم (لا تُعِده لشاشة الدخول لمجرد أنه عدّل الرابط يدوياً وأزال "/app" مثلاً)
             if(savedUser) { currentUser = JSON.parse(savedUser); isGuestMode = false; }
             else if(savedGuest === 'true') { isGuestMode = true; currentUser = { id: 0, fullname: 'زائر', email: 'guest@temp.com', isAdmin: false }; }
             const loginScreen = document.getElementById('loginScreen');
@@ -3122,8 +3132,13 @@
                 showToast('⚠️ ليس لدى حسابك صلاحية الوصول إلى لوحة التحكم');
             }
             loadData();
-        } else if(isAppUrl && !savedUser && savedGuest !== 'true'){
-            window.location.href = window.location.pathname.replace(/\/app\/?$/, '/');
+        } else {
+            // رابط "/app" النظيف (عبر .htaccess) لا يظهر "page=app" في window.location.search
+            // رغم أن PHP يستقبله بشكل صحيح؛ إن لم توجد جلسة محفوظة أعده لرابط بسيط بلا "/app"
+            const isAppUrl = window.location.search.includes('page=app') || /\/app\/?$/.test(window.location.pathname);
+            if(isAppUrl){
+                window.location.href = window.location.pathname.replace(/\/app\/?$/, '/');
+            }
         }
 
         const savedTheme = localStorage.getItem('theme');

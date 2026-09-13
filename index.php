@@ -425,12 +425,12 @@ $page = isset($_GET['page']) ? $_GET['page'] : '';
                 <i class="fas fa-home"></i>
                 <span>الرئيسية</span>
             </div>
-            <div class="nav-item" data-page="cart" onclick="toggleCart()">
+            <div class="nav-item" data-page="cart" onclick="switchPage('cart')">
                 <i class="fas fa-shopping-cart"></i>
                 <span>السلة</span>
                 <span class="nav-badge" id="cartNavBadge" style="display:none;">0</span>
             </div>
-            <div class="nav-item" data-page="favorites" onclick="toggleFavorites()">
+            <div class="nav-item" data-page="favorites" onclick="switchPage('favorites')">
                 <i class="fas fa-heart"></i>
                 <span>المفضلات</span>
                 <span class="nav-badge" id="favoritesNavBadge" style="display:none;">0</span>
@@ -952,10 +952,12 @@ $page = isset($_GET['page']) ? $_GET['page'] : '';
     <?php
     $adminRedirectReason = $_GET['admin_redirect'] ?? '';
     $adminRedirectReason = in_array($adminRedirectReason, ['login', 'not_admin'], true) ? $adminRedirectReason : '';
+    $forceLogout = isset($_GET['force_logout']) ? 'true' : 'false';
     ?>
     <script>
     window.CSRF_TOKEN = "<?php echo htmlspecialchars($_SESSION['csrf_token'] ?? '', ENT_QUOTES, 'UTF-8'); ?>";
     window.ADMIN_REDIRECT = "<?php echo htmlspecialchars($adminRedirectReason, ENT_QUOTES, 'UTF-8'); ?>";
+    window.FORCE_LOGOUT = <?php echo $forceLogout; ?>;
     </script>
     <script src="assets/js/app.js"></script>
 </body>
