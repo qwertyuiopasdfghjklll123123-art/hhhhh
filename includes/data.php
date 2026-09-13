@@ -991,3 +991,132 @@ function db_update_service_fields(PDO $pdo, string $id, string $categoryId, arra
     $params[] = $id;
     $pdo->prepare("UPDATE services SET $sets WHERE id = ?")->execute($params);
 }
+
+// ---------------------------------------------------------------
+// تصدير كامل للبيانات بصيغة database.json (لنسخة احتياطية أو نقلها لموقع آخر).
+// الصور تُضمَّن كبيانات base64 مضمّنة مباشرة (وليس كأسماء ملفات) حتى تكون النسخة
+// المصدَّرة قائمة بذاتها بالكامل ولا تعتمد على uploads/ أو أي ملف خارجي، وقابلة لإعادة
+// الاستيراد فوراً عبر import_legacy_json() على نفس الموقع أو موقع آخر.
+// ---------------------------------------------------------------
+function imageColumnToBase64(?string $name, ?string $data, ?string $mime) {
+    if (!empty($name) && (strpos($name, 'http://') === 0 || strpos($name, 'https://') === 0)) {
+        return $name; // رابط خارجي يبقى كما هو
+    }
+    if (!empty($data)) {
+        return 'data:' . ($mime ?: 'image/jpeg') . ';base64,' . base64_encode($data);
+    }
+    return null; // لا يوجد محتوى فعلي بعد (اسم بلا بيانات مُزامَنة)
+}
+
+function db_export_full_json(PDO $pdo): array {
+    $users = array_map(function ($u) {
+        return [
+            'id' => (int)$u['id'],
+            'fullname' => $u['fullname'],
+            'email' => $u['email'],
+            'password' => $u['password'],
+            'isAdmin' => (bool)$u['is_admin'],
+            'created_at' => $u['created_at'],
+            'last_login' => $u['last_login'],
+        ];
+    }, $pdo->query('SELECT * FROM users ORDER BY id ASC')->fetchAll());
+
+    $categories = [];
+    $catRows = $pdo->query('SELECT * FROM categories ORDER BY sort_order ASC, created_at ASC')->fetchAll();
+    $compStmt = $pdo->prepare('SELECT * FROM companies WHERE category_id = ? ORDER BY sort_order ASC, created_at ASC');
+    $prodStmt = $pdo->prepare('SELECT * FROM products WHERE company_id = ? ORDER BY sort_order ASC, created_at ASC');
+    $svcStmt = $pdo->prepare('SELECT * FROM services WHERE category_id = ? ORDER BY sort_order ASC, created_at ASC');
+
+    foreach ($catRows as $cat) {
+        $companies = [];
+        $compStmt->execute([$cat['id']]);
+        foreach ($compStmt->fetchAll() as $comp) {
+            $prodStmt->execute([$comp['id']]);
+            $products = [];
+            foreach ($prodStmt->fetchAll() as $p) {
+                $products[] = [
+                    'id' => $p['id'],
+                    'name' => $p['name'],
+                    'code' => $p['code'],
+                    'color' => $p['color'],
+                    'price' => $p['price'],
+                    'img' => imageColumnToBase64($p['img'], $p['img_data'], $p['img_mime']),
+                    'image_url' => $p['image_url'],
+                    'available' => (bool)$p['available'],
+                    'deletedCard' => $p['deleted_card'],
+                ];
+            }
+            $companies[] = [
+                'id' => $comp['id'],
+                'name' => $comp['name'],
+                'logo' => imageColumnToBase64($comp['logo'], $comp['logo_data'], $comp['logo_mime']),
+                'deletedCard' => $comp['deleted_card'],
+                'products' => $products,
+            ];
+        }
+
+        $svcStmt->execute([$cat['id']]);
+        $services = [];
+        foreach ($svcStmt->fetchAll() as $s) {
+            $services[] = [
+                'id' => $s['id'],
+                'name' => $s['name'],
+                'color' => $s['color'],
+                'notes' => $s['notes'],
+                'img' => imageColumnToBase64($s['img'], $s['img_data'], $s['img_mime']),
+                'available' => (bool)$s['available'],
+                'deletedCard' => $s['deleted_card'],
+            ];
+        }
+
+        $categories[] = [
+            'id' => $cat['id'],
+            'name' => $cat['name'],
+            'image' => imageColumnToBase64($cat['image'], $cat['image_data'], $cat['image_mime']),
+            'deletedCard' => $cat['deleted_card'],
+            'companies' => $companies,
+            'services' => $services,
+        ];
+    }
+
+    db_ensure_settings_row($pdo);
+    $settingsRow = $pdo->query('SELECT * FROM settings WHERE id = 1')->fetch();
+    $welcomeCard = !empty($settingsRow['welcome_card']) ? json_decode($settingsRow['welcome_card'], true) : null;
+    $settings = [
+        'appName' => $settingsRow['app_name'],
+        'appLogo' => imageColumnToBase64($settingsRow['app_logo'], $settingsRow['app_logo_data'], $settingsRow['app_logo_mime']),
+        'whatsappNumber' => $settingsRow['whatsapp_number'],
+        'officialWebsite' => $settingsRow['official_website'],
+        'hideMostRequested' => (bool)$settingsRow['hide_most_requested'],
+        'welcomeCard' => $welcomeCard,
+    ];
+
+    db_ensure_stats_row($pdo);
+    $statsRow = $pdo->query('SELECT total_visitors, total_favorites, total_orders FROM stats WHERE id = 1')->fetch();
+    $dailyVisits = [];
+    foreach ($pdo->query('SELECT visit_date, count FROM daily_visits')->fetchAll() as $row) {
+        $dailyVisits[$row['visit_date']] = (int)$row['count'];
+    }
+    $mostRequested = array_map(function ($r) {
+        return ['name' => $r['name'], 'category' => $r['category'], 'type' => $r['type'], 'count' => (int)$r['count']];
+    }, $pdo->query('SELECT name, category, type, count FROM most_requested_items')->fetchAll());
+
+    $pushSubscriptions = array_map(function ($r) {
+        $decoded = json_decode($r['subscription'], true);
+        return $decoded !== null ? $decoded : $r['subscription'];
+    }, $pdo->query('SELECT subscription FROM push_subscriptions')->fetchAll());
+
+    return [
+        'users' => $users,
+        'catalog' => ['categories' => $categories],
+        'settings' => $settings,
+        'stats' => [
+            'total_visitors' => (int)$statsRow['total_visitors'],
+            'total_favorites' => (int)$statsRow['total_favorites'],
+            'total_orders' => (int)$statsRow['total_orders'],
+            'daily_visits' => $dailyVisits,
+            'most_requested_items' => $mostRequested,
+        ],
+        'push_subscriptions' => $pushSubscriptions,
+    ];
+}

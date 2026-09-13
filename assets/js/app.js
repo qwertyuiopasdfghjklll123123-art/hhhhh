@@ -59,7 +59,7 @@
         // ========== دالة مساعدة لعرض رابط الصورة ==========
         // القيمة القادمة من الخادم (catalogData) هي دائماً رابط جاهز للعرض مباشرة (رابط
         // خارجي، أو نقطة عرض BLOB من MySQL)، أو data: مؤقتة عند معاينة صورة قبل حفظها
-        function getImageUrl(imageName, defaultImage = 'https://iili.io/CKP5shF.jpg') {
+        function getImageUrl(imageName, defaultImage = 'data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 100 100%27%3E%3Crect width=%27100%27 height=%27100%27 fill=%27%23e5e7eb%27/%3E%3Ctext x=%2750%27 y=%2758%27 text-anchor=%27middle%27 font-size=%2740%27%3E%F0%9F%93%A6%3C/text%3E%3C/svg%3E') {
             return imageName || defaultImage;
         }
 
@@ -106,7 +106,7 @@
         let favorites = [];
         let cart = [];
         let catalogData = { categories: [] };
-        let appSettings = { appName: 'Almulla', appLogo: 'https://iili.io/CKP5shF.jpg', whatsappNumber: '966555555555', hideMostRequested: false };
+        let appSettings = { appName: 'Almulla', appLogo: 'data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 100 100%27%3E%3Crect width=%27100%27 height=%27100%27 fill=%27%23e5e7eb%27/%3E%3Ctext x=%2750%27 y=%2758%27 text-anchor=%27middle%27 font-size=%2740%27%3E%F0%9F%93%A6%3C/text%3E%3C/svg%3E', whatsappNumber: '966555555555', hideMostRequested: false };
         let welcomeCardSettings = { enabled: true, title: 'مرحباً', message: 'أهلاً بك', buttonText: 'تصفح', buttonLink: '#', animationSpeed: 30 };
         let officialWebsite = '';
         let currentPage = 'home';
@@ -341,7 +341,7 @@
                                 name: product.name, 
                                 code: product.code || '', 
                                 color: product.color || 'غير محدد', 
-                                img: product.img ? getImageUrl(product.img) : 'https://iili.io/CKP5shF.jpg',
+                                img: product.img ? getImageUrl(product.img) : 'data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 100 100%27%3E%3Crect width=%27100%27 height=%27100%27 fill=%27%23e5e7eb%27/%3E%3Ctext x=%2750%27 y=%2758%27 text-anchor=%27middle%27 font-size=%2740%27%3E%F0%9F%93%A6%3C/text%3E%3C/svg%3E',
                                 category: cat.name,
                                 available: true
                             });
@@ -1774,7 +1774,9 @@
                 successDiv.innerText = `مرحباً ${currentUser.fullname}! جاري تحويلك...`;
                 successDiv.classList.add('sh');
                 setTimeout(() => {
-                    window.location.href = window.location.pathname + '?page=app';
+                    let basePath = window.location.pathname.replace(/index\.php$/, '');
+                    if (!basePath.endsWith('/')) basePath += '/';
+                    window.location.href = basePath + 'app';
                 }, 1000);
             } else {
                 errorDiv.innerText = result.message || 'فشل تسجيل الدخول';
@@ -2090,7 +2092,7 @@
             if (idx !== -1) { 
                 cart[idx].quantity = (cart[idx].quantity || 1) + 1; 
             } else { 
-                cart.push({ ...product, quantity: 1, img: product.img || 'https://iili.io/CKP5shF.jpg' }); 
+                cart.push({ ...product, quantity: 1, img: product.img || 'data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 100 100%27%3E%3Crect width=%27100%27 height=%27100%27 fill=%27%23e5e7eb%27/%3E%3Ctext x=%2750%27 y=%2758%27 text-anchor=%27middle%27 font-size=%2740%27%3E%F0%9F%93%A6%3C/text%3E%3C/svg%3E' }); 
             }
             saveCart(); 
             showToast(`✅ تم إضافة "${product.name}" إلى السلة`);
@@ -2117,7 +2119,7 @@
             if (idx !== -1) { 
                 cart[idx].quantity = (cart[idx].quantity || 1) + quantity; 
             } else { 
-                cart.push({ ...product, quantity: quantity, img: product.img || 'https://iili.io/CKP5shF.jpg' }); 
+                cart.push({ ...product, quantity: quantity, img: product.img || 'data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 100 100%27%3E%3Crect width=%27100%27 height=%27100%27 fill=%27%23e5e7eb%27/%3E%3Ctext x=%2750%27 y=%2758%27 text-anchor=%27middle%27 font-size=%2740%27%3E%F0%9F%93%A6%3C/text%3E%3C/svg%3E' }); 
             }
             saveCart(); 
             showToast(`✅ تم إضافة ${quantity} من "${product.name}" إلى السلة`);
@@ -2189,7 +2191,7 @@
             let html = '';
             cart.forEach((item, idx) => {
                 const quantity = item.quantity || 1;
-                const imgSrc = item.img || 'https://iili.io/CKP5shF.jpg';
+                const imgSrc = item.img || 'data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 100 100%27%3E%3Crect width=%27100%27 height=%27100%27 fill=%27%23e5e7eb%27/%3E%3Ctext x=%2750%27 y=%2758%27 text-anchor=%27middle%27 font-size=%2740%27%3E%F0%9F%93%A6%3C/text%3E%3C/svg%3E';
                 html += `<div style="display:flex; gap:8px; padding:8px; border-bottom:1px solid var(--cardBd); position:relative;">
                             <img src="${imgSrc}" style="width:55px; height:55px; border-radius:8px; object-fit:cover;">
                             <div style="flex:1;">
@@ -2310,7 +2312,7 @@
             
             let html = '';
             favorites.forEach((item, idx) => {
-                const imgSrc = item.img || 'https://iili.io/CKP5shF.jpg';
+                const imgSrc = item.img || 'data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 100 100%27%3E%3Crect width=%27100%27 height=%27100%27 fill=%27%23e5e7eb%27/%3E%3Ctext x=%2750%27 y=%2758%27 text-anchor=%27middle%27 font-size=%2740%27%3E%F0%9F%93%A6%3C/text%3E%3C/svg%3E';
                 html += `<div style="display:flex; gap:10px; padding:8px; border-bottom:1px solid var(--cardBd);">
                             <img src="${imgSrc}" style="width:50px; height:50px; border-radius:10px; object-fit:cover;">
                             <div style="flex:1;">
@@ -2331,7 +2333,7 @@
         function addToFavorites(product) {
             const exists = favorites.some(fav => fav.code === product.code && fav.name === product.name);
             if (!exists) {
-                favorites.push({...product, img: product.img || 'https://iili.io/CKP5shF.jpg'});
+                favorites.push({...product, img: product.img || 'data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 100 100%27%3E%3Crect width=%27100%27 height=%27100%27 fill=%27%23e5e7eb%27/%3E%3Ctext x=%2750%27 y=%2758%27 text-anchor=%27middle%27 font-size=%2740%27%3E%F0%9F%93%A6%3C/text%3E%3C/svg%3E'});
                 saveFavorites();
                 showToast(`❤️ تم إضافة "${product.name}" إلى المفضلات`);
                 render();
@@ -2409,7 +2411,7 @@
                             name: service.name, 
                             code: '', 
                             color: service.color || 'خدمة', 
-                            img: service.img ? getImageUrl(service.img) : 'https://iili.io/CKP5shF.jpg',
+                            img: service.img ? getImageUrl(service.img) : 'data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 100 100%27%3E%3Crect width=%27100%27 height=%27100%27 fill=%27%23e5e7eb%27/%3E%3Ctext x=%2750%27 y=%2758%27 text-anchor=%27middle%27 font-size=%2740%27%3E%F0%9F%93%A6%3C/text%3E%3C/svg%3E',
                             notes: service.notes,
                             isService: true,
                             category: cat.name,
@@ -2493,7 +2495,7 @@
             }
             if (Notification.permission === "granted") { 
                 showToast("✅ الإشعارات مفعلة مسبقاً");
-                new Notification("🔔 اختبار", { body: "الإشعارات تعمل بشكل جيد", icon: "https://iili.io/CKP5shF.jpg" });
+                new Notification("🔔 اختبار", { body: "الإشعارات تعمل بشكل جيد", icon: "data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 100 100%27%3E%3Crect width=%27100%27 height=%27100%27 fill=%27%23e5e7eb%27/%3E%3Ctext x=%2750%27 y=%2758%27 text-anchor=%27middle%27 font-size=%2740%27%3E%F0%9F%93%A6%3C/text%3E%3C/svg%3E" });
                 return;
             }
             if (Notification.permission === "denied") {
@@ -2503,7 +2505,7 @@
             Notification.requestPermission().then(p => { 
                 if (p === "granted") {
                     showToast("✅ تم تفعيل الإشعارات بنجاح");
-                    new Notification("🔔 مرحباً!", { body: "ستصلك الآن آخر أخبار التطبيق", icon: "https://iili.io/CKP5shF.jpg" });
+                    new Notification("🔔 مرحباً!", { body: "ستصلك الآن آخر أخبار التطبيق", icon: "data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 100 100%27%3E%3Crect width=%27100%27 height=%27100%27 fill=%27%23e5e7eb%27/%3E%3Ctext x=%2750%27 y=%2758%27 text-anchor=%27middle%27 font-size=%2740%27%3E%F0%9F%93%A6%3C/text%3E%3C/svg%3E" });
                 } else {
                     showToast("⚠️ لم يتم تفعيل الإشعارات");
                 }
@@ -2564,7 +2566,7 @@
                         const escapedColor = escapeHtml(service.color).replace(/'/g, "\\'");
                         const escapedNotes = (service.notes || '').replace(/'/g, "\\'");
                         const escapedCatName = escapeHtml(cat.name).replace(/'/g, "\\'");
-                        const imageUrl = getImageUrl(service.img, 'https://iili.io/CKP5shF.jpg');
+                        const imageUrl = getImageUrl(service.img, 'data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 100 100%27%3E%3Crect width=%27100%27 height=%27100%27 fill=%27%23e5e7eb%27/%3E%3Ctext x=%2750%27 y=%2758%27 text-anchor=%27middle%27 font-size=%2740%27%3E%F0%9F%93%A6%3C/text%3E%3C/svg%3E');
                         const isAvailable = service.available !== false;
                         
                         html += `<div class="service-card ${!isAvailable ? 'service-unavailable' : ''}" style="position:relative;">
@@ -2637,7 +2639,7 @@
                     const escapedName = escapeHtml(prod.name).replace(/'/g, "\\'");
                     const escapedCode = escapeHtml(prod.code || 'بدون كود').replace(/'/g, "\\'");
                     const escapedColor = escapeHtml(prod.color || 'غير محدد').replace(/'/g, "\\'");
-                    const imageUrl = getImageUrl(prod.img, 'https://iili.io/CKP5shF.jpg');
+                    const imageUrl = getImageUrl(prod.img, 'data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 100 100%27%3E%3Crect width=%27100%27 height=%27100%27 fill=%27%23e5e7eb%27/%3E%3Ctext x=%2750%27 y=%2758%27 text-anchor=%27middle%27 font-size=%2740%27%3E%F0%9F%93%A6%3C/text%3E%3C/svg%3E');
                     const isAvailable = prod.available !== false;
                     
                     html += `<div class="service-card ${!isAvailable ? 'service-unavailable' : ''}" style="position:relative;">
@@ -2712,7 +2714,7 @@
                 cat.services?.forEach(service => { 
                     if(service.deletedCard === 'ok') return;
                     if(service.name.toLowerCase().includes(query) && service.available !== false) {
-                        const imgUrl = getImageUrl(service.img, 'https://iili.io/CKP5shF.jpg');
+                        const imgUrl = getImageUrl(service.img, 'data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 100 100%27%3E%3Crect width=%27100%27 height=%27100%27 fill=%27%23e5e7eb%27/%3E%3Ctext x=%2750%27 y=%2758%27 text-anchor=%27middle%27 font-size=%2740%27%3E%F0%9F%93%A6%3C/text%3E%3C/svg%3E');
                         results.push({ type: 'خدمة', name: service.name, color: service.color, img: imgUrl, notes: service.notes, category: cat.name, action: () => addToCart({ name: service.name, code: '', color: service.color || 'خدمة', img: imgUrl, notes: service.notes, isService: true, category: cat.name, available: true }) });
                     }
                 });
@@ -2724,7 +2726,7 @@
                     comp.products?.forEach(prod => { 
                         if(prod.deletedCard === 'ok') return;
                         if(prod.name.toLowerCase().includes(query) || (prod.code && prod.code.toLowerCase().includes(query))) {
-                            const imgUrl = getImageUrl(prod.img, 'https://iili.io/CKP5shF.jpg');
+                            const imgUrl = getImageUrl(prod.img, 'data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 100 100%27%3E%3Crect width=%27100%27 height=%27100%27 fill=%27%23e5e7eb%27/%3E%3Ctext x=%2750%27 y=%2758%27 text-anchor=%27middle%27 font-size=%2740%27%3E%F0%9F%93%A6%3C/text%3E%3C/svg%3E');
                             results.push({ type: 'منتج', name: prod.name, code: prod.code, color: prod.color, img: imgUrl, action: () => addToCart({ name: prod.name, code: prod.code, color: prod.color, img: imgUrl, available: true }) });
                         }
                     });
@@ -2739,22 +2741,9 @@
         // ========== دوال لوحة التحكم ==========
         // ================================================================
 
-        function openAdminPanel() { 
-            if(currentUser?.isAdmin && !isGuestMode){ 
-                updateAdminLists();
-                renderStatusServices();
-                loadUsersList(); 
-                refreshStats(); 
-                loadMostRequestedItems();
-                updateAdminSelects();
-                renderProductsTable();
-                
-                if (document.getElementById('hideMostRequested')) {
-                    document.getElementById('hideMostRequested').checked = appSettings.hideMostRequested === true;
-                }
-                
-                const panel = document.getElementById('adminPanel'); 
-                if(panel) panel.classList.add('open'); 
+        function openAdminPanel() {
+            if(currentUser?.isAdmin && !isGuestMode){
+                window.location.href = 'admin/index.php';
             } else if(isGuestMode) {
                 showToast('⚠️ يجب تسجيل الدخول كمدير للوصول إلى لوحة التحكم');
             }
@@ -3113,8 +3102,11 @@
 
         const savedUser = localStorage.getItem('user');
         const savedGuest = localStorage.getItem('isGuest');
-        
-        if((savedUser || savedGuest === 'true') && window.location.search.includes('page=app')){
+        // رابط "/app" النظيف (عبر .htaccess) لا يظهر "page=app" في window.location.search
+        // رغم أن PHP يستقبله بشكل صحيح، لذا يجب التعرف عليه أيضاً من المسار نفسه هنا
+        const isAppUrl = window.location.search.includes('page=app') || /\/app\/?$/.test(window.location.pathname);
+
+        if((savedUser || savedGuest === 'true') && isAppUrl){
             if(savedUser) { currentUser = JSON.parse(savedUser); isGuestMode = false; }
             else if(savedGuest === 'true') { isGuestMode = true; currentUser = { id: 0, fullname: 'زائر', email: 'guest@temp.com', isAdmin: false }; }
             const loginScreen = document.getElementById('loginScreen');
@@ -3122,8 +3114,8 @@
             if(loginScreen) loginScreen.classList.add('hide');
             if(appScreen) appScreen.style.display = 'block';
             loadData();
-        } else if(window.location.search.includes('page=app') && !savedUser && savedGuest !== 'true'){
-            window.location.href = window.location.pathname;
+        } else if(isAppUrl && !savedUser && savedGuest !== 'true'){
+            window.location.href = window.location.pathname.replace(/\/app\/?$/, '/');
         }
 
         const savedTheme = localStorage.getItem('theme');

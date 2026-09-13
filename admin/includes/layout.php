@@ -8,6 +8,7 @@ $ADMIN_NAV = [
     'users.php' => ['icon' => 'fa-users', 'label' => 'المستخدمون'],
     'settings.php' => ['icon' => 'fa-gear', 'label' => 'الإعدادات'],
     'import.php' => ['icon' => 'fa-file-import', 'label' => 'استيراد بيانات'],
+    'export.php' => ['icon' => 'fa-file-export', 'label' => 'تصدير نسخة احتياطية'],
 ];
 
 function admin_header($title, $active = '', $subtitle = '') {
@@ -21,7 +22,7 @@ function admin_header($title, $active = '', $subtitle = '') {
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title><?php echo e($title); ?> | لوحة تحكم <?php echo e($appName); ?></title>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
-<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700;800;900&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="assets/admin.css">
 </head>
 <body>
