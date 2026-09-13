@@ -104,9 +104,13 @@ function db_get_settings(PDO $pdo): array {
     if (!empty($row['welcome_card'])) {
         $welcomeCard = json_decode($row['welcome_card'], true);
     }
+    $appLogo = $row['app_logo'];
+    if (!empty($appLogo) && strpos($appLogo, 'http') !== 0 && strpos($appLogo, '/') === false) {
+        $appLogo = 'uploads/' . $appLogo;
+    }
     return [
         'appName' => $row['app_name'],
-        'appLogo' => $row['app_logo'],
+        'appLogo' => $appLogo,
         'whatsappNumber' => $row['whatsapp_number'],
         'officialWebsite' => $row['official_website'],
         'hideMostRequested' => (bool)$row['hide_most_requested'],
@@ -118,9 +122,19 @@ function db_save_settings(PDO $pdo, array $input): void {
     db_ensure_settings_row($pdo);
     $sets = [];
     $params = [];
+
+    if (isset($input['appLogo'])) {
+        // شعار مضمّن كـ base64 يُحفظ كملف حقيقي في uploads/ بدل تخزينه نصاً ضخماً في القاعدة.
+        // القيمة المخزّنة اسم ملف مجرّد (كبقية أعمدة الصور)؛ db_get_settings() تضيف "uploads/" عند القراءة.
+        $existing = fetchOneValue($pdo, 'SELECT app_logo FROM settings WHERE id = 1', [], 'app_logo');
+        $existingBare = (!empty($existing) && strpos($existing, 'uploads/') === 0) ? substr($existing, strlen('uploads/')) : $existing;
+        $logo = resolveImageField($input['appLogo'], $existingBare, 'logo');
+        $sets[] = 'app_logo = ?';
+        $params[] = $logo;
+    }
+
     $map = [
         'appName' => 'app_name',
-        'appLogo' => 'app_logo',
         'whatsappNumber' => 'whatsapp_number',
         'officialWebsite' => 'official_website',
     ];
