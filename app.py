@@ -1285,13 +1285,13 @@ def send_verify_email(to_email, token):
     _sname = get_setting('site_name', 'fastcrand') or 'fastcrand'
     html = f'''<!DOCTYPE html><html dir="rtl"><head><meta charset="UTF-8"></head><body style="margin:0;padding:40px 20px;background:#f0f1f5;font-family:IBM Plex Sans Arabic,Tajawal,Arial,sans-serif">
 <div style="max-width:480px;margin:0 auto;background:#fff;border-radius:16px;overflow:hidden;box-shadow:0 8px 40px rgba(0,0,0,0.08)">
-<div style="background:linear-gradient(135deg,#4f46e5,#6366f1);padding:32px 24px;text-align:center">
+<div style="background:linear-gradient(135deg,#ff7a1a,#ffa64d);padding:32px 24px;text-align:center">
 <h1 style="color:#fff;margin:0;font-size:26px;font-family:IBM Plex Sans Arabic,sans-serif;font-weight:900">{_sname}</h1>
 <p style="color:rgba(255,255,255,.6);font-size:11px;margin:6px 0 0">أسرع لوحة SMM</p></div>
 <div style="padding:36px 28px;text-align:center">
 <h2 style="margin:0 0 10px;font-size:20px;color:#1a1a2e;font-weight:900">رمز التحقق الخاص بك</h2>
 <p style="color:#777;font-size:13px;line-height:1.8;margin:0 0 24px">أدخل هذا الرمز في صفحة التسجيل لتأكيد حسابك:</p>
-<div style="display:inline-block;padding:18px 40px;background:#f0f1f5;border-radius:14px;font-family:IBM Plex Sans Arabic,monospace;font-size:36px;font-weight:900;letter-spacing:12px;color:#4f46e5">{token}</div>
+<div style="display:inline-block;padding:18px 40px;background:#f0f1f5;border-radius:14px;font-family:IBM Plex Sans Arabic,monospace;font-size:36px;font-weight:900;letter-spacing:12px;color:#ff7a1a">{token}</div>
 <p style="color:#bbb;font-size:11px;margin-top:28px;line-height:1.7">الرمز صالح لمدة 24 ساعة.<br>إذا لم تقم بإنشاء حساب، تجاهل هذه الرسالة.</p>
 </div>
 <div style="background:#f8f9fb;padding:18px;text-align:center;font-size:10px;color:#aaa;border-top:1px solid #eef0f3">{_sname} &copy; 2026</div>
@@ -1326,12 +1326,12 @@ def send_reset_email(to_email, code):
     _sname = get_setting('site_name', 'fastcrand') or 'fastcrand'
     html = f'''<!DOCTYPE html><html dir="rtl"><head><meta charset="UTF-8"></head><body style="margin:0;padding:40px 20px;background:#f0f1f5;font-family:IBM Plex Sans Arabic,Tajawal,Arial,sans-serif">
 <div style="max-width:480px;margin:0 auto;background:#fff;border-radius:16px;overflow:hidden;box-shadow:0 8px 40px rgba(0,0,0,0.08)">
-<div style="background:linear-gradient(135deg,#4f46e5,#6366f1);padding:32px 24px;text-align:center">
+<div style="background:linear-gradient(135deg,#ff7a1a,#ffa64d);padding:32px 24px;text-align:center">
 <h1 style="color:#fff;margin:0;font-size:26px;font-family:IBM Plex Sans Arabic,sans-serif;font-weight:900">{_sname}</h1></div>
 <div style="padding:36px 28px;text-align:center">
 <h2 style="margin:0 0 10px;font-size:20px;color:#1a1a2e;font-weight:900">استعادة كلمة المرور</h2>
 <p style="color:#777;font-size:13px;margin:0 0 24px">أدخل هذا الرمز لإعادة تعيين كلمة المرور:</p>
-<div style="display:inline-block;padding:18px 40px;background:#f0f1f5;border-radius:14px;font-family:IBM Plex Sans Arabic,monospace;font-size:36px;font-weight:900;letter-spacing:12px;color:#4f46e5">{code}</div>
+<div style="display:inline-block;padding:18px 40px;background:#f0f1f5;border-radius:14px;font-family:IBM Plex Sans Arabic,monospace;font-size:36px;font-weight:900;letter-spacing:12px;color:#ff7a1a">{code}</div>
 <p style="color:#bbb;font-size:11px;margin-top:28px">إذا لم تطلب إعادة تعيين، تجاهل هذه الرسالة.</p>
 </div></div></body></html>'''
     try:
@@ -1386,13 +1386,13 @@ def send_email_change_email(to_email, code):
     _sname = get_setting('site_name', 'fastcrand') or 'fastcrand'
     html = f'''<!DOCTYPE html><html dir="rtl"><head><meta charset="UTF-8"></head><body style="margin:0;padding:40px 20px;background:#f0f1f5;font-family:IBM Plex Sans Arabic,Tajawal,Arial,sans-serif">
 <div style="max-width:480px;margin:0 auto;background:#fff;border-radius:16px;overflow:hidden;box-shadow:0 8px 40px rgba(0,0,0,0.08)">
-<div style="background:linear-gradient(135deg,#4f46e5,#6366f1);padding:32px 24px;text-align:center">
+<div style="background:linear-gradient(135deg,#ff7a1a,#ffa64d);padding:32px 24px;text-align:center">
 <h1 style="color:#fff;margin:0;font-size:26px;font-family:IBM Plex Sans Arabic,sans-serif;font-weight:900">{_sname}</h1>
 <p style="color:rgba(255,255,255,.6);font-size:11px;margin:6px 0 0">أسرع لوحة SMM</p></div>
 <div style="padding:36px 28px;text-align:center">
 <h2 style="margin:0 0 10px;font-size:20px;color:#1a1a2e;font-weight:900">رمز التحقق الخاص بك</h2>
 <p style="color:#777;font-size:13px;line-height:1.8;margin:0 0 24px">أدخل هذا الرمز في صفحة الإعدادات لتأكيد العملية:</p>
-<div style="display:inline-block;padding:18px 40px;background:#f0f1f5;border-radius:14px;font-family:IBM Plex Sans Arabic,monospace;font-size:36px;font-weight:900;letter-spacing:12px;color:#4f46e5">{code}</div>
+<div style="display:inline-block;padding:18px 40px;background:#f0f1f5;border-radius:14px;font-family:IBM Plex Sans Arabic,monospace;font-size:36px;font-weight:900;letter-spacing:12px;color:#ff7a1a">{code}</div>
 <p style="color:#bbb;font-size:11px;margin-top:28px;line-height:1.7">الرمز صالح لمدة 30 دقيقة.<br>إذا لم تطلب هذا الرمز، تجاهل هذه الرسالة.</p>
 </div>
 <div style="background:#f8f9fb;padding:18px;text-align:center;font-size:10px;color:#aaa;border-top:1px solid #eef0f3">{_sname} &copy; 2026</div>
@@ -1445,18 +1445,18 @@ def serve_pwa_icon():
     sy = int(s * 0.88)
     svg = f'''<svg xmlns="http://www.w3.org/2000/svg" width="{s}" height="{s}" viewBox="0 0 {s} {s}">
     <defs>
-      <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#1e1b4b"/><stop offset="100%" stop-color="#312e81"/></linearGradient>
+      <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#2a1608"/><stop offset="100%" stop-color="#5a2e0a"/></linearGradient>
     </defs>
     <rect width="{s}" height="{s}" rx="{r}" fill="url(#bg)"/>
-    <line x1="{int(s*0.05)}" y1="{int(s*0.26)}" x2="{int(s*0.38)}" y2="{int(s*0.26)}" stroke="rgba(129,140,248,0.15)" stroke-width="{lsw}" stroke-linecap="round"/>
-    <line x1="{int(s*0.03)}" y1="{int(s*0.42)}" x2="{int(s*0.42)}" y2="{int(s*0.42)}" stroke="rgba(129,140,248,0.1)" stroke-width="{lsw}" stroke-linecap="round"/>
-    <line x1="{int(s*0.08)}" y1="{int(s*0.58)}" x2="{int(s*0.32)}" y2="{int(s*0.58)}" stroke="rgba(129,140,248,0.07)" stroke-width="{lsw}" stroke-linecap="round"/>
-    <line x1="{int(s*0.55)}" y1="{int(s*0.72)}" x2="{int(s*0.92)}" y2="{int(s*0.72)}" stroke="rgba(129,140,248,0.12)" stroke-width="{lsw}" stroke-linecap="round"/>
-    <line x1="{int(s*0.60)}" y1="{int(s*0.82)}" x2="{int(s*0.95)}" y2="{int(s*0.82)}" stroke="rgba(129,140,248,0.07)" stroke-width="{lsw}" stroke-linecap="round"/>
+    <line x1="{int(s*0.05)}" y1="{int(s*0.26)}" x2="{int(s*0.38)}" y2="{int(s*0.26)}" stroke="rgba(255,167,77,0.18)" stroke-width="{lsw}" stroke-linecap="round"/>
+    <line x1="{int(s*0.03)}" y1="{int(s*0.42)}" x2="{int(s*0.42)}" y2="{int(s*0.42)}" stroke="rgba(255,167,77,0.12)" stroke-width="{lsw}" stroke-linecap="round"/>
+    <line x1="{int(s*0.08)}" y1="{int(s*0.58)}" x2="{int(s*0.32)}" y2="{int(s*0.58)}" stroke="rgba(255,167,77,0.08)" stroke-width="{lsw}" stroke-linecap="round"/>
+    <line x1="{int(s*0.55)}" y1="{int(s*0.72)}" x2="{int(s*0.92)}" y2="{int(s*0.72)}" stroke="rgba(255,167,77,0.14)" stroke-width="{lsw}" stroke-linecap="round"/>
+    <line x1="{int(s*0.60)}" y1="{int(s*0.82)}" x2="{int(s*0.95)}" y2="{int(s*0.82)}" stroke="rgba(255,167,77,0.08)" stroke-width="{lsw}" stroke-linecap="round"/>
     <rect x="{bx}" y="{by}" width="{bs}" height="{bs}" rx="{br}" fill="#fbbf24"/>
-    <line x1="{ax1}" y1="{ay}" x2="{ax2}" y2="{ay}" stroke="#1e1b4b" stroke-width="{sw}" stroke-linecap="round"/>
-    <line x1="{ax2}" y1="{ay}" x2="{ax2 - ah}" y2="{ay - ah}" stroke="#1e1b4b" stroke-width="{sw}" stroke-linecap="round"/>
-    <line x1="{ax2}" y1="{ay}" x2="{ax2 - ah}" y2="{ay + ah}" stroke="#1e1b4b" stroke-width="{sw}" stroke-linecap="round"/>
+    <line x1="{ax1}" y1="{ay}" x2="{ax2}" y2="{ay}" stroke="#2a1608" stroke-width="{sw}" stroke-linecap="round"/>
+    <line x1="{ax2}" y1="{ay}" x2="{ax2 - ah}" y2="{ay - ah}" stroke="#2a1608" stroke-width="{sw}" stroke-linecap="round"/>
+    <line x1="{ax2}" y1="{ay}" x2="{ax2 - ah}" y2="{ay + ah}" stroke="#2a1608" stroke-width="{sw}" stroke-linecap="round"/>
     <text x="{tx}" y="{ty}" text-anchor="middle" font-family="Arial,Helvetica,sans-serif" font-size="{fs}" font-weight="900" fill="white">fc</text>
     <text x="{s//2}" y="{sy}" text-anchor="middle" font-family="Arial,Helvetica,sans-serif" font-size="{sfs}" font-weight="600" fill="rgba(255,255,255,0.2)" letter-spacing="{int(s*0.02)}">FASTCRAND</text>
     </svg>'''
@@ -4603,16 +4603,22 @@ def api_user_ticket_delete():
     conn.close()
     return jsonify(ok=True, deleted=count)
 
+CURRENCY_DEFAULT_RATES = {
+    'IQD': 1500, 'SAR': 3.75, 'AED': 3.67, 'KWD': 0.307, 'QAR': 3.64, 'BHD': 0.376,
+    'OMR': 0.385, 'JOD': 0.709, 'EGP': 49, 'LBP': 89500, 'SYP': 13000, 'YER': 250,
+    'LYD': 4.85, 'MAD': 9.9, 'TND': 3.1, 'DZD': 134, 'EUR': 0.92, 'GBP': 0.79,
+    'TRY': 34, 'INR': 83.5, 'PKR': 278, 'CNY': 7.24, 'CAD': 1.36, 'AUD': 1.52,
+    'CHF': 0.88, 'ZAR': 18.3, 'NGN': 1550, 'MYR': 4.7, 'IDR': 15750,
+}
+
 @app.route('/api/currency-rates')
 def api_currency_rates():
-    rates = {
-        'USD': 1,
-        'IQD': float(get_setting('rate_IQD', '1500') or '1500'),
-        'EUR': float(get_setting('rate_EUR', '0.92') or '0.92'),
-        'SAR': float(get_setting('rate_SAR', '3.75') or '3.75'),
-        'AED': float(get_setting('rate_AED', '3.67') or '3.67'),
-        'TRY': float(get_setting('rate_TRY', '38.5') or '38.5')
-    }
+    rates = {'USD': 1}
+    for code, default in CURRENCY_DEFAULT_RATES.items():
+        try:
+            rates[code] = float(get_setting(f'rate_{code}', str(default)) or default)
+        except (TypeError, ValueError):
+            rates[code] = default
     return jsonify(ok=True, rates=rates)
 
 @app.route('/api/recharge/history')
@@ -5237,7 +5243,7 @@ def api_admin_site_settings_save():
     data = freq.get_json() or {}
     allowed = ['site_name','site_name_color','smtp_enabled','smtp_host','smtp_port','smtp_tls','smtp_email','smtp_password','smtp_sender_name',
                'backup_enabled','backup_interval','tg_bot_token','tg_chat_id','provider_api_url','provider_api_key',
-               'rate_IQD','rate_EUR','rate_SAR','rate_AED','rate_TRY','google_client_id']
+               'google_client_id','deepseek_api_key','deepseek_model','ai_logo'] + [f'rate_{c}' for c in CURRENCY_DEFAULT_RATES]
     conn = get_db()
     for k in allowed:
         if k in data:
@@ -6088,7 +6094,7 @@ LANDING_HTML = r'''<!DOCTYPE html>
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <meta name="author" content="Fast"><title>__SITE_NAME__ — SMM Panel</title>
 <link rel="manifest" href="/manifest.json">
-<meta name="theme-color" content="#4f46e5">
+<meta name="theme-color" content="#ff7a1a">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
 <meta name="apple-mobile-web-app-title" content="__SITE_NAME__">
@@ -6101,36 +6107,36 @@ LANDING_HTML = r'''<!DOCTYPE html>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 :root{
-  --bg:#ffffff;--bg2:#f5f6fa;
-  --card:#ffffff;--card-border:rgba(0,0,0,0.06);
-  --text:#1a1a2e;--text2:#555;--text3:#888;
-  --primary:#4f46e5;--primary-light:#6366f1;--primary-dark:#3730a3;
-  --primary-glow:rgba(79,70,229,0.12);
-  --input-bg:#f5f6fa;--input-border:#e0e3eb;--input-focus:#4f46e5;
-  --shadow:0 4px 20px rgba(0,0,0,0.06);
-  --shadow-lg:0 12px 40px rgba(0,0,0,0.08);
-  --icon-float:rgba(79,70,229,0.05);
-  --toggle-bg:#f0f2f5;
-  --divider:#e5e7eb;
+  --bg:#f7f4f0;--bg2:#fbf7f3;
+  --card:#ffffff;--card-border:rgba(34,26,18,0.08);
+  --text:#221a12;--text2:#6b5d50;--text3:#998a7c;
+  --primary:#ff7a1a;--primary-light:#ffa64d;--primary-dark:#ee6a05;
+  --primary-glow:rgba(255,122,26,0.14);
+  --input-bg:#fbf7f3;--input-border:#f0e6da;--input-focus:#ff7a1a;
+  --shadow:0 4px 20px rgba(34,26,18,0.07);
+  --shadow-lg:0 12px 40px rgba(34,26,18,0.10);
+  --icon-float:rgba(255,122,26,0.08);
+  --toggle-bg:#fdeee0;
+  --divider:#f0e6da;
   --success:#10b981;
-  --step-line:#e0e3eb;
-  --feature-icon-bg:rgba(79,70,229,0.08);
+  --step-line:#f0e6da;
+  --feature-icon-bg:rgba(255,122,26,0.10);
   --err:#ef4444;
 }
 [data-theme="dark"]{
-  --bg:#000000;--bg2:#0a0a0a;
-  --card:#111111;--card-border:rgba(255,255,255,0.10);
-  --text:#f0f0f4;--text2:#b0b0c0;--text3:#7a7a8d;
-  --primary:#6366f1;--primary-light:#818cf8;--primary-dark:#4f46e5;
-  --primary-glow:rgba(99,102,241,0.18);
-  --input-bg:#161616;--input-border:#252525;--input-focus:#818cf8;
+  --bg:#120e0a;--bg2:#1a140d;
+  --card:#1d1712;--card-border:rgba(255,167,77,0.14);
+  --text:#f5efe8;--text2:#c9baa8;--text3:#94816d;
+  --primary:#ff8c3d;--primary-light:#ffa864;--primary-dark:#ff7a1a;
+  --primary-glow:rgba(255,140,61,0.20);
+  --input-bg:#221a12;--input-border:#3a2c1e;--input-focus:#ffa864;
   --shadow:0 4px 20px rgba(0,0,0,0.4);
   --shadow-lg:0 12px 40px rgba(0,0,0,0.5);
-  --icon-float:rgba(99,102,241,0.06);
-  --toggle-bg:#161616;
-  --divider:#2a2a2a;
-  --step-line:#2a2a2a;
-  --feature-icon-bg:rgba(99,102,241,0.12);
+  --icon-float:rgba(255,140,61,0.10);
+  --toggle-bg:#221a12;
+  --divider:#3a2c1e;
+  --step-line:#3a2c1e;
+  --feature-icon-bg:rgba(255,140,61,0.14);
 }
 html{scroll-behavior:smooth}
 body{font-family:IBM Plex Sans Arabic,'Tajawal',sans-serif;background:var(--bg);color:var(--text);transition:background .4s,color .4s;overflow-x:hidden}
@@ -6697,7 +6703,7 @@ body{{font-family:IBM Plex Sans Arabic,'Tajawal',sans-serif;min-height:100vh;min
 .ban-ta{{width:100%;padding:12px;border-radius:10px;border:1px solid rgba(255,255,255,.1);background:rgba(255,255,255,.06);color:#fff;font-family:IBM Plex Sans Arabic,'Tajawal',sans-serif;font-size:13px;resize:none;min-height:90px;outline:none}}
 .ban-ta::placeholder{{color:#555}}
 .ban-btn{{width:100%;padding:14px;border:none;border-radius:12px;font-family:IBM Plex Sans Arabic,'Tajawal',sans-serif;font-size:14px;font-weight:800;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:8px;transition:all .2s;margin-bottom:10px}}
-.ban-btn-primary{{background:linear-gradient(135deg,#4f46e5,#6366f1);color:#fff;box-shadow:0 4px 18px rgba(79,70,229,.25)}}
+.ban-btn-primary{{background:linear-gradient(135deg,#ff7a1a,#ffa64d);color:#fff;box-shadow:0 4px 18px rgba(255,122,26,.25)}}
 .ban-btn-primary:hover{{transform:translateY(-1px)}}
 .ban-btn-outline{{background:transparent;border:1.5px solid rgba(255,255,255,.12);color:#aaa}}
 .ban-btn-outline:hover{{border-color:rgba(255,255,255,.25);color:#fff}}
@@ -6793,14 +6799,14 @@ def dashboard():
     avatar_url = (urow['avatar'] if urow and urow['avatar'] else '') or ''
     site_name = get_setting('site_name', 'fastcrand')
     _snc_raw = get_setting('site_name_color', '')
-    _brand_bg = 'linear-gradient(135deg,var(--primary),#2563eb)'
+    _brand_bg = 'linear-gradient(135deg,var(--primary),#ffa64d)'
     if _snc_raw:
         try:
             _snc = json.loads(_snc_raw)
             if _snc.get('type') == 'solid':
-                _brand_bg = _snc.get('color', '#6366f1')
+                _brand_bg = _snc.get('color', '#ff7a1a')
             elif _snc.get('type') == 'gradient':
-                _brand_bg = f'linear-gradient({_snc.get("angle",135)}deg,{_snc.get("from","#6366f1")},{_snc.get("to","#2563eb")})'
+                _brand_bg = f'linear-gradient({_snc.get("angle",135)}deg,{_snc.get("from","#ff7a1a")},{_snc.get("to","#ffa64d")})'
         except: pass
     html = DASH_HTML.replace('__UNAME__', uname).replace('__UINIT__', uinit).replace('__UEMAIL__', uemail).replace('__AVATAR_URL__', avatar_url).replace('__SITE_NAME__', site_name).replace('__BRAND_COLOR_BG__', _brand_bg).replace('__PWA_ICON_VER__', get_setting('pwa_icon_version', '2'))
     if is_admin:
@@ -6825,7 +6831,7 @@ DASH_HTML = r'''<!DOCTYPE html>
 <title>__SITE_NAME__ — لوحة التحكم</title>
 <script>try{if(localStorage.getItem('fc_theme')==='dark')document.documentElement.setAttribute('data-theme','dark')}catch(e){}</script>
 <link rel="manifest" href="/manifest.json">
-<meta name="theme-color" content="#4f46e5">
+<meta name="theme-color" content="#ff7a1a">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
 <meta name="apple-mobile-web-app-title" content="__SITE_NAME__">
@@ -6840,8 +6846,8 @@ DASH_HTML = r'''<!DOCTYPE html>
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@300;400;500;600;700;800;900&family=Tajawal:wght@400;500;700;800;900&display=swap" rel="stylesheet">
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
-:root{--bg:#f2f3f7;--card:#fff;--card-border:rgba(0,0,0,0.06);--text:#1a1a2e;--text2:#555;--text3:#999;--primary:#4f46e5;--primary-light:#6366f1;--primary-glow:rgba(79,70,229,0.10);--primary-bg:rgba(79,70,229,0.05);--input-bg:#f5f6fa;--input-border:#e0e3eb;--shadow:0 2px 10px rgba(0,0,0,0.04);--shadow-lg:0 8px 30px rgba(0,0,0,0.07);--toggle-bg:#eef0f5;--platform-bg:#f5f6fa;--platform-border:rgba(0,0,0,0.06);--platform-active-bg:rgba(79,70,229,0.08);--green:#10b981;--red:#ef4444;--orange:#f59e0b;--note-bg:#eff6ff;--note-border:#bfdbfe;--note-text:#1e40af;--nav-bg:#fff;--nav-border:rgba(0,0,0,0.08);--font:IBM Plex Sans Arabic,'Tajawal',sans-serif;--font-num:IBM Plex Sans Arabic,sans-serif}
-[data-theme="dark"]{--bg:#000000;--card:#111111;--card-border:rgba(255,255,255,0.10);--text:#f0f0f4;--text2:#b0b0c0;--text3:#7a7a8d;--primary:#6366f1;--primary-light:#818cf8;--primary-glow:rgba(99,102,241,0.15);--primary-bg:rgba(99,102,241,0.06);--input-bg:#161616;--input-border:#252525;--shadow:0 2px 10px rgba(0,0,0,0.4);--shadow-lg:0 8px 30px rgba(0,0,0,0.5);--toggle-bg:#161616;--platform-bg:#0a0a0a;--platform-border:rgba(255,255,255,0.10);--platform-active-bg:rgba(99,102,241,0.12);--note-bg:rgba(99,102,241,0.08);--note-border:rgba(99,102,241,0.2);--note-text:#818cf8;--nav-bg:#0a0a0a;--nav-border:rgba(255,255,255,0.08)}
+:root{--bg:#f7f4f0;--card:#ffffff;--card-border:rgba(34,26,18,0.08);--text:#221a12;--text2:#6b5d50;--text3:#998a7c;--primary:#ff7a1a;--primary-light:#ffa64d;--primary-glow:rgba(255,122,26,0.12);--primary-bg:rgba(255,122,26,0.08);--input-bg:#fbf7f3;--input-border:#f0e6da;--shadow:0 2px 10px rgba(34,26,18,0.05);--shadow-lg:0 8px 30px rgba(34,26,18,0.08);--toggle-bg:#fdeee0;--platform-bg:#fbf7f3;--platform-border:rgba(34,26,18,0.08);--platform-active-bg:rgba(255,122,26,0.10);--green:#10b981;--red:#ef4444;--orange:#f59e0b;--note-bg:#eff6ff;--note-border:#bfdbfe;--note-text:#1e40af;--nav-bg:#fff;--nav-border:rgba(34,26,18,0.08);--font:IBM Plex Sans Arabic,'Tajawal',sans-serif;--font-num:IBM Plex Sans Arabic,sans-serif}
+[data-theme="dark"]{--bg:#120e0a;--card:#1d1712;--card-border:rgba(255,167,77,0.14);--text:#f5efe8;--text2:#c9baa8;--text3:#94816d;--primary:#ff8c3d;--primary-light:#ffa864;--primary-glow:rgba(255,140,61,0.18);--primary-bg:rgba(255,140,61,0.08);--input-bg:#221a12;--input-border:#3a2c1e;--shadow:0 2px 10px rgba(0,0,0,0.4);--shadow-lg:0 8px 30px rgba(0,0,0,0.5);--toggle-bg:#221a12;--platform-bg:#1a140d;--platform-border:rgba(255,167,77,0.14);--platform-active-bg:rgba(255,140,61,0.14);--note-bg:rgba(255,140,61,0.10);--note-border:rgba(255,140,61,0.25);--note-text:#ffa864;--nav-bg:#1a140d;--nav-border:rgba(255,167,77,0.12)}
 body{font-family:var(--font);background:var(--bg);color:var(--text);transition:background .15s,color .3s;min-height:100vh}
 /* TOPBAR */
 .topbar{position:fixed;top:0;left:0;right:0;z-index:100;display:flex;align-items:center;justify-content:space-between;padding:0 20px;padding-top:env(safe-area-inset-top,0px);height:calc(52px + env(safe-area-inset-top,0px));background:var(--bg);border-bottom:none}
@@ -7451,7 +7457,7 @@ html:not([data-theme="dark"]) .rch-bal{background:linear-gradient(135deg,#eef0ff
 .rch-bal::before{content:'';position:absolute;top:-30px;left:-30px;width:120px;height:120px;border-radius:50%;background:var(--primary);opacity:.08;filter:blur(30px)}
 .rch-bal-row{display:flex;align-items:center;justify-content:space-between;position:relative;z-index:1}
 .rch-bal-lbl{font-size:10px;color:var(--text3);font-weight:600;margin-bottom:2px}
-.rch-bal-val{font-family:var(--font-num);font-size:26px;font-weight:900;background:linear-gradient(90deg,#6366f1,#06b6d4);-webkit-background-clip:text;-webkit-text-fill-color:transparent}
+.rch-bal-val{font-family:var(--font-num);font-size:26px;font-weight:900;background:linear-gradient(90deg,#ff7a1a,#ffa64d);-webkit-background-clip:text;-webkit-text-fill-color:transparent}
 .rch-bal-sub{font-size:9px;color:var(--text3);margin-top:2px}
 .rch-bal-ic{width:44px;height:44px;border-radius:11px;background:var(--primary-bg);display:flex;align-items:center;justify-content:center;font-size:18px;color:var(--primary)}
 .rch-card{background:var(--card);border:1px solid var(--card-border);border-radius:13px;padding:14px;box-shadow:0 2px 10px rgba(0,0,0,0.04)}
@@ -8437,7 +8443,7 @@ body.chat-mode{padding-bottom:0!important;overflow:hidden!important;height:100vh
 .csl-tag.pr{background:rgba(16,185,129,.06);color:var(--green)}
 .csl-arrow{display:none}
 .csl-feat .csl-arrow{display:block;font-size:14px;transform:scaleX(-1);opacity:.25;flex-shrink:0}
-.csl-feat-badge{display:inline-flex;align-items:center;gap:3px;background:linear-gradient(135deg,var(--primary),#818cf8);color:#fff;font-size:9px;font-weight:800;padding:3px 8px;border-radius:6px;margin-bottom:4px}
+.csl-feat-badge{display:inline-flex;align-items:center;gap:3px;background:linear-gradient(135deg,var(--primary),#ffa64d);color:#fff;font-size:9px;font-weight:800;padding:3px 8px;border-radius:6px;margin-bottom:4px}
 @keyframes cslFadeUp{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}
 /* Service Detail — App Store */
 .csd-app-row{display:flex;gap:14px;padding:20px 16px;align-items:flex-start}
@@ -8715,13 +8721,40 @@ html:not([data-theme="dark"]) .rv-star-btn{color:rgba(0,0,0,.1)}
   </div>
 </div>
 <div id="currWrap" style="position:fixed;top:52px;right:12px;z-index:150;display:none">
-  <div style="background:var(--card);border:1px solid var(--card-border);border-radius:12px;box-shadow:var(--shadow-lg);padding:4px;min-width:160px">
-    <div class="currency-opt active" data-code="USD" data-flag="us"><img src="https://flagcdn.com/w40/us.png" style="width:18px;height:13px;border-radius:2px;object-fit:cover"> USD</div>
-    <div class="currency-opt" data-code="IQD" data-flag="iq"><img src="https://flagcdn.com/w40/iq.png" style="width:18px;height:13px;border-radius:2px;object-fit:cover"> IQD</div>
-    <div class="currency-opt" data-code="EUR" data-flag="eu"><img src="https://flagcdn.com/w40/eu.png" style="width:18px;height:13px;border-radius:2px;object-fit:cover"> EUR</div>
-    <div class="currency-opt" data-code="SAR" data-flag="sa"><img src="https://flagcdn.com/w40/sa.png" style="width:18px;height:13px;border-radius:2px;object-fit:cover"> SAR</div>
-    <div class="currency-opt" data-code="AED" data-flag="ae"><img src="https://flagcdn.com/w40/ae.png" style="width:18px;height:13px;border-radius:2px;object-fit:cover"> AED</div>
-    <div class="currency-opt" data-code="TRY" data-flag="tr"><img src="https://flagcdn.com/w40/tr.png" style="width:18px;height:13px;border-radius:2px;object-fit:cover"> TRY</div>
+  <div style="background:var(--card);border:1px solid var(--card-border);border-radius:12px;box-shadow:var(--shadow-lg);padding:4px;min-width:180px;max-height:340px;overflow-y:auto">
+    <input type="text" id="currSearch" placeholder="بحث..." style="width:100%;padding:7px 9px;margin-bottom:3px;border-radius:8px;border:1px solid var(--input-border);background:var(--input-bg);color:var(--text);font-size:12px;font-family:inherit;box-sizing:border-box">
+    <div id="currOptsList">
+    <div class="currency-opt active" data-code="USD" data-flag="us"><img src="https://flagcdn.com/w40/us.png" style="width:18px;height:13px;border-radius:2px;object-fit:cover"> USD — دولار أمريكي</div>
+    <div class="currency-opt" data-code="IQD" data-flag="iq"><img src="https://flagcdn.com/w40/iq.png" style="width:18px;height:13px;border-radius:2px;object-fit:cover"> IQD — دينار عراقي</div>
+    <div class="currency-opt" data-code="SAR" data-flag="sa"><img src="https://flagcdn.com/w40/sa.png" style="width:18px;height:13px;border-radius:2px;object-fit:cover"> SAR — ريال سعودي</div>
+    <div class="currency-opt" data-code="AED" data-flag="ae"><img src="https://flagcdn.com/w40/ae.png" style="width:18px;height:13px;border-radius:2px;object-fit:cover"> AED — درهم إماراتي</div>
+    <div class="currency-opt" data-code="KWD" data-flag="kw"><img src="https://flagcdn.com/w40/kw.png" style="width:18px;height:13px;border-radius:2px;object-fit:cover"> KWD — دينار كويتي</div>
+    <div class="currency-opt" data-code="QAR" data-flag="qa"><img src="https://flagcdn.com/w40/qa.png" style="width:18px;height:13px;border-radius:2px;object-fit:cover"> QAR — ريال قطري</div>
+    <div class="currency-opt" data-code="BHD" data-flag="bh"><img src="https://flagcdn.com/w40/bh.png" style="width:18px;height:13px;border-radius:2px;object-fit:cover"> BHD — دينار بحريني</div>
+    <div class="currency-opt" data-code="OMR" data-flag="om"><img src="https://flagcdn.com/w40/om.png" style="width:18px;height:13px;border-radius:2px;object-fit:cover"> OMR — ريال عماني</div>
+    <div class="currency-opt" data-code="JOD" data-flag="jo"><img src="https://flagcdn.com/w40/jo.png" style="width:18px;height:13px;border-radius:2px;object-fit:cover"> JOD — دينار أردني</div>
+    <div class="currency-opt" data-code="EGP" data-flag="eg"><img src="https://flagcdn.com/w40/eg.png" style="width:18px;height:13px;border-radius:2px;object-fit:cover"> EGP — جنيه مصري</div>
+    <div class="currency-opt" data-code="LBP" data-flag="lb"><img src="https://flagcdn.com/w40/lb.png" style="width:18px;height:13px;border-radius:2px;object-fit:cover"> LBP — ليرة لبنانية</div>
+    <div class="currency-opt" data-code="SYP" data-flag="sy"><img src="https://flagcdn.com/w40/sy.png" style="width:18px;height:13px;border-radius:2px;object-fit:cover"> SYP — ليرة سورية</div>
+    <div class="currency-opt" data-code="YER" data-flag="ye"><img src="https://flagcdn.com/w40/ye.png" style="width:18px;height:13px;border-radius:2px;object-fit:cover"> YER — ريال يمني</div>
+    <div class="currency-opt" data-code="LYD" data-flag="ly"><img src="https://flagcdn.com/w40/ly.png" style="width:18px;height:13px;border-radius:2px;object-fit:cover"> LYD — دينار ليبي</div>
+    <div class="currency-opt" data-code="MAD" data-flag="ma"><img src="https://flagcdn.com/w40/ma.png" style="width:18px;height:13px;border-radius:2px;object-fit:cover"> MAD — درهم مغربي</div>
+    <div class="currency-opt" data-code="TND" data-flag="tn"><img src="https://flagcdn.com/w40/tn.png" style="width:18px;height:13px;border-radius:2px;object-fit:cover"> TND — دينار تونسي</div>
+    <div class="currency-opt" data-code="DZD" data-flag="dz"><img src="https://flagcdn.com/w40/dz.png" style="width:18px;height:13px;border-radius:2px;object-fit:cover"> DZD — دينار جزائري</div>
+    <div class="currency-opt" data-code="EUR" data-flag="eu"><img src="https://flagcdn.com/w40/eu.png" style="width:18px;height:13px;border-radius:2px;object-fit:cover"> EUR — يورو</div>
+    <div class="currency-opt" data-code="GBP" data-flag="gb"><img src="https://flagcdn.com/w40/gb.png" style="width:18px;height:13px;border-radius:2px;object-fit:cover"> GBP — جنيه إسترليني</div>
+    <div class="currency-opt" data-code="TRY" data-flag="tr"><img src="https://flagcdn.com/w40/tr.png" style="width:18px;height:13px;border-radius:2px;object-fit:cover"> TRY — ليرة تركية</div>
+    <div class="currency-opt" data-code="INR" data-flag="in"><img src="https://flagcdn.com/w40/in.png" style="width:18px;height:13px;border-radius:2px;object-fit:cover"> INR — روبية هندية</div>
+    <div class="currency-opt" data-code="PKR" data-flag="pk"><img src="https://flagcdn.com/w40/pk.png" style="width:18px;height:13px;border-radius:2px;object-fit:cover"> PKR — روبية باكستانية</div>
+    <div class="currency-opt" data-code="CNY" data-flag="cn"><img src="https://flagcdn.com/w40/cn.png" style="width:18px;height:13px;border-radius:2px;object-fit:cover"> CNY — يوان صيني</div>
+    <div class="currency-opt" data-code="CAD" data-flag="ca"><img src="https://flagcdn.com/w40/ca.png" style="width:18px;height:13px;border-radius:2px;object-fit:cover"> CAD — دولار كندي</div>
+    <div class="currency-opt" data-code="AUD" data-flag="au"><img src="https://flagcdn.com/w40/au.png" style="width:18px;height:13px;border-radius:2px;object-fit:cover"> AUD — دولار أسترالي</div>
+    <div class="currency-opt" data-code="CHF" data-flag="ch"><img src="https://flagcdn.com/w40/ch.png" style="width:18px;height:13px;border-radius:2px;object-fit:cover"> CHF — فرنك سويسري</div>
+    <div class="currency-opt" data-code="ZAR" data-flag="za"><img src="https://flagcdn.com/w40/za.png" style="width:18px;height:13px;border-radius:2px;object-fit:cover"> ZAR — راند جنوب أفريقي</div>
+    <div class="currency-opt" data-code="NGN" data-flag="ng"><img src="https://flagcdn.com/w40/ng.png" style="width:18px;height:13px;border-radius:2px;object-fit:cover"> NGN — نايرا نيجيرية</div>
+    <div class="currency-opt" data-code="MYR" data-flag="my"><img src="https://flagcdn.com/w40/my.png" style="width:18px;height:13px;border-radius:2px;object-fit:cover"> MYR — رينغيت ماليزي</div>
+    <div class="currency-opt" data-code="IDR" data-flag="id"><img src="https://flagcdn.com/w40/id.png" style="width:18px;height:13px;border-radius:2px;object-fit:cover"> IDR — روبية إندونيسية</div>
+    </div>
   </div>
 </div>
 <div class="noti-overlay" id="notiOverlay" onclick="toggleNotifPanel()"></div>
@@ -9450,13 +9483,8 @@ html:not([data-theme="dark"]) .rv-star-btn{color:rgba(0,0,0,.1)}
   <div class="ov-topbar"><button class="ov-back" onclick="document.getElementById('currencyPage').classList.remove('show')"><i class="fa-solid fa-arrow-right"></i></button><div class="ov-title"><i class="fa-solid fa-coins"></i> أسعار صرف العملات</div></div>
   <div class="ov-body" id="currencyBody">
     <div style="text-align:center;padding:8px 0 16px"><div style="width:52px;height:52px;border-radius:14px;background:rgba(245,158,11,.1);display:inline-flex;align-items:center;justify-content:center;font-size:22px;color:#f59e0b;margin-bottom:8px"><i class="fa-solid fa-coins"></i></div><div style="font-size:15px;font-weight:800">أسعار الصرف</div><div style="font-size:10px;color:var(--text3)">حدد سعر كل عملة مقابل الدولار — ينعكس فوراً على الموقع</div></div>
-    <div style="background:var(--card);border:1px solid var(--card-border);border-radius:14px;padding:16px;margin-bottom:12px">
-      <div style="display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid var(--card-border)"><img src="https://flagcdn.com/w40/iq.png" style="width:28px;height:19px;border-radius:3px;object-fit:cover"><div style="flex:1"><div style="font-family:var(--font-num);font-size:13px;font-weight:800">IQD</div><div style="font-size:9px;color:var(--text3)">دينار عراقي</div></div><div style="display:flex;align-items:center;gap:6px"><span style="font-size:9px;color:var(--text3);font-weight:700">1$ =</span><input type="number" class="text-input" id="rateIQD" value="1500" style="width:80px;text-align:center;font-family:var(--font-num);font-size:13px;font-weight:800;padding:8px"></div></div>
-      <div style="display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid var(--card-border)"><img src="https://flagcdn.com/w40/eu.png" style="width:28px;height:19px;border-radius:3px;object-fit:cover"><div style="flex:1"><div style="font-family:var(--font-num);font-size:13px;font-weight:800">EUR</div><div style="font-size:9px;color:var(--text3)">يورو</div></div><div style="display:flex;align-items:center;gap:6px"><span style="font-size:9px;color:var(--text3);font-weight:700">1$ =</span><input type="number" class="text-input" id="rateEUR" value="0.92" step="0.01" style="width:80px;text-align:center;font-family:var(--font-num);font-size:13px;font-weight:800;padding:8px"></div></div>
-      <div style="display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid var(--card-border)"><img src="https://flagcdn.com/w40/sa.png" style="width:28px;height:19px;border-radius:3px;object-fit:cover"><div style="flex:1"><div style="font-family:var(--font-num);font-size:13px;font-weight:800">SAR</div><div style="font-size:9px;color:var(--text3)">ريال سعودي</div></div><div style="display:flex;align-items:center;gap:6px"><span style="font-size:9px;color:var(--text3);font-weight:700">1$ =</span><input type="number" class="text-input" id="rateSAR" value="3.75" step="0.01" style="width:80px;text-align:center;font-family:var(--font-num);font-size:13px;font-weight:800;padding:8px"></div></div>
-      <div style="display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid var(--card-border)"><img src="https://flagcdn.com/w40/ae.png" style="width:28px;height:19px;border-radius:3px;object-fit:cover"><div style="flex:1"><div style="font-family:var(--font-num);font-size:13px;font-weight:800">AED</div><div style="font-size:9px;color:var(--text3)">درهم إماراتي</div></div><div style="display:flex;align-items:center;gap:6px"><span style="font-size:9px;color:var(--text3);font-weight:700">1$ =</span><input type="number" class="text-input" id="rateAED" value="3.67" step="0.01" style="width:80px;text-align:center;font-family:var(--font-num);font-size:13px;font-weight:800;padding:8px"></div></div>
-      <div style="display:flex;align-items:center;gap:10px;padding:10px 0"><img src="https://flagcdn.com/w40/tr.png" style="width:28px;height:19px;border-radius:3px;object-fit:cover"><div style="flex:1"><div style="font-family:var(--font-num);font-size:13px;font-weight:800">TRY</div><div style="font-size:9px;color:var(--text3)">ليرة تركية</div></div><div style="display:flex;align-items:center;gap:6px"><span style="font-size:9px;color:var(--text3);font-weight:700">1$ =</span><input type="number" class="text-input" id="rateTRY" value="38.5" step="0.1" style="width:80px;text-align:center;font-family:var(--font-num);font-size:13px;font-weight:800;padding:8px"></div></div>
-    </div>
+    <input type="text" id="currencyRatesSearch" placeholder="بحث عن عملة..." style="width:100%;padding:10px 14px;margin-bottom:10px;border-radius:10px;border:1px solid var(--input-border);background:var(--input-bg);color:var(--text);font-size:12px;font-family:inherit;box-sizing:border-box">
+    <div style="background:var(--card);border:1px solid var(--card-border);border-radius:14px;padding:16px;margin-bottom:12px" id="currencyRatesList"></div>
     <div style="padding:10px 14px;border-radius:10px;background:rgba(99,102,241,.06);border:1px solid rgba(99,102,241,.1);font-size:10px;color:var(--primary-light);line-height:1.8;font-weight:600;margin-bottom:12px"><i class="fa-solid fa-lightbulb"></i> الأسعار تنعكس فوراً على كل المستخدمين عند الحفظ.</div>
     <button onclick="saveCurrencySettings()" class="btn-primary"><i class="fa-solid fa-check"></i> حفظ أسعار الصرف</button>
   </div>
@@ -10192,28 +10220,22 @@ print(r.json())</pre>
     if(typeof switchPage==='function')switchPage(page);
     if(scrollId){setTimeout(function(){var t=document.getElementById(scrollId);if(t)t.scrollIntoView({behavior:'smooth'})},350)}
   };
-  var CURR_RATES={USD:1,IQD:1500,EUR:0.92,SAR:3.75,AED:3.67,TRY:38.5};fetch('/api/currency-rates').then(function(r){return r.json()}).then(function(d){if(d.ok&&d.rates){CURR_RATES=d.rates;document.querySelectorAll('.price,[data-usd]').forEach(function(el){var u=el.dataset.usd;if(u)el.textContent=fmtP(u)})}}).catch(function(){});
-  var CURR_SYMBOLS={USD:'$',IQD:'د.ع',EUR:'€',SAR:'ر.س',AED:'د.إ',TRY:'₺'};
-  var CURR_DECIMALS={USD:2,IQD:0,EUR:2,SAR:2,AED:2,TRY:2};
-  var CURR_ICONS={USD:'fa-dollar-sign',IQD:'fa-money-bill',EUR:'fa-euro-sign',SAR:'fa-money-bill',AED:'fa-money-bill',TRY:'fa-lira-sign'};
+  var CURR_RATES={USD:1,IQD:1500,SAR:3.75,AED:3.67,KWD:0.307,QAR:3.64,BHD:0.376,OMR:0.385,JOD:0.709,EGP:49,LBP:89500,SYP:13000,YER:250,LYD:4.85,MAD:9.9,TND:3.1,DZD:134,EUR:0.92,GBP:0.79,TRY:34,INR:83.5,PKR:278,CNY:7.24,CAD:1.36,AUD:1.52,CHF:0.88,ZAR:18.3,NGN:1550,MYR:4.7,IDR:15750};fetch('/api/currency-rates').then(function(r){return r.json()}).then(function(d){if(d.ok&&d.rates){CURR_RATES=d.rates;document.querySelectorAll('.price,[data-usd]').forEach(function(el){var u=el.dataset.usd;if(u)el.textContent=fmtP(u)})}}).catch(function(){});
+  var CURR_SYMBOLS={USD:'$',IQD:'د.ع',SAR:'ر.س',AED:'د.إ',KWD:'د.ك',QAR:'ر.ق',BHD:'د.ب',OMR:'ر.ع',JOD:'د.أ',EGP:'ج.م',LBP:'ل.ل',SYP:'ل.س',YER:'ر.ي',LYD:'د.ل',MAD:'د.م',TND:'د.ت',DZD:'د.ج',EUR:'€',GBP:'£',TRY:'₺',INR:'₹',PKR:'₨',CNY:'¥',CAD:'$',AUD:'$',CHF:'Fr',ZAR:'R',NGN:'₦',MYR:'RM',IDR:'Rp'};
+  var CURR_DECIMALS={USD:2,IQD:0,SAR:2,AED:2,KWD:3,QAR:2,BHD:3,OMR:3,JOD:3,EGP:2,LBP:0,SYP:0,YER:0,LYD:3,MAD:2,TND:3,DZD:0,EUR:2,GBP:2,TRY:2,INR:2,PKR:0,CNY:2,CAD:2,AUD:2,CHF:2,ZAR:2,NGN:0,MYR:2,IDR:0};
+  var CURR_ICONS={USD:'fa-dollar-sign',EUR:'fa-euro-sign',GBP:'fa-sterling-sign',TRY:'fa-lira-sign',INR:'fa-indian-rupee-sign',CNY:'fa-yen-sign',CAD:'fa-dollar-sign',AUD:'fa-dollar-sign'};
   var _curCode=localStorage.getItem('fc_curr')||'USD';
 
   function fmtP(usd){
-    if(usd===null||usd===undefined||isNaN(usd))return CURR_SYMBOLS[_curCode]+'0';
-    var v=parseFloat(usd)*CURR_RATES[_curCode];
+    if(usd===null||usd===undefined||isNaN(usd))return (CURR_SYMBOLS[_curCode]||'$')+'0';
+    var rate=CURR_RATES[_curCode]||1;
+    var v=parseFloat(usd)*rate;
     var d=CURR_DECIMALS[_curCode];
-    var s=CURR_SYMBOLS[_curCode];
-    if(_curCode==='IQD')return v.toLocaleString('en-US',{maximumFractionDigits:0})+' '+s;
+    var s=CURR_SYMBOLS[_curCode]||'$';
+    if(d===0)return v.toLocaleString('en-US',{maximumFractionDigits:0})+' '+s;
     return s+v.toFixed(d);
   }
-  function fmtR(usd){
-    if(usd===null||usd===undefined||isNaN(usd))return CURR_SYMBOLS[_curCode]+'0';
-    var v=parseFloat(usd)*CURR_RATES[_curCode];
-    var d=CURR_DECIMALS[_curCode];
-    var s=CURR_SYMBOLS[_curCode];
-    if(_curCode==='IQD')return v.toLocaleString('en-US',{maximumFractionDigits:0})+' '+s;
-    return s+v.toFixed(d);
-  }
+  function fmtR(usd){return fmtP(usd)}
   window.fmtP=fmtP;window.fmtR=fmtR;
 
   function refreshAllPrices(){
@@ -10223,29 +10245,35 @@ print(r.json())</pre>
     });
   }
 
-  var CURR_NAMES={USD:'الدولار الأمريكي',IQD:'الدينار العراقي',EUR:'اليورو',SAR:'الريال السعودي',AED:'الدرهم الإماراتي',TRY:'الليرة التركية'};
+  var CURR_NAMES={USD:'الدولار الأمريكي',IQD:'الدينار العراقي',SAR:'الريال السعودي',AED:'الدرهم الإماراتي',KWD:'الدينار الكويتي',QAR:'الريال القطري',BHD:'الدينار البحريني',OMR:'الريال العماني',JOD:'الدينار الأردني',EGP:'الجنيه المصري',LBP:'الليرة اللبنانية',SYP:'الليرة السورية',YER:'الريال اليمني',LYD:'الدينار الليبي',MAD:'الدرهم المغربي',TND:'الدينار التونسي',DZD:'الدينار الجزائري',EUR:'اليورو',GBP:'الجنيه الإسترليني',TRY:'الليرة التركية',INR:'الروبية الهندية',PKR:'الروبية الباكستانية',CNY:'اليوان الصيني',CAD:'الدولار الكندي',AUD:'الدولار الأسترالي',CHF:'الفرنك السويسري',ZAR:'الراند الجنوب أفريقي',NGN:'النايرا النيجيرية',MYR:'الرينغيت الماليزي',IDR:'الروبية الإندونيسية'};
   function setCurrency(code){
     _curCode=code;localStorage.setItem('fc_curr',code);
     var ic=document.getElementById('currIcon');
-    ic.className='fa-solid '+(CURR_ICONS[code]||'fa-dollar-sign');
+    ic.className='fa-solid '+(CURR_ICONS[code]||'fa-money-bill');
     refreshAllPrices();
     var bs=document.getElementById('rchBalSub');if(bs)bs.textContent=code+' — '+(CURR_NAMES[code]||'');
   }
 
   (function(){
     var saved=localStorage.getItem('fc_curr');
-    if(saved&&CURR_RATES[saved]){
+    if(saved&&CURR_SYMBOLS[saved]){
       _curCode=saved;
       document.querySelectorAll('.currency-opt').forEach(function(o){o.classList.toggle('active',o.dataset.code===saved)});
       var ic=document.getElementById('currIcon');
-      if(ic)ic.className='fa-solid '+(CURR_ICONS[saved]||'fa-dollar-sign');
+      if(ic)ic.className='fa-solid '+(CURR_ICONS[saved]||'fa-money-bill');
     }
   })();
 
   var cW=document.getElementById('currWrap');
-  document.getElementById('currBtn').addEventListener('click',function(e){e.stopPropagation();cW.style.display=cW.style.display==='block'?'none':'block'});
+  document.getElementById('currBtn').addEventListener('click',function(e){e.stopPropagation();cW.style.display=cW.style.display==='block'?'none':'block';if(cW.style.display==='block'){var cs=document.getElementById('currSearch');if(cs){cs.value='';cs.focus();}document.querySelectorAll('.currency-opt').forEach(function(o){o.style.display=''})}});
   document.addEventListener('click',function(e){if(!e.target.closest('#currWrap')&&!e.target.closest('#currBtn')){cW.style.display='none'}});
   document.querySelectorAll('.currency-opt').forEach(function(o){o.addEventListener('click',function(){document.querySelectorAll('.currency-opt').forEach(function(x){x.classList.remove('active')});this.classList.add('active');setCurrency(this.dataset.code);cW.style.display='none'})});
+  var curSearchEl=document.getElementById('currSearch');
+  if(curSearchEl)curSearchEl.addEventListener('input',function(){
+    var q=this.value.trim().toLowerCase();
+    document.querySelectorAll('.currency-opt').forEach(function(o){o.style.display=o.textContent.toLowerCase().indexOf(q)>-1?'':'none'});
+  });
+  curSearchEl&&curSearchEl.addEventListener('click',function(e){e.stopPropagation()});
   function switchPage(pageId){
     document.querySelectorAll('.bnav-item').forEach(function(x){x.classList.remove('active')});
     document.querySelectorAll('.snav[data-page]').forEach(function(x){x.classList.remove('active')});
@@ -12075,33 +12103,64 @@ function saveGoogleSettings(){
     else toast('خطأ بالحفظ','error');
   }).catch(function(){toast('فشل الاتصال','error')});
 }
+var ADMIN_CURRENCY_LIST=[
+  {code:'IQD',name:'دينار عراقي',flag:'iq',def:1500,step:1},
+  {code:'SAR',name:'ريال سعودي',flag:'sa',def:3.75,step:0.01},
+  {code:'AED',name:'درهم إماراتي',flag:'ae',def:3.67,step:0.01},
+  {code:'KWD',name:'دينار كويتي',flag:'kw',def:0.307,step:0.001},
+  {code:'QAR',name:'ريال قطري',flag:'qa',def:3.64,step:0.01},
+  {code:'BHD',name:'دينار بحريني',flag:'bh',def:0.376,step:0.001},
+  {code:'OMR',name:'ريال عماني',flag:'om',def:0.385,step:0.001},
+  {code:'JOD',name:'دينار أردني',flag:'jo',def:0.709,step:0.001},
+  {code:'EGP',name:'جنيه مصري',flag:'eg',def:49,step:0.1},
+  {code:'LBP',name:'ليرة لبنانية',flag:'lb',def:89500,step:100},
+  {code:'SYP',name:'ليرة سورية',flag:'sy',def:13000,step:100},
+  {code:'YER',name:'ريال يمني',flag:'ye',def:250,step:1},
+  {code:'LYD',name:'دينار ليبي',flag:'ly',def:4.85,step:0.01},
+  {code:'MAD',name:'درهم مغربي',flag:'ma',def:9.9,step:0.1},
+  {code:'TND',name:'دينار تونسي',flag:'tn',def:3.1,step:0.01},
+  {code:'DZD',name:'دينار جزائري',flag:'dz',def:134,step:1},
+  {code:'EUR',name:'يورو',flag:'eu',def:0.92,step:0.01},
+  {code:'GBP',name:'جنيه إسترليني',flag:'gb',def:0.79,step:0.01},
+  {code:'TRY',name:'ليرة تركية',flag:'tr',def:34,step:0.1},
+  {code:'INR',name:'روبية هندية',flag:'in',def:83.5,step:0.1},
+  {code:'PKR',name:'روبية باكستانية',flag:'pk',def:278,step:1},
+  {code:'CNY',name:'يوان صيني',flag:'cn',def:7.24,step:0.01},
+  {code:'CAD',name:'دولار كندي',flag:'ca',def:1.36,step:0.01},
+  {code:'AUD',name:'دولار أسترالي',flag:'au',def:1.52,step:0.01},
+  {code:'CHF',name:'فرنك سويسري',flag:'ch',def:0.88,step:0.01},
+  {code:'ZAR',name:'راند جنوب أفريقي',flag:'za',def:18.3,step:0.1},
+  {code:'NGN',name:'نايرا نيجيرية',flag:'ng',def:1550,step:1},
+  {code:'MYR',name:'رينغيت ماليزي',flag:'my',def:4.7,step:0.01},
+  {code:'IDR',name:'روبية إندونيسية',flag:'id',def:15750,step:1}
+];
+function renderCurrencyRatesList(settings){
+  var list=document.getElementById('currencyRatesList');
+  list.innerHTML=ADMIN_CURRENCY_LIST.map(function(c,i){
+    var val=(settings&&settings['rate_'+c.code])||c.def;
+    return '<div class="curr-rate-row" data-name="'+c.code.toLowerCase()+' '+c.name+'" style="display:flex;align-items:center;gap:10px;padding:10px 0;'+(i<ADMIN_CURRENCY_LIST.length-1?'border-bottom:1px solid var(--card-border)':'')+'"><img src="https://flagcdn.com/w40/'+c.flag+'.png" style="width:28px;height:19px;border-radius:3px;object-fit:cover"><div style="flex:1"><div style="font-family:var(--font-num);font-size:13px;font-weight:800">'+c.code+'</div><div style="font-size:9px;color:var(--text3)">'+c.name+'</div></div><div style="display:flex;align-items:center;gap:6px"><span style="font-size:9px;color:var(--text3);font-weight:700">1$ =</span><input type="number" class="text-input" id="rate'+c.code+'" value="'+val+'" step="'+c.step+'" style="width:90px;text-align:center;font-family:var(--font-num);font-size:13px;font-weight:800;padding:8px"></div></div>';
+  }).join('');
+  var search=document.getElementById('currencyRatesSearch');
+  if(search)search.oninput=function(){
+    var q=this.value.trim().toLowerCase();
+    document.querySelectorAll('.curr-rate-row').forEach(function(row){row.style.display=row.dataset.name.indexOf(q)>-1?'':'none'});
+  };
+}
 async function loadCurrencySettings(){
   try{var r=await fetch('/api/admin/site-settings');var d=await r.json();
-    if(d.ok){var s=d.settings||d;
-      if(s.rate_IQD)document.getElementById('rateIQD').value=s.rate_IQD;
-      if(s.rate_EUR)document.getElementById('rateEUR').value=s.rate_EUR;
-      if(s.rate_SAR)document.getElementById('rateSAR').value=s.rate_SAR;
-      if(s.rate_AED)document.getElementById('rateAED').value=s.rate_AED;
-      if(s.rate_TRY)document.getElementById('rateTRY').value=s.rate_TRY;
-    }
-  }catch(e){}
+    renderCurrencyRatesList(d.ok?(d.settings||d):null);
+  }catch(e){renderCurrencyRatesList(null)}
 }
 async function saveCurrencySettings(){
-  var data={
-    rate_IQD:document.getElementById('rateIQD').value,
-    rate_EUR:document.getElementById('rateEUR').value,
-    rate_SAR:document.getElementById('rateSAR').value,
-    rate_AED:document.getElementById('rateAED').value,
-    rate_TRY:document.getElementById('rateTRY').value
-  };
+  var data={};
+  ADMIN_CURRENCY_LIST.forEach(function(c){
+    var el=document.getElementById('rate'+c.code);
+    if(el)data['rate_'+c.code]=el.value;
+  });
   try{var r=await fetch('/api/admin/site-settings',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});
     var d=await r.json();
     if(d.ok){toast('تم حفظ أسعار الصرف بنجاح','success');
-      CURR_RATES.IQD=parseFloat(data.rate_IQD)||1500;
-      CURR_RATES.EUR=parseFloat(data.rate_EUR)||0.92;
-      CURR_RATES.SAR=parseFloat(data.rate_SAR)||3.75;
-      CURR_RATES.AED=parseFloat(data.rate_AED)||3.67;
-      CURR_RATES.TRY=parseFloat(data.rate_TRY)||38.5;
+      ADMIN_CURRENCY_LIST.forEach(function(c){CURR_RATES[c.code]=parseFloat(data['rate_'+c.code])||c.def});
       document.querySelectorAll('.price,[data-usd]').forEach(function(el){var u=el.dataset.usd;if(u)el.textContent=fmtP(u)});
     }else toast('خطأ','error');
   }catch(e){toast('خطأ بالاتصال','error')}
@@ -15016,8 +15075,8 @@ ORDER_PAGE_HTML = r'''<!DOCTYPE html>
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@300;400;500;600;700;800;900&family=Tajawal:wght@400;500;700;800;900&display=swap" rel="stylesheet">
 <style>
-:root{--bg:#f2f3f7;--card:#fff;--card-border:rgba(0,0,0,0.06);--text:#1a1a2e;--text2:#555;--text3:#999;--primary:#4f46e5;--primary-light:#6366f1;--primary-glow:rgba(79,70,229,0.10);--primary-bg:rgba(79,70,229,0.05);--input-bg:#f5f6fa;--input-border:#e0e3eb;--green:#10b981;--red:#ef4444;--font:IBM Plex Sans Arabic,'Tajawal',sans-serif;--font-num:IBM Plex Sans Arabic,sans-serif}
-[data-theme="dark"]{--bg:#000000;--card:#111111;--card-border:rgba(255,255,255,0.10);--text:#f0f0f4;--text2:#b0b0c0;--text3:#7a7a8d;--primary:#6366f1;--primary-light:#818cf8;--primary-glow:rgba(99,102,241,0.15);--primary-bg:rgba(99,102,241,0.06);--input-bg:#161616;--input-border:#252525;--green:#10b981}
+:root{--bg:#f7f4f0;--card:#ffffff;--card-border:rgba(34,26,18,0.08);--text:#221a12;--text2:#6b5d50;--text3:#998a7c;--primary:#ff7a1a;--primary-light:#ffa64d;--primary-glow:rgba(255,122,26,0.12);--primary-bg:rgba(255,122,26,0.08);--input-bg:#fbf7f3;--input-border:#f0e6da;--green:#10b981;--red:#ef4444;--font:IBM Plex Sans Arabic,'Tajawal',sans-serif;--font-num:IBM Plex Sans Arabic,sans-serif}
+[data-theme="dark"]{--bg:#120e0a;--card:#1d1712;--card-border:rgba(255,167,77,0.14);--text:#f5efe8;--text2:#c9baa8;--text3:#94816d;--primary:#ff8c3d;--primary-light:#ffa864;--primary-glow:rgba(255,140,61,0.18);--primary-bg:rgba(255,140,61,0.08);--input-bg:#221a12;--input-border:#3a2c1e;--green:#10b981}
 *{margin:0;padding:0;box-sizing:border-box}body{font-family:var(--font);background:var(--bg);color:var(--text);min-height:100vh;padding-bottom:40px}
 .op-topbar{position:sticky;top:0;z-index:50;display:flex;align-items:center;gap:10px;padding:12px 16px;background:var(--card);border-bottom:1px solid var(--card-border);box-shadow:0 2px 8px rgba(0,0,0,0.04)}
 .op-head{display:flex;align-items:center;gap:12px;padding:16px;background:rgba(10,10,26,.92);backdrop-filter:blur(16px);border-bottom:1px solid var(--card-border);position:sticky;top:0;z-index:10;width:100%;box-sizing:border-box}
@@ -15261,11 +15320,11 @@ def api_docs_page():
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@300;400;500;600;700;800;900&family=Tajawal:wght@400;700;800;900&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
 <style>
-:root{--bg:#000000;--c1:#111111;--c2:#1a1a1a;--bd:rgba(99,102,241,.12);--ac:#6366f1;--t1:#f0f0f4;--t2:#b0b0c0;--t3:#7a7a8d}
+:root{--bg:#120e0a;--c1:#1d1712;--c2:#241c14;--bd:rgba(255,140,61,.16);--ac:#ff8c3d;--t1:#f5efe8;--t2:#c9baa8;--t3:#94816d}
 *{margin:0;padding:0;box-sizing:border-box}body{font-family:IBM Plex Sans Arabic,'Tajawal',sans-serif;background:var(--bg);color:var(--t1);line-height:1.8}
 code{font-family:'JetBrains Mono',monospace}a{color:var(--ac);text-decoration:none}
 .tb{position:sticky;top:0;z-index:50;background:rgba(11,11,30,.92);backdrop-filter:blur(16px);border-bottom:1px solid var(--bd);padding:14px 16px;display:flex;align-items:center;gap:10px}
-.logo{font-family:'JetBrains Mono';font-size:16px;font-weight:800;background:linear-gradient(135deg,var(--ac),#818cf8);-webkit-background-clip:text;-webkit-text-fill-color:transparent}
+.logo{font-family:'JetBrains Mono';font-size:16px;font-weight:800;background:linear-gradient(135deg,var(--ac),#ffa864);-webkit-background-clip:text;-webkit-text-fill-color:transparent}
 .badge{padding:3px 8px;border-radius:5px;background:rgba(16,185,129,.1);border:1px solid rgba(16,185,129,.15);font-size:10px;font-weight:700;color:#4ade80}
 .sp{flex:1}
 .hero{padding:32px 16px 24px;text-align:center}
