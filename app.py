@@ -902,6 +902,15 @@ def init_db():
         conn.execute('CREATE UNIQUE INDEX IF NOT EXISTS idx_recharge_ext_ref ON recharge_requests(ext_ref) WHERE ext_ref != ""')
         conn.commit()
     except: pass
+    # حالة عملية آسياسيل الجارية: مخزّنة هنا (سيرفر) بدل session (كوكي) لأن رمز
+    # accessToken الحقيقي القادم من آسياسيل قد يطول، وبعض الاستضافات/البروكسيات
+    # ترفض أو تقصّ كوكي كبير الحجم بصمت فيسبب خطأ "انتهت صلاحية العملية" الوهمي
+    conn.execute('''CREATE TABLE IF NOT EXISTS asiacell_flows(
+        user_id INTEGER PRIMARY KEY,
+        data TEXT NOT NULL,
+        created_at REAL DEFAULT (strftime('%s','now'))
+    )''')
+    conn.commit()
     conn.execute('''CREATE TABLE IF NOT EXISTS notifications(
         id TEXT PRIMARY KEY,
         user_id INTEGER,
@@ -2191,16 +2200,15 @@ def api_recharge_binance_verify():
 def api_recharge_asiacell_start():
     if 'user_id' not in session:
         return jsonify(ok=False, msg='غير مصرح'), 401
+    uid = session['user_id']
     data = freq.get_json() or {}
     phone = str(data.get('phone', '')).strip()
     try:
-        amount_usd = float(data.get('amount', 0))
+        amount_iqd = int(data.get('amount_iqd', 0))
     except (TypeError, ValueError):
-        amount_usd = 0
-    if amount_usd <= 0:
-        return jsonify(ok=False, msg='أدخل مبلغ صحيح')
+        amount_iqd = 0
 
-    existing = session.get('asiacell_flow')
+    existing = _asiacell_flow_get(uid)
     if existing and float(existing.get('amount_iqd_paid', 0) or 0) > 0:
         return jsonify(ok=False, msg='لديك عملية دفع آسياسيل غير مكتملة، أكملها أو ألغِها أولاً.', has_pending=True)
 
@@ -2227,10 +2235,12 @@ def api_recharge_asiacell_start():
     if not receiver or exchange_rate <= 0:
         return jsonify(ok=False, msg='لم يتم إعداد آسياسيل من الإدارة بعد.')
 
-    # يحوّل آسياسيل بمضاعفات الألف دينار فقط؛ فرق التقريب للأعلى يُضاف كرصيد إضافي لاحقاً
-    amount_iqd_exact = round(amount_usd * exchange_rate, 2)
-    amount_iqd_total = int(math.ceil(amount_iqd_exact / 1000) * 1000)
-    overpay_usd = round((amount_iqd_total - amount_iqd_exact) / exchange_rate, 2) if exchange_rate > 0 else 0
+    tiers = extras.get('tiers') or _default_asiacell_tiers()
+    tier = next((t for t in tiers if int(t.get('iqd', 0)) == amount_iqd), None)
+    if not tier:
+        return jsonify(ok=False, msg='الرجاء اختيار أحد المبالغ المتاحة.')
+    bonus_iqd = float(tier.get('bonus') or 0)
+    credited_usd = round((amount_iqd + bonus_iqd) / exchange_rate, 2)
 
     api = AsiaCellAPI()
     success, result = api.login(phone)
@@ -2238,20 +2248,21 @@ def api_recharge_asiacell_start():
         log_asiacell_debug('login', api)
         return jsonify(ok=False, msg=result)
 
-    session['asiacell_flow'] = {
+    _asiacell_flow_set(uid, {
         'api': api.get_state(), 'phone': phone,
-        'amount_usd': amount_usd, 'overpay_usd': overpay_usd,
-        'exchange_rate': exchange_rate, 'amount_iqd_total': amount_iqd_total,
+        'bonus_iqd': bonus_iqd, 'credited_usd': credited_usd,
+        'exchange_rate': exchange_rate, 'amount_iqd_total': amount_iqd,
         'amount_iqd_paid': 0, 'current_chunk': 0, 'max_transfer': max_transfer,
         'receiver_msisdn': receiver, 'step': 'sms',
-    }
-    return jsonify(ok=True, amount_iqd_total=amount_iqd_total)
+    })
+    return jsonify(ok=True, amount_iqd_total=amount_iqd, bonus_iqd=bonus_iqd, credited_usd=credited_usd)
 
 @app.route('/api/recharge/asiacell/verify-sms', methods=['POST'])
 def api_recharge_asiacell_verify_sms():
     if 'user_id' not in session:
         return jsonify(ok=False, msg='غير مصرح'), 401
-    flow = session.get('asiacell_flow')
+    uid = session['user_id']
+    flow = _asiacell_flow_get(uid)
     if not flow or flow.get('step') != 'sms':
         return jsonify(ok=False, msg='انتهت صلاحية العملية، ابدأ من جديد.')
     code = str((freq.get_json() or {}).get('code', '')).strip()
@@ -2273,7 +2284,7 @@ def api_recharge_asiacell_verify_sms():
     flow['api'] = api.get_state()
     flow['current_chunk'] = chunk
     flow['step'] = 'confirm'
-    session['asiacell_flow'] = flow
+    _asiacell_flow_set(uid, flow)
     return jsonify(ok=True, chunk_amount=chunk, total=flow['amount_iqd_total'],
                    remaining_after=flow['amount_iqd_total'] - flow['amount_iqd_paid'] - chunk)
 
@@ -2281,7 +2292,8 @@ def api_recharge_asiacell_verify_sms():
 def api_recharge_asiacell_confirm():
     if 'user_id' not in session:
         return jsonify(ok=False, msg='غير مصرح'), 401
-    flow = session.get('asiacell_flow')
+    uid = session['user_id']
+    flow = _asiacell_flow_get(uid)
     if not flow or flow.get('step') != 'confirm':
         return jsonify(ok=False, msg='انتهت صلاحية العملية، ابدأ من جديد.')
     code = str((freq.get_json() or {}).get('code', '')).strip()
@@ -2294,7 +2306,6 @@ def api_recharge_asiacell_confirm():
         log_asiacell_debug('confirmTransfer', api)
         return jsonify(ok=False, msg=result)
 
-    uid = session['user_id']
     flow['amount_iqd_paid'] = int(flow['amount_iqd_paid']) + int(flow['current_chunk'])
     fully_paid = flow['amount_iqd_paid'] >= flow['amount_iqd_total']
 
@@ -2313,39 +2324,39 @@ def api_recharge_asiacell_confirm():
                 conn.close()
                 push_user_notif(uid, 'system', '⚠️ توقف تحويل آسياسيل جزئياً',
                                  f'تم تحويل {int(flow["amount_iqd_paid"]):,} د.ع بنجاح، لكن تعذر إكمال المبلغ المتبقي. أضفنا ${credited_usd:.2f} كرصيد إلى حسابك.', 'wallet')
-            session.pop('asiacell_flow', None)
+            _asiacell_flow_clear(uid)
             return jsonify(ok=False, msg=f'تم تحويل جزء من المبلغ لكن تعذر إكمال الباقي: {result2}',
                            partial_stopped=True, credited_usd=credited_usd)
 
         flow['api'] = api.get_state()
         flow['current_chunk'] = next_chunk
-        session['asiacell_flow'] = flow
+        _asiacell_flow_set(uid, flow)
         return jsonify(ok=True, done=False, paid=flow['amount_iqd_paid'], total=flow['amount_iqd_total'], next_chunk=next_chunk)
 
-    amount_usd = float(flow['amount_usd'])
-    overpay_usd = round(float(flow.get('overpay_usd', 0) or 0), 2)
-    total_credit = round(amount_usd + overpay_usd, 2)
+    credited_usd = round(float(flow['credited_usd']), 2)
+    bonus_iqd = float(flow.get('bonus_iqd', 0) or 0)
 
     conn = get_db()
-    conn.execute('UPDATE users SET balance=balance+? WHERE id=?', (total_credit, uid))
+    conn.execute('UPDATE users SET balance=balance+? WHERE id=?', (credited_usd, uid))
     conn.execute("INSERT INTO recharge_requests(user_id, amount, method, status, receipt, auto) VALUES(?,?,?,?,?,1)",
-                 (uid, total_credit, 'آسياسيل', 'approved', ''))
+                 (uid, credited_usd, 'آسياسيل', 'approved', ''))
     conn.commit()
     new_balance = conn.execute('SELECT balance FROM users WHERE id=?', (uid,)).fetchone()['balance']
     conn.close()
 
-    session.pop('asiacell_flow', None)
-    push_user_notif(uid, 'recharge', 'تم شحن رصيدك', f'تم إضافة ${total_credit:.2f} إلى رصيد حسابك تلقائياً عبر آسياسيل.', 'check', goto='recharge:')
-    return jsonify(ok=True, done=True, balance=new_balance, overpay_credited=overpay_usd)
+    _asiacell_flow_clear(uid)
+    bonus_txt = f' (تشمل هدية {int(bonus_iqd):,} د.ع)' if bonus_iqd > 0 else ''
+    push_user_notif(uid, 'recharge', 'تم شحن رصيدك', f'تم إضافة ${credited_usd:.2f} إلى رصيد حسابك تلقائياً عبر آسياسيل{bonus_txt}.', 'check', goto='recharge:')
+    return jsonify(ok=True, done=True, balance=new_balance, bonus_iqd=bonus_iqd)
 
 @app.route('/api/recharge/asiacell/cancel', methods=['POST'])
 def api_recharge_asiacell_cancel():
     if 'user_id' not in session:
         return jsonify(ok=False, msg='غير مصرح'), 401
-    flow = session.get('asiacell_flow')
+    uid = session['user_id']
+    flow = _asiacell_flow_get(uid)
     credited_usd = 0
     if flow and float(flow.get('amount_iqd_paid', 0) or 0) > 0 and float(flow.get('exchange_rate', 0) or 0) > 0:
-        uid = session['user_id']
         credited_usd = round(flow['amount_iqd_paid'] / flow['exchange_rate'], 2)
         conn = get_db()
         conn.execute('UPDATE users SET balance=balance+? WHERE id=?', (credited_usd, uid))
@@ -2355,7 +2366,7 @@ def api_recharge_asiacell_cancel():
         conn.close()
         push_user_notif(uid, 'recharge', 'تم استرداد رصيدك',
                          f'تم إلغاء عملية آسياسيل بعد تحويل {int(flow["amount_iqd_paid"]):,} د.ع، وأضفنا ${credited_usd:.2f} كرصيد إلى حسابك.', 'wallet')
-    session.pop('asiacell_flow', None)
+    _asiacell_flow_clear(uid)
     return jsonify(ok=True, credited_usd=credited_usd)
 
 @app.route('/api/admin/recharge-requests')
@@ -3677,6 +3688,35 @@ def log_asiacell_debug(step, api):
         'time': time.strftime('%Y-%m-%d %H:%M:%S'),
     }, ensure_ascii=False))
 
+def _asiacell_flow_get(user_id):
+    conn = get_db()
+    row = conn.execute('SELECT data FROM asiacell_flows WHERE user_id=?', (user_id,)).fetchone()
+    conn.close()
+    if not row:
+        return None
+    try:
+        return json.loads(row['data'])
+    except Exception:
+        return None
+
+def _asiacell_flow_set(user_id, flow):
+    conn = get_db()
+    conn.execute('INSERT OR REPLACE INTO asiacell_flows(user_id, data, created_at) VALUES(?,?,?)',
+                 (user_id, json.dumps(flow), time.time()))
+    conn.commit()
+    conn.close()
+
+def _asiacell_flow_clear(user_id):
+    conn = get_db()
+    conn.execute('DELETE FROM asiacell_flows WHERE user_id=?', (user_id,))
+    conn.commit()
+    conn.close()
+
+ASIACELL_TIER_AMOUNTS = [1000, 2000, 3000, 4000, 5000, 6000, 7000, 8000, 9000, 10000]
+
+def _default_asiacell_tiers():
+    return [{'iqd': v, 'bonus': 0} for v in ASIACELL_TIER_AMOUNTS]
+
 @app.route('/api/payment-methods')
 def api_pm_public():
     if 'user_id' not in session:
@@ -3688,11 +3728,17 @@ def api_pm_public():
     for r in rows:
         mtype = r['method_type'] if 'method_type' in r.keys() else 'manual'
         qr_code = ''
+        tiers = None
         if mtype == 'binance':
             try:
                 qr_code = (json.loads(r['method_extras'] or '{}') or {}).get('qr_code', '')
             except Exception:
                 qr_code = ''
+        if mtype == 'asiacell':
+            try:
+                tiers = (json.loads(r['method_extras'] or '{}') or {}).get('tiers') or _default_asiacell_tiers()
+            except Exception:
+                tiers = _default_asiacell_tiers()
         methods.append({
             'id': r['id'], 'name': r['name'], 'icon': r['icon'],
             'number': r['number'], 'exchange_rate': r['exchange_rate'],
@@ -3700,7 +3746,8 @@ def api_pm_public():
             'bot_link': r['bot_link'] if 'bot_link' in r.keys() else '',
             'image': r['image'] if 'image' in r.keys() else '',
             'method_type': mtype,
-            'qr_code': qr_code
+            'qr_code': qr_code,
+            'tiers': tiers
         })
     return jsonify(ok=True, methods=methods)
 
@@ -3811,6 +3858,7 @@ def api_pm_list():
             'has_binance_keys': bool(extras.get('api_key')) if mtype == 'binance' else False,
             'qr_code': extras.get('qr_code', '') if mtype == 'binance' else '',
             'max_transfer': extras.get('max_transfer') if mtype == 'asiacell' else None,
+            'tiers': (extras.get('tiers') or _default_asiacell_tiers()) if mtype == 'asiacell' else None,
         })
     return jsonify(ok=True, methods=methods)
 
@@ -4010,6 +4058,19 @@ def api_pm_save_asiacell():
     if max_transfer < 1000:
         max_transfer = 10000
     extras['max_transfer'] = max_transfer
+    tiers_in = data.get('tiers')
+    if isinstance(tiers_in, list) and tiers_in:
+        clean_tiers = []
+        for t in tiers_in:
+            try:
+                iqd = int(t.get('iqd'))
+                bonus = float(t.get('bonus') or 0)
+            except (TypeError, ValueError, AttributeError):
+                continue
+            if iqd in ASIACELL_TIER_AMOUNTS:
+                clean_tiers.append({'iqd': iqd, 'bonus': max(0, bonus)})
+        if clean_tiers:
+            extras['tiers'] = clean_tiers
     pm_image = _save_pm_image(data.get('image_data', ''), row['image'] if 'image' in row.keys() else '')
     conn.execute('UPDATE payment_methods SET number=?, exchange_rate=?, note=?, image=?, active=?, method_extras=? WHERE id=?',
                  (receiver, str(exchange_rate) if exchange_rate else '', data.get('note', row['note'] or ''),
@@ -10048,6 +10109,10 @@ print(r.json())</pre>
       <div class="pmf-group"><div class="pmf-label"><i class="fa-solid fa-arrow-right-arrow-left"></i> سعر الصرف (د.ع لكل 1$)</div><input class="pmf-input" id="acRate" placeholder="1000" dir="ltr" style="text-align:right" type="number"></div>
       <div class="pmf-group"><div class="pmf-label"><i class="fa-solid fa-layer-group"></i> الحد الأقصى لكل عملية (د.ع)</div><input class="pmf-input" id="acMaxTransfer" placeholder="10000" dir="ltr" style="text-align:right" type="number"></div>
     </div>
+    <div class="pmf-group">
+      <div class="pmf-label"><i class="fa-solid fa-gift"></i> هدية إضافية لكل فئة <span style="font-size:9px;color:var(--text3);font-weight:600">(اختياري، بالدينار — تُضاف فوق المبلغ عند التحويل الكامل)</span></div>
+      <div id="acTiersGrid" style="display:grid;grid-template-columns:1fr 1fr;gap:6px"></div>
+    </div>
     <div class="pmf-group"><div class="pmf-label"><i class="fa-solid fa-circle-info"></i> الوصف (يظهر للمستخدم)</div><input class="pmf-input" id="acNote" placeholder="تحويل رصيد آسياسيل مباشر وتلقائي"></div>
     <div class="pmf-group">
       <div class="pmf-label"><i class="fa-solid fa-image"></i> شعار آسياسيل <span style="font-size:9px;color:var(--text3);font-weight:600">(اختياري)</span></div>
@@ -10694,9 +10759,13 @@ print(r.json())</pre>
 
   // ==== صفحة الدفع عبر آسياسيل (مبلغ ثم رقم هاتف ثم كود تحقق وكود تأكيد) ====
   function rchAsiacellPageHtml(m){
-    return '<div class="rch-card"><div class="field-label"><i class="fa-solid fa-dollar-sign"></i> المبلغ المطلوب (دولار)</div>'+
-    '<div class="rch-amt-wrap"><input type="number" class="rch-amt-input" placeholder="أدخل المبلغ" id="rchAmount" value="10"><span class="rch-amt-sign">$</span></div>'+
-    (m.exchange_rate?'<div class="rch-det-row" style="margin-top:8px"><span class="rch-det-lbl"><i class="fa-solid fa-arrow-right-arrow-left"></i> سعر الصرف</span><span class="rch-det-val">'+m.exchange_rate+' '+m.currency+'</span></div>':'')+
+    var tiers=(m.tiers&&m.tiers.length)?m.tiers:[1000,2000,3000,4000,5000,6000,7000,8000,9000,10000].map(function(v){return{iqd:v,bonus:0}});
+    var btnsHtml=tiers.map(function(t,i){
+      return '<div class="rq'+(i===0?' sel':'')+'" data-iqd="'+t.iqd+'" data-bonus="'+(t.bonus||0)+'" style="min-width:64px">'+Number(t.iqd).toLocaleString()+(t.bonus>0?'<div style="font-size:8px;color:var(--green);font-weight:800;margin-top:2px">هدية +'+Number(t.bonus).toLocaleString()+'</div>':'')+'</div>';
+    }).join('');
+    return '<div class="rch-card"><div class="field-label"><i class="fa-solid fa-coins"></i> اختر المبلغ ('+(m.currency||'IQD')+')</div>'+
+    '<div class="rch-quick" id="rchAcAmounts" style="flex-wrap:wrap">'+btnsHtml+'</div>'+
+    (m.exchange_rate?'<div class="rch-det-row" style="margin-top:10px"><span class="rch-det-lbl"><i class="fa-solid fa-arrow-right-arrow-left"></i> سعر الصرف</span><span class="rch-det-val">'+m.exchange_rate+' '+m.currency+'</span></div>':'')+
     '<div class="rch-det-convert" id="rchAcConvert"></div></div>'+
     '<div class="rch-card"><div class="rch-bot-msg"><div class="rch-bot-ic"><i class="fa-solid fa-mobile-screen"></i></div><div class="rch-bot-title">تحويل رصيد آسياسيل التلقائي</div><div class="rch-bot-text">أدخل رقمك، ثم أكّد برمزي التحقق اللذين يصلانك عبر SMS من آسياسيل مباشرة.</div></div>'+
     '<div id="rchAcStepPhone"><div class="pmf-group" style="margin-top:8px"><div class="pmf-label"><i class="fa-solid fa-phone"></i> رقم آسياسيل</div><input class="pmf-input" id="rchAcPhone" placeholder="07xxxxxxxxx" dir="ltr" style="text-align:right" maxlength="11"></div>'+
@@ -10711,28 +10780,36 @@ print(r.json())</pre>
     '<button class="btn-sm-danger" id="rchAcCancelBtn" style="margin-top:8px;width:100%;justify-content:center">إلغاء العملية</button></div>';
   }
   function wireAsiacellPage(m){
+    var selectedTier=null;
     function updateConvert(){
-      var amt=parseFloat(document.getElementById('rchAmount').value)||0;
       var rate=parseFloat(m.exchange_rate)||0;
       var el=document.getElementById('rchAcConvert');
       if(!el)return;
-      if(rate>0){
-        var iqd=Math.ceil((amt*rate)/1000)*1000;
-        el.innerHTML='<span class="rch-det-convert-lbl">سيُحوَّل تقريباً</span><span class="rch-det-convert-val">'+iqd.toLocaleString('en-US')+' '+(m.currency||'IQD')+'</span>';
+      if(rate>0&&selectedTier){
+        var credited=(selectedTier.iqd+selectedTier.bonus)/rate;
+        el.innerHTML='<span class="rch-det-convert-lbl">سيُضاف لرصيدك</span><span class="rch-det-convert-val">$'+credited.toFixed(2)+'</span>';
       }else{el.innerHTML=''}
     }
-    document.getElementById('rchAmount').addEventListener('input',updateConvert);
+    document.querySelectorAll('#rchAcAmounts .rq').forEach(function(btn){
+      btn.addEventListener('click',function(){
+        document.querySelectorAll('#rchAcAmounts .rq').forEach(function(x){x.classList.remove('sel')});
+        this.classList.add('sel');
+        selectedTier={iqd:parseInt(this.dataset.iqd),bonus:parseFloat(this.dataset.bonus)||0};
+        updateConvert();
+      });
+    });
+    var firstBtn=document.querySelector('#rchAcAmounts .rq.sel');
+    if(firstBtn)selectedTier={iqd:parseInt(firstBtn.dataset.iqd),bonus:parseFloat(firstBtn.dataset.bonus)||0};
     updateConvert();
     document.getElementById('rchAcSendBtn').addEventListener('click',function(){
       var sendBtn=this;
       var errEl=document.getElementById('rchAcPhoneErr');
       var phone=document.getElementById('rchAcPhone').value.trim();
-      var amt=parseFloat(document.getElementById('rchAmount').value)||0;
       errEl.style.display='none';
-      if(amt<=0){errEl.textContent='أدخل مبلغ صحيح.';errEl.style.display='';return}
+      if(!selectedTier){errEl.textContent='اختر المبلغ.';errEl.style.display='';return}
       if(!/^(077|078|079)\d{8}$/.test(phone)){errEl.textContent='رقم غير صحيح، يجب أن يكون بصيغة 07xxxxxxxxx.';errEl.style.display='';return}
       var orig=sendBtn.innerHTML;sendBtn.disabled=true;sendBtn.innerHTML='<i class="fa-solid fa-spinner fa-spin"></i> جاري الإرسال...';
-      fetch('/api/recharge/asiacell/start',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({phone:phone,amount:amt})})
+      fetch('/api/recharge/asiacell/start',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({phone:phone,amount_iqd:selectedTier.iqd})})
       .then(function(r){return r.json()}).then(function(d){
         sendBtn.disabled=false;sendBtn.innerHTML=orig;
         if(!d.ok){errEl.textContent=d.msg||'تعذر إرسال رمز التحقق';errEl.style.display='';return}
@@ -10781,7 +10858,7 @@ print(r.json())</pre>
           if(info)info.innerHTML='<div class="rch-det-row"><span class="rch-det-lbl">تم تحويل</span><span class="rch-det-val">'+Number(d.paid).toLocaleString()+' د.ع</span></div><div class="rch-det-row"><span class="rch-det-lbl">من إجمالي</span><span class="rch-det-val">'+Number(d.total).toLocaleString()+' د.ع</span></div><div class="rch-det-note"><i class="fa-solid fa-circle-info"></i> سيصلك رمز جديد للجزء التالي: '+Number(d.next_chunk).toLocaleString()+' د.ع</div>';
           return;
         }
-        rchAutoSuccess('تم شحن رصيدك تلقائياً عبر آسياسيل'+(d.overpay_credited>0?' (شمل فرق تقريب $'+Number(d.overpay_credited).toFixed(2)+')':''));
+        rchAutoSuccess('تم شحن رصيدك تلقائياً عبر آسياسيل'+(d.bonus_iqd>0?' (شمل هدية '+Number(d.bonus_iqd).toLocaleString()+' د.ع)':''));
       }).catch(function(){confirmBtn.disabled=false;confirmBtn.innerHTML=orig;errEl.textContent='تعذر الاتصال بالسيرفر';errEl.style.display=''});
     });
     document.getElementById('rchAcCancelBtn').addEventListener('click',function(){
@@ -11338,11 +11415,26 @@ print(r.json())</pre>
       document.getElementById('acImgHint').textContent=Math.round(f.size/1024)+'KB';
     };r.readAsDataURL(f);
   });
+  var AC_TIER_AMOUNTS=[1000,2000,3000,4000,5000,6000,7000,8000,9000,10000];
+  function buildAcTiersGrid(tiers){
+    var grid=document.getElementById('acTiersGrid');
+    grid.innerHTML='';
+    AC_TIER_AMOUNTS.forEach(function(amt){
+      var bonus=0;
+      var t=(tiers||[]).find(function(x){return parseInt(x.iqd)===amt});
+      if(t)bonus=t.bonus||0;
+      var row=document.createElement('div');
+      row.style.cssText='display:flex;align-items:center;gap:6px;background:var(--input-bg);border:1px solid var(--input-border);border-radius:8px;padding:6px 8px';
+      row.innerHTML='<span style="font-size:11px;font-weight:800;flex:1">'+amt.toLocaleString()+' د.ع</span><input type="number" class="ac-tier-bonus" data-amt="'+amt+'" value="'+bonus+'" placeholder="0" style="width:70px;padding:5px;border-radius:6px;border:1px solid var(--input-border);background:var(--bg);color:var(--text);font-size:11px;text-align:center">';
+      grid.appendChild(row);
+    });
+  }
   function openAsiacellModal(m){
     _acImgData='';
     document.getElementById('acReceiver').value=m.number||'';
     document.getElementById('acRate').value=m.exchange_rate||'';
     document.getElementById('acMaxTransfer').value=m.max_transfer||10000;
+    buildAcTiersGrid(m.tiers);
     document.getElementById('acNote').value=m.note||'';
     document.getElementById('acImgInput').value='';
     document.getElementById('acImgIc').innerHTML='<i class="fa-solid fa-cloud-arrow-up"></i>';
@@ -11360,12 +11452,16 @@ print(r.json())</pre>
   }
   document.getElementById('btnSaveAsiacell').addEventListener('click',function(){
     var btn=this;btn.disabled=true;
+    var tiers=Array.from(document.querySelectorAll('.ac-tier-bonus')).map(function(inp){
+      return {iqd:parseInt(inp.dataset.amt),bonus:parseFloat(inp.value)||0};
+    });
     var body={
       receiver_msisdn:document.getElementById('acReceiver').value.trim(),
       exchange_rate:document.getElementById('acRate').value,
       max_transfer:document.getElementById('acMaxTransfer').value,
       note:document.getElementById('acNote').value,
-      active:document.getElementById('acActive').classList.contains('on')
+      active:document.getElementById('acActive').classList.contains('on'),
+      tiers:tiers
     };
     if(_acImgData)body.image_data=_acImgData;
     fetch('/api/admin/payment-methods/asiacell',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})
