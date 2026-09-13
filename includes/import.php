@@ -227,12 +227,13 @@ function import_images_as_products(PDO $pdo, string $folderPath, string $categor
     return $summary;
 }
 
-// يبحث عن مجلدات صور جاهزة للاستيراد داخل logs/legacy-imports (كل مجلد فرعي يُعتبر مرشحاً)
+// يبحث عن مجلدات صور جاهزة للاستيراد داخل logs/legacy-imports (كل مجلد فرعي يُعتبر مرشحاً،
+// عدا _processed المحجوز لأرشفة المجلدات التي تمت مزامنتها تلقائياً من قبل)
 function find_legacy_image_folders(string $legacyImportsDir): array {
     $found = [];
     if (!is_dir($legacyImportsDir)) return $found;
     foreach (scandir($legacyImportsDir) as $entry) {
-        if ($entry === '.' || $entry === '..') continue;
+        if ($entry === '.' || $entry === '..' || $entry === '_processed') continue;
         $fullPath = $legacyImportsDir . '/' . $entry;
         if (is_dir($fullPath)) {
             $found[] = ['name' => $entry, 'path' => $fullPath];
@@ -378,4 +379,49 @@ function import_images_zip_into_mysql(PDO $pdo, string $zipPath): array {
     $summary['matched'] = $coverage['stored'];
     $summary['unmatched'] = $coverage['missing'];
     return $summary;
+}
+
+// يبحث تلقائياً عن أي مجلد أو ملف ZIP صور جديد وضعه المستخدم داخل logs/legacy-imports (مثل
+// مجلد باسم "ali" على الاستضافة) ويزامنه فوراً داخل MySQL دون أي تدخل يدوي - لا حاجة لفتح
+// admin/import.php أو الضغط على أي زر. بعد المزامنة يُنقل المصدر إلى logs/legacy-imports/_processed
+// (بدل حذفه) حتى لا تتكرر معالجته في كل مرة، مع إبقاء نسخة منه للمراجعة إن احتجتها لاحقاً.
+// تُستدعى تلقائياً عند كل دخول للوحة التحكم (admin_require_login في admin/includes/bootstrap.php).
+function auto_sync_pending_legacy_images(PDO $pdo, string $legacyImportsDir): array {
+    $result = ['processed' => [], 'stored' => 0, 'matched' => 0, 'unmatched' => 0, 'referenced_total' => 0];
+
+    $folders = find_legacy_image_folders($legacyImportsDir);
+    $zips = class_exists('ZipArchive') ? find_legacy_image_zips($legacyImportsDir) : [];
+    if (empty($folders) && empty($zips)) return $result; // لا شيء جديد: لا حاجة لأي استعلام قاعدة بيانات
+
+    $processedDir = $legacyImportsDir . '/_processed';
+
+    foreach ($folders as $folder) {
+        $summary = import_images_into_mysql($pdo, $folder['path']);
+        if ($summary['error']) continue;
+
+        $result['processed'][] = $folder['name'];
+        $result['stored'] += $summary['stored'];
+        $result['matched'] = $summary['matched'];
+        $result['unmatched'] = $summary['unmatched'];
+        $result['referenced_total'] = $summary['referenced_total'];
+
+        if (!is_dir($processedDir)) @mkdir($processedDir, 0755, true);
+        @rename($folder['path'], $processedDir . '/' . $folder['name'] . '_' . date('YmdHis'));
+    }
+
+    foreach ($zips as $zipInfo) {
+        $summary = import_images_zip_into_mysql($pdo, $zipInfo['path']);
+        if ($summary['error']) continue;
+
+        $result['processed'][] = $zipInfo['name'];
+        $result['stored'] += $summary['stored'];
+        $result['matched'] = $summary['matched'];
+        $result['unmatched'] = $summary['unmatched'];
+        $result['referenced_total'] = $summary['referenced_total'];
+
+        if (!is_dir($processedDir)) @mkdir($processedDir, 0755, true);
+        @rename($zipInfo['path'], $processedDir . '/' . $zipInfo['name'] . '_' . date('YmdHis'));
+    }
+
+    return $result;
 }

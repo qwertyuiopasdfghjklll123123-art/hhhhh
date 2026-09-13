@@ -31,6 +31,20 @@ function admin_require_login() {
         header('Location: login.php');
         exit;
     }
+
+    // مزامنة تلقائية: إن وضع المستخدم مجلد أو ملف ZIP صور جديداً داخل logs/legacy-imports
+    // (على استضافته مباشرة، بلا حاجة لإرساله عبر المحادثة) يُستوردان الآن تلقائياً عند أي
+    // دخول للوحة التحكم، دون الحاجة لفتح صفحة الاستيراد أو الضغط على أي زر يدوياً.
+    global $pdo;
+    require_once __DIR__ . '/../../includes/import.php';
+    $autoSync = auto_sync_pending_legacy_images($pdo, __DIR__ . '/../../logs/legacy-imports');
+    if (!empty($autoSync['processed'])) {
+        $names = implode('، ', $autoSync['processed']);
+        $msg = "تمت مزامنة الصور تلقائياً من: $names — تم تخزين {$autoSync['stored']} صورة داخل قاعدة البيانات. ";
+        $msg .= "المتوفر الآن {$autoSync['matched']} من أصل {$autoSync['referenced_total']} صورة مطلوبة";
+        $msg .= $autoSync['unmatched'] > 0 ? "، وما زال {$autoSync['unmatched']} ناقصاً." : ' (اكتملت كل الصور).';
+        admin_flash($autoSync['unmatched'] > 0 ? 'error' : 'success', $msg);
+    }
 }
 
 function admin_csrf_field() {

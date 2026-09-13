@@ -163,6 +163,18 @@ $imageZips = find_legacy_image_zips($legacyImportsDir);
 admin_header('استيراد بيانات', 'import.php', 'استيراد بيانات من نسخة سابقة من التطبيق أو من نظام آخر');
 ?>
 
+<div class="card">
+    <h2><i class="fas fa-wand-magic-sparkles"></i> مزامنة تلقائية للصور</h2>
+    <p class="field-hint">
+        ضع أي مجلد صور أو ملف ZIP يحتوي صوراً (مثل مجلد باسم <code>ali</code>) مباشرة داخل
+        <code>logs/legacy-imports/</code> على استضافتك (عبر مدير الملفات أو FTP) - بلا حاجة لرفعه هنا
+        أو إرساله لأي جهة. سيتم اكتشافه ومزامنته تلقائياً مع أول دخول للوحة التحكم (بمطابقة اسم كل
+        صورة مع الاسم المخزَّن لفئة/شركة/منتج/خدمة موجودة مسبقاً)، دون أي زر يدوي، ثم يُنقل تلقائياً
+        إلى <code>logs/legacy-imports/_processed/</code> حتى لا تتكرر معالجته. ستظهر رسالة بالنتيجة
+        أعلى أي صفحة في اللوحة عند حدوث ذلك.
+    </p>
+</div>
+
 <?php foreach ($imageFolders as $folder): ?>
 <div class="card">
     <h2><i class="fas fa-images"></i> مجلد صور تم اكتشافه: "<?php echo e($folder['name']); ?>"</h2>
