@@ -22,9 +22,20 @@ $alreadyInstalled = file_exists(__DIR__ . '/config.php');
 $legacyJsonPath = __DIR__ . '/logs/database.json';
 $hasLegacyData = file_exists($legacyJsonPath);
 
+$legacySqlitePath = null;
+$legacyImportsDir = __DIR__ . '/logs/legacy-imports';
+if (is_dir($legacyImportsDir)) {
+    foreach (glob($legacyImportsDir . '/*.db') as $dbFile) {
+        $legacySqlitePath = $dbFile;
+        break;
+    }
+}
+$hasLegacySqlite = $legacySqlitePath !== null;
+
 $errors = [];
 $success = false;
 $summary = null;
+$sqliteSummary = null;
 
 $old = [
     'db_host' => $_POST['db_host'] ?? 'localhost',
@@ -34,6 +45,9 @@ $old = [
     'admin_fullname' => $_POST['admin_fullname'] ?? 'مدير النظام',
     'admin_email' => $_POST['admin_email'] ?? '',
     'import_legacy' => isset($_POST['import_legacy']),
+    'import_sqlite' => isset($_POST['import_sqlite']),
+    'sqlite_category' => $_POST['sqlite_category'] ?? 'منتجات مستوردة',
+    'sqlite_company' => $_POST['sqlite_company'] ?? 'عام',
 ];
 
 function runSqlFile(PDO $pdo, string $path): void {
@@ -43,69 +57,6 @@ function runSqlFile(PDO $pdo, string $path): void {
         if ($stmt === '') continue;
         $pdo->exec($stmt);
     }
-}
-
-function importLegacyData(PDO $pdo, array $json): array {
-    $summary = ['users' => 0, 'categories' => 0];
-
-    if (!empty($json['users']) && is_array($json['users'])) {
-        foreach ($json['users'] as $u) {
-            if (empty($u['email']) || empty($u['password'])) continue;
-            if (db_get_user_by_email($pdo, $u['email'])) continue;
-            $stmt = $pdo->prepare('INSERT INTO users (id, fullname, email, password, is_admin, created_at, last_login) VALUES (?,?,?,?,?,?,?)');
-            $stmt->execute([
-                !empty($u['id']) ? (int)$u['id'] : null,
-                $u['fullname'] ?? '',
-                $u['email'],
-                $u['password'],
-                !empty($u['isAdmin']) ? 1 : 0,
-                $u['created_at'] ?? db_now(),
-                $u['last_login'] ?? null,
-            ]);
-            $summary['users']++;
-        }
-        $max = (int)$pdo->query('SELECT COALESCE(MAX(id),0) AS m FROM users')->fetch()['m'];
-        $pdo->exec('ALTER TABLE users AUTO_INCREMENT = ' . ($max + 1));
-    }
-
-    if (!empty($json['catalog']) && is_array($json['catalog'])) {
-        db_sync_catalog($pdo, $json['catalog']);
-        $summary['categories'] = count($json['catalog']['categories'] ?? []);
-    }
-
-    if (!empty($json['settings']) && is_array($json['settings'])) {
-        db_save_settings($pdo, $json['settings']);
-    }
-
-    db_ensure_stats_row($pdo);
-    if (!empty($json['stats']) && is_array($json['stats'])) {
-        $s = $json['stats'];
-        $pdo->prepare('UPDATE stats SET total_visitors=?, total_favorites=?, total_orders=? WHERE id=1')->execute([
-            (int)($s['total_visitors'] ?? 0), (int)($s['total_favorites'] ?? 0), (int)($s['total_orders'] ?? 0),
-        ]);
-        if (!empty($s['daily_visits']) && is_array($s['daily_visits'])) {
-            foreach ($s['daily_visits'] as $date => $count) {
-                if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', (string)$date)) continue;
-                $pdo->prepare('INSERT INTO daily_visits (visit_date, count) VALUES (?,?) ON DUPLICATE KEY UPDATE count = VALUES(count)')->execute([$date, (int)$count]);
-            }
-        }
-        if (!empty($s['most_requested_items']) && is_array($s['most_requested_items'])) {
-            foreach ($s['most_requested_items'] as $item) {
-                if (empty($item['name']) || empty($item['category'])) continue;
-                $pdo->prepare('INSERT INTO most_requested_items (name, category, type, count) VALUES (?,?,?,?) ON DUPLICATE KEY UPDATE count = VALUES(count)')
-                    ->execute([$item['name'], $item['category'], $item['type'] ?? 'product', (int)($item['count'] ?? 1)]);
-            }
-        }
-    }
-
-    if (!empty($json['push_subscriptions']) && is_array($json['push_subscriptions'])) {
-        foreach ($json['push_subscriptions'] as $sub) {
-            $pdo->prepare('INSERT INTO push_subscriptions (subscription, created_at) VALUES (?, ?)')
-                ->execute([json_encode($sub, JSON_UNESCAPED_UNICODE), db_now()]);
-        }
-    }
-
-    return $summary;
 }
 
 if (!$alreadyInstalled && $_SERVER['REQUEST_METHOD'] === 'POST') {
@@ -122,6 +73,9 @@ if (!$alreadyInstalled && $_SERVER['REQUEST_METHOD'] === 'POST') {
     $adminEmail = trim($_POST['admin_email'] ?? '');
     $adminPassword = (string)($_POST['admin_password'] ?? '');
     $importLegacy = isset($_POST['import_legacy']) && $hasLegacyData;
+    $importSqlite = isset($_POST['import_sqlite']) && $hasLegacySqlite;
+    $sqliteCategory = trim($_POST['sqlite_category'] ?? '') ?: 'منتجات مستوردة';
+    $sqliteCompany = trim($_POST['sqlite_company'] ?? '') ?: 'عام';
 
     if ($dbHost === '' || $dbName === '' || $dbUser === '') {
         $errors[] = 'يرجى تعبئة بيانات الاتصال بقاعدة البيانات (المضيف، اسم القاعدة، المستخدم).';
@@ -157,15 +111,20 @@ if (!$alreadyInstalled && $_SERVER['REQUEST_METHOD'] === 'POST') {
             ]);
 
             require_once __DIR__ . '/includes/data.php';
+            require_once __DIR__ . '/includes/import.php';
 
             runSqlFile($pdo, __DIR__ . '/install/schema.sql');
 
             $summary = ['users' => 0, 'categories' => 0];
             if ($importLegacy && $legacyJson) {
-                $summary = importLegacyData($pdo, $legacyJson);
+                $summary = import_legacy_json($pdo, $legacyJson);
             } else {
                 db_ensure_settings_row($pdo);
                 db_ensure_stats_row($pdo);
+            }
+
+            if ($importSqlite && $legacySqlitePath) {
+                $sqliteSummary = import_flat_products_sqlite($pdo, $legacySqlitePath, $sqliteCategory, $sqliteCompany);
             }
 
             $existingAdmin = db_get_user_by_email($pdo, $adminEmail);
@@ -255,6 +214,13 @@ if (!$alreadyInstalled && $_SERVER['REQUEST_METHOD'] === 'POST') {
                 <?php if (!empty($importLegacy) && $summary): ?>
                     تم استيراد <?php echo (int)$summary['users']; ?> مستخدم و<?php echo (int)$summary['categories']; ?> فئة من البيانات القديمة.<br>
                 <?php endif; ?>
+                <?php if (!empty($sqliteSummary)): ?>
+                    <?php if ($sqliteSummary['error']): ?>
+                        ⚠️ لم يتم استيراد قاعدة SQLite: <?php echo htmlspecialchars($sqliteSummary['error'], ENT_QUOTES, 'UTF-8'); ?><br>
+                    <?php else: ?>
+                        تم استيراد <?php echo (int)$sqliteSummary['products']; ?> منتج من قاعدة البيانات الإضافية.<br>
+                    <?php endif; ?>
+                <?php endif; ?>
                 يمكنك الآن تسجيل الدخول بحساب المدير الذي أدخلته.
             </div>
             <div class="alert alert-error" style="background:rgba(239,68,68,0.12);">
@@ -272,6 +238,11 @@ if (!$alreadyInstalled && $_SERVER['REQUEST_METHOD'] === 'POST') {
         <?php if ($hasLegacyData): ?>
             <div class="alert alert-info">
                 📦 تم العثور على بيانات سابقة في <code>logs/database.json</code>. يمكنك استيرادها تلقائياً أدناه.
+            </div>
+        <?php endif; ?>
+        <?php if ($hasLegacySqlite): ?>
+            <div class="alert alert-info">
+                🗄️ تم العثور على قاعدة بيانات إضافية (<code><?php echo htmlspecialchars(basename($legacySqlitePath), ENT_QUOTES, 'UTF-8'); ?></code>). يمكنك استيراد منتجاتها أدناه.
             </div>
         <?php endif; ?>
 
@@ -308,8 +279,29 @@ if (!$alreadyInstalled && $_SERVER['REQUEST_METHOD'] === 'POST') {
             </div>
             <?php endif; ?>
 
+            <?php if ($hasLegacySqlite): ?>
             <div class="card">
-                <h2><?php echo $hasLegacyData ? '3' : '2'; ?>) حساب المدير</h2>
+                <h2><?php echo $hasLegacyData ? '3' : '2'; ?>) استيراد قاعدة بيانات إضافية (<?php echo htmlspecialchars(basename($legacySqlitePath), ENT_QUOTES, 'UTF-8'); ?>)</h2>
+                <p class="sub" style="font-size:0.8rem;">تم العثور على قاعدة بيانات منتجات بسيطة. سيتم إنشاء فئة وشركة جديدتين لاستقبال منتجاتها.</p>
+                <div class="checkbox-row">
+                    <input type="checkbox" id="import_sqlite" name="import_sqlite" <?php echo $old['import_sqlite'] ? 'checked' : ''; ?>>
+                    <label for="import_sqlite" style="margin:0;">استيراد منتجات هذه القاعدة</label>
+                </div>
+                <div class="row" style="margin-top:12px;">
+                    <div>
+                        <label>اسم الفئة الجديدة</label>
+                        <input type="text" name="sqlite_category" value="<?php echo htmlspecialchars($old['sqlite_category'], ENT_QUOTES, 'UTF-8'); ?>">
+                    </div>
+                    <div>
+                        <label>اسم الشركة الجديدة</label>
+                        <input type="text" name="sqlite_company" value="<?php echo htmlspecialchars($old['sqlite_company'], ENT_QUOTES, 'UTF-8'); ?>">
+                    </div>
+                </div>
+            </div>
+            <?php endif; ?>
+
+            <div class="card">
+                <h2><?php echo 2 + ($hasLegacyData ? 1 : 0) + ($hasLegacySqlite ? 1 : 0); ?>) حساب المدير</h2>
                 <p class="sub" style="font-size:0.8rem;">إذا كان هذا البريد موجوداً ضمن البيانات المستوردة فسيتم ترقيته لصلاحية مدير فقط دون تغيير كلمة مروره الحالية.</p>
                 <label>الاسم الكامل</label>
                 <input type="text" name="admin_fullname" value="<?php echo htmlspecialchars($old['admin_fullname'], ENT_QUOTES, 'UTF-8'); ?>" required>

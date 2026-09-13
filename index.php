@@ -762,6 +762,11 @@ $page = isset($_GET['page']) ? $_GET['page'] : '';
                 <div style="background: var(--bg2); border-radius: 12px; padding: 10px; margin-top: 10px;">
                     <i class="fas fa-code"></i> جميع الحقوق محفوظة © 2025
                 </div>
+                <div style="margin-top: 14px; font-size: 0.8rem;">
+                    <a href="privacy-policy.php" target="_blank" style="color: var(--ac);"><i class="fas fa-shield-halved"></i> سياسة الخصوصية</a>
+                    <span style="color: var(--t4);"> | </span>
+                    <a href="terms.php" target="_blank" style="color: var(--ac);"><i class="fas fa-file-contract"></i> الشروط والأحكام</a>
+                </div>
             </div>
             <div class="confirm-modal-footer">
                 <button class="confirm-btn confirm-ok" onclick="closeAboutAppModal()">
@@ -776,6 +781,11 @@ $page = isset($_GET['page']) ? $_GET['page'] : '';
         <div class="admin-header">
             <h3><i class="fas fa-cog"></i> لوحة التحكم</h3>
             <button class="admin-close" onclick="closeAdminPanel()">✕</button>
+        </div>
+        <div style="padding: 10px 20px; text-align: center;">
+            <a href="admin/index.php" target="_blank" style="display:inline-flex; align-items:center; gap:6px; font-size:0.75rem; color: var(--ac); background: var(--bg2); padding:8px 14px; border-radius:10px;">
+                <i class="fas fa-up-right-from-square"></i> فتح لوحة التحكم الجديدة (صفحة مستقلة)
+            </a>
         </div>
 
         <!-- إحصائيات التطبيق -->

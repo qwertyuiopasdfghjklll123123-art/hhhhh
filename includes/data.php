@@ -70,6 +70,10 @@ function db_count_users(PDO $pdo): int {
     return (int)$pdo->query('SELECT COUNT(*) AS c FROM users')->fetch()['c'];
 }
 
+function db_count_admins(PDO $pdo): int {
+    return (int)$pdo->query('SELECT COUNT(*) AS c FROM users WHERE is_admin = 1')->fetch()['c'];
+}
+
 function db_public_user(array $u): array {
     return [
         'id' => (int)$u['id'],
@@ -279,6 +283,7 @@ function db_get_catalog_tree(PDO $pdo): array {
                     'name' => $p['name'],
                     'code' => $p['code'],
                     'color' => $p['color'],
+                    'price' => $p['price'],
                     'img' => $p['img'],
                     'image_url' => $p['image_url'],
                     'available' => (bool)$p['available'],
@@ -473,14 +478,14 @@ function db_sync_catalog(PDO $pdo, array $catalog): void {
                     $prodDeletedCard = normalizeDeletedCard($prod['deletedCard'] ?? 'no');
 
                     $pdo->prepare('
-                        INSERT INTO products (id, company_id, name, code, color, img, image_url, available, deleted_card, sort_order)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        INSERT INTO products (id, company_id, name, code, color, price, img, image_url, available, deleted_card, sort_order)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                         ON DUPLICATE KEY UPDATE company_id = VALUES(company_id), name = VALUES(name), code = VALUES(code),
-                            color = VALUES(color), img = VALUES(img), image_url = VALUES(image_url),
+                            color = VALUES(color), price = VALUES(price), img = VALUES(img), image_url = VALUES(image_url),
                             available = VALUES(available), deleted_card = VALUES(deleted_card), sort_order = VALUES(sort_order)
                     ')->execute([
                         $prodId, $compId, (string)($prod['name'] ?? ''), $prod['code'] ?? null, $prod['color'] ?? null,
-                        $img, $prod['image_url'] ?? null, $available ? 1 : 0, $prodDeletedCard, $prodOrder,
+                        $prod['price'] ?? null, $img, $prod['image_url'] ?? null, $available ? 1 : 0, $prodDeletedCard, $prodOrder,
                     ]);
                     $prodOrder++;
                 }
@@ -609,6 +614,10 @@ function db_edit_product_info(PDO $pdo, string $catId, string $compId, string $p
     if (array_key_exists('color', $productData)) {
         $sets[] = 'color = ?';
         $params[] = $productData['color'];
+    }
+    if (array_key_exists('price', $productData)) {
+        $sets[] = 'price = ?';
+        $params[] = $productData['price'];
     }
     if (isset($productData['available'])) {
         $sets[] = 'available = ?';
@@ -754,4 +763,139 @@ function db_delete_category_permanent(PDO $pdo, string $catId): ?string {
         [$catId]
     )));
     return $cat['name'];
+}
+
+// ---------------------------------------------------------------
+// عمليات إنشاء/تحديث/سرد مباشرة لصفحات لوحة التحكم (admin/*.php).
+// منفصلة عن db_sync_catalog التي تُستخدم لمزامنة الشجرة كاملة من الواجهة القديمة.
+// ---------------------------------------------------------------
+function db_next_sort_order(PDO $pdo, string $table, string $whereCol = null, $whereVal = null): int {
+    if ($whereCol) {
+        $stmt = $pdo->prepare("SELECT COALESCE(MAX(sort_order), -1) AS m FROM $table WHERE $whereCol = ?");
+        $stmt->execute([$whereVal]);
+    } else {
+        $stmt = $pdo->query("SELECT COALESCE(MAX(sort_order), -1) AS m FROM $table");
+    }
+    return (int)$stmt->fetch()['m'] + 1;
+}
+
+function db_list_categories_admin(PDO $pdo): array {
+    return $pdo->query('SELECT * FROM categories ORDER BY sort_order ASC, created_at ASC')->fetchAll();
+}
+
+function db_create_category(PDO $pdo, string $name, ?string $image): string {
+    $id = newEntityId('cat');
+    $order = db_next_sort_order($pdo, 'categories');
+    $pdo->prepare("INSERT INTO categories (id, name, image, deleted_card, sort_order) VALUES (?, ?, ?, 'no', ?)")
+        ->execute([$id, $name, $image, $order]);
+    return $id;
+}
+
+function db_update_category_fields(PDO $pdo, string $id, string $name, ?string $newImage): void {
+    if ($newImage !== null) {
+        $old = fetchOneValue($pdo, 'SELECT image FROM categories WHERE id = ?', [$id], 'image');
+        if ($old) deleteOldImage($old);
+        $pdo->prepare('UPDATE categories SET name = ?, image = ? WHERE id = ?')->execute([$name, $newImage, $id]);
+    } else {
+        $pdo->prepare('UPDATE categories SET name = ? WHERE id = ?')->execute([$name, $id]);
+    }
+}
+
+function db_list_companies_admin(PDO $pdo): array {
+    return $pdo->query('
+        SELECT co.*, ca.name AS category_name
+        FROM companies co JOIN categories ca ON co.category_id = ca.id
+        ORDER BY ca.sort_order ASC, co.sort_order ASC, co.created_at ASC
+    ')->fetchAll();
+}
+
+function db_create_company(PDO $pdo, string $categoryId, string $name, ?string $logo): string {
+    $id = newEntityId('comp');
+    $order = db_next_sort_order($pdo, 'companies', 'category_id', $categoryId);
+    $pdo->prepare("INSERT INTO companies (id, category_id, name, logo, deleted_card, sort_order) VALUES (?, ?, ?, ?, 'no', ?)")
+        ->execute([$id, $categoryId, $name, $logo, $order]);
+    return $id;
+}
+
+function db_update_company_fields(PDO $pdo, string $id, string $categoryId, string $name, ?string $newLogo): void {
+    if ($newLogo !== null) {
+        $old = fetchOneValue($pdo, 'SELECT logo FROM companies WHERE id = ?', [$id], 'logo');
+        if ($old) deleteOldImage($old);
+        $pdo->prepare('UPDATE companies SET category_id = ?, name = ?, logo = ? WHERE id = ?')->execute([$categoryId, $name, $newLogo, $id]);
+    } else {
+        $pdo->prepare('UPDATE companies SET category_id = ?, name = ? WHERE id = ?')->execute([$categoryId, $name, $id]);
+    }
+}
+
+function db_list_products_admin(PDO $pdo): array {
+    return $pdo->query('
+        SELECT p.*, co.name AS company_name, ca.id AS category_id, ca.name AS category_name
+        FROM products p
+        JOIN companies co ON p.company_id = co.id
+        JOIN categories ca ON co.category_id = ca.id
+        ORDER BY ca.sort_order ASC, co.sort_order ASC, p.sort_order ASC, p.created_at ASC
+    ')->fetchAll();
+}
+
+function db_create_product(PDO $pdo, string $companyId, array $fields, ?string $img): string {
+    $id = newEntityId('prod');
+    $order = db_next_sort_order($pdo, 'products', 'company_id', $companyId);
+    $pdo->prepare("
+        INSERT INTO products (id, company_id, name, code, color, price, img, image_url, available, deleted_card, sort_order)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'no', ?)
+    ")->execute([
+        $id, $companyId, $fields['name'], $fields['code'] ?? null, $fields['color'] ?? null, $fields['price'] ?? null,
+        $img, $fields['image_url'] ?? null, !empty($fields['available']) ? 1 : 0, $order,
+    ]);
+    return $id;
+}
+
+function db_update_product_fields(PDO $pdo, string $id, string $companyId, array $fields, ?string $newImg): void {
+    $sets = 'company_id = ?, name = ?, code = ?, color = ?, price = ?, image_url = ?, available = ?';
+    $params = [
+        $companyId, $fields['name'], $fields['code'] ?? null, $fields['color'] ?? null, $fields['price'] ?? null,
+        $fields['image_url'] ?? null, !empty($fields['available']) ? 1 : 0,
+    ];
+    if ($newImg !== null) {
+        $old = fetchOneValue($pdo, 'SELECT img FROM products WHERE id = ?', [$id], 'img');
+        if ($old) deleteOldImage($old);
+        $sets .= ', img = ?';
+        $params[] = $newImg;
+    }
+    $params[] = $id;
+    $pdo->prepare("UPDATE products SET $sets WHERE id = ?")->execute($params);
+}
+
+function db_list_services_admin(PDO $pdo): array {
+    return $pdo->query('
+        SELECT s.*, ca.name AS category_name
+        FROM services s JOIN categories ca ON s.category_id = ca.id
+        ORDER BY ca.sort_order ASC, s.sort_order ASC, s.created_at ASC
+    ')->fetchAll();
+}
+
+function db_create_service(PDO $pdo, string $categoryId, array $fields, ?string $img): string {
+    $id = newEntityId('service');
+    $order = db_next_sort_order($pdo, 'services', 'category_id', $categoryId);
+    $pdo->prepare("
+        INSERT INTO services (id, category_id, name, color, notes, img, available, deleted_card, sort_order)
+        VALUES (?, ?, ?, ?, ?, ?, ?, 'no', ?)
+    ")->execute([
+        $id, $categoryId, $fields['name'], $fields['color'] ?? null, $fields['notes'] ?? null,
+        $img, !empty($fields['available']) ? 1 : 0, $order,
+    ]);
+    return $id;
+}
+
+function db_update_service_fields(PDO $pdo, string $id, string $categoryId, array $fields, ?string $newImg): void {
+    $sets = 'category_id = ?, name = ?, color = ?, notes = ?, available = ?';
+    $params = [$categoryId, $fields['name'], $fields['color'] ?? null, $fields['notes'] ?? null, !empty($fields['available']) ? 1 : 0];
+    if ($newImg !== null) {
+        $old = fetchOneValue($pdo, 'SELECT img FROM services WHERE id = ?', [$id], 'img');
+        if ($old) deleteOldImage($old);
+        $sets .= ', img = ?';
+        $params[] = $newImg;
+    }
+    $params[] = $id;
+    $pdo->prepare("UPDATE services SET $sets WHERE id = ?")->execute($params);
 }
