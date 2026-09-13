@@ -107,6 +107,42 @@ function handleFileUpload($file, $prefix = 'img') {
     return null;
 }
 
+// ينسخ صورة موجودة مسبقاً على القرص (مثل ملفات مجلد استيراد قديم) إلى uploads/
+// بنفس تحقق الصور الأخرى: امتداد ضمن قائمة مسموحة ومحتوى صورة حقيقي فعلاً
+function handleLocalImageFile($sourcePath, $prefix = 'img') {
+    if (empty($sourcePath) || !is_file($sourcePath)) return null;
+
+    $size = filesize($sourcePath);
+    if ($size === false || $size <= 0 || $size > 8 * 1024 * 1024) return null;
+
+    $imageInfo = @getimagesize($sourcePath);
+    if ($imageInfo === false) return null;
+
+    $allowedMime = ['image/jpeg' => 'jpg', 'image/png' => 'png', 'image/gif' => 'gif', 'image/webp' => 'webp'];
+    $mime = $imageInfo['mime'] ?? '';
+    if (!isset($allowedMime[$mime])) return null;
+    $ext = $allowedMime[$mime];
+
+    $uploadsDir = __DIR__ . '/../uploads';
+    if (!file_exists($uploadsDir)) @mkdir($uploadsDir, 0755, true);
+
+    $filename = $prefix . '_' . time() . '_' . bin2hex(random_bytes(6)) . '.' . $ext;
+    $uploadPath = $uploadsDir . '/' . $filename;
+
+    if (copy($sourcePath, $uploadPath)) {
+        return $filename;
+    }
+    return null;
+}
+
+// يشتق اسماً مقروءاً لمنتج من اسم ملف صورة، مثل "iphone_15-pro.jpg" -> "iphone 15 pro"
+function productNameFromFilename($filename) {
+    $name = pathinfo($filename, PATHINFO_FILENAME);
+    $name = str_replace(['_', '-'], ' ', $name);
+    $name = preg_replace('/\s+/', ' ', $name);
+    return trim($name);
+}
+
 function deleteOldImage($filename) {
     if (empty($filename)) return;
     // لا تحذف الروابط الخارجية أو البيانات المضمنة

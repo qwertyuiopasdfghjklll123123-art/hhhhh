@@ -32,10 +32,14 @@ if (is_dir($legacyImportsDir)) {
 }
 $hasLegacySqlite = $legacySqlitePath !== null;
 
+require_once __DIR__ . '/includes/import.php';
+$legacyImageFolders = find_legacy_image_folders($legacyImportsDir);
+
 $errors = [];
 $success = false;
 $summary = null;
 $sqliteSummary = null;
+$imageFolderSummaries = [];
 
 $old = [
     'db_host' => $_POST['db_host'] ?? 'localhost',
@@ -48,6 +52,9 @@ $old = [
     'import_sqlite' => isset($_POST['import_sqlite']),
     'sqlite_category' => $_POST['sqlite_category'] ?? 'منتجات مستوردة',
     'sqlite_company' => $_POST['sqlite_company'] ?? 'عام',
+    'import_image_folders' => $_POST['import_image_folders'] ?? [],
+    'image_folder_category' => $_POST['image_folder_category'] ?? [],
+    'image_folder_company' => $_POST['image_folder_company'] ?? [],
 ];
 
 function runSqlFile(PDO $pdo, string $path): void {
@@ -76,6 +83,10 @@ if (!$alreadyInstalled && $_SERVER['REQUEST_METHOD'] === 'POST') {
     $importSqlite = isset($_POST['import_sqlite']) && $hasLegacySqlite;
     $sqliteCategory = trim($_POST['sqlite_category'] ?? '') ?: 'منتجات مستوردة';
     $sqliteCompany = trim($_POST['sqlite_company'] ?? '') ?: 'عام';
+    $selectedImageFolders = array_intersect(
+        (array)($_POST['import_image_folders'] ?? []),
+        array_column($legacyImageFolders, 'name')
+    );
 
     if ($dbHost === '' || $dbName === '' || $dbUser === '') {
         $errors[] = 'يرجى تعبئة بيانات الاتصال بقاعدة البيانات (المضيف، اسم القاعدة، المستخدم).';
@@ -125,6 +136,13 @@ if (!$alreadyInstalled && $_SERVER['REQUEST_METHOD'] === 'POST') {
 
             if ($importSqlite && $legacySqlitePath) {
                 $sqliteSummary = import_flat_products_sqlite($pdo, $legacySqlitePath, $sqliteCategory, $sqliteCompany);
+            }
+
+            foreach ($legacyImageFolders as $folder) {
+                if (!in_array($folder['name'], $selectedImageFolders, true)) continue;
+                $catName = trim($_POST['image_folder_category'][$folder['name']] ?? '') ?: $folder['name'];
+                $compName = trim($_POST['image_folder_company'][$folder['name']] ?? '') ?: $folder['name'];
+                $imageFolderSummaries[$folder['name']] = import_images_as_products($pdo, $folder['path'], $catName, $compName);
             }
 
             $existingAdmin = db_get_user_by_email($pdo, $adminEmail);
@@ -221,6 +239,13 @@ if (!$alreadyInstalled && $_SERVER['REQUEST_METHOD'] === 'POST') {
                         تم استيراد <?php echo (int)$sqliteSummary['products']; ?> منتج من قاعدة البيانات الإضافية.<br>
                     <?php endif; ?>
                 <?php endif; ?>
+                <?php foreach ($imageFolderSummaries as $folderName => $s): ?>
+                    <?php if ($s['error']): ?>
+                        ⚠️ لم يتم استيراد مجلد الصور "<?php echo htmlspecialchars($folderName, ENT_QUOTES, 'UTF-8'); ?>": <?php echo htmlspecialchars($s['error'], ENT_QUOTES, 'UTF-8'); ?><br>
+                    <?php else: ?>
+                        تم استيراد <?php echo (int)$s['products']; ?> منتج (صورة) من مجلد "<?php echo htmlspecialchars($folderName, ENT_QUOTES, 'UTF-8'); ?>".<br>
+                    <?php endif; ?>
+                <?php endforeach; ?>
                 يمكنك الآن تسجيل الدخول بحساب المدير الذي أدخلته.
             </div>
             <div class="alert alert-error" style="background:rgba(239,68,68,0.12);">
@@ -245,6 +270,11 @@ if (!$alreadyInstalled && $_SERVER['REQUEST_METHOD'] === 'POST') {
                 🗄️ تم العثور على قاعدة بيانات إضافية (<code><?php echo htmlspecialchars(basename($legacySqlitePath), ENT_QUOTES, 'UTF-8'); ?></code>). يمكنك استيراد منتجاتها أدناه.
             </div>
         <?php endif; ?>
+        <?php foreach ($legacyImageFolders as $folder): ?>
+            <div class="alert alert-info">
+                🖼️ تم العثور على مجلد صور (<code><?php echo htmlspecialchars($folder['name'], ENT_QUOTES, 'UTF-8'); ?></code>). يمكنك استيراد صوره كمنتجات أدناه.
+            </div>
+        <?php endforeach; ?>
 
         <form method="post">
             <input type="hidden" name="install_token" value="<?php echo htmlspecialchars($_SESSION['install_token'], ENT_QUOTES, 'UTF-8'); ?>">
@@ -300,8 +330,29 @@ if (!$alreadyInstalled && $_SERVER['REQUEST_METHOD'] === 'POST') {
             </div>
             <?php endif; ?>
 
+            <?php foreach ($legacyImageFolders as $folder): $fname = $folder['name']; ?>
             <div class="card">
-                <h2><?php echo 2 + ($hasLegacyData ? 1 : 0) + ($hasLegacySqlite ? 1 : 0); ?>) حساب المدير</h2>
+                <h2>استيراد مجلد الصور "<?php echo htmlspecialchars($fname, ENT_QUOTES, 'UTF-8'); ?>"</h2>
+                <p class="sub" style="font-size:0.8rem;">كل صورة داخل هذا المجلد ستصبح منتجاً مستقلاً، واسم الملف يصبح اسم المنتج.</p>
+                <div class="checkbox-row">
+                    <input type="checkbox" id="folder_<?php echo htmlspecialchars($fname, ENT_QUOTES, 'UTF-8'); ?>" name="import_image_folders[]" value="<?php echo htmlspecialchars($fname, ENT_QUOTES, 'UTF-8'); ?>" <?php echo in_array($fname, $old['import_image_folders'], true) ? 'checked' : ''; ?>>
+                    <label for="folder_<?php echo htmlspecialchars($fname, ENT_QUOTES, 'UTF-8'); ?>" style="margin:0;">استيراد صور هذا المجلد كمنتجات</label>
+                </div>
+                <div class="row" style="margin-top:12px;">
+                    <div>
+                        <label>اسم الفئة الجديدة</label>
+                        <input type="text" name="image_folder_category[<?php echo htmlspecialchars($fname, ENT_QUOTES, 'UTF-8'); ?>]" value="<?php echo htmlspecialchars($old['image_folder_category'][$fname] ?? $fname, ENT_QUOTES, 'UTF-8'); ?>">
+                    </div>
+                    <div>
+                        <label>اسم الشركة الجديدة</label>
+                        <input type="text" name="image_folder_company[<?php echo htmlspecialchars($fname, ENT_QUOTES, 'UTF-8'); ?>]" value="<?php echo htmlspecialchars($old['image_folder_company'][$fname] ?? $fname, ENT_QUOTES, 'UTF-8'); ?>">
+                    </div>
+                </div>
+            </div>
+            <?php endforeach; ?>
+
+            <div class="card">
+                <h2><?php echo 2 + ($hasLegacyData ? 1 : 0) + ($hasLegacySqlite ? 1 : 0) + count($legacyImageFolders); ?>) حساب المدير</h2>
                 <p class="sub" style="font-size:0.8rem;">إذا كان هذا البريد موجوداً ضمن البيانات المستوردة فسيتم ترقيته لصلاحية مدير فقط دون تغيير كلمة مروره الحالية.</p>
                 <label>الاسم الكامل</label>
                 <input type="text" name="admin_fullname" value="<?php echo htmlspecialchars($old['admin_fullname'], ENT_QUOTES, 'UTF-8'); ?>" required>

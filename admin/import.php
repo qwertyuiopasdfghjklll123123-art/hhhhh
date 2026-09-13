@@ -21,6 +21,49 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 admin_flash('success', "تم الاستيراد: {$summary['users']} مستخدم، {$summary['categories']} فئة.");
             }
         }
+    } elseif ($action === 'import_images_upload') {
+        $categoryName = trim($_POST['images_category'] ?? '') ?: 'منتجات مستوردة';
+        $companyName = trim($_POST['images_company'] ?? '') ?: 'عام';
+
+        $names = $_FILES['images']['name'] ?? [];
+        $tmpNames = $_FILES['images']['tmp_name'] ?? [];
+        $errorsArr = $_FILES['images']['error'] ?? [];
+
+        $files = [];
+        foreach ($names as $i => $originalName) {
+            if (($errorsArr[$i] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK) continue;
+            if (!is_uploaded_file($tmpNames[$i])) continue;
+            $files[$originalName] = $tmpNames[$i];
+        }
+
+        if (empty($files)) {
+            admin_flash('error', 'يرجى اختيار صورة واحدة على الأقل.');
+        } else {
+            $summary = import_images_as_products($pdo, '', $categoryName, $companyName, $files);
+            if ($summary['error']) {
+                admin_flash('error', $summary['error']);
+            } else {
+                admin_flash('success', "تم استيراد {$summary['products']} منتج (صورة) ضمن فئة \"$categoryName\" / شركة \"$companyName\".");
+            }
+        }
+    } elseif ($action === 'import_images_folder') {
+        $folderName = basename($_POST['folder_name'] ?? '');
+        $categoryName = trim($_POST['images_category'] ?? '') ?: $folderName;
+        $companyName = trim($_POST['images_company'] ?? '') ?: $folderName;
+        $legacyImportsDir = __DIR__ . '/../logs/legacy-imports';
+        $folderPath = $legacyImportsDir . '/' . $folderName;
+
+        $validFolders = array_column(find_legacy_image_folders($legacyImportsDir), 'name');
+        if (!in_array($folderName, $validFolders, true)) {
+            admin_flash('error', 'المجلد غير موجود.');
+        } else {
+            $summary = import_images_as_products($pdo, $folderPath, $categoryName, $companyName);
+            if ($summary['error']) {
+                admin_flash('error', $summary['error']);
+            } else {
+                admin_flash('success', "تم استيراد {$summary['products']} منتج (صورة) من مجلد \"$folderName\".");
+            }
+        }
     } elseif ($action === 'import_sqlite') {
         $file = $_FILES['sqlite_file'] ?? null;
         $categoryName = trim($_POST['sqlite_category'] ?? '') ?: 'منتجات مستوردة';
@@ -44,8 +87,62 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 }
 
 require_once __DIR__ . '/includes/layout.php';
+$legacyImportsDir = __DIR__ . '/../logs/legacy-imports';
+$imageFolders = find_legacy_image_folders($legacyImportsDir);
+
 admin_header('استيراد بيانات', 'import.php', 'استيراد بيانات من نسخة سابقة من التطبيق أو من نظام آخر');
 ?>
+
+<?php foreach ($imageFolders as $folder): ?>
+<div class="card">
+    <h2><i class="fas fa-images"></i> مجلد صور تم اكتشافه: "<?php echo e($folder['name']); ?>"</h2>
+    <p class="field-hint" style="margin-bottom:14px;">
+        كل صورة داخل هذا المجلد (<code><?php echo e('logs/legacy-imports/' . $folder['name']); ?></code>) ستصبح منتجاً مستقلاً،
+        واسم الملف يصبح اسم المنتج.
+    </p>
+    <form method="post">
+        <?php echo admin_csrf_field(); ?>
+        <input type="hidden" name="form_action" value="import_images_folder">
+        <input type="hidden" name="folder_name" value="<?php echo e($folder['name']); ?>">
+        <div class="form-row">
+            <div>
+                <label>اسم الفئة الجديدة</label>
+                <input type="text" name="images_category" value="<?php echo e($folder['name']); ?>">
+            </div>
+            <div>
+                <label>اسم الشركة الجديدة</label>
+                <input type="text" name="images_company" value="<?php echo e($folder['name']); ?>">
+            </div>
+        </div>
+        <button type="submit" class="btn btn-primary" style="margin-top:16px;"><i class="fas fa-file-import"></i> استيراد صور هذا المجلد</button>
+    </form>
+</div>
+<?php endforeach; ?>
+
+<div class="card">
+    <h2><i class="fas fa-images"></i> استيراد صور كمنتجات (رفع مباشر)</h2>
+    <p class="field-hint" style="margin-bottom:14px;">
+        اختر عدة صور دفعة واحدة؛ كل صورة تصبح منتجاً مستقلاً واسم الملف (بدون الامتداد) يصبح اسم المنتج.
+        مفيد عندما يكون لديك فقط صور بأسماء تدل على المنتجات، بلا قاعدة بيانات مرافقة.
+    </p>
+    <form method="post" enctype="multipart/form-data">
+        <?php echo admin_csrf_field(); ?>
+        <input type="hidden" name="form_action" value="import_images_upload">
+        <label>الصور</label>
+        <input type="file" name="images[]" accept="image/*" multiple required>
+        <div class="form-row">
+            <div>
+                <label>اسم الفئة الجديدة</label>
+                <input type="text" name="images_category" value="منتجات مستوردة">
+            </div>
+            <div>
+                <label>اسم الشركة الجديدة</label>
+                <input type="text" name="images_company" value="عام">
+            </div>
+        </div>
+        <button type="submit" class="btn btn-primary" style="margin-top:16px;"><i class="fas fa-file-import"></i> استيراد الصور</button>
+    </form>
+</div>
 
 <div class="card">
     <h2><i class="fas fa-file-code"></i> استيراد من نسخة Almulla القديمة (database.json)</h2>

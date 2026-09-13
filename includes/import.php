@@ -159,3 +159,84 @@ function import_flat_products_sqlite(PDO $pdo, string $sqliteFilePath, string $t
 
     return $summary;
 }
+
+// استيراد مجلد صور كمنتجات: كل صورة تصبح منتجاً منفصلاً، واسم الملف (بدون الامتداد)
+// يصبح اسم المنتج. تُستخدم لمجلدات مثل logs/legacy-imports/ali/ التي تحتوي صوراً فقط
+// بلا قاعدة بيانات مرافقة. $files اختياري: مصفوفة [اسم الملف => المسار الكامل]؛ إن تُرك
+// فارغاً يُقرأ المجلد مباشرة من القرص (لحالة install.php).
+function import_images_as_products(PDO $pdo, string $folderPath, string $categoryName, string $companyName, ?array $files = null): array {
+    $summary = ['products' => 0, 'skipped' => 0, 'error' => null];
+
+    if ($files === null) {
+        if (!is_dir($folderPath)) {
+            $summary['error'] = 'المجلد غير موجود.';
+            return $summary;
+        }
+        $files = [];
+        foreach (scandir($folderPath) as $entry) {
+            $fullPath = $folderPath . '/' . $entry;
+            if (is_file($fullPath)) {
+                $files[$entry] = $fullPath;
+            }
+        }
+    }
+
+    if (empty($files)) {
+        $summary['error'] = 'لا توجد ملفات داخل المجلد.';
+        return $summary;
+    }
+
+    $categoryName = $categoryName !== '' ? $categoryName : 'منتجات مستوردة';
+    $companyName = $companyName !== '' ? $companyName : 'عام';
+
+    $pdo->beginTransaction();
+    try {
+        $categoryId = db_create_category($pdo, $categoryName, null);
+        $companyId = db_create_company($pdo, $categoryId, $companyName, null);
+
+        foreach ($files as $originalName => $path) {
+            $savedFilename = handleLocalImageFile($path, 'prod');
+            if (!$savedFilename) {
+                $summary['skipped']++;
+                continue;
+            }
+
+            $name = productNameFromFilename($originalName);
+            if ($name === '') $name = 'منتج بلا اسم';
+
+            db_create_product($pdo, $companyId, [
+                'name' => $name,
+                'available' => true,
+            ], $savedFilename);
+
+            $summary['products']++;
+        }
+
+        if ($summary['products'] === 0) {
+            $pdo->rollBack();
+            $summary['error'] = 'لم يتم التعرف على أي صورة صالحة داخل الملفات المحددة.';
+            return $summary;
+        }
+
+        $pdo->commit();
+    } catch (Throwable $e) {
+        $pdo->rollBack();
+        $summary['error'] = 'حدث خطأ أثناء الاستيراد: ' . $e->getMessage();
+    }
+
+    return $summary;
+}
+
+// يبحث عن مجلدات صور جاهزة للاستيراد داخل logs/legacy-imports (كل مجلد فرعي يُعتبر مرشحاً)
+function find_legacy_image_folders(string $legacyImportsDir): array {
+    $found = [];
+    if (!is_dir($legacyImportsDir)) return $found;
+    foreach (scandir($legacyImportsDir) as $entry) {
+        if ($entry === '.' || $entry === '..') continue;
+        $fullPath = $legacyImportsDir . '/' . $entry;
+        if (is_dir($fullPath)) {
+            $found[] = ['name' => $entry, 'path' => $fullPath];
+        }
+    }
+    return $found;
+}
