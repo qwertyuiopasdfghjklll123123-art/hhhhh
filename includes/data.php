@@ -546,7 +546,7 @@ function db_sync_catalog(PDO $pdo, array $catalog): void {
                         notes = VALUES(notes), img = VALUES(img), available = VALUES(available),
                         deleted_card = VALUES(deleted_card), sort_order = VALUES(sort_order)
                 ')->execute([
-                    $svcId, $catId, (string)($svc['name'] ?? ''), $svc['color'] ?? null, $svc['notes'] ?? null,
+                    $svcId, $catId, (string)($svc['name'] ?? ''), $svc['color'] ?? null, $svc['notes'] ?? $svc['desc'] ?? null,
                     $img, $available ? 1 : 0, $svcDeletedCard, $svcOrder,
                 ]);
                 $svcOrder++;
