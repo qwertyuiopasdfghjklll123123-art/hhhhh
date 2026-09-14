@@ -1807,9 +1807,12 @@ function welcome_inner(): string {
       <svg class="w2-deco-tl" viewBox="0 0 130 90" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path d="M0 0 H105 C85 30, 45 60, 0 85 Z" fill="currentColor"/></svg>
       <img src="assets/auth-deco-welcome.png" alt="" class="w2-deco-bottom" aria-hidden="true">
       <div class="w2-body">
-        <div class="w2-skipbar"><a href="index.php?page=login" class="w2-skip">تخطي <i class="fas fa-arrow-left"></i></a></div>
+        <div class="w2-skipbar">
+          <button class="icon-btn" type="button" onclick="toggleTheme()" title="تبديل الوضع الليلي"><i class="fas fa-moon moon"></i><i class="fas fa-sun sun"></i></button>
+          <a href="index.php?page=login" class="w2-skip">تخطي <i class="fas fa-arrow-left"></i></a>
+        </div>
         <?= render_auth_brand2() ?>
-        <div class="w2-hero-slot"><?= render_auth_hero(false) ?></div>
+        <div class="w2-hero-slot"><img src="assets/auth-hero-welcome.png" alt="" class="w2-hero-img w2-hero-welcome"></div>
         <h2 class="w2-title">تسوق من متاجرك المفضلة<br>واكتشف أفضل المتاجر</h2>
         <div class="w2-dots"><span class="active"></span><span></span><span></span></div>
         <div style="flex:1"></div>
@@ -1831,8 +1834,11 @@ function login_inner(): string {
       <svg class="w2-deco-tl" viewBox="0 0 150 120" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path d="M0 0 H115 C95 40, 55 75, 0 105 Z" fill="currentColor"/></svg>
       <img src="assets/auth-deco-login.png" alt="" class="w2-deco-bottom" aria-hidden="true">
       <div class="w2-body">
+        <div class="w2-topbar">
+          <button class="icon-btn" type="button" onclick="toggleTheme()" title="تبديل الوضع الليلي"><i class="fas fa-moon moon"></i><i class="fas fa-sun sun"></i></button>
+        </div>
         <?= render_auth_brand2() ?>
-        <div class="w2-hero-slot"><?= render_auth_hero(true) ?></div>
+        <div class="w2-hero-slot"><img src="assets/auth-hero-login.png" alt="" class="w2-hero-img w2-hero-login"></div>
         <h2 class="w2-login-title">مرحبًا بعودتك</h2>
         <div class="w2-yellow-bar"></div>
         <p class="w2-login-sub">سجل دخولك للمتابعة واستكشاف أحدث العروض</p>
@@ -1879,6 +1885,7 @@ function register_inner(): string {
 <div class="auth-page" style="justify-content:center">
   <div class="auth-blob auth-blob-tl"></div>
   <div class="auth-blob auth-blob-br"></div>
+  <button class="icon-btn" type="button" onclick="toggleTheme()" title="تبديل الوضع الليلي" style="position:absolute;top:16px;right:16px;z-index:5"><i class="fas fa-moon moon"></i><i class="fas fa-sun sun"></i></button>
   <?= render_auth_logo() ?>
   <?= render_auth_hero(true) ?>
   <h1 class="auth-heading an">إنشاء حساب جديد</h1>
