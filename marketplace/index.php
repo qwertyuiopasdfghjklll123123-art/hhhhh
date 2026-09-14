@@ -1698,8 +1698,8 @@ function full_document(string $title, string $inner): void {
 <link rel="apple-touch-icon" href="<?= h(site_logo_url() ?? 'assets/icon-192.png') ?>">
 <link rel="icon" href="<?= h(site_logo_url() ?? 'assets/icon-192.png') ?>">
 <link rel="preload" as="style" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" onload="this.onload=null;this.rel='stylesheet'">
-<link rel="preload" as="style" href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;500;600;700;800;900&family=Tajawal:wght@400;500;700;800&display=swap" onload="this.onload=null;this.rel='stylesheet'">
-<noscript><link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css"><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;500;600;700;800;900&family=Tajawal:wght@400;500;700;800&display=swap"></noscript>
+<link rel="preload" as="style" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@300;400;500;600;700;800;900&display=swap" onload="this.onload=null;this.rel='stylesheet'">
+<noscript><link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css"><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@300;400;500;600;700;800;900&display=swap"></noscript>
 <?php if (google_client_id() !== ''): ?><script src="https://accounts.google.com/gsi/client" async defer></script><?php endif; ?>
 <link rel="stylesheet" href="assets/style.css">
 </head>
@@ -1789,17 +1789,34 @@ function render_auth_logo(): string {
     <?php return ob_get_clean();
 }
 
+function render_auth_brand2(): string {
+    ob_start(); ?>
+    <div class="w2-brand an">
+        <img src="<?= h(site_logo_url() ?? 'assets/auth-bag-icon.png') ?>" alt="" class="w2-brand-logo">
+        <h1 class="w2-brand-name"><?= h(site_name()) ?></h1>
+        <div class="w2-brand-tagline"><span class="ln"></span><span>كل متاجرك في مكان واحد</span><span class="ln"></span></div>
+    </div>
+    <?php return ob_get_clean();
+}
+
 function welcome_inner(): string {
     ob_start(); ?>
-<div class="auth-page">
-  <div class="auth-blob auth-blob-tl"></div>
-  <div class="auth-blob auth-blob-br"></div>
-  <?= render_auth_hero(false) ?>
-  <h1 class="auth-heading an">تسوق من متاجرك المفضلة<br>واكتشف أفضل المتاجر</h1>
-  <p class="auth-heading-sub an">كل المتاجر والمنتجات بمكان واحد، بتجربة سلسة وسريعة</p>
-  <div class="auth-dots an"><span class="active"></span><span></span><span></span></div>
-  <div style="flex:1"></div>
-  <a href="index.php?page=login" class="btn an" style="max-width:360px;margin:0 auto;display:flex"><i class="fas fa-arrow-left"></i> ابدأ الآن</a>
+<div class="w2-outer">
+  <div class="w2-wrap">
+    <div class="w2-card an">
+      <svg class="w2-deco-tl" viewBox="0 0 130 90" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path d="M0 0 H105 C85 30, 45 60, 0 85 Z" fill="currentColor"/></svg>
+      <img src="assets/auth-deco-welcome.png" alt="" class="w2-deco-bottom" aria-hidden="true">
+      <div class="w2-body">
+        <div class="w2-skipbar"><a href="index.php?page=login" class="w2-skip">تخطي <i class="fas fa-arrow-left"></i></a></div>
+        <?= render_auth_brand2() ?>
+        <div class="w2-hero-slot"><?= render_auth_hero(false) ?></div>
+        <h2 class="w2-title">تسوق من متاجرك المفضلة<br>واكتشف أفضل المتاجر</h2>
+        <div class="w2-dots"><span class="active"></span><span></span><span></span></div>
+        <div style="flex:1"></div>
+        <div class="w2-cta"><a href="index.php?page=login" class="w2-btn-start"><i class="fas fa-arrow-left"></i> ابدأ الآن</a></div>
+      </div>
+    </div>
+  </div>
 </div>
     <?php return ob_get_clean();
 }
@@ -1808,25 +1825,46 @@ function login_inner(): string {
     $flashes = take_flashes();
     ob_start();
     ?>
-<div class="auth-page" style="justify-content:center">
-  <div class="auth-blob auth-blob-tl"></div>
-  <div class="auth-blob auth-blob-br"></div>
-  <?= render_auth_logo() ?>
-  <?= render_auth_hero(true) ?>
-  <h1 class="auth-heading an">مرحبًا بعودتك</h1>
-  <p class="auth-heading-sub an">سجل دخولك للمتابعة واستكشاف أحدث العروض</p>
-  <?php foreach ($flashes as $f): ?><div class="flash flash-<?= h($f['type']) ?> an" style="max-width:360px;width:100%;margin:0 auto 12px"><?= h($f['text']) ?></div><?php endforeach; ?>
-  <div class="login-card an" style="--ad:.1s;margin:0 auto">
-    <form method="post">
-      <input type="hidden" name="action" value="login">
-      <div class="field"><label>البريد الإلكتروني أو رقم الجوال</label><div class="input-icon-wrap"><input type="text" name="identifier" placeholder="البريد الإلكتروني أو رقم الجوال" required autofocus><i class="fas fa-envelope field-ic"></i></div></div>
-      <div class="field"><label>كلمة المرور</label><div class="input-icon-wrap"><input type="password" name="password" required><button type="button" class="pw-toggle"><i class="fas fa-eye-slash"></i></button></div></div>
-      <details><summary class="auth-forgot">نسيت كلمة المرور؟</summary><p class="auth-forgot-note">تواصل مع إدارة <?= h(site_name()) ?> لإعادة تعيين كلمة المرور.</p></details>
-      <button class="btn" type="submit"><i class="fas fa-arrow-left"></i> تسجيل الدخول</button>
-    </form>
-    <?= render_google_button() ?>
+<div class="w2-outer">
+  <div class="w2-wrap">
+    <div class="w2-card an">
+      <svg class="w2-deco-tl" viewBox="0 0 150 120" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path d="M0 0 H115 C95 40, 55 75, 0 105 Z" fill="currentColor"/></svg>
+      <img src="assets/auth-deco-login.png" alt="" class="w2-deco-bottom" aria-hidden="true">
+      <div class="w2-body">
+        <?= render_auth_brand2() ?>
+        <div class="w2-hero-slot"><?= render_auth_hero(true) ?></div>
+        <h2 class="w2-login-title">مرحبًا بعودتك</h2>
+        <div class="w2-yellow-bar"></div>
+        <p class="w2-login-sub">سجل دخولك للمتابعة واستكشاف أحدث العروض</p>
+        <?php foreach ($flashes as $f): ?><div class="flash flash-<?= h($f['type']) ?> an" style="width:100%;margin-bottom:12px"><?= h($f['text']) ?></div><?php endforeach; ?>
+        <form method="post" id="loginForm" class="w2-form" novalidate>
+          <input type="hidden" name="action" value="login">
+          <div class="w2-group" id="w2UserGroup">
+            <div class="w2-input-wrap">
+              <span class="w2-input-icon"><i class="fas fa-envelope"></i></span>
+              <input type="text" id="w2UserField" class="w2-input" name="identifier" placeholder="البريد الإلكتروني أو رقم الجوال" autofocus autocomplete="username">
+            </div>
+            <div class="w2-field-error" id="w2UserError"></div>
+          </div>
+          <div class="w2-group" id="w2PassGroup">
+            <div class="w2-input-wrap">
+              <span class="w2-input-icon"><i class="fas fa-lock"></i></span>
+              <input type="password" id="w2PassField" class="w2-input w2-input-pass" name="password" placeholder="كلمة المرور" autocomplete="current-password">
+              <button type="button" class="w2-toggle-pass pw-toggle"><i class="fas fa-eye-slash"></i></button>
+            </div>
+            <div class="w2-field-error" id="w2PassError"></div>
+          </div>
+          <button class="w2-btn-submit" type="submit" id="loginSubmitBtn">
+            <span class="w2-btn-label"><i class="fas fa-arrow-left"></i> تسجيل الدخول</span>
+            <span class="w2-btn-spinner"></span>
+          </button>
+          <details class="w2-forgot"><summary>نسيت كلمة المرور؟</summary><p class="w2-forgot-note">تواصل مع إدارة <?= h(site_name()) ?> لإعادة تعيين كلمة المرور.</p></details>
+          <?= render_google_button() ?>
+        </form>
+        <div class="w2-signup">ليس لديك حساب؟ <a href="index.php?page=register">إنشاء حساب جديد</a></div>
+      </div>
+    </div>
   </div>
-  <div class="login-admin-link an" style="--ad:.2s">ليس لديك حساب؟ <a href="index.php?page=register">إنشاء حساب جديد</a></div>
 </div>
     <?php
     return ob_get_clean();

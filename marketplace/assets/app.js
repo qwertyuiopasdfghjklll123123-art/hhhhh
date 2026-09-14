@@ -141,6 +141,10 @@ document.addEventListener('submit', function(e){
     openSheet('checkoutConfirmSheet');
     return;
   }
+  if (form.id === 'loginForm') {
+    if (!validateLoginForm(form)) return;
+    document.getElementById('loginSubmitBtn')?.classList.add('is-loading');
+  }
   if ((form.getAttribute('method') || 'get').toLowerCase() === 'get') {
     const qs = new URLSearchParams(new FormData(form)).toString();
     navigateTo((form.getAttribute('action') || 'index.php') + '?' + qs);
@@ -311,6 +315,32 @@ document.addEventListener('click', function(e){
   const showing = input.type === 'text';
   input.type = showing ? 'password' : 'text';
   btn.querySelector('i').className = 'fas ' + (showing ? 'fa-eye-slash' : 'fa-eye');
+});
+
+/* ===== تحقق فوري من حقلي صفحة الدخول الجديدة قبل الإرسال الفعلي ===== */
+function w2ShowFieldError(groupId, errorId, msg){
+  document.getElementById(groupId)?.classList.add('has-error');
+  const err = document.getElementById(errorId);
+  if (err) { err.textContent = msg; err.classList.add('active'); }
+}
+function w2ClearFieldError(groupId, errorId){
+  document.getElementById(groupId)?.classList.remove('has-error');
+  const err = document.getElementById(errorId);
+  if (err) { err.textContent = ''; err.classList.remove('active'); }
+}
+function validateLoginForm(form){
+  const userVal = (form.querySelector('#w2UserField')?.value || '').trim();
+  const passVal = (form.querySelector('#w2PassField')?.value || '').trim();
+  let ok = true;
+  if (!userVal) { w2ShowFieldError('w2UserGroup', 'w2UserError', 'يرجى إدخال البريد الإلكتروني أو رقم الجوال'); ok = false; }
+  else w2ClearFieldError('w2UserGroup', 'w2UserError');
+  if (!passVal) { w2ShowFieldError('w2PassGroup', 'w2PassError', 'يرجى إدخال كلمة المرور'); ok = false; }
+  else w2ClearFieldError('w2PassGroup', 'w2PassError');
+  return ok;
+}
+document.addEventListener('input', function(e){
+  if (e.target.id === 'w2UserField' && e.target.value.trim() !== '') w2ClearFieldError('w2UserGroup', 'w2UserError');
+  if (e.target.id === 'w2PassField' && e.target.value.trim() !== '') w2ClearFieldError('w2PassGroup', 'w2PassError');
 });
 
 function previewTheme(){
