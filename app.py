@@ -4324,6 +4324,14 @@ def api_ai_chat():
         cur = conn.execute('INSERT INTO ai_conversations(user_id, title, created_at, updated_at) VALUES(?,?,?,?)',
                             (uid, title, time.time(), time.time()))
         conversation_id = cur.lastrowid
+        # لتخفيف حجم قاعدة البيانات المخزّنة: نحتفظ فقط بآخر 15 محادثة لكل مستخدم
+        # ونحذف الأقدم مع كل رسائلها تلقائياً عند بدء محادثة جديدة
+        old_convs = conn.execute('SELECT id FROM ai_conversations WHERE user_id=? ORDER BY updated_at DESC LIMIT -1 OFFSET 15', (uid,)).fetchall()
+        if old_convs:
+            old_ids = [c['id'] for c in old_convs]
+            placeholders = ','.join('?' * len(old_ids))
+            conn.execute(f'DELETE FROM ai_messages WHERE conversation_id IN ({placeholders})', old_ids)
+            conn.execute(f'DELETE FROM ai_conversations WHERE id IN ({placeholders})', old_ids)
 
     conn.execute('INSERT INTO ai_messages(conversation_id, role, content, created_at) VALUES(?,?,?,?)',
                  (conversation_id, 'user', user_message, time.time()))
