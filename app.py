@@ -24,14 +24,6 @@ from datetime import timedelta, datetime
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from functools import wraps
-try:
-    from google.oauth2 import id_token
-    from google.auth.transport import requests as google_requests
-    HAS_GOOGLE = True
-except ImportError:
-    HAS_GOOGLE = False
-    print('[WARNING] google-auth not installed. Run: pip3 install google-auth --break-system-packages')
-
 app = Flask(__name__)
 app.secret_key = 'fc_s3cr3t_k3y_2026_fastcrand_permanent'
 app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(days=365)
@@ -2133,8 +2125,6 @@ def api_logout():
 
 @app.route('/api/google-login', methods=['POST'])
 def api_google_login():
-    if not HAS_GOOGLE:
-        return jsonify(ok=False, msg='Google auth not configured on server'), 500
     data = freq.get_json()
     credential = data.get('credential', '')
     if not credential:
@@ -2143,8 +2133,16 @@ def api_google_login():
         _gci = _get_google_client_id()
         if not _gci or _gci == 'YOUR_GOOGLE_CLIENT_ID.apps.googleusercontent.com':
             return jsonify(ok=False, msg='تسجيل Google غير مفعّل. تواصل مع الإدارة'), 400
-        idinfo = id_token.verify_oauth2_token(credential, google_requests.Request(), _gci)
-        email = idinfo.get('email', '').lower()
+        # verify the ID token via Google's tokeninfo endpoint (no google-auth
+        # package dependency — that optional lib was silently missing on
+        # deployment, which broke Google sign-in entirely).
+        gresp = requests.get('https://oauth2.googleapis.com/tokeninfo', params={'id_token': credential}, timeout=10)
+        if gresp.status_code != 200:
+            return jsonify(ok=False, msg='Google token invalid'), 401
+        idinfo = gresp.json()
+        if idinfo.get('aud') != _gci:
+            return jsonify(ok=False, msg='Google token invalid'), 401
+        email = (idinfo.get('email') or '').lower()
         name = idinfo.get('name', '')
         gid = idinfo.get('sub', '')
         picture = idinfo.get('picture', '')
@@ -2176,7 +2174,9 @@ def api_google_login():
             session['is_admin'] = False
             conn.close()
             return jsonify(ok=True, msg='تم إنشاء الحساب وتسجيل الدخول!', name=name)
-    except ValueError as e:
+    except requests.exceptions.RequestException:
+        return jsonify(ok=False, msg='تعذر التحقق من Google، حاول مرة أخرى'), 502
+    except (ValueError, KeyError):
         return jsonify(ok=False, msg='Google token invalid'), 401
 
 @app.route('/api/update-profile', methods=['POST'])
@@ -7378,13 +7378,13 @@ body{font-family:var(--font);background:var(--bg);color:var(--text);transition:b
 .noti-list::-webkit-scrollbar{width:3px}.noti-list::-webkit-scrollbar-thumb{background:var(--primary-glow);border-radius:10px}
 .noti-sec{font-size:9px;font-weight:700;color:var(--text3);padding:10px 8px 4px;display:flex;align-items:center;gap:8px}
 .noti-sec::before,.noti-sec::after{content:'';flex:1;height:1px;background:var(--card-border)}
-.noti-card{margin:2px 0;border-radius:14px;overflow:hidden;transition:all .12s;background:transparent;position:relative;cursor:pointer;animation:notiSlide .3s ease both}
+.noti-card{display:flex;align-items:center;gap:10px;padding:12px 8px;border-bottom:1px solid var(--card-border);transition:all .12s;background:transparent;position:relative;cursor:pointer;animation:notiSlide .3s ease both}
+.noti-card:last-child{border-bottom:none}
 .noti-card:hover{background:var(--primary-bg)}
 .noti-card.unread{background:var(--primary-bg)}
-.noti-card.unread::before{content:'';position:absolute;top:16px;right:8px;width:6px;height:6px;border-radius:50%;background:var(--primary);z-index:5}
+.noti-card.unread::before{content:'';position:absolute;top:16px;right:2px;width:6px;height:6px;border-radius:50%;background:var(--primary);z-index:5}
 .noti-card.removing{transform:translateX(100%);opacity:0;max-height:0;margin:0;padding:0;transition:all .15s}
 @keyframes notiSlide{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:translateY(0)}}
-.noti-card-inner{display:flex;align-items:flex-start;gap:10px;padding:10px 12px 4px}
 .noti-ic{width:36px;height:36px;border-radius:11px;display:flex;align-items:center;justify-content:center;font-size:14px;flex-shrink:0}
 .noti-ic.wallet{background:rgba(34,197,94,.1);color:#22c55e}
 .noti-ic.order{background:rgba(59,130,246,.1);color:#3b82f6}
@@ -7497,6 +7497,10 @@ html:not([data-theme="dark"]) .ai-cs-card::after{background:linear-gradient(105d
 .ai-cs-info{flex:1}.ai-cs-title{font-size:12px;font-weight:800;display:flex;align-items:center;gap:4px}.ai-cs-title i{color:var(--primary);font-size:9px}
 .ai-cs-tags{display:flex;gap:4px;margin-top:4px}.ai-cs-tag{padding:2px 7px;border-radius:5px;font-size:9px;font-weight:700;background:var(--primary-bg);color:var(--primary)}
 .ai-cs-arrow{color:var(--text3);font-size:10px;flex-shrink:0}
+.cs-rot-dots{display:flex;gap:3px;flex-shrink:0;margin:0 2px}
+.cs-rot-dot{width:5px;height:5px;border-radius:50%;background:var(--card-border);transition:all .25s}
+.cs-rot-dot.on{background:var(--primary);width:14px;border-radius:3px}
+.cs-rot-slide{animation:rvSlideIn .5s ease}
 .ai-note{padding:10px 16px;display:flex;align-items:center;gap:8px;background:var(--note-bg);font-size:10px;font-weight:600;color:var(--note-text);border-bottom:1px solid rgba(191,219,254,.15)}
 [data-theme="dark"] .ai-note{border-bottom-color:rgba(99,102,241,.1)}
 .ai-note i{font-size:11px;flex-shrink:0;opacity:.7}
@@ -7682,6 +7686,14 @@ html:not([data-theme="dark"]) .ai-cs-card::after{background:linear-gradient(105d
 @media(max-width:899px){.acc-left{display:none!important}.acc-desktop{display:block}}
 /* ACCOUNT PAGE */
 .acc-card{background:var(--card);border:1px solid var(--card-border);border-radius:14px;overflow:hidden}
+.curr-card-vps{display:flex;align-items:center;gap:12px;background:var(--card);border:1px solid var(--card-border);border-radius:16px;padding:16px;margin-bottom:10px;cursor:pointer;transition:all .2s}
+.curr-card-vps:hover{border-color:var(--primary)}
+.curr-card-vps-ic{width:44px;height:44px;border-radius:50%;flex-shrink:0;background:var(--primary-bg);color:var(--primary);display:flex;align-items:center;justify-content:center;font-size:18px}
+.curr-card-vps-text{flex:1;min-width:0}
+.curr-card-vps-title{font-weight:800;font-size:14px;color:var(--text);margin-bottom:2px}
+.curr-card-vps-sub{font-size:11px;color:var(--text3);line-height:1.5}
+.curr-card-vps-value{font-size:12px;font-weight:800;color:var(--primary);margin-top:3px}
+.curr-card-vps-chev{color:var(--text3);font-size:13px;flex-shrink:0}
 .acc-user{display:flex;align-items:center;gap:12px;padding:16px;position:relative;overflow:hidden}
 .acc-user::before{content:'';position:absolute;top:-20px;left:-20px;width:100px;height:100px;border-radius:50%;background:var(--primary);opacity:.06;filter:blur(30px)}
 .acc-avatar{width:46px;height:46px;border-radius:12px;background:linear-gradient(135deg,var(--primary),var(--primary-light));display:flex;align-items:center;justify-content:center;color:#fff;font-size:17px;font-weight:800;flex-shrink:0}
@@ -7963,6 +7975,9 @@ html:not([data-theme="dark"]) .rch-bal{background:linear-gradient(135deg,#eef0ff
 .rch-amt-sign{position:absolute;left:14px;top:50%;transform:translateY(-50%);font-family:var(--font-num);font-size:15px;font-weight:800;color:var(--primary)}
 .rch-quick{display:flex;gap:5px;flex-wrap:wrap}
 .rq{padding:6px 14px;border-radius:7px;border:1.5px solid var(--input-border);background:var(--input-bg);color:var(--text2);font-family:var(--font-num);font-size:11px;font-weight:700;cursor:pointer;transition:all .15s}
+.rch-ac-grid{display:grid;grid-template-columns:repeat(5,1fr);gap:6px}
+.rch-ac-grid .rq{padding:10px 4px;text-align:center;min-width:0}
+@media(max-width:380px){.rch-ac-grid{grid-template-columns:repeat(3,1fr)}}
 .rq:hover,.rq.sel{border-color:var(--primary);color:var(--primary);background:var(--primary-bg)}
 .rch-strips{display:flex;flex-direction:column}
 .rch-strip-wrap{border-radius:14px;border:1.5px solid var(--card-border);overflow:hidden;transition:all .3s;background:var(--card)}
@@ -9170,11 +9185,11 @@ html:not([data-theme="dark"]) .rv-star-btn{color:rgba(0,0,0,.1)}
 <body>
 <script>(function(){history.replaceState({p:1},'','/app');history.pushState({p:2},'','/app');window.addEventListener('popstate',function(e){history.pushState({p:2},'','/app')});document.addEventListener('visibilitychange',function(){if(!document.hidden)history.pushState({p:2},'','/app')})})()</script>
 <div class="topbar">
-  <div class="bell-btn" id="bellBtn" onclick="openNotifPage()"><i class="fa-solid fa-bell"></i><div class="bell-badge" id="bellBadge" style="display:none">0</div></div>
   <div class="brand-wrap">
     <button class="mob-menu-btn admin-only" id="mobMenuBtn" onclick="toggleMobDrawer()"><i class="fa-solid fa-bars" id="mobMenuIcon"></i></button>
     <div class="brand-info"><div class="brand-name" id="brandNameDisplay">__SITE_NAME__</div></div>
   </div>
+  <div class="bell-btn" id="bellBtn" onclick="openNotifPage()"><i class="fa-solid fa-bell"></i><div class="bell-badge" id="bellBadge" style="display:none">0</div></div>
 </div>
 <div class="mob-drawer-bg" id="mobDrawerBg" onclick="toggleMobDrawer()"></div>
 <div class="mob-drawer" id="mobDrawer">
@@ -9318,14 +9333,6 @@ html:not([data-theme="dark"]) .rv-star-btn{color:rgba(0,0,0,.1)}
         <div class="rv-title"><i class="fa-solid fa-star"></i> آراء العملاء</div>
         <button class="rv-write-btn" onclick="openReviewModal()"><i class="fa-solid fa-pen"></i> أكتب تقييم</button>
       </div>
-      <div class="rv-summary">
-        <div class="rv-big">
-          <div class="rv-big-num" id="rvAvg">0</div>
-          <div class="rv-big-stars" id="rvAvgStars"></div>
-          <div class="rv-big-total" id="rvTotal">0 تقييم</div>
-        </div>
-        <div class="rv-bars" id="rvBars"></div>
-      </div>
       <div class="rv-grid" id="rvGrid"></div>
     </div>
     <div id="refSection" class="nonadmin-only" style="display:none;margin-top:12px">
@@ -9421,13 +9428,16 @@ html:not([data-theme="dark"]) .rv-star-btn{color:rgba(0,0,0,.1)}
     </div>
 
     <div class="sec-sep nonadmin-only">الإعدادات العامة</div>
-    <div class="acc-card nonadmin-only">
-      <div class="acc-item" id="currBtn" style="cursor:pointer">
-        <div class="mi-ic" style="background:rgba(16,185,129,.1);color:#10b981"><i class="fa-solid fa-dollar-sign" id="currIcon"></i></div>
-        <div class="mi-info"><div class="mi-title">العملة المعروضة</div><div class="mi-desc">تُطبَّق على كل الأسعار المعروضة لك</div></div>
-        <span id="currBtnVal" style="font-size:11px;font-weight:800;color:var(--primary);margin-left:2px">USD</span>
-        <span class="arr"><i class="fa-solid fa-chevron-left"></i></span>
+    <div class="curr-card-vps nonadmin-only" id="currBtn">
+      <div class="curr-card-vps-ic"><i class="fa-solid fa-coins" id="currIcon"></i></div>
+      <div class="curr-card-vps-text">
+        <div class="curr-card-vps-title">عملة عرض الأسعار</div>
+        <div class="curr-card-vps-sub">تُطبَّق على كل الأسعار المعروضة لك في التطبيق والموقع</div>
+        <div class="curr-card-vps-value" id="currBtnVal">USD</div>
       </div>
+      <i class="fa-solid fa-chevron-left curr-card-vps-chev"></i>
+    </div>
+    <div class="acc-card nonadmin-only">
       <div class="acc-item" id="btnTheme" style="cursor:pointer">
         <div class="mi-ic" style="background:rgba(245,158,11,.1);color:#f59e0b"><i class="fa-solid fa-moon"></i></div>
         <div class="mi-info"><div class="mi-title">المظهر الداكن</div><div class="mi-desc">الوضع الليلي للتطبيق</div></div>
@@ -11205,7 +11215,8 @@ print(r.json())</pre>
         var wrap=document.createElement('a');wrap.className='acc-item';wrap.href='#';
         var icHtml=m.image?'<img src="/api/pm-image/'+m.image+'" alt="'+m.name+'" style="width:100%;height:100%;object-fit:cover;border-radius:inherit" onerror="this.outerHTML=\'<i class=&quot;'+(m.icon||'fa-solid fa-credit-card')+'&quot;></i>\'">':'<i class="'+(m.icon||'fa-solid fa-credit-card')+'"></i>';
         var isAuto=(m.method_type==='binance'||m.method_type==='asiacell');
-        wrap.innerHTML='<div class="mi-ic blue">'+icHtml+'</div><div class="mi-info"><div class="mi-title">'+m.name+'</div><div class="mi-desc">'+(isAuto?'تحقق تلقائي فوري':'تحويل يدوي')+'</div></div><span class="arr"><i class="fa-solid fa-chevron-left"></i></span>';
+        var badgeHtml=isAuto?'<span style="display:inline-block;margin-right:5px;padding:1px 7px;border-radius:5px;background:rgba(234,179,8,.15);color:#eab308;font-size:9px;font-weight:800;vertical-align:middle">فوري</span>':'';
+        wrap.innerHTML='<div class="mi-ic blue">'+icHtml+'</div><div class="mi-info"><div class="mi-title">'+m.name+badgeHtml+'</div><div class="mi-desc">'+(isAuto?'تحقق تلقائي فوري':'تحويل يدوي')+'</div></div><span class="arr"><i class="fa-solid fa-chevron-left"></i></span>';
         wrap.addEventListener('click',function(e){e.preventDefault();openRchPayPage(i)});
         strips.appendChild(wrap);
       });
@@ -11246,44 +11257,46 @@ print(r.json())</pre>
   };
 
   // ==== صفحة الدفع اليدوي (رقم تحويل + تعليمات + إرفاق إيصال) ====
+  function _rchManualRate(m){
+    var rateText=(m.exchange_rate||'');
+    var rateMatches=rateText.match(/[\d,]+\.?\d*/g);
+    var rateNum=1;
+    if(rateMatches&&rateMatches.length>0){rateNum=parseFloat(rateMatches[rateMatches.length-1].replace(/,/g,''))||1}
+    return rateNum;
+  }
   function rchManualPageHtml(m){
     var showUpload=!m.bot_link;
-    return '<div class="rch-card"><div class="field-label"><i class="fa-solid fa-dollar-sign"></i> المبلغ المطلوب</div>'+
-    '<div class="rch-amt-wrap"><input type="number" class="rch-amt-input" placeholder="أدخل المبلغ" id="rchAmount" value="10"><span class="rch-amt-sign">$</span></div>'+
-    '<div class="rch-quick" id="rchQuick"><div class="rq sel" data-v="5">$5</div><div class="rq" data-v="10">$10</div><div class="rq" data-v="25">$25</div><div class="rq" data-v="50">$50</div><div class="rq" data-v="100">$100</div></div></div>'+
+    return '<div class="rch-card"><div class="field-label"><i class="fa-solid fa-money-bill-wave"></i> المبلغ المطلوب (دينار عراقي)</div>'+
+    '<div class="rch-amt-wrap"><input type="number" class="rch-amt-input" placeholder="أدخل المبلغ بالدينار" id="rchAmount" value="10000"><span class="rch-amt-sign">د.ع</span></div>'+
+    '<div class="rch-quick" id="rchQuick"><div class="rq" data-v="1000">1,000</div><div class="rq" data-v="5000">5,000</div><div class="rq sel" data-v="10000">10,000</div><div class="rq" data-v="25000">25,000</div><div class="rq" data-v="50000">50,000</div><div class="rq" data-v="100000">100,000</div></div></div>'+
     '<div class="rch-card" id="rchManualDetail"></div>'+
     (showUpload?(
     '<div class="rch-card" id="rchUploadCard"><div class="field-label"><i class="fa-solid fa-camera"></i> إرفاق صورة الوصل</div>'+
     '<div class="rch-upload" id="rchUploadArea"><input type="file" accept="image/*" id="rchFileInput"><div class="rch-upload-ic" id="rchUploadIc"><i class="fa-solid fa-cloud-arrow-up"></i></div><div class="rch-upload-txt" id="rchUploadTxt">اضغط هنا أو اسحب الصورة</div><div class="rch-upload-sub" id="rchUploadSub">PNG, JPG — حد أقصى 5MB</div></div>'+
     '<div class="rch-preview" id="rchPreview"><img id="rchPreviewImg" src="" alt=""><button class="rch-preview-rm" id="rchRemoveBtn"><i class="fa-solid fa-xmark"></i></button></div></div>'+
-    '<button class="rch-submit" id="btnRchSubmit"><i class="fa-solid fa-paper-plane"></i> إرسال طلب الشحن — $10.00</button>'
+    '<button class="rch-submit" id="btnRchSubmit"><i class="fa-solid fa-paper-plane"></i> إرسال طلب الشحن — 10,000 د.ع</button>'
     ):'');
   }
   function renderManualDetail(m){
-    var amt=parseFloat(document.getElementById('rchAmount').value)||0;
-    var rateText=(m.exchange_rate||'');
-    var rateMatches=rateText.match(/[\d,]+\.?\d*/g);
-    var rateNum=1;
-    if(rateMatches&&rateMatches.length>0){rateNum=parseFloat(rateMatches[rateMatches.length-1].replace(/,/g,''))||1}
-    var rawConverted=amt*rateNum;
-    var converted=(m.currency==='USDT'||m.currency==='USD')?(amt.toFixed(2)+' '+(m.currency||'USD')):(Number.isInteger(rawConverted)?rawConverted.toLocaleString('en-US'):rawConverted.toLocaleString('en-US',{maximumFractionDigits:2}))+' '+(m.currency||'');
-    var usdLine='<div class="rch-det-row" style="margin-top:2px"><span class="rch-det-lbl"><i class="fa-solid fa-dollar-sign"></i> ما يعادل</span><span class="rch-det-val">$'+amt.toFixed(2)+'</span></div>';
+    var amtIqd=parseFloat(document.getElementById('rchAmount').value)||0;
+    var rateNum=_rchManualRate(m);
+    var usdEquiv=rateNum>0?(amtIqd/rateNum):0;
+    var amtIqdTxt=amtIqd.toLocaleString('en-US')+' د.ع';
+    var usdLine='<div class="rch-det-row" style="margin-top:2px"><span class="rch-det-lbl"><i class="fa-solid fa-dollar-sign"></i> ما يعادل</span><span class="rch-det-val">$'+usdEquiv.toFixed(2)+'</span></div>';
     var detBody='';
     if(m.bot_link){
-      detBody='<div class="rch-bot-msg"><div class="rch-bot-ic"><i class="fa-brands fa-telegram"></i></div><div class="rch-bot-title">الشحن عبر بوت تيليجرام</div><div class="rch-bot-text">لشحن رصيدك في الموقع عبر '+m.name+'، اتبع الخطوات التالية:</div><div class="rch-bot-steps"><div class="rch-bot-step"><div class="rch-bot-step-n">1</div><div class="rch-bot-step-t">اضغط على زر <b>فتح البوت</b> أدناه</div></div><div class="rch-bot-step"><div class="rch-bot-step-n">2</div><div class="rch-bot-step-t">اتبع التعليمات داخل البوت <b>لإتمام عملية الشحن</b></div></div><div class="rch-bot-step"><div class="rch-bot-step-n">3</div><div class="rch-bot-step-t">بعد الشحن، أرسل <b>اسم مستخدمك بالموقع</b> للبوت ليتم إضافة الرصيد</div></div></div><a href="'+m.bot_link+'" target="_blank" class="btn-open-bot"><i class="fa-brands fa-telegram"></i> فتح البوت</a></div>';
-      if(m.exchange_rate) detBody+='<div class="rch-det-convert"><span class="rch-det-convert-lbl">سعر الصرف</span><span class="rch-det-convert-val">'+m.exchange_rate+' '+m.currency+'</span></div>';
+      detBody='<div class="rch-bot-msg"><div class="rch-bot-ic"><i class="fa-brands fa-telegram"></i></div><div class="rch-bot-title">الشحن عبر بوت تيليجرام</div><div class="rch-bot-text">لشحن رصيدك في الموقع عبر '+m.name+'، اتبع الخطوات التالية:</div><div class="rch-bot-steps"><div class="rch-bot-step"><div class="rch-bot-step-n">1</div><div class="rch-bot-step-t">اضغط على زر <b>فتح البوت</b> أدناه</div></div><div class="rch-bot-step"><div class="rch-bot-step-n">2</div><div class="rch-bot-step-t">اتبع التعليمات داخل البوت <b>لإتمام عملية الشحن</b></div></div><div class="rch-bot-step"><div class="rch-bot-step-n">3</div><div class="rch-bot-step-t">بعد الشحن، أرسل <b>اسم مستخدمك بالموقع</b> للبوت ليتم إضافة الرصيد</div></div></div><a href="'+m.bot_link+'" target="_blank" class="btn-open-bot"><i class="fa-brands fa-telegram"></i> فتح البوت</a></div>'+usdLine;
     } else {
       detBody='<div class="rch-det-row"><span class="rch-det-lbl"><i class="fa-solid fa-hashtag"></i> أرسل إلى</span><span class="rch-det-val"><span id="rchCopyTarget">'+(m.number||'—')+'</span> <button class="rch-copy" onclick="rchCopyNum()"><i class="fa-solid fa-copy"></i></button></span></div>'+
-      (m.exchange_rate?'<div class="rch-det-row"><span class="rch-det-lbl"><i class="fa-solid fa-arrow-right-arrow-left"></i> سعر الصرف</span><span class="rch-det-val">'+m.exchange_rate+' '+m.currency+'</span></div>':'')+
-      '<div class="rch-hint-box"><div class="rch-hint-line"><i class="fa-solid fa-lightbulb rch-hint-ic hint-blue"></i><span>حوّل <b>'+converted+'</b> عبر <b>'+m.name+'</b> للرقم أعلاه.</span></div>'+(m.exchange_rate?'<div class="rch-hint-line"><i class="fa-solid fa-triangle-exclamation rch-hint-ic hint-orange"></i><span>إذا حوّلت عملة الموقع لـ USD، سيُحتسب رصيدك حسب سعر صرف '+m.name+'.</span></div>':'')+'</div>'+
+      '<div class="rch-hint-box"><div class="rch-hint-line"><i class="fa-solid fa-lightbulb rch-hint-ic hint-blue"></i><span>حوّل <b>'+amtIqdTxt+'</b> عبر <b>'+m.name+'</b> للرقم أعلاه.</span></div></div>'+
       (m.note?'<div class="rch-det-note"><i class="fa-solid fa-circle-info"></i> '+m.note+'</div>':'')+
-      '<div class="rch-det-convert"><span class="rch-det-convert-lbl">المبلغ المطلوب</span><span class="rch-det-convert-val">'+converted+'</span></div>'+
-      (m.currency!=='USD'&&m.currency!=='USDT'?usdLine:'');
+      '<div class="rch-det-convert"><span class="rch-det-convert-lbl">المبلغ المطلوب</span><span class="rch-det-convert-val">'+amtIqdTxt+'</span></div>'+
+      usdLine;
     }
     var el=document.getElementById('rchManualDetail');
     if(el)el.innerHTML=detBody;
   }
-  function rchUpdateBtn(){var b=document.getElementById('btnRchSubmit');if(!b)return;var v=document.getElementById('rchAmount').value||'0';b.innerHTML='<i class="fa-solid fa-paper-plane"></i> إرسال طلب الشحن — '+fmtP(v);}
+  function rchUpdateBtn(){var b=document.getElementById('btnRchSubmit');if(!b)return;var v=parseFloat(document.getElementById('rchAmount').value)||0;b.innerHTML='<i class="fa-solid fa-paper-plane"></i> إرسال طلب الشحن — '+v.toLocaleString('en-US')+' د.ع';}
   function wireManualPage(m){
     renderManualDetail(m);
     document.querySelectorAll('.rq').forEach(function(q){q.addEventListener('click',function(){
@@ -11311,13 +11324,15 @@ print(r.json())</pre>
       document.getElementById('rchUploadSub').textContent='PNG, JPG — حد أقصى 5MB';
     });
     document.getElementById('btnRchSubmit').addEventListener('click',function(){
-      var btn=this;var amt=parseFloat(document.getElementById('rchAmount').value)||0;
-      if(amt<=0){toast('أدخل مبلغ صحيح','error');return}
+      var btn=this;var amtIqd=parseFloat(document.getElementById('rchAmount').value)||0;
+      if(amtIqd<=0){toast('أدخل مبلغ صحيح','error');return}
+      var rateNum=_rchManualRate(m);
+      var amtUsd=rateNum>0?(amtIqd/rateNum):amtIqd;
       var receipt='';
       var fInput=document.getElementById('rchFileInput');
       if(fInput&&fInput.files&&fInput.files[0]){
         var reader=new FileReader();
-        reader.onload=function(e){receipt=e.target.result;doSubmitRch(amt,m.name,receipt,btn)};
+        reader.onload=function(e){receipt=e.target.result;doSubmitRch(amtUsd,m.name,receipt,btn)};
         reader.readAsDataURL(fInput.files[0]);
       }else{toast('يرجى إرفاق صورة إثبات الدفع','error');return}
     });
@@ -11365,10 +11380,10 @@ print(r.json())</pre>
   function rchAsiacellPageHtml(m){
     var tiers=(m.tiers&&m.tiers.length)?m.tiers:[1000,2000,3000,4000,5000,6000,7000,8000,9000,10000].map(function(v){return{iqd:v,bonus:0}});
     var btnsHtml=tiers.map(function(t,i){
-      return '<div class="rq'+(i===0?' sel':'')+'" data-iqd="'+t.iqd+'" data-bonus="'+(t.bonus||0)+'" style="min-width:64px">'+Number(t.iqd).toLocaleString()+(t.bonus>0?'<div style="font-size:8px;color:var(--green);font-weight:800;margin-top:2px">هدية +'+Number(t.bonus).toLocaleString()+'</div>':'')+'</div>';
+      return '<div class="rq rch-ac-tier'+(i===0?' sel':'')+'" data-iqd="'+t.iqd+'" data-bonus="'+(t.bonus||0)+'">'+Number(t.iqd).toLocaleString()+(t.bonus>0?'<div style="font-size:8px;color:var(--green);font-weight:800;margin-top:2px">هدية +'+Number(t.bonus).toLocaleString()+'</div>':'')+'</div>';
     }).join('');
     return '<div class="rch-card"><div class="field-label"><i class="fa-solid fa-coins"></i> اختر المبلغ ('+(m.currency||'IQD')+')</div>'+
-    '<div class="rch-quick" id="rchAcAmounts" style="flex-wrap:wrap">'+btnsHtml+'</div>'+
+    '<div class="rch-ac-grid" id="rchAcAmounts">'+btnsHtml+'</div>'+
     (m.exchange_rate?'<div class="rch-det-row" style="margin-top:10px"><span class="rch-det-lbl"><i class="fa-solid fa-arrow-right-arrow-left"></i> سعر الصرف</span><span class="rch-det-val">'+m.exchange_rate+' '+m.currency+'</span></div>':'')+
     '<div class="rch-det-convert" id="rchAcConvert"></div></div>'+
     '<div class="rch-card"><div class="rch-bot-msg"><div class="rch-bot-ic"><i class="fa-solid fa-mobile-screen"></i></div><div class="rch-bot-title">تحويل رصيد آسياسيل التلقائي</div><div class="rch-bot-text">أدخل رقمك، ثم أكّد برمزي التحقق اللذين يصلانك عبر SMS من آسياسيل مباشرة.</div></div>'+
@@ -12758,25 +12773,18 @@ function _renderNotifs(){
     list.innerHTML='<div class="noti-empty"><div class="noti-empty-ic"><i class="fa-solid fa-bell-slash"></i></div><div class="noti-empty-text">لا توجد إشعارات</div><div class="noti-empty-sub">ستظهر إشعاراتك هنا</div></div>';
     return;
   }
-  var h='',lastSec='';
+  var h='';
   _notiData.forEach(function(n,i){
-    var sec=_notiDateSec(n.time);
-    if(sec!==lastSec){h+='<div class="noti-sec">'+sec+'</div>';lastSec=sec}
     var m=_notiResolve(n);
-    var tagName=_notiTagMap[n.type]||_notiTagMap[n.icon]||'نظام';
-    var tagCls=_notiTagCls[n.type]||_notiTagCls[n.icon]||'t-system';
     var timeStr=_notiTimeAgo(n.time)||n.time_str||'';
     var gotoTarget=n.goto||'';
     if(!gotoTarget){if(n.type==='order')gotoTarget='orders:';else if(n.type==='recharge')gotoTarget='recharge:';else if(n.icon==='ticket'||n.icon==='message')gotoTarget='tickets:';}
     var gotoAttr=gotoTarget?' onclick="_notiGoto(\''+gotoTarget+'\',\''+n.id+'\')"':'';
-    h+='<div class="noti-card'+(n.read?'':' unread')+'" id="noti_'+n.id+'"'+gotoAttr+' style="cursor:pointer">';
-    h+='<div class="noti-card-inner">';
+    h+='<div class="noti-card'+(n.read?'':' unread')+'" id="noti_'+n.id+'"'+gotoAttr+'>';
     h+='<div class="noti-ic '+m.cls+'"><i class="'+m.ic+'"></i></div>';
-    h+='<div class="noti-body"><div class="noti-title">'+esc(n.title)+'</div><div class="noti-text">'+esc(n.text)+'</div></div></div>';
-    var gotoLabel='';
-    if(gotoTarget){var _gt=gotoTarget.split(':')[0];var gl={'orders':'الطلبات','order':'تفاصيل الطلب','recharge':'الرصيد','wallet':'الرصيد','tickets':'الدعم','ticket':'المحادثة'};gotoLabel=gl[_gt]||''}
-    h+='<div class="noti-foot"><div class="noti-meta"><span class="noti-time"><i class="fa-regular fa-clock"></i> '+esc(timeStr)+'</span><span class="noti-tag '+tagCls+'">'+tagName+'</span>'+(gotoLabel?'<span style="font-size:8px;font-weight:800;padding:2px 6px;border-radius:4px;background:var(--primary-bg);color:var(--primary)"><i class="fa-solid fa-arrow-left" style="font-size:6px"></i> '+gotoLabel+'</span>':'')+'</div>';
-    h+='<div style="display:flex;gap:2px">'+(n.read?'':'<button class="noti-del noti-read-btn" title="تحديد كمقروء" onclick="event.stopPropagation();markNotifRead(\''+n.id+'\')"><i class="fa-solid fa-check"></i></button>')+'<button class="noti-del" title="حذف" onclick="event.stopPropagation();deleteNotif(\''+n.id+'\')"><i class="fa-solid fa-trash-can"></i></button></div></div></div>';
+    h+='<div class="noti-body"><div class="noti-title">'+esc(n.title)+'</div><div class="noti-text">'+esc(n.text)+'</div><div class="noti-time"><i class="fa-regular fa-clock"></i> '+esc(timeStr)+'</div></div>';
+    h+='<div style="display:flex;flex-direction:column;gap:3px;flex-shrink:0">'+(n.read?'':'<button class="noti-del noti-read-btn" title="تحديد كمقروء" onclick="event.stopPropagation();markNotifRead(\''+n.id+'\')"><i class="fa-solid fa-check"></i></button>')+'<button class="noti-del" title="حذف" onclick="event.stopPropagation();deleteNotif(\''+n.id+'\')"><i class="fa-solid fa-xmark"></i></button></div>';
+    h+='</div>';
   });
   list.innerHTML=h;
 }
@@ -13029,13 +13037,55 @@ async function loadCustomServices(force){
     if(d.ok){_csCache=d.services||{};renderCustomServices()}
   }catch(e){}
 }
+var _csRotList=[],_csRotIdx=0,_csRotTimer=null;
 function renderCustomServices(){
   var el=document.getElementById('customSvcsSec');if(!el||!_csCache)return;
-  var svcs=Object.values(_csCache);
-  if(!svcs.length){el.innerHTML='';return}
-  var cnt=svcs.length;
-  var h='<div class="ai-cs-card" onclick="document.getElementById(\'customSvcsPage\').classList.add(\'show\');showCustomSvcsPage()"><div class="ai-cs-ic"><i class="fa-solid fa-gem"></i></div><div class="ai-cs-info"><div class="ai-cs-title">الخدمات المخصصة</div></div><div style="padding:3px 9px;border-radius:6px;font-size:10px;font-weight:800;flex-shrink:0;background:rgba(16,185,129,.1);border:1px solid rgba(16,185,129,.15);color:var(--green)">'+cnt+'</div><div class="ai-cs-arrow"><i class="fa-solid fa-chevron-left"></i></div></div>';
-  el.innerHTML=h;
+  _csRotList=Object.values(_csCache);
+  if(!_csRotList.length){el.innerHTML='';if(_csRotTimer){clearInterval(_csRotTimer);_csRotTimer=null}return}
+  _csRotIdx=0;
+  _csRenderCard();
+  _csStartRotation();
+}
+function _csPriceOf(s){
+  var isSub=s.type==='subscription';
+  if(isSub&&s.packages&&s.packages.length)return '$'+parseFloat(s.packages[0].price||0).toFixed(2)+' / '+(s.packages[0].duration||'شهر');
+  return s.rate?('$'+parseFloat(s.rate).toFixed(2)+' / 1000'):'';
+}
+function _csRenderCard(){
+  var el=document.getElementById('customSvcsSec');if(!el||!_csRotList.length)return;
+  var s=_csRotList[_csRotIdx];
+  var _d2=_detectSvcIcon(s.name);
+  var icHtml=s.image?'<img src="'+esc(s.image)+'" style="width:100%;height:100%;object-fit:cover;border-radius:inherit">':(_d2?'<i class="'+_d2+'"></i>':'<i class="fa-solid fa-gem"></i>');
+  var dotsHtml='';
+  if(_csRotList.length>1){
+    dotsHtml='<div class="cs-rot-dots">'+_csRotList.map(function(_,i){return '<span class="cs-rot-dot'+(i===_csRotIdx?' on':'')+'"></span>'}).join('')+'</div>';
+  }
+  el.innerHTML='<div class="ai-cs-card cs-rot-slide" id="csRotCard" onclick="if(!this._swiped)openCustomSvc(\''+s.id+'\');this._swiped=false"><div class="ai-cs-ic">'+icHtml+'</div><div class="ai-cs-info"><div class="ai-cs-title"><i class="fa-solid fa-gem"></i> '+esc(s.name)+'</div><div style="font-size:10px;color:var(--text3);font-weight:700;margin-top:1px">'+_csPriceOf(s)+'</div></div>'+dotsHtml+'<div class="ai-cs-arrow"><i class="fa-solid fa-chevron-left"></i></div></div>';
+  _csWireSwipe();
+}
+function _csStartRotation(){
+  if(_csRotTimer){clearInterval(_csRotTimer);_csRotTimer=null}
+  if(_csRotList.length<=1)return;
+  _csRotTimer=setInterval(function(){_csAdvance(1)},10000);
+}
+function _csAdvance(dir){
+  if(!_csRotList.length)return;
+  _csRotIdx=(_csRotIdx+dir+_csRotList.length)%_csRotList.length;
+  _csRenderCard();
+}
+function _csWireSwipe(){
+  var card=document.getElementById('csRotCard');if(!card)return;
+  var startX=0,startY=0;
+  card.addEventListener('touchstart',function(e){startX=e.touches[0].clientX;startY=e.touches[0].clientY},{passive:true});
+  card.addEventListener('touchend',function(e){
+    var dx=e.changedTouches[0].clientX-startX,dy=e.changedTouches[0].clientY-startY;
+    if(Math.abs(dx)>40&&Math.abs(dx)>Math.abs(dy)){
+      card._swiped=true;
+      if(_csRotTimer){clearInterval(_csRotTimer);_csRotTimer=null}
+      _csAdvance(dx<0?1:-1);
+      _csStartRotation();
+    }
+  });
 }
 function showCustomSvcsPage(){
   var el=document.getElementById('csPageContent');
@@ -15064,15 +15114,6 @@ var _rvReviews=[],_rvIdx=0,_rvTimer=null;
 function loadReviews(){
   fetch('/api/reviews').then(r=>r.json()).then(d=>{
     if(!d.ok)return;
-    document.getElementById('rvAvg').textContent=d.avg||'0';
-    document.getElementById('rvTotal').textContent=(d.total||0)+' تقييم';
-    var sh='';for(var i=1;i<=5;i++)sh+='<i class="fa-'+(i<=Math.round(d.avg||0)?'solid':'regular')+' fa-star'+(i>Math.round(d.avg||0)?' off':'')+'"></i>';
-    document.getElementById('rvAvgStars').innerHTML=sh;
-    var bh='';for(var s=5;s>=1;s--){
-      var pct=d.dist&&d.dist[s]?d.dist[s]:0;
-      bh+='<div class="rv-bar-row"><div class="rv-bar-n">'+s+'</div><div class="rv-bar-ic"><i class="fa-solid fa-star"></i></div><div class="rv-bar-bg"><div class="rv-bar-fill" style="width:'+pct+'%"></div></div><div class="rv-bar-pct">'+pct+'%</div></div>';
-    }
-    document.getElementById('rvBars').innerHTML=bh;
     _rvReviews=d.reviews||[];
     _rvIdx=0;
     _rvRenderOne();
