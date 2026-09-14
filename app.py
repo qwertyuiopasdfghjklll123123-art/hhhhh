@@ -420,10 +420,11 @@ print("🔄 نظام مزامنة الخدمات شغّال — كل 10 دقائ
 _AUTO_IMPORT_INTERVAL = 21600  # كل 6 ساعات
 _last_auto_import_result = {'time': 0, 'imported': 0, 'errors': []}
 
-def _do_auto_import_new_services():
+def _do_auto_import_new_services(force=False):
     """يفحص خدمات كل مزوّد فعّال، وأي خدمة (service_id+platform) لم تُستورد من قبل
-    تُضاف تلقائياً بنسبة الربح المحددة من الإعدادات — نفس منطق استيراد لوحة الإدارة اليدوي."""
-    if get_setting('auto_import_enabled', '0') != '1':
+    تُضاف تلقائياً بنسبة الربح المحددة من الإعدادات — نفس منطق استيراد لوحة الإدارة اليدوي.
+    force=True يشغّل الفحص فوراً (زر "فحص الآن" بلوحة الإدارة) حتى لو كانت الميزة التلقائية معطّلة."""
+    if not force and get_setting('auto_import_enabled', '0') != '1':
         return _last_auto_import_result
     try:
         profit = float(get_setting('auto_import_profit_pct', '30') or 30)
@@ -435,16 +436,10 @@ def _do_auto_import_new_services():
         _last_auto_import_result.update({'time': time.time(), 'imported': 0, 'errors': ['لا يوجد مزودين فعالين']})
         return _last_auto_import_result
 
-    conn = get_db()
-    existing = set()
-    for r in conn.execute("SELECT filter_key, platform FROM service_filters WHERE filter_type='service'").fetchall():
-        existing.add((str(r['filter_key']), r['platform'] or ''))
-    existing_cats = set()
-    for r in conn.execute("SELECT filter_key, platform FROM service_filters WHERE filter_type='category'").fetchall():
-        existing_cats.add((str(r['filter_key']), r['platform'] or ''))
-
-    imported = 0
+    # المرحلة 1: كل استدعاءات الشبكة (البطيئة) هنا فقط — بلا اتصال قاعدة بيانات مفتوح،
+    # لتفادي إبقاء قفل كتابة SQLite مفتوحاً بينما ننتظر رد مزوّد بطيء أو متوقف
     errors = []
+    new_services = []  # (sid, platform, cat, prov_id)
     for prov in active_provs:
         try:
             r = requests.post(prov['api_url'], data={'key': prov['api_key'], 'action': 'services'}, timeout=25)
@@ -462,27 +457,43 @@ def _do_auto_import_new_services():
             cat = s.get('category', '')
             name = s.get('name', '')
             platform = _detect_platform(cat, name)
-            if (sid, platform) in existing:
-                continue
-            try:
-                conn.execute('''INSERT INTO service_filters(filter_type,filter_key,platform,hidden,profit_pct,custom_category,prov_id)
-                    VALUES('service',?,?,0,?,?,?) ON CONFLICT(filter_type,filter_key,platform)
-                    DO UPDATE SET hidden=0, profit_pct=excluded.profit_pct, custom_category=excluded.custom_category, prov_id=excluded.prov_id''',
-                    (sid, platform, profit, cat, prov['id']))
-                existing.add((sid, platform))
-                imported += 1
-                catkey = (cat, platform)
-                if cat and catkey not in existing_cats:
-                    conn.execute('''INSERT INTO service_filters(filter_type,filter_key,platform,hidden,profit_pct,prov_id)
-                        VALUES('category',?,?,0,?,?) ON CONFLICT(filter_type,filter_key,platform)
-                        DO UPDATE SET hidden=0, profit_pct=excluded.profit_pct, prov_id=excluded.prov_id''',
-                        (cat, platform, profit, prov['id']))
-                    existing_cats.add(catkey)
-                try:
-                    conn.execute('UPDATE providers SET show_in_store=1 WHERE id=? AND show_in_store=0', (prov['id'],))
-                except: pass
-            except Exception as e:
-                errors.append(f"خطأ باستيراد خدمة {sid}: {str(e)[:60]}")
+            new_services.append((sid, platform, cat, prov['id']))
+
+    # المرحلة 2: اتصال قاعدة بيانات واحد قصير العمر لكل الكتابات دفعة واحدة (لا شبكة هنا إطلاقاً)
+    conn = get_db()
+    existing = set()
+    for r in conn.execute("SELECT filter_key, platform FROM service_filters WHERE filter_type='service'").fetchall():
+        existing.add((str(r['filter_key']), r['platform'] or ''))
+    existing_cats = set()
+    for r in conn.execute("SELECT filter_key, platform FROM service_filters WHERE filter_type='category'").fetchall():
+        existing_cats.add((str(r['filter_key']), r['platform'] or ''))
+
+    imported = 0
+    touched_provs = set()
+    for sid, platform, cat, prov_id in new_services:
+        if (sid, platform) in existing:
+            continue
+        try:
+            conn.execute('''INSERT INTO service_filters(filter_type,filter_key,platform,hidden,profit_pct,custom_category,prov_id)
+                VALUES('service',?,?,0,?,?,?) ON CONFLICT(filter_type,filter_key,platform)
+                DO UPDATE SET hidden=0, profit_pct=excluded.profit_pct, custom_category=excluded.custom_category, prov_id=excluded.prov_id''',
+                (sid, platform, profit, cat, prov_id))
+            existing.add((sid, platform))
+            imported += 1
+            touched_provs.add(prov_id)
+            catkey = (cat, platform)
+            if cat and catkey not in existing_cats:
+                conn.execute('''INSERT INTO service_filters(filter_type,filter_key,platform,hidden,profit_pct,prov_id)
+                    VALUES('category',?,?,0,?,?) ON CONFLICT(filter_type,filter_key,platform)
+                    DO UPDATE SET hidden=0, profit_pct=excluded.profit_pct, prov_id=excluded.prov_id''',
+                    (cat, platform, profit, prov_id))
+                existing_cats.add(catkey)
+        except Exception as e:
+            errors.append(f"خطأ باستيراد خدمة {sid}: {str(e)[:60]}")
+    for prov_id in touched_provs:
+        try:
+            conn.execute('UPDATE providers SET show_in_store=1 WHERE id=? AND show_in_store=0', (prov_id,))
+        except: pass
     conn.commit()
     conn.close()
     if imported > 0:
@@ -513,6 +524,14 @@ def _auto_import_thread():
 
 threading.Thread(target=_auto_import_thread, daemon=True).start()
 print("📦 نظام الاستيراد التلقائي للخدمات شغّال — كل 6 ساعات")
+
+@app.route('/api/admin/auto-import/run-now', methods=['POST'])
+def api_admin_auto_import_run_now():
+    if 'user_id' not in session or not session.get('is_admin'):
+        return jsonify(ok=False), 403
+    result = _do_auto_import_new_services(force=True)
+    return jsonify(ok=True, imported=result.get('imported', 0), errors=result.get('errors', []),
+                   live_services=result.get('live_services'))
 
 VAPID_FILE = '/root/fc_vapid.json'
 def _get_vapid_keys():
@@ -6156,7 +6175,7 @@ def api_admin_site_settings_get():
             'rate_IQD','rate_EUR','rate_SAR','rate_AED','rate_TRY','google_client_id',
             'support_whatsapp','site_terms','site_privacy','skip_email_verify',
             'deepseek_api_key','deepseek_model','ai_logo',
-            'daily_bonus_enabled','daily_bonus_percent',
+            'daily_bonus_enabled','daily_bonus_amount',
             'auto_import_enabled','auto_import_profit_pct',
             'ai_notif_enabled','ai_inactivity_days']
     out = {}
@@ -6190,7 +6209,7 @@ def api_admin_site_settings_save():
                'backup_enabled','backup_interval','tg_bot_token','tg_chat_id','provider_api_url','provider_api_key',
                'google_client_id','deepseek_api_key','deepseek_model','ai_logo',
                'support_whatsapp','site_terms','site_privacy','skip_email_verify',
-               'daily_bonus_enabled','daily_bonus_percent',
+               'daily_bonus_enabled','daily_bonus_amount',
                'auto_import_enabled','auto_import_profit_pct',
                'ai_notif_enabled','ai_inactivity_days'] + [f'rate_{c}' for c in CURRENCY_DEFAULT_RATES]
     conn = get_db()
@@ -6821,16 +6840,16 @@ def api_daily_bonus_status():
         return jsonify(ok=False), 401
     enabled = get_setting('daily_bonus_enabled', '0') == '1'
     try:
-        percent = float(get_setting('daily_bonus_percent', '2') or 2)
+        amount = float(get_setting('daily_bonus_amount', '0.5') or 0.5)
     except ValueError:
-        percent = 2
+        amount = 0.5
     conn = get_db()
     row = conn.execute('SELECT last_daily_bonus FROM users WHERE id=?', (session['user_id'],)).fetchone()
     conn.close()
     last = float(row['last_daily_bonus'] or 0) if row else 0
     elapsed = time.time() - last
     can_claim = enabled and elapsed >= 86400
-    return jsonify(ok=True, enabled=enabled, percent=percent, can_claim=can_claim,
+    return jsonify(ok=True, enabled=enabled, amount=amount, can_claim=can_claim,
                    seconds_left=max(0, int(86400 - elapsed)))
 
 @app.route('/api/daily-bonus/claim', methods=['POST'])
@@ -6850,16 +6869,15 @@ def api_daily_bonus_claim():
         conn.close()
         return jsonify(ok=False, msg='يمكنك استلام المكافأة مرة كل 24 ساعة فقط')
     try:
-        percent = float(get_setting('daily_bonus_percent', '2') or 2)
+        amount = float(get_setting('daily_bonus_amount', '0.5') or 0.5)
     except ValueError:
-        percent = 2
+        amount = 0.5
     balance = float(row['balance'] or 0)
-    amount = round(balance * percent / 100, 4)
     new_balance = round(balance + amount, 4)
     conn.execute('UPDATE users SET balance=?, last_daily_bonus=? WHERE id=?', (new_balance, time.time(), uid))
     conn.commit()
     conn.close()
-    push_user_notif(uid, 'system', 'مكافأتك اليومية 🎁', f'حصلت على ${amount:.2f} ({percent:g}% من رصيدك الحالي)', 'gift')
+    push_user_notif(uid, 'system', 'مكافأتك اليومية 🎁', f'حصلت على ${amount:.2f}', 'gift')
     return jsonify(ok=True, amount=amount, new_balance=new_balance)
 
 @app.route('/api/reviews')
@@ -7819,9 +7837,11 @@ def dashboard():
     uemail = session.get('user_email', '')
     is_admin = session.get('is_admin', False)
     conn = get_db()
-    urow = conn.execute('SELECT avatar FROM users WHERE id=?', (session['user_id'],)).fetchone()
-    conn.execute('UPDATE users SET last_seen=? WHERE id=?', (time.time(), session['user_id']))
-    conn.commit()
+    urow = conn.execute('SELECT avatar, last_seen FROM users WHERE id=?', (session['user_id'],)).fetchone()
+    # نحدّث last_seen فقط إذا مضى أكثر من 10 دقائق — لتفادي كتابة على كل تحميل صفحة (ضغط زائد على SQLite)
+    if urow and time.time() - float(urow['last_seen'] or 0) > 600:
+        conn.execute('UPDATE users SET last_seen=? WHERE id=?', (time.time(), session['user_id']))
+        conn.commit()
     conn.close()
     avatar_url = (urow['avatar'] if urow and urow['avatar'] else '') or ''
     site_name = get_setting('site_name', 'fastcrand')
@@ -8170,10 +8190,6 @@ html:not([data-theme="dark"]) .ai-cs-card::after{background:linear-gradient(105d
 .acc-nm-big{font-size:17px;font-weight:900;position:relative}
 .acc-div-desk{height:1px;background:var(--card-border);margin:16px 0}
 .acc-stats-desk{display:grid;grid-template-columns:repeat(3,1fr);gap:12px 6px}
-.acc-stats-mob{display:grid;grid-template-columns:repeat(3,1fr);gap:12px 6px;margin-top:14px;padding-top:14px;border-top:1px solid var(--card-border)}
-.asd{text-align:center}
-.asd-n{font-family:var(--font-num);font-size:16px;font-weight:900;color:var(--primary-light)}
-.asd-l{font-size:8px;color:var(--text3);margin-top:1px}
 .acc-logout-desk{margin-top:16px;padding:11px;border-radius:11px;background:rgba(239,68,68,.06);border:1px solid rgba(239,68,68,.15);color:var(--red);font-size:11px;font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:6px;text-decoration:none;transition:all .15s}
 .acc-logout-desk:hover{background:rgba(239,68,68,.1)}
 .qa-card{background:var(--card);border:1px solid var(--card-border);border-radius:14px;padding:14px}
@@ -8224,18 +8240,22 @@ html:not([data-theme="dark"]) .ai-cs-card::after{background:linear-gradient(105d
 @media(max-width:899px){.acc-left{display:none!important}.acc-desktop{display:block}}
 /* ACCOUNT PAGE */
 .acc-card{background:var(--card);border:1px solid var(--card-border);border-radius:14px;overflow:hidden}
-.curr-card-vps{display:flex;align-items:center;gap:12px;background:var(--card);border:1px solid var(--card-border);border-radius:16px;padding:16px;margin-bottom:10px;cursor:pointer;transition:all .2s}
+.curr-card-vps{display:flex;align-items:center;gap:10px;background:var(--card);border:1px solid var(--card-border);border-radius:14px;padding:11px 12px;margin-bottom:8px;cursor:pointer;transition:all .2s}
 .curr-card-vps:hover{border-color:var(--primary)}
-.curr-card-vps-ic{width:44px;height:44px;border-radius:50%;flex-shrink:0;background:var(--primary-bg);color:var(--primary);display:flex;align-items:center;justify-content:center;font-size:18px}
+.curr-card-vps-ic{width:34px;height:34px;border-radius:50%;flex-shrink:0;background:var(--primary-bg);color:var(--primary);display:flex;align-items:center;justify-content:center;font-size:14px}
 .curr-card-vps-text{flex:1;min-width:0}
-.curr-card-vps-title{font-weight:800;font-size:14px;color:var(--text);margin-bottom:2px}
-.curr-card-vps-sub{font-size:11px;color:var(--text3);line-height:1.5}
-.curr-card-vps-value{font-size:12px;font-weight:800;color:var(--primary);margin-top:3px}
-.curr-card-vps-chev{color:var(--text3);font-size:13px;flex-shrink:0}
+.curr-card-vps-title{font-weight:800;font-size:12px;color:var(--text);margin-bottom:1px}
+.curr-card-vps-sub{font-size:10px;color:var(--text3);line-height:1.4}
+.curr-card-vps-value{font-size:11px;font-weight:800;color:var(--primary);margin-top:2px}
+.curr-card-vps-chev{color:var(--text3);font-size:11px;flex-shrink:0}
 .acc-user{display:flex;align-items:center;gap:12px;padding:16px;position:relative;overflow:hidden}
 .acc-user::before{content:'';position:absolute;top:-20px;left:-20px;width:100px;height:100px;border-radius:50%;background:var(--primary);opacity:.06;filter:blur(30px)}
 .acc-avatar{width:46px;height:46px;border-radius:12px;background:linear-gradient(135deg,var(--primary),var(--primary-light));display:flex;align-items:center;justify-content:center;color:#fff;font-size:17px;font-weight:800;flex-shrink:0;position:relative;cursor:pointer;background-size:cover;background-position:center}
 .acc-name{font-size:15px;font-weight:800}
+.acc-stats-mob{display:grid;grid-template-columns:repeat(3,1fr);gap:12px 6px;padding:14px 16px 16px;border-top:1px solid var(--card-border)}
+.asd{text-align:center}
+.asd-n{font-family:var(--font-num);font-size:16px;font-weight:900;color:var(--primary-light)}
+.asd-l{font-size:8px;color:var(--text3);margin-top:1px}
 .sec-sep{font-size:10px;font-weight:800;color:var(--text3);letter-spacing:1px;padding:0 4px;margin:14px 0 6px;display:flex;align-items:center;gap:6px}
 .sec-sep::after{content:'';flex:1;height:1px;background:var(--card-border)}
 .acc-item{display:flex;align-items:center;gap:10px;padding:13px 14px;cursor:pointer;transition:all .15s;border-bottom:1px solid var(--card-border);color:var(--text);text-decoration:none;font-size:12px;font-weight:700}
@@ -10005,7 +10025,7 @@ html:not([data-theme="dark"]) .rv-star-btn{color:rgba(0,0,0,.1)}
       <div class="curr-card-vps-ic" style="background:rgba(16,185,129,.1);color:var(--green)"><i class="fa-solid fa-gift"></i></div>
       <div class="curr-card-vps-text">
         <div class="curr-card-vps-title">مكافأة يومية</div>
-        <div class="curr-card-vps-sub" id="dailyBonusSub">اضغط للحصول على نسبة من رصيدك</div>
+        <div class="curr-card-vps-sub" id="dailyBonusSub">اضغط للحصول على مكافأتك اليومية</div>
       </div>
       <i class="fa-solid fa-chevron-left curr-card-vps-chev"></i>
     </div>
@@ -10559,13 +10579,13 @@ html:not([data-theme="dark"]) .rv-star-btn{color:rgba(0,0,0,.1)}
       </div>
     </div>
     <div style="background:var(--card);border:1px solid var(--card-border);border-radius:14px;padding:16px;margin-bottom:14px">
-      <div class="sec-label"><i class="fa-solid fa-percent"></i> مكافأة الرصيد اليومية (نسبة مئوية)</div>
-      <div style="font-size:10px;color:var(--text3);margin-bottom:12px">ميزة مختلفة عن الهدية اليومية أعلاه — زر يظهر بحساب كل مستخدم يمكنه الضغط عليه مرة كل 24 ساعة ليحصل على نسبة من رصيده الحالي كمكافأة</div>
+      <div class="sec-label"><i class="fa-solid fa-dollar-sign"></i> مكافأة الرصيد اليومية (مبلغ ثابت)</div>
+      <div style="font-size:10px;color:var(--text3);margin-bottom:12px">ميزة مختلفة عن الهدية اليومية أعلاه — زر يظهر بحساب كل مستخدم يمكنه الضغط عليه مرة كل 24 ساعة ليحصل على مبلغ ثابت تحدده هنا كمكافأة</div>
       <div class="cp-notify-row" style="margin-bottom:10px">
         <div class="cp-notify-info"><div class="cp-notify-name"><i class="fa-solid fa-toggle-on" style="color:var(--primary);margin-left:4px"></i> تفعيل المكافأة اليومية</div><div class="cp-notify-desc">إظهار زر المكافأة للمستخدمين في صفحة حسابي</div></div>
         <div class="adm-toggle" id="dailyBonusToggle" onclick="this.classList.toggle('on')"><div class="adm-toggle-dot"></div></div>
       </div>
-      <div class="field-group" style="margin-bottom:0"><div class="field-label"><i class="fa-solid fa-percent"></i> نسبة المكافأة (% من الرصيد الحالي)</div><input type="number" class="text-input" id="dailyBonusPercentIn" value="2" step="0.5" min="0.1" max="100" dir="ltr" style="text-align:left;font-family:var(--font-num);font-size:13px"></div>
+      <div class="field-group" style="margin-bottom:0"><div class="field-label"><i class="fa-solid fa-dollar-sign"></i> مبلغ المكافأة اليومية ($)</div><input type="number" class="text-input" id="dailyBonusAmountIn" value="0.5" step="0.1" min="0.01" dir="ltr" style="text-align:left;font-family:var(--font-num);font-size:13px"></div>
       <button onclick="saveDailyBonusSettings()" class="btn-primary" style="margin-top:10px"><i class="fa-solid fa-check"></i> حفظ</button>
     </div>
     <div style="background:var(--card);border:1px solid var(--card-border);border-radius:14px;padding:16px;margin-bottom:14px">
@@ -10665,6 +10685,8 @@ html:not([data-theme="dark"]) .rv-star-btn{color:rgba(0,0,0,.1)}
       <div class="field-group" style="margin-bottom:0"><div class="field-label"><i class="fa-solid fa-percent"></i> نسبة الربح الافتراضية للخدمات الجديدة (%)</div><input type="number" class="text-input" id="autoImportProfitIn" value="30" step="1" min="0" dir="ltr" style="text-align:left;font-family:var(--font-num);font-size:13px"></div>
     </div>
     <div style="padding:10px 14px;border-radius:10px;background:var(--primary-bg);border:1px solid var(--card-border);font-size:10px;color:var(--text2);line-height:1.8;font-weight:600;margin-bottom:12px"><i class="fa-solid fa-lightbulb"></i> الخدمات المستوردة تظهر مباشرة بصفحة "إدارة الخدمات" ويمكن تعديل نسبة ربحها أو إخفاؤها من هناك لاحقاً.</div>
+    <div id="autoImportRunStatus" style="display:none;margin-bottom:12px;font-size:11px;padding:10px 14px;border-radius:10px;background:var(--input-bg);color:var(--text2);line-height:1.7"></div>
+    <button onclick="runAutoImportNow()" id="btnAutoImportRunNow" class="btn-primary" style="background:var(--card);color:var(--green);border:1.5px solid var(--green);box-shadow:none;margin-bottom:10px"><i class="fa-solid fa-magnifying-glass"></i> فحص الآن</button>
     <button onclick="saveAutoImportSettings()" class="btn-primary"><i class="fa-solid fa-check"></i> حفظ</button>
   </div>
 </div>
@@ -12260,15 +12282,27 @@ print(r.json())</pre>
       var btn=this;
       var stars=parseInt(document.getElementById('tgsStarsInput').value)||0;
       if(stars<1){toast('أدخل عدد نجوم صحيح','error');return}
+      // نفتح نافذة/تبويب فارغة فوراً (ضمن حدث الضغط مباشرة) لتفادي حجب المتصفح للنوافذ
+      // المنبثقة التي تُفتح لاحقاً داخل then() بعد اكتمال fetch — على الجوال هذا يجعل
+      // الزر يبدو "عالقاً" رغم أن الطلب نجح فعلياً
+      var newTab=null;
+      try{newTab=window.open('about:blank','_blank')}catch(e){newTab=null}
       btn.disabled=true;var orig=btn.innerHTML;btn.innerHTML='<i class="fa-solid fa-spinner fa-spin"></i> جاري التحضير...';
       fetch('/api/recharge/telegram-stars/link?stars='+stars)
       .then(function(r){return r.json()}).then(function(d){
         btn.disabled=false;btn.innerHTML=orig;
         if(d.ok){
-          window.open(d.url,'_blank');
+          if(newTab&&!newTab.closed)newTab.location.href=d.url;else window.location.href=d.url;
           toast('تم فتح بوت تليجرام — أكمل الدفع هناك وسيُضاف الرصيد تلقائياً','info');
-        }else{toast(d.msg||'تعذر تجهيز رابط البوت','error')}
-      }).catch(function(){btn.disabled=false;btn.innerHTML=orig;toast('تعذر الاتصال بالسيرفر','error')});
+        }else{
+          if(newTab&&!newTab.closed)newTab.close();
+          toast(d.msg||'تعذر تجهيز رابط البوت','error');
+        }
+      }).catch(function(){
+        btn.disabled=false;btn.innerHTML=orig;
+        if(newTab&&!newTab.closed)newTab.close();
+        toast('تعذر الاتصال بالسيرفر','error');
+      });
     });
   }
 
@@ -13488,7 +13522,7 @@ async function loadDailyBonusStatus(){
     if(!d.ok||!d.enabled){card.style.display='none';return}
     card.style.display='flex';
     var sub=document.getElementById('dailyBonusSub');
-    if(d.can_claim){sub.textContent='احصل على '+d.percent+'% من رصيدك الآن';card.style.opacity='1';card.style.cursor='pointer'}
+    if(d.can_claim){sub.textContent='اضغط لاستلام $'+parseFloat(d.amount||0).toFixed(2)+' الآن';card.style.opacity='1';card.style.cursor='pointer'}
     else{
       var hrs=Math.floor(d.seconds_left/3600),mins=Math.floor((d.seconds_left%3600)/60);
       sub.textContent='تم الاستلام — القادمة خلال '+hrs+'س '+mins+'د';card.style.opacity='.6';card.style.cursor='default'
@@ -13772,6 +13806,31 @@ async function saveAutoImportSettings(){
   }catch(e){toast('حدث خطأ','error')}
 }
 window.saveAutoImportSettings=saveAutoImportSettings;
+async function runAutoImportNow(){
+  var btn=document.getElementById('btnAutoImportRunNow');
+  var st=document.getElementById('autoImportRunStatus');
+  var orig=btn.innerHTML;btn.disabled=true;btn.innerHTML='<i class="fa-solid fa-spinner fa-spin"></i> جاري الفحص...';
+  st.style.display='none';
+  try{
+    var r=await fetch('/api/admin/auto-import/run-now',{method:'POST'});
+    var d=await r.json();
+    st.style.display='block';
+    if(d.ok){
+      st.style.color=d.imported>0?'var(--green)':'var(--text2)';
+      st.textContent=d.imported>0?('تم استيراد '+d.imported+' خدمة جديدة'):'لا توجد خدمات جديدة حالياً';
+      if(d.errors&&d.errors.length)st.textContent+=' — '+d.errors[0];
+      toast(d.imported>0?('تم استيراد '+d.imported+' خدمة'):'الفحص انتهى، لا جديد','success');
+    }else{
+      st.style.color='var(--red)';st.textContent=d.msg||'فشل الفحص';
+      toast(d.msg||'فشل الفحص','error');
+    }
+  }catch(e){
+    st.style.display='block';st.style.color='var(--red)';st.textContent='تعذر الاتصال بالسيرفر';
+    toast('تعذر الاتصال بالسيرفر','error');
+  }
+  btn.disabled=false;btn.innerHTML=orig;
+}
+window.runAutoImportNow=runAutoImportNow;
 function uploadAiIcon(input){
   if(!input.files||!input.files[0])return;
   var file=input.files[0];
@@ -15996,14 +16055,14 @@ async function loadDailyBonusSettings(){
   try{var r=await fetch('/api/admin/site-settings');var d=await r.json();
     if(d.ok){var s=d.settings||d;
       document.getElementById('dailyBonusToggle').classList.toggle('on',s.daily_bonus_enabled==='1');
-      document.getElementById('dailyBonusPercentIn').value=s.daily_bonus_percent||'2';
+      document.getElementById('dailyBonusAmountIn').value=s.daily_bonus_amount||'0.5';
     }
   }catch(e){}
 }
 window.loadDailyBonusSettings=loadDailyBonusSettings;
 async function saveDailyBonusSettings(){
   var data={daily_bonus_enabled:document.getElementById('dailyBonusToggle').classList.contains('on')?'1':'0',
-            daily_bonus_percent:document.getElementById('dailyBonusPercentIn').value||'2'};
+            daily_bonus_amount:document.getElementById('dailyBonusAmountIn').value||'0.5'};
   try{var r=await fetch('/api/admin/site-settings',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});
     var d=await r.json();
     if(d.ok)toast('تم الحفظ بنجاح','success');else toast('حدث خطأ','error');
