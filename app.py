@@ -416,6 +416,104 @@ def _sync_services_thread():
 threading.Thread(target=_sync_services_thread, daemon=True).start()
 print("🔄 نظام مزامنة الخدمات شغّال — كل 10 دقائق (أول مزامنة بعد 5 دقائق)")
 
+# ===== الاستيراد التلقائي للخدمات الجديدة من المزودين =====
+_AUTO_IMPORT_INTERVAL = 21600  # كل 6 ساعات
+_last_auto_import_result = {'time': 0, 'imported': 0, 'errors': []}
+
+def _do_auto_import_new_services():
+    """يفحص خدمات كل مزوّد فعّال، وأي خدمة (service_id+platform) لم تُستورد من قبل
+    تُضاف تلقائياً بنسبة الربح المحددة من الإعدادات — نفس منطق استيراد لوحة الإدارة اليدوي."""
+    if get_setting('auto_import_enabled', '0') != '1':
+        return _last_auto_import_result
+    try:
+        profit = float(get_setting('auto_import_profit_pct', '30') or 30)
+    except ValueError:
+        profit = 30
+    provs = get_all_providers()
+    active_provs = [p for p in provs if p.get('active') and p.get('api_url') and p.get('api_key')]
+    if not active_provs:
+        _last_auto_import_result.update({'time': time.time(), 'imported': 0, 'errors': ['لا يوجد مزودين فعالين']})
+        return _last_auto_import_result
+
+    conn = get_db()
+    existing = set()
+    for r in conn.execute("SELECT filter_key, platform FROM service_filters WHERE filter_type='service'").fetchall():
+        existing.add((str(r['filter_key']), r['platform'] or ''))
+    existing_cats = set()
+    for r in conn.execute("SELECT filter_key, platform FROM service_filters WHERE filter_type='category'").fetchall():
+        existing_cats.add((str(r['filter_key']), r['platform'] or ''))
+
+    imported = 0
+    errors = []
+    for prov in active_provs:
+        try:
+            r = requests.post(prov['api_url'], data={'key': prov['api_key'], 'action': 'services'}, timeout=25)
+            svcs = r.json() if isinstance(r.json(), list) else []
+        except Exception as e:
+            errors.append(f"❌ فشل {prov.get('name','')}: {str(e)[:60]}")
+            continue
+        if len(svcs) < _MIN_PROVIDER_SERVICES:
+            errors.append(f"⚠️ {prov.get('name','')}: رجّع {len(svcs)} خدمة فقط — تجاوز")
+            continue
+        for s in svcs:
+            sid = str(s.get('service', ''))
+            if not sid:
+                continue
+            cat = s.get('category', '')
+            name = s.get('name', '')
+            platform = _detect_platform(cat, name)
+            if (sid, platform) in existing:
+                continue
+            try:
+                conn.execute('''INSERT INTO service_filters(filter_type,filter_key,platform,hidden,profit_pct,custom_category,prov_id)
+                    VALUES('service',?,?,0,?,?,?) ON CONFLICT(filter_type,filter_key,platform)
+                    DO UPDATE SET hidden=0, profit_pct=excluded.profit_pct, custom_category=excluded.custom_category, prov_id=excluded.prov_id''',
+                    (sid, platform, profit, cat, prov['id']))
+                existing.add((sid, platform))
+                imported += 1
+                catkey = (cat, platform)
+                if cat and catkey not in existing_cats:
+                    conn.execute('''INSERT INTO service_filters(filter_type,filter_key,platform,hidden,profit_pct,prov_id)
+                        VALUES('category',?,?,0,?,?) ON CONFLICT(filter_type,filter_key,platform)
+                        DO UPDATE SET hidden=0, profit_pct=excluded.profit_pct, prov_id=excluded.prov_id''',
+                        (cat, platform, profit, prov['id']))
+                    existing_cats.add(catkey)
+                try:
+                    conn.execute('UPDATE providers SET show_in_store=1 WHERE id=? AND show_in_store=0', (prov['id'],))
+                except: pass
+            except Exception as e:
+                errors.append(f"خطأ باستيراد خدمة {sid}: {str(e)[:60]}")
+    conn.commit()
+    conn.close()
+    if imported > 0:
+        _all_services_cache['data'] = None
+        _all_services_cache['time'] = 0
+        _services_cache['data'] = None
+        _services_cache['time'] = 0
+        _bump_svc_version()
+        try:
+            nconn = get_db()
+            for adm in nconn.execute('SELECT id FROM users WHERE is_admin=1').fetchall():
+                push_user_notif(adm['id'], 'admin', '📦 استيراد تلقائي للخدمات',
+                    f'تم إضافة {imported} خدمة جديدة تلقائياً من المزودين بنسبة ربح {profit:g}%', 'sync')
+            nconn.close()
+        except: pass
+        print(f"📦 استيراد تلقائي: أُضيفت {imported} خدمة جديدة")
+    _last_auto_import_result.update({'time': time.time(), 'imported': imported, 'errors': errors})
+    return _last_auto_import_result
+
+def _auto_import_thread():
+    time.sleep(900)  # انتظار 15 دقيقة بعد بدء السيرفر
+    while True:
+        try:
+            _do_auto_import_new_services()
+        except Exception as e:
+            print(f"❌ خطأ بالاستيراد التلقائي: {e}")
+        time.sleep(_AUTO_IMPORT_INTERVAL)
+
+threading.Thread(target=_auto_import_thread, daemon=True).start()
+print("📦 نظام الاستيراد التلقائي للخدمات شغّال — كل 6 ساعات")
+
 VAPID_FILE = '/root/fc_vapid.json'
 def _get_vapid_keys():
     if os.path.exists(VAPID_FILE):
@@ -766,6 +864,10 @@ def init_db():
         'ALTER TABLE users ADD COLUMN balance REAL DEFAULT 0',
         'ALTER TABLE users ADD COLUMN banned INTEGER DEFAULT 0',
         'ALTER TABLE users ADD COLUMN username TEXT',
+        'ALTER TABLE users ADD COLUMN last_daily_bonus REAL DEFAULT 0',
+        'ALTER TABLE users ADD COLUMN last_seen REAL DEFAULT 0',
+        'ALTER TABLE users ADD COLUMN last_ai_nudge REAL DEFAULT 0',
+        'ALTER TABLE users ADD COLUMN telegram_chat_id TEXT DEFAULT ""',
         'ALTER TABLE payment_methods ADD COLUMN bot_link TEXT DEFAULT ""',
         'ALTER TABLE payment_methods ADD COLUMN image TEXT DEFAULT ""',
         'ALTER TABLE custom_services ADD COLUMN desc_text TEXT DEFAULT ""',
@@ -847,6 +949,11 @@ def init_db():
         conn.execute('INSERT INTO payment_methods(name,icon,currency,note,active,sort_order,method_type,method_extras) VALUES(?,?,?,?,?,?,?,?)',
                      ('آسياسيل', 'fa-solid fa-mobile-screen', 'IQD', 'تحويل رصيد آسياسيل مباشر وتلقائي', 0, 2, 'asiacell',
                       json.dumps({'max_transfer': 10000})))
+    if conn.execute("SELECT COUNT(*) FROM payment_methods WHERE method_type='telegram_stars'").fetchone()[0] == 0:
+        # bot_token/admin_chat_id (حساسة) داخل method_extras فقط؛ bot_username/rate_usd_per_100 آمنة ويُرسلان للمستخدم
+        conn.execute('INSERT INTO payment_methods(name,icon,currency,note,active,sort_order,method_type,method_extras) VALUES(?,?,?,?,?,?,?,?)',
+                     ('نجوم تليجرام', 'fa-brands fa-telegram', 'USD', 'دفع تلقائي عبر بوت تليجرام بنجوم Telegram Stars', 0, 3, 'telegram_stars',
+                      json.dumps({'bot_token': '', 'bot_username': '', 'admin_chat_id': '', 'rate_usd_per_100': 1.5})))
     conn.commit()
     conn.execute('''CREATE TABLE IF NOT EXISTS tickets(
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -3436,6 +3543,8 @@ def api_order():
                 try: _add_referral_commission(session['user_id'], str(result['order']), provider_charge)
                 except: pass
                 push_user_notif(session['user_id'], 'order', f'تم إرسال طلب #{_did}', f'{svc_name} — الكمية: {quantity} — ${site_price:.2f}', 'order', goto=f'order:{_did}')
+                send_ai_notif(session['user_id'], '🤖 طلبك قيد التنفيذ الآن',
+                    f'أهلاً! استلمت طلبك لخدمة "{svc_name}" وهو الآن قيد التنفيذ الفعلي. إذا عندك أي سؤال عن سرعة التنفيذ أو أي استفسار آخر أنا هنا للمساعدة 😊')
                 try:
                     _admconn = get_db()
                     _admins = _admconn.execute('SELECT id FROM users WHERE is_admin=1').fetchall()
@@ -3485,6 +3594,8 @@ def api_order():
         new_bal = conn.execute('SELECT balance FROM users WHERE id=?', (session['user_id'],)).fetchone()['balance']
         conn.close()
         push_user_notif(session['user_id'], 'order', 'تم استلام طلبك بنجاح', f'{svc_name} — طلبك قيد التنفيذ وسيتم معالجته قريباً', 'order')
+        send_ai_notif(session['user_id'], '🤖 طلبك بانتظار المعالجة',
+            f'استلمنا طلبك لخدمة "{svc_name}" وهو قيد المراجعة وسيبدأ التنفيذ قريباً. إذا احتجت مساعدة أو عندك استفسار، تكلم معي مباشرة هنا!')
         try:
             _admconn = get_db()
             _admins = _admconn.execute('SELECT id FROM users WHERE is_admin=1').fetchall()
@@ -4249,6 +4360,15 @@ def api_pm_public():
                 tiers = (json.loads(r['method_extras'] or '{}') or {}).get('tiers') or _default_asiacell_tiers()
             except Exception:
                 tiers = _default_asiacell_tiers()
+        tg_stars_bot_username = ''
+        tg_stars_rate = None
+        if mtype == 'telegram_stars':
+            try:
+                _tgex = json.loads(r['method_extras'] or '{}') or {}
+                tg_stars_bot_username = _tgex.get('bot_username', '')
+                tg_stars_rate = _tgex.get('rate_usd_per_100', 1.5)
+            except Exception:
+                tg_stars_rate = 1.5
         methods.append({
             'id': r['id'], 'name': r['name'], 'icon': r['icon'],
             'number': r['number'], 'exchange_rate': r['exchange_rate'],
@@ -4257,7 +4377,9 @@ def api_pm_public():
             'image': r['image'] if 'image' in r.keys() else '',
             'method_type': mtype,
             'qr_code': qr_code,
-            'tiers': tiers
+            'tiers': tiers,
+            'tg_stars_bot_username': tg_stars_bot_username,
+            'tg_stars_rate': tg_stars_rate,
         })
     return jsonify(ok=True, methods=methods)
 
@@ -4369,6 +4491,11 @@ def api_pm_list():
             'qr_code': extras.get('qr_code', '') if mtype == 'binance' else '',
             'max_transfer': extras.get('max_transfer') if mtype == 'asiacell' else None,
             'tiers': (extras.get('tiers') or _default_asiacell_tiers()) if mtype == 'asiacell' else None,
+            # التوكن الفعلي لا يُرسل أبداً، فقط إشارة لوجوده
+            'has_tg_stars_token': bool(extras.get('bot_token')) if mtype == 'telegram_stars' else False,
+            'tg_stars_bot_username': extras.get('bot_username', '') if mtype == 'telegram_stars' else '',
+            'tg_stars_admin_chat_id': extras.get('admin_chat_id', '') if mtype == 'telegram_stars' else '',
+            'tg_stars_rate': extras.get('rate_usd_per_100', 1.5) if mtype == 'telegram_stars' else None,
         })
     return jsonify(ok=True, methods=methods)
 
@@ -4588,6 +4715,200 @@ def api_pm_save_asiacell():
     conn.commit()
     conn.close()
     return jsonify(ok=True, msg='تم حفظ إعدادات آسياسيل')
+
+@app.route('/api/admin/payment-methods/telegram-stars', methods=['POST'])
+def api_pm_save_tg_stars():
+    if 'user_id' not in session or not session.get('is_admin'):
+        return jsonify(ok=False), 403
+    data = freq.get_json() or {}
+    conn = get_db()
+    row = conn.execute("SELECT * FROM payment_methods WHERE method_type='telegram_stars' LIMIT 1").fetchone()
+    if not row:
+        conn.close()
+        return jsonify(ok=False, msg='تعذر العثور على طريقة نجوم تليجرام.')
+    try:
+        extras = json.loads(row['method_extras'] or '{}')
+    except Exception:
+        extras = {}
+    bot_token = (data.get('bot_token') or '').strip()
+    bot_username = (data.get('bot_username') or '').strip().lstrip('@')
+    admin_chat_id = (data.get('admin_chat_id') or '').strip()
+    try:
+        rate = float(data.get('rate_usd_per_100') or 1.5)
+    except (TypeError, ValueError):
+        rate = 1.5
+    if bot_token:
+        extras['bot_token'] = bot_token
+    extras['bot_username'] = bot_username
+    extras['admin_chat_id'] = admin_chat_id
+    extras['rate_usd_per_100'] = rate
+    conn.execute('UPDATE payment_methods SET active=?, method_extras=? WHERE id=?',
+                 (1 if data.get('active') else 0, json.dumps(extras), row['id']))
+    conn.commit()
+    conn.close()
+    return jsonify(ok=True, msg='تم حفظ إعدادات نجوم تليجرام')
+
+@app.route('/api/admin/payment-methods/telegram-stars/set-webhook', methods=['POST'])
+def api_pm_tg_stars_set_webhook():
+    if 'user_id' not in session or not session.get('is_admin'):
+        return jsonify(ok=False), 403
+    conn = get_db()
+    row = conn.execute("SELECT method_extras FROM payment_methods WHERE method_type='telegram_stars' LIMIT 1").fetchone()
+    conn.close()
+    if not row:
+        return jsonify(ok=False, msg='تعذر العثور على طريقة نجوم تليجرام.')
+    try:
+        extras = json.loads(row['method_extras'] or '{}')
+    except Exception:
+        extras = {}
+    token = extras.get('bot_token', '')
+    if not token:
+        return jsonify(ok=False, msg='أدخل Bot Token واحفظ أولاً')
+    # تليجرام يشترط https دائماً — نبني الرابط من Host مباشرة بدل الاعتماد على مخطط الطلب
+    # الذي قد يظهر http خلف بروكسي عكسي حتى لو كان الموقع فعلياً على https
+    webhook_url = f'https://{freq.host}/api/telegram/stars-webhook'
+    try:
+        r = requests.post(f'https://api.telegram.org/bot{token}/setWebhook',
+                           json={'url': webhook_url, 'allowed_updates': ['message', 'pre_checkout_query']}, timeout=15)
+        rj = r.json()
+    except Exception as e:
+        return jsonify(ok=False, msg=f'تعذر الاتصال بتليجرام: {str(e)[:80]}')
+    if rj.get('ok'):
+        return jsonify(ok=True, msg=f'تم تسجيل الـ Webhook بنجاح على: {webhook_url}')
+    return jsonify(ok=False, msg=f"فشل تليجرام: {rj.get('description', 'خطأ غير معروف')}")
+
+@app.route('/api/recharge/telegram-stars/link')
+def api_recharge_tg_stars_link():
+    if 'user_id' not in session:
+        return jsonify(ok=False), 401
+    try:
+        stars = int(freq.args.get('stars', 0))
+    except (TypeError, ValueError):
+        stars = 0
+    if stars < 1:
+        return jsonify(ok=False, msg='أدخل عدد نجوم صحيح')
+    conn = get_db()
+    row = conn.execute("SELECT method_extras FROM payment_methods WHERE method_type='telegram_stars' AND active=1 LIMIT 1").fetchone()
+    conn.close()
+    if not row:
+        return jsonify(ok=False, msg='طريقة الدفع غير مفعّلة حالياً')
+    try:
+        extras = json.loads(row['method_extras'] or '{}')
+    except Exception:
+        extras = {}
+    bot_username = extras.get('bot_username', '')
+    if not bot_username:
+        return jsonify(ok=False, msg='لم يتم إعداد بوت تليجرام بعد. تواصل مع الإدارة')
+    payload = f"s{session['user_id']}_{stars}"
+    return jsonify(ok=True, url=f'https://t.me/{bot_username}?start={payload}', rate=extras.get('rate_usd_per_100', 1.5))
+
+@app.route('/api/telegram/stars-webhook', methods=['POST'])
+def api_telegram_stars_webhook():
+    """Webhook عام (بدون تسجيل دخول) — تليجرام يستدعيه مباشرة عند أي تحديث للبوت."""
+    conn = get_db()
+    row = conn.execute("SELECT method_extras FROM payment_methods WHERE method_type='telegram_stars' LIMIT 1").fetchone()
+    conn.close()
+    if not row:
+        return jsonify(ok=True)
+    try:
+        extras = json.loads(row['method_extras'] or '{}')
+    except Exception:
+        extras = {}
+    token = extras.get('bot_token', '')
+    if not token:
+        return jsonify(ok=True)
+    try:
+        rate = float(extras.get('rate_usd_per_100', 1.5) or 1.5)
+    except (TypeError, ValueError):
+        rate = 1.5
+    admin_chat_id = extras.get('admin_chat_id', '')
+
+    update = freq.get_json(silent=True) or {}
+
+    def tg_call(method, payload):
+        try:
+            requests.post(f'https://api.telegram.org/bot{token}/{method}', json=payload, timeout=10)
+        except Exception:
+            pass
+
+    pcq = update.get('pre_checkout_query')
+    if pcq:
+        tg_call('answerPreCheckoutQuery', {'pre_checkout_query_id': pcq['id'], 'ok': True})
+        return jsonify(ok=True)
+
+    msg = update.get('message')
+    if not msg:
+        return jsonify(ok=True)
+
+    chat_id = msg.get('chat', {}).get('id')
+
+    sp = msg.get('successful_payment')
+    if sp:
+        charge_id = sp.get('telegram_payment_charge_id', '')
+        payload = sp.get('invoice_payload', '')
+        try:
+            stars = int(sp.get('total_amount', 0))
+        except (TypeError, ValueError):
+            stars = 0
+        m = re.match(r'^s(\d+)_(\d+)$', payload or '')
+        if not m or not charge_id:
+            return jsonify(ok=True)
+        uid = int(m.group(1))
+        credited = round((stars / 100.0) * rate, 4)
+        ext_ref = f'tgstars_{charge_id}'
+        conn = get_db()
+        urow = conn.execute('SELECT id, name FROM users WHERE id=?', (uid,)).fetchone()
+        if not urow:
+            conn.close()
+            return jsonify(ok=True)
+        try:
+            conn.execute('INSERT INTO recharge_requests(user_id, amount, method, status, ext_ref, auto) VALUES(?,?,?,?,?,1)',
+                         (uid, credited, 'Telegram Stars', 'approved', ext_ref))
+            conn.execute('UPDATE users SET balance=balance+?, telegram_chat_id=? WHERE id=?', (credited, str(chat_id), uid))
+            conn.commit()
+        except sqlite3.IntegrityError:
+            conn.rollback()
+            conn.close()
+            return jsonify(ok=True)
+        conn.close()
+        push_user_notif(uid, 'recharge', f'تم شحن ${credited:.2f}',
+                         f'تم الدفع بـ {stars} نجمة تليجرام وإضافة الرصيد تلقائياً', 'check', goto='recharge:')
+        if admin_chat_id:
+            tg_call('sendMessage', {'chat_id': admin_chat_id,
+                     'text': f'💰 دفع جديد بنجوم تليجرام\nالمستخدم: {urow["name"]} (#{uid})\nالنجوم: {stars}\nالمبلغ: ${credited:.2f}'})
+        tg_call('sendMessage', {'chat_id': chat_id, 'text': f'✅ تم شحن رصيدك بمقدار ${credited:.2f} بنجاح! يمكنك الآن العودة للموقع.'})
+        return jsonify(ok=True)
+
+    text = (msg.get('text') or '').strip()
+    if text.startswith('/start'):
+        parts = text.split(' ', 1)
+        payload = parts[1].strip() if len(parts) > 1 else ''
+        m = re.match(r'^s(\d+)_(\d+)$', payload)
+        if not m:
+            tg_call('sendMessage', {'chat_id': chat_id, 'text': 'أهلاً! افتح هذا الرابط من داخل الموقع لشحن رصيدك بالنجوم.'})
+            return jsonify(ok=True)
+        uid, stars = int(m.group(1)), int(m.group(2))
+        conn = get_db()
+        urow = conn.execute('SELECT id FROM users WHERE id=?', (uid,)).fetchone()
+        if urow:
+            conn.execute('UPDATE users SET telegram_chat_id=? WHERE id=?', (str(chat_id), uid))
+            conn.commit()
+        conn.close()
+        if not urow:
+            tg_call('sendMessage', {'chat_id': chat_id, 'text': 'تعذر التعرف على حسابك، حاول الدخول من الموقع مرة أخرى.'})
+            return jsonify(ok=True)
+        credited = round((stars / 100.0) * rate, 4)
+        tg_call('sendInvoice', {
+            'chat_id': chat_id,
+            'title': f'شحن رصيد — {stars} نجمة',
+            'description': f'شحن رصيدك في الموقع بمقدار ${credited:.2f} مقابل {stars} نجمة تليجرام',
+            'payload': payload,
+            'currency': 'XTR',
+            'prices': [{'label': f'{stars} نجمة', 'amount': stars}],
+        })
+        return jsonify(ok=True)
+
+    return jsonify(ok=True)
 
 @app.route('/api/admin/asiacell-debug')
 def api_admin_asiacell_debug():
@@ -5339,6 +5660,71 @@ def push_user_notif(user_id, ntype, title, text, icon='bell', goto=''):
     except Exception as e:
         print(f" [notif] send_push raised uid={user_id}: {e}")
 
+def send_ai_notif(user_id, title, text):
+    """إشعار من المساعد الذكي — ينشئ محادثة AI جديدة برسالة جاهزة، بحيث عند
+    الضغط على الإشعار تنفتح صفحة الدردشة على نفس الموضوع مباشرة."""
+    if get_setting('ai_notif_enabled', '1') != '1':
+        return
+    try:
+        conn = get_db()
+        cur = conn.execute('INSERT INTO ai_conversations(user_id, title, created_at, updated_at) VALUES(?,?,?,?)',
+                            (user_id, title[:60], time.time(), time.time()))
+        conv_id = cur.lastrowid
+        conn.execute('INSERT INTO ai_messages(conversation_id, role, content, created_at) VALUES(?,?,?,?)',
+                      (conv_id, 'assistant', text, time.time()))
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        print(f" [ai-notif] DB write failed uid={user_id}: {e}")
+        return
+    push_user_notif(user_id, 'ai', title, text, 'robot', goto=f'ai:{conv_id}')
+
+_AI_NUDGE_INTERVAL = 21600  # كل 6 ساعات
+
+def _do_ai_inactivity_check():
+    if get_setting('ai_notif_enabled', '1') != '1':
+        return
+    try:
+        days = float(get_setting('ai_inactivity_days', '3') or 3)
+    except ValueError:
+        days = 3
+    threshold = days * 86400
+    now = time.time()
+    try:
+        conn = get_db()
+        rows = conn.execute('SELECT id, last_seen, last_ai_nudge, created_at FROM users WHERE banned=0').fetchall()
+        conn.close()
+    except Exception as e:
+        print(f" [ai-nudge] فشل الاستعلام: {e}")
+        return
+    for u in rows:
+        last_seen = float(u['last_seen'] or u['created_at'] or 0)
+        last_nudge = float(u['last_ai_nudge'] or 0)
+        if not last_seen or now - last_seen < threshold:
+            continue
+        if now - last_nudge < threshold:
+            continue
+        try:
+            conn2 = get_db()
+            conn2.execute('UPDATE users SET last_ai_nudge=? WHERE id=?', (now, u['id']))
+            conn2.commit()
+            conn2.close()
+        except Exception:
+            continue
+        send_ai_notif(u['id'], '🤖 اشتقنا لك!',
+            'لاحظنا أنك لم تزر الموقع منذ فترة 👋 إذا احتجت مساعدة باختيار خدمة أو عندك أي استفسار، أنا هنا جاهز لمساعدتك بأي وقت!')
+
+def _ai_inactivity_thread():
+    time.sleep(600)
+    while True:
+        try:
+            _do_ai_inactivity_check()
+        except Exception as e:
+            print(f" [ai-nudge] خطأ: {e}")
+        time.sleep(_AI_NUDGE_INTERVAL)
+
+threading.Thread(target=_ai_inactivity_thread, daemon=True).start()
+
 @app.route('/api/notifications', methods=['POST'])
 def api_user_notifs():
     if 'user_id' not in session:
@@ -5769,7 +6155,10 @@ def api_admin_site_settings_get():
             'backup_enabled','backup_interval','tg_bot_token','tg_chat_id','provider_api_url','provider_api_key',
             'rate_IQD','rate_EUR','rate_SAR','rate_AED','rate_TRY','google_client_id',
             'support_whatsapp','site_terms','site_privacy','skip_email_verify',
-            'deepseek_api_key','deepseek_model','ai_logo']
+            'deepseek_api_key','deepseek_model','ai_logo',
+            'daily_bonus_enabled','daily_bonus_percent',
+            'auto_import_enabled','auto_import_profit_pct',
+            'ai_notif_enabled','ai_inactivity_days']
     out = {}
     conn = get_db()
     for k in keys:
@@ -5800,7 +6189,10 @@ def api_admin_site_settings_save():
     allowed = ['site_name','site_name_color','smtp_enabled','smtp_host','smtp_port','smtp_tls','smtp_email','smtp_password','smtp_sender_name',
                'backup_enabled','backup_interval','tg_bot_token','tg_chat_id','provider_api_url','provider_api_key',
                'google_client_id','deepseek_api_key','deepseek_model','ai_logo',
-               'support_whatsapp','site_terms','site_privacy','skip_email_verify'] + [f'rate_{c}' for c in CURRENCY_DEFAULT_RATES]
+               'support_whatsapp','site_terms','site_privacy','skip_email_verify',
+               'daily_bonus_enabled','daily_bonus_percent',
+               'auto_import_enabled','auto_import_profit_pct',
+               'ai_notif_enabled','ai_inactivity_days'] + [f'rate_{c}' for c in CURRENCY_DEFAULT_RATES]
     conn = get_db()
     for k in allowed:
         if k in data:
@@ -6369,11 +6761,11 @@ def api_admin_daily_gift_get():
     u = conn.execute('SELECT role FROM users WHERE id=?', (session['user_id'],)).fetchone()
     if not u or u['role'] != 'admin':
         conn.close(); return jsonify(ok=False), 403
-    dg_amount = _get_setting('daily_gift_amount', '0')
-    dg_code = _get_setting('daily_gift_code', '')
-    dg_date = _get_setting('daily_gift_date', '')
-    dg_max = _get_setting('daily_gift_max_uses', '100')
-    dg_active = _get_setting('daily_gift_active', '0')
+    dg_amount = get_setting('daily_gift_amount', '0')
+    dg_code = get_setting('daily_gift_code', '')
+    dg_date = get_setting('daily_gift_date', '')
+    dg_max = get_setting('daily_gift_max_uses', '100')
+    dg_active = get_setting('daily_gift_active', '0')
     conn.close()
     return jsonify(ok=True, amount=dg_amount, code=dg_code, date=dg_date, max_uses=dg_max, active=dg_active)
 
@@ -6396,11 +6788,11 @@ def api_admin_daily_gift_save():
     cid = str(uuid.uuid4())[:8]
     conn.execute('INSERT INTO coupons(id,code,amount,max_uses,expires_at) VALUES(?,?,?,?,?)',
                  (cid, code, amount, max_uses, expires))
-    _set_setting('daily_gift_amount', str(amount))
-    _set_setting('daily_gift_code', code)
-    _set_setting('daily_gift_date', today)
-    _set_setting('daily_gift_max_uses', str(max_uses))
-    _set_setting('daily_gift_active', '1')
+    set_setting('daily_gift_amount', str(amount))
+    set_setting('daily_gift_code', code)
+    set_setting('daily_gift_date', today)
+    set_setting('daily_gift_max_uses', str(max_uses))
+    set_setting('daily_gift_active', '1')
     if notify:
         users = conn.execute('SELECT id FROM users WHERE role!="admin"').fetchall()
         for usr in users:
@@ -6414,14 +6806,61 @@ def api_admin_daily_gift_save():
 @app.route('/api/daily-gift-code')
 def api_daily_gift_code():
     if 'user_id' not in session: return jsonify(ok=False), 401
-    active = _get_setting('daily_gift_active', '0')
+    active = get_setting('daily_gift_active', '0')
     if active != '1': return jsonify(ok=True, active=False)
-    code = _get_setting('daily_gift_code', '')
-    amount = _get_setting('daily_gift_amount', '0')
-    dg_date = _get_setting('daily_gift_date', '')
+    code = get_setting('daily_gift_code', '')
+    amount = get_setting('daily_gift_amount', '0')
+    dg_date = get_setting('daily_gift_date', '')
     today = time.strftime('%Y-%m-%d')
     if dg_date != today: return jsonify(ok=True, active=False)
     return jsonify(ok=True, active=True, code=code, amount=amount)
+
+@app.route('/api/daily-bonus/status')
+def api_daily_bonus_status():
+    if 'user_id' not in session:
+        return jsonify(ok=False), 401
+    enabled = get_setting('daily_bonus_enabled', '0') == '1'
+    try:
+        percent = float(get_setting('daily_bonus_percent', '2') or 2)
+    except ValueError:
+        percent = 2
+    conn = get_db()
+    row = conn.execute('SELECT last_daily_bonus FROM users WHERE id=?', (session['user_id'],)).fetchone()
+    conn.close()
+    last = float(row['last_daily_bonus'] or 0) if row else 0
+    elapsed = time.time() - last
+    can_claim = enabled and elapsed >= 86400
+    return jsonify(ok=True, enabled=enabled, percent=percent, can_claim=can_claim,
+                   seconds_left=max(0, int(86400 - elapsed)))
+
+@app.route('/api/daily-bonus/claim', methods=['POST'])
+def api_daily_bonus_claim():
+    if 'user_id' not in session:
+        return jsonify(ok=False, msg='غير مصرح'), 401
+    if get_setting('daily_bonus_enabled', '0') != '1':
+        return jsonify(ok=False, msg='هذه الميزة غير مفعّلة حالياً')
+    uid = session['user_id']
+    conn = get_db()
+    row = conn.execute('SELECT last_daily_bonus, balance FROM users WHERE id=?', (uid,)).fetchone()
+    if not row:
+        conn.close()
+        return jsonify(ok=False, msg='خطأ'), 404
+    last = float(row['last_daily_bonus'] or 0)
+    if time.time() - last < 86400:
+        conn.close()
+        return jsonify(ok=False, msg='يمكنك استلام المكافأة مرة كل 24 ساعة فقط')
+    try:
+        percent = float(get_setting('daily_bonus_percent', '2') or 2)
+    except ValueError:
+        percent = 2
+    balance = float(row['balance'] or 0)
+    amount = round(balance * percent / 100, 4)
+    new_balance = round(balance + amount, 4)
+    conn.execute('UPDATE users SET balance=?, last_daily_bonus=? WHERE id=?', (new_balance, time.time(), uid))
+    conn.commit()
+    conn.close()
+    push_user_notif(uid, 'system', 'مكافأتك اليومية 🎁', f'حصلت على ${amount:.2f} ({percent:g}% من رصيدك الحالي)', 'gift')
+    return jsonify(ok=True, amount=amount, new_balance=new_balance)
 
 @app.route('/api/reviews')
 def api_get_reviews():
@@ -6982,6 +7421,10 @@ body{font-family:IBM Plex Sans Arabic,'Tajawal',sans-serif;background:var(--bg);
       <div class="form-group"><label>البريد الإلكتروني</label><div class="input-wrap"><input type="email" placeholder="أدخل بريدك الإلكتروني" id="regEmail"><i class="fa-solid fa-envelope fi"></i></div></div>
       <div class="form-group"><label>كلمة المرور</label><div class="input-wrap"><input type="password" placeholder="••••••••" id="regPass"><i class="fa-solid fa-lock fi"></i><button class="eye-btn" id="eyeRegPass"><i class="fa-solid fa-eye"></i></button></div></div>
       <div class="form-group"><label>تأكيد كلمة المرور</label><div class="input-wrap"><input type="password" placeholder="••••••••" id="regPassC"><i class="fa-solid fa-shield-halved fi"></i><button class="eye-btn" id="eyeRegPassC"><i class="fa-solid fa-eye"></i></button></div></div>
+      <div style="display:flex;align-items:flex-start;gap:8px;margin:4px 0 14px">
+        <input type="checkbox" id="regAgreePolicy" style="margin-top:3px;width:16px;height:16px;flex-shrink:0;cursor:pointer;accent-color:var(--primary)">
+        <label for="regAgreePolicy" style="font-size:11px;color:var(--text2);line-height:1.6;cursor:pointer">أوافق على <a href="#" onclick="event.preventDefault();openPolicyModal('terms')" style="color:var(--primary);font-weight:700;text-decoration:none">الشروط والأحكام</a> و<a href="#" onclick="event.preventDefault();openPolicyModal('privacy')" style="color:var(--primary);font-weight:700;text-decoration:none">سياسة الخصوصية</a></label>
+      </div>
       <button class="btn-primary" id="btnRegister">إنشاء الحساب <i class="fa-solid fa-user-check"></i></button>
       <div style="display:flex;align-items:center;gap:12px;margin:16px 0"><div style="flex:1;height:1px;background:var(--divider)"></div><span style="font-size:12px;color:var(--text3)">أو</span><div style="flex:1;height:1px;background:var(--divider)"></div></div>
       <button type="button" class="btn-google" id="btnGoogleReg"><svg width="18" height="18" viewBox="0 0 48 48"><path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/><path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/><path fill="#FBBC05" d="M10.53 28.59a14.5 14.5 0 0 1 0-9.18l-7.98-6.19a24.01 24.01 0 0 0 0 21.56l7.98-6.19z"/><path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/></svg> التسجيل بواسطة Google</button>
@@ -7000,6 +7443,16 @@ body{font-family:IBM Plex Sans Arabic,'Tajawal',sans-serif;background:var(--bg);
     <div class="auth-footer" id="authFooter"><span id="footerText">ليس لديك حساب؟ <a id="footerLink">أنشئ واحداً</a></span></div>
   </div>
 </section>
+
+<div id="policyModalOv" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:9999;align-items:center;justify-content:center;padding:16px" onclick="if(event.target===this)closePolicyModal()">
+  <div style="background:var(--card);border-radius:16px;max-width:480px;width:100%;max-height:80vh;display:flex;flex-direction:column;overflow:hidden;box-shadow:var(--shadow-lg)">
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:16px;border-bottom:1px solid var(--divider)">
+      <h3 id="policyModalTitle" style="margin:0;font-size:15px;font-weight:800;color:var(--text)">الشروط والأحكام</h3>
+      <button onclick="closePolicyModal()" style="background:none;border:none;font-size:20px;line-height:1;color:var(--text3);cursor:pointer">&times;</button>
+    </div>
+    <div id="policyModalBody" style="padding:16px;overflow-y:auto;font-size:12px;color:var(--text2);line-height:1.9;white-space:pre-wrap"></div>
+  </div>
+</div>
 
 <section class="section section-alt">
   <div class="section-title reveal"><h2><i class="fa-solid fa-sparkles" style="color:var(--primary)"></i> لماذا __SITE_NAME__؟</h2><p>نوفر لك كل ما تحتاجه لتطوير حساباتك على السوشيال ميديا</p></div>
@@ -7054,6 +7507,19 @@ body{font-family:IBM Plex Sans Arabic,'Tajawal',sans-serif;background:var(--bg);
     var t=document.createElement('div');t.className='msg-toast '+type;t.textContent=msg;
     document.body.appendChild(t);setTimeout(function(){t.remove();},3500);
   }
+
+  function openPolicyModal(type){
+    document.getElementById('policyModalTitle').textContent=type==='terms'?'الشروط والأحكام':'سياسة الخصوصية';
+    var body=document.getElementById('policyModalBody');body.textContent='جاري التحميل...';
+    document.getElementById('policyModalOv').style.display='flex';
+    fetch('/api/site-policies').then(function(r){return r.json();}).then(function(d){
+      var txt=(type==='terms'?d.terms:d.privacy)||'لا يوجد محتوى بعد.';
+      body.textContent=txt;
+    }).catch(function(){body.textContent='تعذر تحميل المحتوى، حاول مرة أخرى.';});
+  }
+  window.openPolicyModal=openPolicyModal;
+  function closePolicyModal(){document.getElementById('policyModalOv').style.display='none';}
+  window.closePolicyModal=closePolicyModal;
 
   var params=new URLSearchParams(window.location.search);
   if(params.get('verified')==='1') toast('تم تأكيد حسابك بنجاح! سجّل الدخول الآن','success');
@@ -7174,6 +7640,7 @@ body{font-family:IBM Plex Sans Arabic,'Tajawal',sans-serif;background:var(--bg);
     var pw2=document.getElementById('regPassC').value;
     if(!name||!email||!pw){toast('جميع الحقول مطلوبة','error');btn.disabled=false;return;}
     if(pw!==pw2){toast('كلمة المرور غير متطابقة','error');btn.disabled=false;return;}
+    if(!document.getElementById('regAgreePolicy').checked){toast('يجب الموافقة على الشروط والأحكام وسياسة الخصوصية','error');btn.disabled=false;return;}
     fetch('/api/register',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:name,email:email,password:pw,password2:pw2,ref_code:sessionStorage.getItem('fc_ref')||new URLSearchParams(window.location.search).get('ref')||''})})
     .then(function(r){return r.json();})
     .then(function(d){
@@ -7353,6 +7820,8 @@ def dashboard():
     is_admin = session.get('is_admin', False)
     conn = get_db()
     urow = conn.execute('SELECT avatar FROM users WHERE id=?', (session['user_id'],)).fetchone()
+    conn.execute('UPDATE users SET last_seen=? WHERE id=?', (time.time(), session['user_id']))
+    conn.commit()
     conn.close()
     avatar_url = (urow['avatar'] if urow and urow['avatar'] else '') or ''
     site_name = get_setting('site_name', 'fastcrand')
@@ -7476,9 +7945,6 @@ body{font-family:var(--font);background:var(--bg);color:var(--text);transition:b
 .noti-tag.t-order{background:rgba(59,130,246,.08);color:#3b82f6}
 .noti-tag.t-system{background:rgba(139,92,246,.08);color:#8b5cf6}
 .noti-tag.t-promo{background:rgba(236,72,153,.08);color:#ec4899}
-.noti-del{width:24px;height:24px;border-radius:6px;border:none;background:transparent;color:var(--text3);cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:10px;transition:all .15s}
-.noti-del:hover{background:rgba(239,68,68,.08);color:var(--red)}
-.noti-read-btn:hover{background:rgba(16,185,129,.1);color:#10b981}
 .noti-empty{text-align:center;padding:30px 20px}
 .noti-empty-ic{font-size:24px;color:var(--text3);opacity:.3;margin-bottom:8px}
 .noti-empty-text{font-size:12px;font-weight:800;color:var(--text)}
@@ -7700,17 +8166,16 @@ html:not([data-theme="dark"]) .ai-cs-card::after{background:linear-gradient(105d
 .acc-left{display:flex;flex-direction:column;gap:12px;position:sticky;top:68px}
 .acc-profile-desk{background:var(--card);border:1px solid var(--card-border);border-radius:16px;padding:24px 20px;text-align:center;position:relative;overflow:hidden}
 .acc-profile-desk::before{content:'';position:absolute;top:0;left:0;right:0;height:60px;background:linear-gradient(135deg,var(--primary),#a78bfa);opacity:.06}
-.acc-av-big{width:64px;height:64px;border-radius:16px;background:linear-gradient(135deg,var(--primary),var(--primary-light));display:flex;align-items:center;justify-content:center;color:#fff;font-size:22px;font-weight:800;margin:0 auto 12px;box-shadow:0 6px 20px rgba(99,102,241,.15);position:relative;z-index:1}
+.acc-av-big{width:64px;height:64px;border-radius:16px;background:linear-gradient(135deg,var(--primary),var(--primary-light));display:flex;align-items:center;justify-content:center;color:#fff;font-size:22px;font-weight:800;margin:0 auto 12px;box-shadow:0 6px 20px rgba(99,102,241,.15);position:relative;z-index:1;cursor:pointer;background-size:cover;background-position:center}
 .acc-nm-big{font-size:17px;font-weight:900;position:relative}
-.acc-em-big{font-size:10px;color:var(--text3);direction:ltr;margin-top:2px;position:relative}
-.acc-lvl-big{display:inline-flex;align-items:center;gap:4px;padding:4px 12px;border-radius:6px;background:var(--primary-bg);color:var(--primary-light);font-size:9px;font-weight:700;margin-top:10px;position:relative}
 .acc-div-desk{height:1px;background:var(--card-border);margin:16px 0}
-.acc-stats-desk{display:flex;justify-content:center;gap:20px}
+.acc-stats-desk{display:grid;grid-template-columns:repeat(3,1fr);gap:12px 6px}
+.acc-stats-mob{display:grid;grid-template-columns:repeat(3,1fr);gap:12px 6px;margin-top:14px;padding-top:14px;border-top:1px solid var(--card-border)}
 .asd{text-align:center}
 .asd-n{font-family:var(--font-num);font-size:16px;font-weight:900;color:var(--primary-light)}
 .asd-l{font-size:8px;color:var(--text3);margin-top:1px}
-.acc-logout-desk{margin-top:16px;padding:11px;border-radius:11px;background:rgba(79,70,229,.04);border:1px solid rgba(79,70,229,.1);color:var(--primary);font-size:11px;font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:6px;text-decoration:none;transition:all .15s}
-.acc-logout-desk:hover{background:rgba(79,70,229,.08)}
+.acc-logout-desk{margin-top:16px;padding:11px;border-radius:11px;background:rgba(239,68,68,.06);border:1px solid rgba(239,68,68,.15);color:var(--red);font-size:11px;font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:6px;text-decoration:none;transition:all .15s}
+.acc-logout-desk:hover{background:rgba(239,68,68,.1)}
 .qa-card{background:var(--card);border:1px solid var(--card-border);border-radius:14px;padding:14px}
 .qa-title{font-size:10px;font-weight:800;color:var(--text3);margin-bottom:10px;display:flex;align-items:center;gap:4px}
 .qa-title i{color:var(--primary);font-size:9px}
@@ -7769,9 +8234,8 @@ html:not([data-theme="dark"]) .ai-cs-card::after{background:linear-gradient(105d
 .curr-card-vps-chev{color:var(--text3);font-size:13px;flex-shrink:0}
 .acc-user{display:flex;align-items:center;gap:12px;padding:16px;position:relative;overflow:hidden}
 .acc-user::before{content:'';position:absolute;top:-20px;left:-20px;width:100px;height:100px;border-radius:50%;background:var(--primary);opacity:.06;filter:blur(30px)}
-.acc-avatar{width:46px;height:46px;border-radius:12px;background:linear-gradient(135deg,var(--primary),var(--primary-light));display:flex;align-items:center;justify-content:center;color:#fff;font-size:17px;font-weight:800;flex-shrink:0}
-.acc-name{font-size:15px;font-weight:800}.acc-email{font-size:10px;color:var(--text3);direction:ltr;text-align:right;margin-top:2px}
-.acc-level{display:inline-flex;align-items:center;gap:4px;padding:2px 8px;border-radius:5px;background:var(--primary-glow);color:var(--primary-light);font-size:8px;font-weight:700;margin-top:5px}
+.acc-avatar{width:46px;height:46px;border-radius:12px;background:linear-gradient(135deg,var(--primary),var(--primary-light));display:flex;align-items:center;justify-content:center;color:#fff;font-size:17px;font-weight:800;flex-shrink:0;position:relative;cursor:pointer;background-size:cover;background-position:center}
+.acc-name{font-size:15px;font-weight:800}
 .sec-sep{font-size:10px;font-weight:800;color:var(--text3);letter-spacing:1px;padding:0 4px;margin:14px 0 6px;display:flex;align-items:center;gap:6px}
 .sec-sep::after{content:'';flex:1;height:1px;background:var(--card-border)}
 .acc-item{display:flex;align-items:center;gap:10px;padding:13px 14px;cursor:pointer;transition:all .15s;border-bottom:1px solid var(--card-border);color:var(--text);text-decoration:none;font-size:12px;font-weight:700}
@@ -7792,8 +8256,8 @@ html:not([data-theme="dark"]) .ai-cs-card::after{background:linear-gradient(105d
 .theme-switch-vis{width:42px;height:23px;border-radius:12px;background:var(--input-bg);border:1px solid var(--card-border);display:flex;align-items:center;justify-content:center;color:var(--text3);font-size:10px;transition:all .25s;flex-shrink:0}
 [data-theme="dark"] .theme-switch-vis{background:var(--primary);color:#fff;border-color:var(--primary)}
 .acc-item .arr{margin-right:auto;color:var(--text3);font-size:11px}
-.logout-btn{display:flex;align-items:center;justify-content:center;gap:8px;padding:12px;border-radius:12px;background:rgba(79,70,229,0.04);border:1px solid rgba(79,70,229,0.1);color:var(--primary);font-size:12px;font-weight:700;cursor:pointer;margin-top:24px;margin-bottom:10px;text-decoration:none}
-.logout-btn:hover{background:rgba(79,70,229,0.08)}
+.logout-btn{display:flex;align-items:center;justify-content:center;gap:8px;padding:12px;border-radius:12px;background:rgba(239,68,68,.06);border:1px solid rgba(239,68,68,.15);color:var(--red);font-size:12px;font-weight:700;cursor:pointer;margin-top:24px;margin-bottom:10px;text-decoration:none}
+.logout-btn:hover{background:rgba(239,68,68,.1)}
 /* ORDERS */
 .ord-stats{display:flex;gap:6px;margin-bottom:10px}
 .os{flex:1;background:var(--card);border:1px solid var(--card-border);border-radius:12px;padding:10px 6px;text-align:center;transition:.3s}.os .n{font-size:20px;font-weight:900}.os .n.gn{color:var(--green)}.os .n.yl{color:var(--orange)}.os .n.rd{color:var(--red)}.os .l{font-size:9px;color:var(--text3);font-weight:700;display:flex;align-items:center;justify-content:center;gap:4px;margin-top:3px}.os .l i{font-size:8px}
@@ -8939,8 +9403,6 @@ body.chat-mode{padding-bottom:0!important;overflow:hidden!important;height:100vh
 .acc-user{padding:12px!important;gap:10px!important}
 .acc-avatar{width:38px!important;height:38px!important;border-radius:10px!important;font-size:14px!important}
 .acc-name{font-size:13px!important}
-.acc-email{font-size:9px!important}
-.acc-level{font-size:7px!important;padding:2px 6px!important}
 .acc-item{padding:10px 12px!important;font-size:11px!important;gap:8px!important}
 .acc-item .mi-ic{width:28px!important;height:28px!important;border-radius:8px!important;font-size:11px!important}
 .acc-item .mi-info .mi-title{font-size:11px!important}
@@ -9141,21 +9603,21 @@ html:not([data-theme="dark"]) .rv-bar-bg{background:rgba(0,0,0,.05)}
 .rv-bar-fill{height:100%;border-radius:3px;background:#f59e0b;transition:width .6s ease}
 .rv-bar-pct{font-size:7px;color:var(--text3);font-family:var(--font-num);font-weight:700;width:24px;text-align:left}
 .rv-grid{position:relative;overflow:hidden}
-.rv-item{padding:18px;border-radius:16px;background:var(--platform-bg);border:1px solid var(--card-border);display:flex;gap:12px;position:relative;overflow:hidden}
+.rv-item{padding:9px;border-radius:9px;background:var(--platform-bg);border:1px solid var(--card-border);display:flex;gap:7px;position:relative;overflow:hidden}
 .rv-item.rv-slide{animation:rvSlideIn .5s ease}
 @keyframes rvSlideIn{from{opacity:0;transform:translateX(24px)}to{opacity:1;transform:translateX(0)}}
 .rv-item::after{content:'';position:absolute;top:0;left:-100%;width:60%;height:100%;pointer-events:none;z-index:2;animation:pc5sweep 4s ease-in-out .5s infinite}
 html:not([data-theme="dark"]) .rv-item::after{background:linear-gradient(105deg,transparent 40%,rgba(255,255,255,.4) 45%,rgba(255,255,255,.7) 50%,rgba(255,255,255,.4) 55%,transparent 60%)}
 [data-theme="dark"] .rv-item::after{background:linear-gradient(105deg,transparent 40%,rgba(255,255,255,.02) 45%,rgba(255,255,255,.05) 50%,rgba(255,255,255,.02) 55%,transparent 60%)}
-.rv-av{width:48px;height:48px;border-radius:13px;display:flex;align-items:center;justify-content:center;font-size:16px;font-weight:900;color:#fff;flex-shrink:0;margin-top:2px}
+.rv-av{width:26px;height:26px;border-radius:7px;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:900;color:#fff;flex-shrink:0;margin-top:1px}
 .rv-av.c1{background:linear-gradient(135deg,#6366f1,#818cf8)}.rv-av.c2{background:linear-gradient(135deg,#10b981,#34d399)}.rv-av.c3{background:linear-gradient(135deg,#f59e0b,#fbbf24)}.rv-av.c4{background:linear-gradient(135deg,#0ea5e9,#38bdf8)}.rv-av.c5{background:linear-gradient(135deg,#ef4444,#f87171)}.rv-av.c6{background:linear-gradient(135deg,#ec4899,#f472b6)}
-.rv-body{flex:1;min-width:0}.rv-top{display:flex;align-items:center;justify-content:space-between;margin-bottom:6px}
-.rv-name{font-size:13px;font-weight:800;display:flex;align-items:center;gap:5px}
-.rv-verified{color:var(--green);font-size:9px}
-.rv-item-stars{display:flex;gap:2px}.rv-item-stars i{font-size:10px;color:#f59e0b}
-.rv-text{font-size:12px;color:var(--text2);line-height:1.7}
-.rv-footer{display:flex;align-items:center;gap:8px;margin-top:6px}
-.rv-date{font-size:8px;color:var(--text3);font-weight:600}
+.rv-body{flex:1;min-width:0}.rv-top{display:flex;align-items:center;justify-content:space-between;margin-bottom:3px}
+.rv-name{font-size:11px;font-weight:800;display:flex;align-items:center;gap:4px}
+.rv-verified{color:var(--green);font-size:8px}
+.rv-item-stars{display:flex;gap:1px}.rv-item-stars i{font-size:8px;color:#f59e0b}
+.rv-text{font-size:10px;color:var(--text2);line-height:1.5}
+.rv-footer{display:flex;align-items:center;gap:6px;margin-top:3px}
+.rv-date{font-size:7px;color:var(--text3);font-weight:600}
 .rv-refresh{display:flex;align-items:center;justify-content:center;gap:4px;margin-top:10px;font-size:8px;color:var(--text3);font-weight:600}
 .rv-refresh i{font-size:7px;color:var(--primary-light)}
 @media(min-width:768px){.rv-summary{max-width:480px}}
@@ -9482,15 +9944,16 @@ html:not([data-theme="dark"]) .rv-star-btn{color:rgba(0,0,0,.1)}
     <div class="acc-desktop">
     <div class="acc-left">
       <div class="acc-profile-desk">
-        <div class="acc-av-big">__UINIT__</div>
+        <div class="acc-av-big" onclick="document.getElementById('accAvInput').click()">__UINIT__<input type="file" accept="image/*" id="accAvInput" class="pc5-av-input" onchange="previewAvatar(this)"><div class="pc5-av-cam"><i class="fa-solid fa-camera"></i></div></div>
         <div class="acc-nm-big">__UNAME__</div>
-        <div class="acc-em-big">__UEMAIL__</div>
-        <div class="acc-lvl-big"><i class="fa-solid fa-crown" style="font-size:8px"></i> عضو مميز</div>
         <div class="acc-div-desk"></div>
         <div class="acc-stats-desk">
-          <div class="asd"><div class="asd-n" id="accStatOrders">0</div><div class="asd-l">طلبات</div></div>
-          <div class="asd"><div class="asd-n" id="accStatTickets">0</div><div class="asd-l">تذاكر</div></div>
-          <div class="asd"><div class="asd-n" id="accStatBal">$0</div><div class="asd-l">رصيد</div></div>
+          <div class="asd"><div class="asd-n" data-stat="balance">$0</div><div class="asd-l">الرصيد</div></div>
+          <div class="asd"><div class="asd-n" data-stat="spent">$0</div><div class="asd-l">إجمالي الإنفاق</div></div>
+          <div class="asd"><div class="asd-n" data-stat="completed">0</div><div class="asd-l">مكتملة</div></div>
+          <div class="asd"><div class="asd-n" data-stat="active">0</div><div class="asd-l">نشطة</div></div>
+          <div class="asd"><div class="asd-n" data-stat="pending">0</div><div class="asd-l">معلّقة</div></div>
+          <div class="asd"><div class="asd-n" data-stat="tickets">0</div><div class="asd-l">تذاكر</div></div>
         </div>
         <a class="acc-logout-desk" href="#" onclick="event.preventDefault();openLogoutSheet()"><i class="fa-solid fa-right-from-bracket"></i> تسجيل الخروج</a>
       </div>
@@ -9513,12 +9976,18 @@ html:not([data-theme="dark"]) .rv-star-btn{color:rgba(0,0,0,.1)}
     <div class="acc-right">
     <div class="acc-card mob-profile">
       <div class="acc-user">
-        <div class="acc-avatar">__UINIT__</div>
+        <div class="acc-avatar" onclick="document.getElementById('accAvInputMob').click()">__UINIT__<input type="file" accept="image/*" id="accAvInputMob" class="pc5-av-input" onchange="previewAvatar(this)"><div class="pc5-av-cam" style="width:15px;height:15px;font-size:6px"></div></div>
         <div>
           <div class="acc-name">__UNAME__</div>
-          <div class="acc-email">__UEMAIL__</div>
-          <div class="acc-level"><i class="fa-solid fa-crown"></i> عضو مميز</div>
         </div>
+      </div>
+      <div class="acc-stats-mob">
+        <div class="asd"><div class="asd-n" data-stat="balance">$0</div><div class="asd-l">الرصيد</div></div>
+        <div class="asd"><div class="asd-n" data-stat="spent">$0</div><div class="asd-l">إجمالي الإنفاق</div></div>
+        <div class="asd"><div class="asd-n" data-stat="completed">0</div><div class="asd-l">مكتملة</div></div>
+        <div class="asd"><div class="asd-n" data-stat="active">0</div><div class="asd-l">نشطة</div></div>
+        <div class="asd"><div class="asd-n" data-stat="pending">0</div><div class="asd-l">معلّقة</div></div>
+        <div class="asd"><div class="asd-n" data-stat="tickets">0</div><div class="asd-l">تذاكر</div></div>
       </div>
     </div>
 
@@ -9529,6 +9998,14 @@ html:not([data-theme="dark"]) .rv-star-btn{color:rgba(0,0,0,.1)}
         <div class="curr-card-vps-title">عملة عرض الأسعار</div>
         <div class="curr-card-vps-sub">تُطبَّق على كل الأسعار المعروضة لك في التطبيق والموقع</div>
         <div class="curr-card-vps-value" id="currBtnVal">USD</div>
+      </div>
+      <i class="fa-solid fa-chevron-left curr-card-vps-chev"></i>
+    </div>
+    <div class="curr-card-vps nonadmin-only" id="dailyBonusCard" style="display:none" onclick="claimDailyBonus()">
+      <div class="curr-card-vps-ic" style="background:rgba(16,185,129,.1);color:var(--green)"><i class="fa-solid fa-gift"></i></div>
+      <div class="curr-card-vps-text">
+        <div class="curr-card-vps-title">مكافأة يومية</div>
+        <div class="curr-card-vps-sub" id="dailyBonusSub">اضغط للحصول على نسبة من رصيدك</div>
       </div>
       <i class="fa-solid fa-chevron-left curr-card-vps-chev"></i>
     </div>
@@ -9813,10 +10290,11 @@ html:not([data-theme="dark"]) .rv-star-btn{color:rgba(0,0,0,.1)}
       <div class="set-item" onclick="openAdmOV('smtpPage');loadSiteSettings()"><div class="set-ic" style="background:rgba(6,182,212,.1);color:#06b6d4"><i class="fa-solid fa-envelope-open-text"></i></div><div class="set-info"><div class="set-name">إعدادات البريد (SMTP)</div><div class="set-desc">ربط بريد لإرسال رسائل استعادة كلمة المرور</div></div><i class="fa-solid fa-chevron-left set-arr"></i></div>
       <div class="set-item" onclick="openAdmOV('backupPage');loadSiteSettings();loadBackupList()"><div class="set-ic blue"><i class="fa-solid fa-cloud-arrow-up"></i></div><div class="set-info"><div class="set-name">النسخ الاحتياطي</div><div class="set-desc">نسخ تلقائي للقاعدة + إرسال للتلغرام</div></div><i class="fa-solid fa-chevron-left set-arr"></i></div>
       <div class="set-item" onclick="openAdmOV('providersPage');loadProviders()"><div class="set-ic" style="background:rgba(16,185,129,.1);color:#10b981"><i class="fa-solid fa-server"></i></div><div class="set-info"><div class="set-name">إدارة المزودين (API)</div><div class="set-desc">إضافة وإدارة مزودين متعددين — أرصدة وفلترة</div></div><i class="fa-solid fa-chevron-left set-arr"></i></div>
-      <div class="set-item" onclick="openAdmOV('couponPage');loadCoupons();loadDailyGiftAdmin()"><div class="set-ic" style="background:rgba(236,72,153,.1);color:#ec4899"><i class="fa-solid fa-gift"></i></div><div class="set-info"><div class="set-name">كوبونات الهدية</div><div class="set-desc">إنشاء كوبونات مجانية للمستخدمين</div></div><i class="fa-solid fa-chevron-left set-arr"></i></div>
+      <div class="set-item" onclick="openAdmOV('couponPage');loadCoupons();loadDailyGiftAdmin();loadDailyBonusSettings()"><div class="set-ic" style="background:rgba(236,72,153,.1);color:#ec4899"><i class="fa-solid fa-gift"></i></div><div class="set-info"><div class="set-name">كوبونات الهدية</div><div class="set-desc">إنشاء كوبونات مجانية للمستخدمين</div></div><i class="fa-solid fa-chevron-left set-arr"></i></div>
       <div class="set-item" onclick="openAdmOV('reviewsAdmPage');loadAdminReviews()"><div class="set-ic" style="background:rgba(245,158,11,.1);color:#f59e0b"><i class="fa-solid fa-star"></i></div><div class="set-info"><div class="set-name">إدارة التقييمات</div><div class="set-desc">عرض وإخفاء تقييمات العملاء</div></div><i class="fa-solid fa-chevron-left set-arr"></i></div>
       <div class="set-item" onclick="openAdmOV('currencyPage');loadCurrencySettings()"><div class="set-ic" style="background:rgba(245,158,11,.1);color:#f59e0b"><i class="fa-solid fa-coins"></i></div><div class="set-info"><div class="set-name">أسعار صرف العملات</div><div class="set-desc">تحكم بأسعار الصرف المعروضة للمستخدمين</div></div><i class="fa-solid fa-chevron-left set-arr"></i></div>
       <div class="set-item" onclick="openAdmOV('aiSettingsPage');loadAiSettings()"><div class="set-ic" style="background:var(--primary-bg);color:var(--primary)"><i class="fa-solid fa-robot"></i></div><div class="set-info"><div class="set-name">المساعد الذكي (AI)</div><div class="set-desc">مفتاح DeepSeek API الذي يشغّل مساعد الدردشة</div></div><i class="fa-solid fa-chevron-left set-arr"></i></div>
+      <div class="set-item" onclick="openAdmOV('autoImportPage');loadAutoImportSettings()"><div class="set-ic" style="background:rgba(16,185,129,.1);color:var(--green)"><i class="fa-solid fa-cloud-arrow-down"></i></div><div class="set-info"><div class="set-name">الاستيراد التلقائي للخدمات</div><div class="set-desc">يفحص المزوّدين كل 6 ساعات ويضيف الخدمات الجديدة تلقائياً</div></div><i class="fa-solid fa-chevron-left set-arr"></i></div>
       <div class="set-item" onclick="openAdmOV('googlePage');loadGoogleSettings()"><div class="set-ic" style="background:rgba(66,133,244,.1);color:#4285F4"><i class="fa-brands fa-google"></i></div><div class="set-info"><div class="set-name">تسجيل Google</div><div class="set-desc">ربط تسجيل الدخول بحساب Google</div></div><i class="fa-solid fa-chevron-left set-arr"></i></div>
       <div class="set-item" onclick="openAdmOV('sitePoliciesPage');loadSitePolicies()"><div class="set-ic" style="background:rgba(37,211,102,.1);color:#25d366"><i class="fa-brands fa-whatsapp"></i></div><div class="set-info"><div class="set-name">الدعم والسياسات</div><div class="set-desc">رقم واتساب، الشروط والأحكام، سياسة الخصوصية</div></div><i class="fa-solid fa-chevron-left set-arr"></i></div>
     </div>
@@ -10081,6 +10559,16 @@ html:not([data-theme="dark"]) .rv-star-btn{color:rgba(0,0,0,.1)}
       </div>
     </div>
     <div style="background:var(--card);border:1px solid var(--card-border);border-radius:14px;padding:16px;margin-bottom:14px">
+      <div class="sec-label"><i class="fa-solid fa-percent"></i> مكافأة الرصيد اليومية (نسبة مئوية)</div>
+      <div style="font-size:10px;color:var(--text3);margin-bottom:12px">ميزة مختلفة عن الهدية اليومية أعلاه — زر يظهر بحساب كل مستخدم يمكنه الضغط عليه مرة كل 24 ساعة ليحصل على نسبة من رصيده الحالي كمكافأة</div>
+      <div class="cp-notify-row" style="margin-bottom:10px">
+        <div class="cp-notify-info"><div class="cp-notify-name"><i class="fa-solid fa-toggle-on" style="color:var(--primary);margin-left:4px"></i> تفعيل المكافأة اليومية</div><div class="cp-notify-desc">إظهار زر المكافأة للمستخدمين في صفحة حسابي</div></div>
+        <div class="adm-toggle" id="dailyBonusToggle" onclick="this.classList.toggle('on')"><div class="adm-toggle-dot"></div></div>
+      </div>
+      <div class="field-group" style="margin-bottom:0"><div class="field-label"><i class="fa-solid fa-percent"></i> نسبة المكافأة (% من الرصيد الحالي)</div><input type="number" class="text-input" id="dailyBonusPercentIn" value="2" step="0.5" min="0.1" max="100" dir="ltr" style="text-align:left;font-family:var(--font-num);font-size:13px"></div>
+      <button onclick="saveDailyBonusSettings()" class="btn-primary" style="margin-top:10px"><i class="fa-solid fa-check"></i> حفظ</button>
+    </div>
+    <div style="background:var(--card);border:1px solid var(--card-border);border-radius:14px;padding:16px;margin-bottom:14px">
       <div class="sec-label"><i class="fa-solid fa-plus-circle"></i> إنشاء كوبون جديد</div>
       <div class="field-group"><div class="field-label"><i class="fa-solid fa-ticket"></i> كود الكوبون</div><div style="display:flex;gap:8px"><input type="text" class="text-input" id="cpCode" placeholder="GIFT2026" dir="ltr" style="flex:1;text-align:left;font-family:var(--font-num);font-size:13px;font-weight:800;letter-spacing:1px"><button onclick="document.getElementById('cpCode').value='GIFT'+Math.random().toString(36).substr(2,5).toUpperCase()" class="btn-sm" style="border-color:rgba(236,72,153,.2);background:rgba(236,72,153,.06);color:#ec4899"><i class="fa-solid fa-dice"></i> عشوائي</button></div></div>
       <div class="field-group"><div class="field-label"><i class="fa-solid fa-dollar-sign"></i> المبلغ ($)</div>
@@ -10153,7 +10641,31 @@ html:not([data-theme="dark"]) .rv-star-btn{color:rgba(0,0,0,.1)}
       <div class="field-group" style="margin-bottom:0"><div class="field-label"><i class="fa-solid fa-microchip"></i> الموديل</div><input type="text" class="text-input" id="deepseekModelIn" placeholder="deepseek-chat" dir="ltr" style="text-align:left;font-family:var(--font-num);font-size:11px"></div>
     </div>
     <div style="padding:10px 14px;border-radius:10px;background:var(--primary-bg);border:1px solid var(--card-border);font-size:10px;color:var(--text2);line-height:1.8;font-weight:600;margin-bottom:12px"><i class="fa-solid fa-lightbulb"></i> احصل على مفتاح API من <a href="https://platform.deepseek.com" target="_blank" style="color:var(--primary);font-weight:800">platform.deepseek.com</a> — المساعد لن يعمل للمستخدمين قبل إدخال مفتاح صالح هنا.</div>
+    <div style="background:var(--card);border:1px solid var(--card-border);border-radius:14px;padding:16px;margin-bottom:12px">
+      <div class="sec-label"><i class="fa-solid fa-comment-dots"></i> إشعارات المساعد الذكي التلقائية</div>
+      <div style="font-size:10px;color:var(--text3);margin-bottom:12px">يرسل المساعد رسالة تلقائية عند إنشاء طلب جديد، وعند غياب المستخدم عن الموقع فترة طويلة — الضغط على الإشعار يفتح محادثة مباشرة معه</div>
+      <div class="cp-notify-row" style="margin-bottom:10px">
+        <div class="cp-notify-info"><div class="cp-notify-name"><i class="fa-solid fa-toggle-on" style="color:var(--primary);margin-left:4px"></i> تفعيل إشعارات المساعد الذكي</div><div class="cp-notify-desc">رسائل ترحيب بعد الطلب وتذكير عند الغياب</div></div>
+        <div class="adm-toggle on" id="aiNotifToggle" onclick="this.classList.toggle('on')"><div class="adm-toggle-dot"></div></div>
+      </div>
+      <div class="field-group" style="margin-bottom:0"><div class="field-label"><i class="fa-solid fa-calendar-days"></i> عدد أيام الغياب قبل التذكير</div><input type="number" class="text-input" id="aiInactivityDaysIn" value="3" step="1" min="1" dir="ltr" style="text-align:left;font-family:var(--font-num);font-size:13px"></div>
+    </div>
     <button onclick="saveAiSettings()" class="btn-primary"><i class="fa-solid fa-check"></i> حفظ</button>
+  </div>
+</div>
+<div class="overlay-page admin-only" id="autoImportPage">
+  <div class="ov-topbar"><button class="ov-back" onclick="document.getElementById('autoImportPage').classList.remove('show')"><i class="fa-solid fa-arrow-right"></i></button><div class="ov-title"><i class="fa-solid fa-cloud-arrow-down"></i> الاستيراد التلقائي للخدمات</div></div>
+  <div class="ov-body">
+    <div style="text-align:center;padding:8px 0 16px"><div style="width:52px;height:52px;border-radius:14px;background:rgba(16,185,129,.1);display:inline-flex;align-items:center;justify-content:center;font-size:22px;color:var(--green);margin-bottom:8px"><i class="fa-solid fa-cloud-arrow-down"></i></div><div style="font-size:15px;font-weight:800">الاستيراد التلقائي للخدمات</div><div style="font-size:10px;color:var(--text3)">يفحص خدمات كل مزوّد فعّال كل 6 ساعات، وأي خدمة جديدة لم تُضف من قبل تُستورد تلقائياً بنسبة الربح المحددة أدناه</div></div>
+    <div style="background:var(--card);border:1px solid var(--card-border);border-radius:14px;padding:16px;margin-bottom:12px">
+      <div class="cp-notify-row" style="margin-bottom:10px">
+        <div class="cp-notify-info"><div class="cp-notify-name"><i class="fa-solid fa-toggle-on" style="color:var(--green);margin-left:4px"></i> تفعيل الاستيراد التلقائي</div><div class="cp-notify-desc">إضافة الخدمات الجديدة من المزودين تلقائياً دون تدخل يدوي</div></div>
+        <div class="adm-toggle" id="autoImportToggle" onclick="this.classList.toggle('on')"><div class="adm-toggle-dot"></div></div>
+      </div>
+      <div class="field-group" style="margin-bottom:0"><div class="field-label"><i class="fa-solid fa-percent"></i> نسبة الربح الافتراضية للخدمات الجديدة (%)</div><input type="number" class="text-input" id="autoImportProfitIn" value="30" step="1" min="0" dir="ltr" style="text-align:left;font-family:var(--font-num);font-size:13px"></div>
+    </div>
+    <div style="padding:10px 14px;border-radius:10px;background:var(--primary-bg);border:1px solid var(--card-border);font-size:10px;color:var(--text2);line-height:1.8;font-weight:600;margin-bottom:12px"><i class="fa-solid fa-lightbulb"></i> الخدمات المستوردة تظهر مباشرة بصفحة "إدارة الخدمات" ويمكن تعديل نسبة ربحها أو إخفاؤها من هناك لاحقاً.</div>
+    <button onclick="saveAutoImportSettings()" class="btn-primary"><i class="fa-solid fa-check"></i> حفظ</button>
   </div>
 </div>
 <div class="overlay-page admin-only" id="currencyPage">
@@ -10198,6 +10710,9 @@ html:not([data-theme="dark"]) .rv-star-btn{color:rgba(0,0,0,.1)}
 </div>
 <div class="overlay-page" id="customSvcsPage">
   <div id="csPageContent"></div>
+</div>
+<div class="overlay-page" id="favSvcsPage">
+  <div id="favPageContent"></div>
 </div>
 <div class="overlay-page admin-only" id="adminSMMOrdersPage">
   <div class="ov-topbar"><button class="ov-back" onclick="this.closest('.overlay-page').classList.remove('show')"><i class="fa-solid fa-arrow-right"></i></button><div class="ov-title"><i class="fa-solid fa-cart-shopping"></i> طلبات SMM</div></div>
@@ -10859,6 +11374,23 @@ print(r.json())</pre>
     <button class="btn-save-pm" id="btnSaveAsiacell"><i class="fa-solid fa-check"></i> حفظ إعدادات آسياسيل</button>
   </div>
 </div>
+<div class="pm-modal" id="tgStarsModal">
+  <div class="pm-modal-card">
+    <div class="pm-modal-hdr">
+      <div class="pm-modal-title"><i class="fa-brands fa-telegram"></i> إعدادات نجوم تليجرام</div>
+      <button class="pm-modal-close" id="tgStarsModalClose"><i class="fa-solid fa-xmark"></i></button>
+    </div>
+    <div class="rch-det-note" style="margin-bottom:10px"><i class="fa-solid fa-circle-info"></i> طريقة دفع تلقائي عبر بوت تليجرام — المستخدم يضغط زر فينتقل للبوت، يدفع بنجوم تليجرام (Telegram Stars)، ويُضاف الرصيد تلقائياً فور نجاح الدفع.</div>
+    <div class="pmf-group"><div class="pmf-label"><i class="fa-solid fa-key"></i> Bot Token</div><input class="pmf-input" id="tgsBotToken" placeholder="" dir="ltr" style="text-align:right" autocomplete="off"></div>
+    <div class="pmf-group"><div class="pmf-label"><i class="fa-brands fa-telegram"></i> اسم البوت (Username بدون @)</div><input class="pmf-input" id="tgsBotUsername" placeholder="MySiteBot" dir="ltr" style="text-align:right"></div>
+    <div class="pmf-group"><div class="pmf-label"><i class="fa-solid fa-user-shield"></i> Chat ID الخاص بالمدير (لإشعارات الدفع)</div><input class="pmf-input" id="tgsAdminChatId" placeholder="123456789" dir="ltr" style="text-align:right"></div>
+    <div class="pmf-group"><div class="pmf-label"><i class="fa-solid fa-star"></i> كل 100 نجمة = كم دولار؟</div><input class="pmf-input" id="tgsRate" placeholder="1.5" dir="ltr" style="text-align:right" type="number" step="0.01"></div>
+    <div class="pmf-group"><div class="pmf-toggle"><span class="pmf-toggle-label">مفعّلة للمستخدمين</span><div class="pmf-sw" id="tgsActive"></div></div></div>
+    <div id="tgsWebhookStatus" style="display:none;margin-bottom:10px;font-size:11px;padding:10px;border-radius:8px;background:var(--input-bg);color:var(--text2);line-height:1.7"></div>
+    <button class="btn-save-pm" id="btnTgsWebhook" style="background:var(--primary-bg);color:var(--primary);margin-bottom:8px"><i class="fa-solid fa-link"></i> حفظ ثم تسجيل Webhook مع تليجرام</button>
+    <button class="btn-save-pm" id="btnSaveTgStars"><i class="fa-solid fa-check"></i> حفظ إعدادات نجوم تليجرام</button>
+  </div>
+</div>
 <div class="bottom-nav nonadmin-only">
 <div class="bnav-inner">
   <div class="bnav-item active" data-page="pageHome"><i class="fa-solid fa-house"></i><span>الرئيسية</span></div>
@@ -10987,6 +11519,7 @@ print(r.json())</pre>
     document.querySelectorAll('.page').forEach(function(x){x.classList.remove('active')});
     document.getElementById(pageId).classList.add('active');
     if(pageId==='pageAccount'&&typeof loadDailyGiftUser==='function')loadDailyGiftUser();
+    if(pageId==='pageAccount'&&typeof loadDailyBonusStatus==='function')loadDailyBonusStatus();
     document.querySelectorAll('.bnav-item[data-page="'+pageId+'"]').forEach(function(x){x.classList.add('active')});
     document.querySelectorAll('.snav[data-page="'+pageId+'"]').forEach(function(x){x.classList.add('active')});
     window.scrollTo(0,0);
@@ -11097,6 +11630,15 @@ print(r.json())</pre>
         document.getElementById('owQty').setAttribute('min',s.min);document.getElementById('owQty').setAttribute('max',s.max);document.getElementById('owQty').placeholder=s.min+' - '+s.max;
         document.getElementById('owMinH').textContent=s.min.toLocaleString();document.getElementById('owMaxH').textContent=s.max.toLocaleString();
         document.getElementById('owSelected').innerHTML='<div class="ws-icon"><i class="fa-solid fa-check"></i></div><div class="ws-info"><div class="ws-name">'+s.name+'</div><div class="ws-meta">'+_owPlatform+' • '+cat+'</div></div><div class="ws-price">'+fmtP(parseFloat(s.rate))+'/1K</div>';
+        var owFavBtn=document.createElement('button');
+        owFavBtn.className='ow-fav-btn'+(isFavorited(s.id)?' on':'');
+        owFavBtn.title='أضف للمفضلة';
+        owFavBtn.innerHTML='<i class="fa-'+(isFavorited(s.id)?'solid':'regular')+' fa-heart"></i>';
+        owFavBtn.addEventListener('click',function(e){
+          e.stopPropagation();
+          toggleFavorite({service_id:s.id,service_name:s.name,platform:_owPlatform,category:cat,rate:s.rate,min:s.min,max:s.max,custom:false},owFavBtn);
+        });
+        document.getElementById('owSelected').appendChild(owFavBtn);
         var dtl=document.getElementById('owSvcDetails');dtl.style.display='block';
         var db=document.getElementById('owDescBox');if(s.desc){db.style.display='flex';document.getElementById('owDescText').textContent=s.desc}else{db.style.display='none'}
         var rf=s.refill||'';var rfTxt=(rf&&rf!=='0'&&rf!=='false'&&rf!=='False')?'تلقائي':'لا يوجد';
@@ -11111,14 +11653,6 @@ print(r.json())</pre>
         owShowStep(3);
       });
       item.innerHTML='<div class="wi-icon" style="background:'+cl+ex+'"><i class="'+ic+'"></i></div><div class="wi-info"><div class="wi-name">'+s.name+'</div><div class="wi-sub">'+s.min.toLocaleString()+' - '+s.max.toLocaleString()+'</div></div><div class="wi-price">'+fmtP(parseFloat(s.rate))+'</div>';
-      var favBtn=document.createElement('button');
-      favBtn.className='ow-fav-btn'+(isFavorited(s.id)?' on':'');
-      favBtn.innerHTML='<i class="fa-'+(isFavorited(s.id)?'solid':'regular')+' fa-heart"></i>';
-      favBtn.addEventListener('click',function(e){
-        e.stopPropagation();
-        toggleFavorite({service_id:s.id,service_name:s.name,platform:_owPlatform,category:cat,rate:s.rate,min:s.min,max:s.max,custom:false},favBtn);
-      });
-      item.appendChild(favBtn);
       list.appendChild(item);
     });
     owShowStep(2);
@@ -11424,7 +11958,7 @@ print(r.json())</pre>
       rchMethods.forEach(function(m,i){
         var wrap=document.createElement('a');wrap.className='acc-item';wrap.href='#';
         var icHtml=m.image?'<img src="/api/pm-image/'+m.image+'" alt="'+m.name+'" style="width:100%;height:100%;object-fit:cover;border-radius:inherit" onerror="this.outerHTML=\'<i class=&quot;'+(m.icon||'fa-solid fa-credit-card')+'&quot;></i>\'">':'<i class="'+(m.icon||'fa-solid fa-credit-card')+'"></i>';
-        var isAuto=(m.method_type==='binance'||m.method_type==='asiacell');
+        var isAuto=(m.method_type==='binance'||m.method_type==='asiacell'||m.method_type==='telegram_stars');
         var badgeHtml=isAuto?'<span style="display:inline-block;margin-right:5px;padding:1px 7px;border-radius:5px;background:rgba(234,179,8,.15);color:#eab308;font-size:9px;font-weight:800;vertical-align:middle">فوري</span>':'';
         wrap.innerHTML='<div class="mi-ic blue">'+icHtml+'</div><div class="mi-info"><div class="mi-title">'+m.name+badgeHtml+'</div><div class="mi-desc">'+(isAuto?'تحقق تلقائي فوري':'تحويل يدوي')+'</div></div><span class="arr"><i class="fa-solid fa-chevron-left"></i></span>';
         wrap.addEventListener('click',function(e){e.preventDefault();openRchPayPage(i)});
@@ -11441,6 +11975,7 @@ print(r.json())</pre>
     var body=document.getElementById('rchPayBody');
     if(m.method_type==='binance'){body.innerHTML=rchBinancePageHtml(m);document.getElementById('rchPayPage').classList.add('show');wireBinancePage(m);}
     else if(m.method_type==='asiacell'){body.innerHTML=rchAsiacellPageHtml(m);document.getElementById('rchPayPage').classList.add('show');wireAsiacellPage(m);}
+    else if(m.method_type==='telegram_stars'){body.innerHTML=rchTelegramStarsPageHtml(m);document.getElementById('rchPayPage').classList.add('show');wireTelegramStarsPage(m);}
     else{body.innerHTML=rchManualPageHtml(m);document.getElementById('rchPayPage').classList.add('show');wireManualPage(m);}
   }
   document.getElementById('rchPayBack').addEventListener('click',function(){
@@ -11692,6 +12227,48 @@ print(r.json())</pre>
     });
     document.getElementById('rchAcCancelBtn').addEventListener('click',function(){
       document.getElementById('rchPayBack').click();
+    });
+  }
+
+  // ==== صفحة الدفع عبر نجوم تليجرام (اختيار عدد النجوم ثم التحويل للبوت) ====
+  function rchTelegramStarsPageHtml(m){
+    var rate=parseFloat(m.tg_stars_rate||1.5);
+    return '<div class="rch-card"><div class="field-label"><i class="fa-solid fa-star"></i> عدد نجوم تليجرام (Stars)</div>'+
+    '<div class="rch-amt-wrap"><input type="number" class="rch-amt-input" placeholder="أدخل عدد النجوم" id="tgsStarsInput" value="500" min="1"><span class="rch-amt-sign"><i class="fa-solid fa-star" style="color:#f59e0b"></i></span></div>'+
+    '<div class="rch-quick" id="tgsQuick"><div class="rq" data-v="100">100</div><div class="rq" data-v="300">300</div><div class="rq sel" data-v="500">500</div><div class="rq" data-v="1000">1,000</div><div class="rq" data-v="2500">2,500</div><div class="rq" data-v="5000">5,000</div></div></div>'+
+    '<div class="rch-card"><div class="rch-bot-msg"><div class="rch-bot-ic"><i class="fa-brands fa-telegram"></i></div><div class="rch-bot-title">الدفع عبر نجوم تليجرام</div><div class="rch-bot-text">كل 100 نجمة = $'+rate.toFixed(2)+'. اضغط المتابعة لينقلك التطبيق إلى بوت تليجرام حيث تُتم الدفع بالنجوم مباشرة، وسيُضاف الرصيد تلقائياً فور نجاح الدفع.</div></div>'+
+    '<div class="rch-det-row"><span class="rch-det-lbl"><i class="fa-solid fa-dollar-sign"></i> سيُضاف لرصيدك</span><span class="rch-det-val" id="tgsCreditPreview">$0.00</span></div></div>'+
+    '<button class="rch-submit" id="btnTgsGoBot"><i class="fa-brands fa-telegram"></i> المتابعة عبر بوت تليجرام</button>';
+  }
+  function wireTelegramStarsPage(m){
+    var rate=parseFloat(m.tg_stars_rate||1.5);
+    function updatePreview(){
+      var stars=parseInt(document.getElementById('tgsStarsInput').value)||0;
+      document.getElementById('tgsCreditPreview').textContent='$'+((stars/100)*rate).toFixed(2);
+    }
+    document.getElementById('tgsStarsInput').addEventListener('input',updatePreview);
+    document.querySelectorAll('#tgsQuick .rq').forEach(function(btn){
+      btn.addEventListener('click',function(){
+        document.querySelectorAll('#tgsQuick .rq').forEach(function(x){x.classList.remove('sel')});
+        this.classList.add('sel');
+        document.getElementById('tgsStarsInput').value=this.dataset.v;
+        updatePreview();
+      });
+    });
+    updatePreview();
+    document.getElementById('btnTgsGoBot').addEventListener('click',function(){
+      var btn=this;
+      var stars=parseInt(document.getElementById('tgsStarsInput').value)||0;
+      if(stars<1){toast('أدخل عدد نجوم صحيح','error');return}
+      btn.disabled=true;var orig=btn.innerHTML;btn.innerHTML='<i class="fa-solid fa-spinner fa-spin"></i> جاري التحضير...';
+      fetch('/api/recharge/telegram-stars/link?stars='+stars)
+      .then(function(r){return r.json()}).then(function(d){
+        btn.disabled=false;btn.innerHTML=orig;
+        if(d.ok){
+          window.open(d.url,'_blank');
+          toast('تم فتح بوت تليجرام — أكمل الدفع هناك وسيُضاف الرصيد تلقائياً','info');
+        }else{toast(d.msg||'تعذر تجهيز رابط البوت','error')}
+      }).catch(function(){btn.disabled=false;btn.innerHTML=orig;toast('تعذر الاتصال بالسيرفر','error')});
     });
   }
 
@@ -12013,12 +12590,12 @@ print(r.json())</pre>
   function renderPM(){
     var list=document.getElementById('pmList');
     if(!pmData.length){list.innerHTML='<div class="pm-empty"><i class="fa-solid fa-credit-card"></i><p>لا توجد طرق دفع — اضغط إضافة</p></div>';return}
-    var special=pmData.filter(function(m){return m.method_type==='binance'||m.method_type==='asiacell'});
-    var manual=pmData.filter(function(m){return m.method_type!=='binance'&&m.method_type!=='asiacell'});
+    var special=pmData.filter(function(m){return m.method_type==='binance'||m.method_type==='asiacell'||m.method_type==='telegram_stars'});
+    var manual=pmData.filter(function(m){return m.method_type!=='binance'&&m.method_type!=='asiacell'&&m.method_type!=='telegram_stars'});
     list.innerHTML='';
     special.forEach(function(m){
       var card=document.createElement('div');card.className='pm-card'+(m.active?'':' disabled');
-      var typeLabel=m.method_type==='binance'?'Binance Pay — دفع تلقائي':'آسياسيل — دفع تلقائي';
+      var typeLabel=m.method_type==='binance'?'Binance Pay — دفع تلقائي':m.method_type==='asiacell'?'آسياسيل — دفع تلقائي':'نجوم تليجرام — دفع تلقائي';
       var imgRow=m.image?'<img class="pm-card-img" src="/api/pm-image/'+m.image+'" alt="'+m.name+'" onerror="this.style.display=\'none\'">':'';
       card.innerHTML='<div class="pm-card-inner"><div class="pm-icon-w"><i class="'+(m.icon||'fa-solid fa-credit-card')+'"></i></div><div class="pm-info"><div class="pm-nm"><span class="sdot '+(m.active?'on':'off')+'"></span> '+m.name+'</div><div class="pm-num">'+typeLabel+'</div><div class="pm-chips"><span class="pmch rate"><i class="fa-solid fa-bolt"></i> تحقق فوري بدون مراجعة</span></div></div><div class="pm-acts"><button class="pma" data-edit-auto="'+m.method_type+'"><i class="fa-solid fa-gear"></i></button><button class="pma" disabled title="لا يمكن حذف هذه الطريقة، فقط تعطيلها"><i class="fa-solid fa-lock"></i></button></div></div>'+imgRow;
       list.appendChild(card);
@@ -12038,7 +12615,7 @@ print(r.json())</pre>
     })});
     document.querySelectorAll('[data-edit-auto]').forEach(function(btn){btn.addEventListener('click',function(){
       var type=this.dataset.editAuto;var m=pmData.find(function(x){return x.method_type===type});if(!m)return;
-      if(type==='binance')openBinanceModal(m);else openAsiacellModal(m);
+      if(type==='binance')openBinanceModal(m);else if(type==='asiacell')openAsiacellModal(m);else openTelegramStarsModal(m);
     })});
     document.querySelectorAll('[data-del]').forEach(function(btn){btn.addEventListener('click',function(){
       var id=this.dataset.del;customConfirm('حذف طريقة الدفع','هل تريد حذف طريقة الدفع؟','trash','red',function(){
@@ -12049,8 +12626,8 @@ print(r.json())</pre>
     document.querySelectorAll('[data-down]').forEach(function(btn){if(!btn.disabled)btn.addEventListener('click',function(){pmMove(parseInt(this.dataset.down),1)})});
   }
   function pmMove(id,dir){
-    var special=pmData.filter(function(m){return m.method_type==='binance'||m.method_type==='asiacell'});
-    var manual=pmData.filter(function(m){return m.method_type!=='binance'&&m.method_type!=='asiacell'});
+    var special=pmData.filter(function(m){return m.method_type==='binance'||m.method_type==='asiacell'||m.method_type==='telegram_stars'});
+    var manual=pmData.filter(function(m){return m.method_type!=='binance'&&m.method_type!=='asiacell'&&m.method_type!=='telegram_stars'});
     var idx=manual.findIndex(function(x){return x.id===id});
     var swapIdx=idx+dir;
     if(idx<0||swapIdx<0||swapIdx>=manual.length)return;
@@ -12299,6 +12876,57 @@ print(r.json())</pre>
       if(d.ok){toast(d.msg,'success');asiacellModal.classList.remove('show');loadPM();}
       else toast(d.msg||'خطأ','error');
     }).catch(function(){toast('حدث خطأ','error');btn.disabled=false});
+  });
+
+  // ==== إعدادات نجوم تليجرام (طريقة ثابتة، تُعدَّل فقط) ====
+  var tgStarsModal=document.getElementById('tgStarsModal');
+  document.getElementById('tgStarsModalClose').addEventListener('click',function(){tgStarsModal.classList.remove('show')});
+  tgStarsModal.addEventListener('click',function(e){if(e.target===tgStarsModal)tgStarsModal.classList.remove('show')});
+  document.getElementById('tgsActive').addEventListener('click',function(){this.classList.toggle('on')});
+  function openTelegramStarsModal(m){
+    document.getElementById('tgsBotToken').value='';
+    document.getElementById('tgsBotToken').placeholder=m.has_tg_stars_token?'•••• اتركه فارغاً للإبقاء على التوكن الحالي':'123456:ABC-DEF...';
+    document.getElementById('tgsBotUsername').value=m.tg_stars_bot_username||'';
+    document.getElementById('tgsAdminChatId').value=m.tg_stars_admin_chat_id||'';
+    document.getElementById('tgsRate').value=m.tg_stars_rate||'1.5';
+    var sw=document.getElementById('tgsActive');if(m.active)sw.classList.add('on');else sw.classList.remove('on');
+    var st=document.getElementById('tgsWebhookStatus');st.style.display='none';st.innerHTML='';
+    tgStarsModal.classList.add('show');
+  }
+  window.openTelegramStarsModal=openTelegramStarsModal;
+  function _tgsBody(){
+    return {
+      bot_token:document.getElementById('tgsBotToken').value.trim(),
+      bot_username:document.getElementById('tgsBotUsername').value.trim().replace(/^@/,''),
+      admin_chat_id:document.getElementById('tgsAdminChatId').value.trim(),
+      rate_usd_per_100:document.getElementById('tgsRate').value,
+      active:document.getElementById('tgsActive').classList.contains('on')
+    };
+  }
+  document.getElementById('btnSaveTgStars').addEventListener('click',function(){
+    var btn=this;btn.disabled=true;
+    fetch('/api/admin/payment-methods/telegram-stars',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(_tgsBody())})
+    .then(function(r){return r.json()}).then(function(d){
+      btn.disabled=false;
+      if(d.ok){toast(d.msg,'success');tgStarsModal.classList.remove('show');loadPM();}
+      else toast(d.msg||'خطأ','error');
+    }).catch(function(){toast('حدث خطأ','error');btn.disabled=false});
+  });
+  document.getElementById('btnTgsWebhook').addEventListener('click',function(){
+    var btn=this;btn.disabled=true;var orig=btn.innerHTML;btn.innerHTML='<i class="fa-solid fa-spinner fa-spin"></i> جاري التسجيل...';
+    var st=document.getElementById('tgsWebhookStatus');
+    fetch('/api/admin/payment-methods/telegram-stars',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(_tgsBody())})
+    .then(function(r){return r.json()}).then(function(d){
+      if(!d.ok){st.style.display='block';st.style.color='var(--red)';st.textContent=d.msg||'تعذر الحفظ';btn.disabled=false;btn.innerHTML=orig;return}
+      fetch('/api/admin/payment-methods/telegram-stars/set-webhook',{method:'POST'})
+      .then(function(r){return r.json()}).then(function(d2){
+        st.style.display='block';
+        st.style.color=d2.ok?'var(--green)':'var(--red)';
+        st.textContent=d2.msg||(d2.ok?'تم تسجيل الـ Webhook بنجاح':'فشل تسجيل الـ Webhook');
+        btn.disabled=false;btn.innerHTML=orig;
+        if(d2.ok)loadPM();
+      }).catch(function(){st.style.display='block';st.style.color='var(--red)';st.textContent='تعذر الاتصال بالسيرفر';btn.disabled=false;btn.innerHTML=orig});
+    }).catch(function(){st.style.display='block';st.style.color='var(--red)';st.textContent='تعذر الاتصال بالسيرفر';btn.disabled=false;btn.innerHTML=orig});
   });
 
 var _pollTimer=null,_lastMsgCounts={},_adminFilter='all';
@@ -12802,9 +13430,11 @@ var _balHidden=false;
 })();
 function previewAvatar(inp){
   if(inp.files&&inp.files[0]){
-    var r=new FileReader();var av=document.getElementById('pc5Avatar');
+    var r=new FileReader();
     r.onload=function(e){
-      av.style.backgroundImage='url('+e.target.result+')';av.style.backgroundSize='cover';av.style.backgroundPosition='center';av.childNodes[0].textContent='';
+      document.querySelectorAll('#pc5Avatar,.sb-avatar,.md-av,.acc-avatar,.acc-av-big').forEach(function(av){
+        av.style.backgroundImage='url('+e.target.result+')';av.style.backgroundSize='cover';av.style.backgroundPosition='center';av.style.color='transparent';
+      });
       fetch('/api/upload-avatar',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({image:e.target.result})})
       .then(function(r){return r.json()}).then(function(d){
         if(d.ok&&d.url){toast('تم حفظ الصورة','success');document.querySelectorAll('.fc-av-img').forEach(function(img){img.src=d.url;img.style.display='block'})}
@@ -12843,13 +13473,43 @@ function loadUserStats(){
     var pidEl=document.getElementById('pc5PubId');if(pidEl&&d.public_id)pidEl.textContent=d.public_id;
     var pctEl=document.getElementById('pc5Pct');if(pctEl)pctEl.textContent=d.progress+'%';
     var barEl=document.getElementById('pc5Bar');if(barEl)barEl.style.width=d.progress+'%';
-    var asBal=document.getElementById('accStatBal');if(asBal)asBal.textContent=fmtP(d.balance);
-    var asOrd=document.getElementById('accStatOrders');if(asOrd)asOrd.textContent=(d.completed+(d.active||0)+(d.pending||0));
-    var asTk=document.getElementById('accStatTickets');if(asTk)asTk.textContent=d.tickets||0;
+    var _accStats={balance:fmtP(d.balance),spent:fmtP(d.total_spent),completed:(d.completed||0).toLocaleString(),active:(d.active||0).toLocaleString(),pending:(d.pending||0).toLocaleString(),tickets:(d.tickets||0).toLocaleString()};
+    Object.keys(_accStats).forEach(function(k){
+      document.querySelectorAll('[data-stat="'+k+'"]').forEach(function(el){el.textContent=_accStats[k]});
+    });
     var custTkBadge=document.getElementById('accCustTkBadge');if(custTkBadge){var tkc=d.tickets||0;if(tkc>0){custTkBadge.textContent=tkc;custTkBadge.style.display=''}else{custTkBadge.style.display='none'}}
   }).catch(function(){});
 }
 
+async function loadDailyBonusStatus(){
+  try{
+    var r=await fetch('/api/daily-bonus/status');var d=await r.json();
+    var card=document.getElementById('dailyBonusCard');if(!card)return;
+    if(!d.ok||!d.enabled){card.style.display='none';return}
+    card.style.display='flex';
+    var sub=document.getElementById('dailyBonusSub');
+    if(d.can_claim){sub.textContent='احصل على '+d.percent+'% من رصيدك الآن';card.style.opacity='1';card.style.cursor='pointer'}
+    else{
+      var hrs=Math.floor(d.seconds_left/3600),mins=Math.floor((d.seconds_left%3600)/60);
+      sub.textContent='تم الاستلام — القادمة خلال '+hrs+'س '+mins+'د';card.style.opacity='.6';card.style.cursor='default'
+    }
+  }catch(e){}
+}
+window.loadDailyBonusStatus=loadDailyBonusStatus;
+async function claimDailyBonus(){
+  try{
+    var r=await fetch('/api/daily-bonus/claim',{method:'POST'});
+    var d=await r.json();
+    if(d.ok){
+      toast('حصلت على '+fmtP(d.amount)+' 🎁','success');
+      var b=document.getElementById('hudBalVal');if(b){b.dataset.usd=d.new_balance;if(!_balHidden)b.textContent=fmtP(d.new_balance)}
+      document.querySelectorAll('.sb-bal-val,.rch-bal-val').forEach(function(el){el.dataset.usd=d.new_balance;el.textContent=fmtP(d.new_balance)});
+      loadUserStats();
+      loadDailyBonusStatus();
+    }else{toast(d.msg||'لا يمكن الاستلام الآن','error')}
+  }catch(e){toast('خطأ بالاتصال','error')}
+}
+window.claimDailyBonus=claimDailyBonus;
 function loadUserAnnouncements(){
   fetch('/api/announcements').then(function(r){return r.json()}).then(function(d){
     if(!d.ok)return;
@@ -12932,7 +13592,8 @@ var _notiIconMap={
   ticket:{cls:'ticket',ic:'fa-solid fa-headset'},recharge:{cls:'recharge',ic:'fa-solid fa-bolt'},
   users:{cls:'users',ic:'fa-solid fa-user-plus'},message:{cls:'message',ic:'fa-solid fa-comment-dots'},
   lock:{cls:'lock',ic:'fa-solid fa-lock'},bolt:{cls:'recharge',ic:'fa-solid fa-bolt'},
-  check:{cls:'done',ic:'fa-solid fa-circle-check'},xmark:{cls:'lock',ic:'fa-solid fa-circle-xmark'}
+  check:{cls:'done',ic:'fa-solid fa-circle-check'},xmark:{cls:'lock',ic:'fa-solid fa-circle-xmark'},
+  robot:{cls:'system',ic:'fa-solid fa-robot'}
 };
 function _notiResolve(n){
   var key=n.icon||n.type||'bell';
@@ -12989,11 +13650,10 @@ function _renderNotifs(){
     var timeStr=_notiTimeAgo(n.time)||n.time_str||'';
     var gotoTarget=n.goto||'';
     if(!gotoTarget){if(n.type==='order')gotoTarget='orders:';else if(n.type==='recharge')gotoTarget='recharge:';else if(n.icon==='ticket'||n.icon==='message')gotoTarget='tickets:';}
-    var gotoAttr=gotoTarget?' onclick="_notiGoto(\''+gotoTarget+'\',\''+n.id+'\')"':'';
+    var gotoAttr=' onclick="'+(gotoTarget?"_notiGoto('"+gotoTarget+"','"+n.id+"')":"markNotifRead('"+n.id+"')")+'"';
     h+='<div class="noti-card'+(n.read?'':' unread')+'" id="noti_'+n.id+'"'+gotoAttr+'>';
     h+='<div class="noti-ic '+m.cls+'"><i class="'+m.ic+'"></i></div>';
     h+='<div class="noti-body"><div class="noti-title">'+esc(n.title)+'</div><div class="noti-text">'+esc(n.text)+'</div><div class="noti-time"><i class="fa-regular fa-clock"></i> '+esc(timeStr)+'</div></div>';
-    h+='<div style="display:flex;flex-direction:column;gap:3px;flex-shrink:0">'+(n.read?'':'<button class="noti-del noti-read-btn" title="تحديد كمقروء" onclick="event.stopPropagation();markNotifRead(\''+n.id+'\')"><i class="fa-solid fa-check"></i></button>')+'<button class="noti-del" title="حذف" onclick="event.stopPropagation();deleteNotif(\''+n.id+'\')"><i class="fa-solid fa-xmark"></i></button></div>';
     h+='</div>';
   });
   list.innerHTML=h;
@@ -13005,13 +13665,6 @@ async function markNotifRead(nid){
   try{
     await fetch('/api/notifications/read',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:nid})});
     loadUserNotifs();
-  }catch(e){}
-}
-async function deleteNotif(nid){
-  try{
-    var el=document.getElementById('noti_'+nid);if(el)el.classList.add('removing');
-    await fetch('/api/notifications/delete',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:nid})});
-    setTimeout(function(){loadUserNotifs()},350);
   }catch(e){}
 }
 async function deleteAllNotifs(){
@@ -13087,16 +13740,38 @@ async function loadAiSettings(){
     if(d.ok){var s=d.settings||d;
       if(s.deepseek_api_key)document.getElementById('deepseekKeyIn').value=s.deepseek_api_key;
       document.getElementById('deepseekModelIn').value=s.deepseek_model||'deepseek-chat';
+      document.getElementById('aiNotifToggle').classList.toggle('on',s.ai_notif_enabled!=='0');
+      document.getElementById('aiInactivityDaysIn').value=s.ai_inactivity_days||'3';
     }
   }catch(e){}
 }
 async function saveAiSettings(){
-  var data={deepseek_api_key:document.getElementById('deepseekKeyIn').value.trim(),deepseek_model:document.getElementById('deepseekModelIn').value.trim()||'deepseek-chat'};
+  var data={deepseek_api_key:document.getElementById('deepseekKeyIn').value.trim(),deepseek_model:document.getElementById('deepseekModelIn').value.trim()||'deepseek-chat',
+            ai_notif_enabled:document.getElementById('aiNotifToggle').classList.contains('on')?'1':'0',
+            ai_inactivity_days:document.getElementById('aiInactivityDaysIn').value||'3'};
   try{var r=await fetch('/api/admin/site-settings',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});
     var d=await r.json();
     if(d.ok)toast('تم حفظ إعدادات المساعد الذكي','success');else toast('حدث خطأ','error');
   }catch(e){toast('حدث خطأ','error')}
 }
+async function loadAutoImportSettings(){
+  try{var r=await fetch('/api/admin/site-settings');var d=await r.json();
+    if(d.ok){var s=d.settings||d;
+      document.getElementById('autoImportToggle').classList.toggle('on',s.auto_import_enabled==='1');
+      document.getElementById('autoImportProfitIn').value=s.auto_import_profit_pct||'30';
+    }
+  }catch(e){}
+}
+window.loadAutoImportSettings=loadAutoImportSettings;
+async function saveAutoImportSettings(){
+  var data={auto_import_enabled:document.getElementById('autoImportToggle').classList.contains('on')?'1':'0',
+            auto_import_profit_pct:document.getElementById('autoImportProfitIn').value||'30'};
+  try{var r=await fetch('/api/admin/site-settings',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});
+    var d=await r.json();
+    if(d.ok)toast('تم حفظ الإعدادات','success');else toast('حدث خطأ','error');
+  }catch(e){toast('حدث خطأ','error')}
+}
+window.saveAutoImportSettings=saveAutoImportSettings;
 function uploadAiIcon(input){
   if(!input.files||!input.files[0])return;
   var file=input.files[0];
@@ -13171,6 +13846,7 @@ function _notiGoto(target,notiId){
   else if(type==='recharge'||type==='wallet'){sw('pageRecharge')}
   else if(type==='ticket'&&id){sw('pageHome');setTimeout(function(){if(window.openTicketChat)window.openTicketChat(id)},500)}
   else if(type==='tickets'){sw('pageTickets')}
+  else if(type==='ai'&&id){sw('pageHome');setTimeout(function(){var cp=document.getElementById('aiChatPage');if(cp)cp.classList.add('show');if(typeof openAiConversation==='function')openAiConversation(id)},300)}
   else{sw('pageHome')}
 }
 window._notiGoto=_notiGoto;
@@ -13550,6 +14226,8 @@ async function loadFavorites(){
     _favIds=new Set();_favData={};
     (d.favorites||[]).forEach(function(f){_favIds.add(String(f.service_id));_favData[f.service_id]=f});
     renderFavorites();
+    var favPg=document.getElementById('favSvcsPage');
+    if(favPg&&favPg.classList.contains('show'))renderFavListPage();
   }catch(e){}
 }
 async function toggleFavorite(payload,btnEl){
@@ -13568,21 +14246,42 @@ function renderFavorites(){
   var sec=document.getElementById('favSvcsSec');if(!sec)return;
   var favs=Object.values(_favData);
   if(!favs.length){sec.innerHTML='';return}
-  var h='<div class="cs-carousel-head"><div class="cs-carousel-title"><i class="fa-solid fa-heart" style="color:#ef4444"></i> المفضلة</div></div>';
-  h+='<div class="fav-list">';
-  favs.slice(0,8).forEach(function(f){
+  sec.innerHTML='<div class="curr-card-vps" onclick="openFavPage()">'+
+    '<div class="curr-card-vps-ic" style="background:rgba(239,68,68,.1);color:#ef4444"><i class="fa-solid fa-heart"></i></div>'+
+    '<div class="curr-card-vps-text">'+
+      '<div class="curr-card-vps-title">المفضلة</div>'+
+      '<div class="curr-card-vps-sub">'+favs.length+' خدمة محفوظة — اضغط لعرضها كلها</div>'+
+    '</div>'+
+    '<i class="fa-solid fa-chevron-left curr-card-vps-chev"></i>'+
+  '</div>';
+}
+window.renderFavorites=renderFavorites;
+function openFavPage(){document.getElementById('favSvcsPage').classList.add('show');renderFavListPage()}
+window.openFavPage=openFavPage;
+function renderFavListPage(){
+  var el=document.getElementById('favPageContent');if(!el)return;
+  var favs=Object.values(_favData);
+  var backBtn='<div class="csl-back" onclick="document.getElementById(\'favSvcsPage\').classList.remove(\'show\')">→</div>';
+  if(!favs.length){
+    el.innerHTML='<div class="csl-header">'+backBtn+'<div class="csl-title"><i class="fa-solid fa-heart"></i> المفضلة</div></div><div style="text-align:center;padding:40px 16px"><div style="font-size:2rem;margin-bottom:8px;opacity:.3"><i class="fa-solid fa-heart"></i></div><div style="font-size:13px;color:var(--text3);font-weight:600">لا توجد خدمات في المفضلة بعد</div></div>';
+    return;
+  }
+  var h='<div class="csl-header">'+backBtn+'<div class="csl-title"><i class="fa-solid fa-heart"></i> المفضلة</div><div class="csl-count">'+favs.length+'</div></div>';
+  h+='<div style="padding:0 14px 14px"><div class="fav-list">';
+  favs.forEach(function(f){
     h+='<div class="acc-item fav-item" data-fid="'+esc(String(f.service_id))+'">'+
        '<div class="mi-ic" style="background:rgba(239,68,68,.1);color:#ef4444"><i class="fa-solid fa-heart"></i></div>'+
        '<div class="mi-info"><div class="mi-title">'+esc(f.service_name)+'</div><div class="mi-desc">'+esc(f.platform||'')+(f.custom?' — خدمة مخصصة':'')+' — $'+parseFloat(f.rate||0).toFixed(2)+'</div></div>'+
        '<button class="ow-fav-btn on" title="إزالة من المفضلة"><i class="fa-solid fa-heart"></i></button>'+
        '</div>';
   });
-  h+='</div>';
-  sec.innerHTML=h;
-  sec.querySelectorAll('.fav-item').forEach(function(row){
+  h+='</div></div>';
+  el.innerHTML=h;
+  el.querySelectorAll('.fav-item').forEach(function(row){
     var fid=row.dataset.fid;var f=_favData[fid];if(!f)return;
     row.addEventListener('click',function(e){
       if(e.target.closest('.ow-fav-btn'))return;
+      document.getElementById('favSvcsPage').classList.remove('show');
       aiGoToService({id:f.service_id,platform:f.platform,category:f.category,custom:!!f.custom});
     });
     var rmBtn=row.querySelector('.ow-fav-btn');
@@ -13593,7 +14292,7 @@ function renderFavorites(){
     });
   });
 }
-window.renderFavorites=renderFavorites;
+window.renderFavListPage=renderFavListPage;
 setTimeout(function(){loadCustomServices();loadFavorites()},1200);
 
 document.querySelectorAll('.overlay-page').forEach(function(el){
@@ -15293,6 +15992,24 @@ function loadDailyGiftAdmin(){
     if(d.ok&&d.active==='1'&&d.code){showDgCode(d.code);document.getElementById('dgAmount').value=d.amount;document.getElementById('dgMaxUses').value=d.max_uses}
   });
 }
+async function loadDailyBonusSettings(){
+  try{var r=await fetch('/api/admin/site-settings');var d=await r.json();
+    if(d.ok){var s=d.settings||d;
+      document.getElementById('dailyBonusToggle').classList.toggle('on',s.daily_bonus_enabled==='1');
+      document.getElementById('dailyBonusPercentIn').value=s.daily_bonus_percent||'2';
+    }
+  }catch(e){}
+}
+window.loadDailyBonusSettings=loadDailyBonusSettings;
+async function saveDailyBonusSettings(){
+  var data={daily_bonus_enabled:document.getElementById('dailyBonusToggle').classList.contains('on')?'1':'0',
+            daily_bonus_percent:document.getElementById('dailyBonusPercentIn').value||'2'};
+  try{var r=await fetch('/api/admin/site-settings',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});
+    var d=await r.json();
+    if(d.ok)toast('تم الحفظ بنجاح','success');else toast('حدث خطأ','error');
+  }catch(e){toast('حدث خطأ','error')}
+}
+window.saveDailyBonusSettings=saveDailyBonusSettings;
 function loadDailyGiftUser(){
   fetch('/api/daily-gift-code').then(function(r){return r.json()}).then(function(d){
     var el=document.getElementById('dailyGiftBanner');
