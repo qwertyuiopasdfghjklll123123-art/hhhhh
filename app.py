@@ -4511,9 +4511,6 @@ def api_admin_order_set_status():
                          f'طلب #{display_ref} — تم إرجاع المبلغ إلى رصيدك', 'wallet', goto='wallet:')
     if new_status == 'Completed' and old_status != 'Completed':
         push_user_notif(row['user_id'], 'order', f'طلب #{display_ref} اكتمل', f'{row["service_name"]}', 'done', goto=f'order:{display_ref}')
-    elif new_status != old_status:
-        push_user_notif(row['user_id'], 'order', f'تحديث حالة طلب #{display_ref}',
-                         f'{row["service_name"]} — الحالة الآن: {new_status}', 'order', goto=f'order:{display_ref}')
     conn.commit()
     conn.close()
     return jsonify(ok=True, msg='تم تحديث حالة الطلب')
@@ -7145,7 +7142,7 @@ def index():
     if 'user_id' in session:
         return redirect('/app')
     site_name = get_setting('site_name', 'fastcrand')
-    html = LANDING_HTML.replace('__GOOGLE_CLIENT_ID__', _get_google_client_id()).replace('__SITE_NAME__', site_name).replace('__PWA_ICON_VER__', get_setting('pwa_icon_version', '2'))
+    html = LANDING_HTML.replace('__GOOGLE_CLIENT_ID__', _get_google_client_id()).replace('__SITE_NAME__', site_name).replace('__PWA_ICON_VER__', get_setting('pwa_icon_version', '2')).replace('__AI_ICON__', get_ai_icon_data_uri())
     resp = make_response(html)
     resp.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
     return resp
@@ -7216,7 +7213,7 @@ body{font-family:IBM Plex Sans Arabic,'Tajawal',sans-serif;background:var(--bg);
 .theme-toggle{width:40px;height:40px;border-radius:10px;border:1px solid var(--card-border);background:var(--toggle-bg);cursor:pointer;display:flex;align-items:center;justify-content:center;color:var(--text2);font-size:15px;transition:all .3s}
 .theme-toggle:hover{color:var(--primary);background:var(--primary-glow)}
 
-.hero{min-height:100vh;display:flex;align-items:center;justify-content:center;text-align:center;padding:100px 20px 60px;position:relative;z-index:1}
+.hero{display:flex;align-items:center;justify-content:center;text-align:center;padding:110px 20px 40px;position:relative;z-index:1}
 .hero-inner{max-width:680px}
 .hero-badge{display:inline-flex;align-items:center;gap:8px;padding:8px 18px;border-radius:30px;background:var(--primary-glow);font-size:13px;font-weight:700;color:var(--primary);margin-bottom:20px;animation:fadeUp .7s ease}
 .hero h1{font-family:IBM Plex Sans Arabic,sans-serif;font-size:clamp(32px,6vw,52px);font-weight:900;line-height:1.2;margin-bottom:16px;animation:fadeUp .7s ease .1s both}
@@ -7312,6 +7309,27 @@ body{font-family:IBM Plex Sans Arabic,'Tajawal',sans-serif;background:var(--bg);
 .site-footer a{color:var(--primary);text-decoration:none}
 .reveal{opacity:0;transform:translateY(30px);transition:opacity .6s,transform .6s}
 .reveal.visible{opacity:1;transform:translateY(0)}
+.welcome-strip{max-width:640px;margin:22px auto 0;padding:14px 20px;background:var(--card);border:1px solid var(--card-border);border-radius:14px;display:flex;align-items:flex-start;gap:12px;text-align:right;animation:fadeUp .7s ease .2s both}
+.welcome-strip i{font-size:18px;color:var(--primary);flex-shrink:0;margin-top:2px}
+.welcome-strip p{font-size:12.5px;color:var(--text2);line-height:1.8;margin:0}
+.explain-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:16px;max-width:960px;margin:0 auto}
+.explain-card{background:var(--card);border:1px solid var(--card-border);border-radius:16px;padding:22px;position:relative;overflow:hidden;transition:all .3s}
+.explain-card-ic{width:46px;height:46px;border-radius:13px;display:flex;align-items:center;justify-content:center;font-size:19px;margin-bottom:14px}
+.explain-card-ic img{width:100%;height:100%;object-fit:contain;border-radius:13px}
+.explain-card h3{font-size:14.5px;font-weight:800;margin-bottom:6px;color:var(--text)}
+.explain-card p{font-size:12px;color:var(--text3);line-height:1.8;margin:0}
+.pm-showcase{display:flex;flex-wrap:wrap;gap:10px;margin-top:14px}
+.pm-showcase-item{display:flex;align-items:center;gap:7px;padding:9px 14px;background:var(--bg2);border:1px solid var(--card-border);border-radius:30px;font-size:11.5px;font-weight:700;color:var(--text2)}
+.pm-showcase-item i{font-size:13px;color:var(--primary)}
+.svc-teaser{position:relative;overflow:hidden;margin-top:6px}
+.svc-teaser-row{display:flex;align-items:center;gap:12px;padding:13px 14px;background:var(--bg2);border-radius:12px;transition:opacity .35s ease}
+.svc-teaser-row.fading{opacity:0}
+.svc-teaser-ic{width:36px;height:36px;border-radius:10px;background:var(--primary-glow);color:var(--primary);display:flex;align-items:center;justify-content:center;font-size:15px;flex-shrink:0}
+.svc-teaser-info{flex:1;min-width:0}
+.svc-teaser-name{font-size:12px;font-weight:800;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.svc-teaser-meta{font-size:10px;color:var(--text3);margin-top:2px}
+.svc-teaser-price{font-size:13px;font-weight:900;color:var(--green,#10b981);flex-shrink:0}
+.svc-teaser::after{content:'';position:absolute;inset:0;pointer-events:none;background:linear-gradient(100deg,transparent 35%,rgba(255,255,255,.16) 50%,transparent 65%);background-size:220% 100%;animation:shimmer 3.2s infinite}
 .btn-google{width:100%;padding:11px;border:1.5px solid var(--card-border);border-radius:10px;background:var(--card);color:var(--text);font-size:14px;font-weight:700;cursor:pointer;font-family:IBM Plex Sans Arabic,'Tajawal',sans-serif;transition:all .3s;display:flex;align-items:center;justify-content:center;gap:10px}
 .btn-google:hover{border-color:var(--primary);box-shadow:0 2px 12px var(--primary-glow)}
 .msg-toast{position:fixed;top:80px;left:50%;transform:translateX(-50%);padding:11px 22px;border-radius:12px;font-size:13px;font-weight:700;z-index:9999;animation:fadeUp .3s ease;font-family:IBM Plex Sans Arabic,'Tajawal',sans-serif;max-width:90%;background:#1e1e2e;color:#fff;border:1px solid rgba(255,255,255,.12);box-shadow:0 8px 28px rgba(0,0,0,.35);display:flex;align-items:center;gap:8px;backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px)}
@@ -7437,17 +7455,15 @@ body{font-family:IBM Plex Sans Arabic,'Tajawal',sans-serif;background:var(--bg);
 <section class="hero">
   <div class="hero-inner">
     <div class="hero-badge"><i class="fa-solid fa-bolt"></i> المنصة #1 لخدمات التواصل الاجتماعي <i class="fa-solid fa-bolt"></i></div>
-    <h1>عزّز حسابك مع<br><span class="gradient">__SITE_NAME__</span></h1>
-    <p>منصة SMM متكاملة — احصل على متابعين، إعجابات، مشاهدات وتعليقات لجميع منصات التواصل الاجتماعي بأسعار تنافسية وتوصيل فوري.</p>
-    <div class="hero-btns">
-      <button class="btn-hero primary" id="btnHeroStart"><i class="fa-solid fa-rocket"></i> ابدأ الآن مجاناً</button>
-      <button class="btn-hero outline" id="btnHeroHow"><i class="fa-solid fa-circle-play"></i> كيف يعمل؟</button>
-    </div>
     <div class="platforms-strip">
       <span>ندعم جميع المنصات</span>
       <div class="platform-icons">
         <i class="fa-brands fa-instagram"></i><i class="fa-brands fa-tiktok"></i><i class="fa-brands fa-youtube"></i><i class="fa-brands fa-twitter"></i><i class="fa-brands fa-facebook"></i><i class="fa-brands fa-telegram"></i><i class="fa-brands fa-snapchat"></i>
       </div>
+    </div>
+    <div class="welcome-strip">
+      <i class="fa-solid fa-hand-sparkles"></i>
+      <p>مرحباً بك في <b>__SITE_NAME__</b> — منصتك المتكاملة لتطوير حساباتك على مواقع التواصل الاجتماعي: متابعين، إعجابات، مشاهدات وتعليقات بأسعار تنافسية وتوصيل فوري، مع مساعد ذكي يرشدك لأنسب خدمة ومكافأة يومية مجانية. سجّل دخولك أو أنشئ حسابك بالأسفل وابدأ خلال دقيقة.</p>
     </div>
   </div>
 </section>
@@ -7522,33 +7538,48 @@ body{font-family:IBM Plex Sans Arabic,'Tajawal',sans-serif;background:var(--bg);
 </div>
 
 <section class="section section-alt">
-  <div class="section-title reveal"><h2><i class="fa-solid fa-sparkles" style="color:var(--primary)"></i> لماذا __SITE_NAME__؟</h2><p>نوفر لك كل ما تحتاجه لتطوير حساباتك على السوشيال ميديا</p></div>
-  <div class="features-grid">
-    <div class="feature-card reveal"><div class="feature-icon"><i class="fa-solid fa-bolt-lightning"></i></div><h3>توصيل فوري</h3><p>طلباتك تبدأ بالتنفيذ خلال ثوانٍ من تأكيد الطلب — نظام أوتوماتيكي بالكامل يعمل 24/7.</p></div>
-    <div class="feature-card reveal"><div class="feature-icon"><i class="fa-solid fa-coins"></i></div><h3>أسعار تنافسية</h3><p>أقل الأسعار في السوق مع ضمان الجودة. كل ما تحتاجه بأسعار تبدأ من $0.01 لكل 1000.</p></div>
-    <div class="feature-card reveal"><div class="feature-icon"><i class="fa-solid fa-shield-halved"></i></div><h3>آمن وموثوق</h3><p>نستخدم أحدث تقنيات الحماية لضمان أمان حسابك وبياناتك الشخصية بالكامل.</p></div>
-    <div class="feature-card reveal"><div class="feature-icon"><i class="fa-solid fa-headset"></i></div><h3>دعم فني 24/7</h3><p>فريق دعم متواجد على مدار الساعة عبر التذاكر والتيليجرام لمساعدتك في أي وقت.</p></div>
-    <div class="feature-card reveal"><div class="feature-icon"><i class="fa-solid fa-layer-group"></i></div><h3>خدمات متنوعة</h3><p>متابعين، إعجابات، مشاهدات، تعليقات، مشتركين، ريتويت وأكثر لجميع المنصات العالمية.</p></div>
-    <div class="feature-card reveal"><div class="feature-icon"><i class="fa-solid fa-code"></i></div><h3>API للمطورين</h3><p>واجهة برمجية API متكاملة تسمح لك بربط خدماتنا مع موقعك أو تطبيقك بسهولة تامة.</p></div>
-  </div>
-</section>
-
-<div class="stats-bar">
-  <div class="stats-grid">
-    <div class="stat-item"><span class="num">50K+</span><span class="label">مستخدم نشط</span></div>
-    <div class="stat-item"><span class="num">2M+</span><span class="label">طلب مُنجز</span></div>
-    <div class="stat-item"><span class="num">150+</span><span class="label">خدمة متاحة</span></div>
-    <div class="stat-item"><span class="num">99.9%</span><span class="label">وقت التشغيل</span></div>
-  </div>
-</div>
-
-<section class="section" id="howSection">
-  <div class="section-title reveal"><h2><i class="fa-solid fa-route" style="color:var(--primary)"></i> كيف تستخدم __SITE_NAME__؟</h2><p>أربع خطوات بسيطة وتبدأ بتطوير حساباتك</p></div>
-  <div class="steps-container">
+  <div class="section-title reveal"><h2><i class="fa-solid fa-route" style="color:var(--primary)"></i> كيف يعمل __SITE_NAME__؟</h2><p>كل ما تحتاج معرفته لتبدأ بثقة خلال دقائق</p></div>
+  <div class="steps-container" style="margin-bottom:48px">
     <div class="step reveal"><div class="step-num">1</div><div class="step-content"><h3><i class="fa-solid fa-user-plus"></i> أنشئ حسابك</h3><p>سجّل حساب جديد مجاناً باستخدام بريدك الإلكتروني. ستصلك رسالة تأكيد — اضغط على الرابط لتفعيل حسابك والبدء فوراً.</p></div></div>
-    <div class="step reveal"><div class="step-num">2</div><div class="step-content"><h3><i class="fa-solid fa-wallet"></i> اشحن رصيدك</h3><p>أضف رصيد لحسابك بسهولة عبر طرق دفع متعددة: بطاقات الائتمان، العملات الرقمية، أو التحويل المحلي. الحد الأدنى للشحن يبدأ من $1 فقط.</p></div></div>
-    <div class="step reveal"><div class="step-num">3</div><div class="step-content"><h3><i class="fa-solid fa-cart-shopping"></i> اختر خدمتك واطلب</h3><p>تصفّح قائمة الخدمات، اختر المنصة، حدد الخدمة المطلوبة، أدخل رابط حسابك أو منشورك، ثم اضغط "طلب".</p></div></div>
+    <div class="step reveal"><div class="step-num">2</div><div class="step-content"><h3><i class="fa-solid fa-wallet"></i> اشحن رصيدك</h3><p>أضف رصيد لحسابك بسهولة عبر طرق دفع متعددة وسريعة. الحد الأدنى للشحن يبدأ من $1 فقط.</p></div></div>
+    <div class="step reveal"><div class="step-num">3</div><div class="step-content"><h3><i class="fa-solid fa-cart-shopping"></i> اختر خدمتك واطلب</h3><p>تصفّح قائمة الخدمات أو اسأل مساعدنا الذكي عمّا تحتاجه، أدخل رابط حسابك أو منشورك، ثم اضغط "طلب".</p></div></div>
     <div class="step reveal"><div class="step-num">4</div><div class="step-content"><h3><i class="fa-solid fa-chart-line"></i> تابع طلبك</h3><p>بعد تأكيد الطلب، يبدأ التنفيذ تلقائياً. تابع حالة طلبك من لوحة التحكم وشاهد النتائج تظهر على حسابك في دقائق!</p></div></div>
+  </div>
+
+  <div class="explain-grid">
+    <div class="explain-card reveal">
+      <div class="explain-card-ic" style="background:var(--primary-glow)"><img src="__AI_ICON__" alt=""></div>
+      <h3>مساعدك الذكي على مدار الساعة</h3>
+      <p>اسأله بلغتك العادية عن أي خدمة — "أرخص متابعين انستقرام" مثلاً — وسيرشّح لك الخدمة المناسبة مع زر ينقلك مباشرة لصفحة الطلب. يجاوبك أيضاً عن رصيدك وحالة طلباتك وطرق الدفع في أي وقت.</p>
+    </div>
+    <div class="explain-card reveal">
+      <div class="explain-card-ic" style="background:rgba(16,185,129,.1);color:var(--green)"><i class="fa-solid fa-gift"></i></div>
+      <h3>هدية يومية مجانية</h3>
+      <p>سجّل دخولك يومياً واحصل على مكافأة رصيد مجانية كل 24 ساعة من صفحة حسابك — رصيد إضافي بدون أي تكلفة، فقط بضغطة زر.</p>
+    </div>
+    <div class="explain-card reveal" style="grid-column:1/-1">
+      <div class="explain-card-ic" style="background:var(--primary-glow);color:var(--primary)"><i class="fa-solid fa-credit-card"></i></div>
+      <h3>طرق دفع متعددة وسريعة</h3>
+      <p>اشحن رصيدك بالطريقة الأسهل لك — دفع تلقائي فوري أو تحويل محلي مباشر.</p>
+      <div class="pm-showcase">
+        <div class="pm-showcase-item"><i class="fa-brands fa-bitcoin"></i> Binance Pay</div>
+        <div class="pm-showcase-item"><i class="fa-solid fa-mobile-screen"></i> آسياسيل</div>
+        <div class="pm-showcase-item"><i class="fa-brands fa-telegram"></i> نجوم تليجرام</div>
+        <div class="pm-showcase-item"><i class="fa-solid fa-building-columns"></i> تحويل محلي</div>
+      </div>
+    </div>
+    <div class="explain-card reveal" style="grid-column:1/-1">
+      <div class="explain-card-ic" style="background:rgba(99,102,241,.1);color:var(--primary)"><i class="fa-solid fa-layer-group"></i></div>
+      <h3>خدمات بأسعار تبدأ من $0.01</h3>
+      <p style="margin-bottom:2px">أمثلة من خدماتنا — تصفّح القائمة الكاملة والأسعار الحقيقية من داخل حسابك:</p>
+      <div class="svc-teaser">
+        <div class="svc-teaser-row" id="svcTeaserRow">
+          <div class="svc-teaser-ic"><i class="fa-brands fa-instagram"></i></div>
+          <div class="svc-teaser-info"><div class="svc-teaser-name">متابعين انستقرام حقيقيين</div><div class="svc-teaser-meta">Instagram — توصيل فوري</div></div>
+          <div class="svc-teaser-price">$1.20<span style="font-size:9px;color:var(--text3);font-weight:600"> /1K</span></div>
+        </div>
+      </div>
+    </div>
   </div>
 </section>
 
@@ -7594,8 +7625,32 @@ body{font-family:IBM Plex Sans Arabic,'Tajawal',sans-serif;background:var(--bg);
 
   function scrollTo(id){document.getElementById(id).scrollIntoView({behavior:'smooth'});}
   document.getElementById('btnScrollAuth').addEventListener('click',function(){scrollTo('authSection');});
-  document.getElementById('btnHeroStart').addEventListener('click',function(){scrollTo('authSection');});
-  document.getElementById('btnHeroHow').addEventListener('click',function(){scrollTo('howSection');});
+
+  (function(){
+    var svcSamples=[
+      {ic:'fa-brands fa-instagram',name:'متابعين انستقرام حقيقيين',meta:'Instagram — توصيل فوري',price:'$1.20'},
+      {ic:'fa-brands fa-tiktok',name:'مشاهدات تيك توك',meta:'TikTok — بداية خلال دقائق',price:'$0.35'},
+      {ic:'fa-brands fa-youtube',name:'مشتركين يوتيوب',meta:'YouTube — جودة عالية',price:'$2.80'},
+      {ic:'fa-brands fa-telegram',name:'أعضاء قناة تيليجرام',meta:'Telegram — بدون كلمة مرور',price:'$0.90'},
+      {ic:'fa-brands fa-facebook',name:'إعجابات فيسبوك',meta:'Facebook — تعويض تلقائي',price:'$1.05'}
+    ];
+    var _si=0;
+    var row=document.getElementById('svcTeaserRow');
+    if(row){
+      setInterval(function(){
+        row.classList.add('fading');
+        setTimeout(function(){
+          _si=(_si+1)%svcSamples.length;
+          var s=svcSamples[_si];
+          row.querySelector('.svc-teaser-ic').innerHTML='<i class="'+s.ic+'"></i>';
+          row.querySelector('.svc-teaser-name').textContent=s.name;
+          row.querySelector('.svc-teaser-meta').textContent=s.meta;
+          row.querySelector('.svc-teaser-price').innerHTML=s.price+'<span style="font-size:9px;color:var(--text3);font-weight:600"> /1K</span>';
+          row.classList.remove('fading');
+        },350);
+      },3200);
+    }
+  })();
 
   var currentTab='login';
   function switchTab(tab){
@@ -11894,6 +11949,14 @@ print(r.json())</pre>
       var progress=0;
       if(parseInt(qty)>0 && remains!=='—'){progress=Math.round(((parseInt(qty)-parseInt(remains))/parseInt(qty))*100)}
       body.innerHTML=buildDetail(o,status,statusAr[status]||status,charge,startCount,remains,progress);
+      if(status!==st){
+        o.status=status;o.charge=charge;
+        var af=document.querySelector('#ordFilters .flt.on');renderOrders(af?af.dataset.f:'all');
+        var done=0,pend=0,canc=0;
+        allOrders.forEach(function(x){var s=(x.status||'').toLowerCase();if(s==='completed')done++;else if(s==='canceled'||s==='cancelled')canc++;else pend++});
+        var elD=document.getElementById('osDone'),elP=document.getElementById('osPend'),elC=document.getElementById('osCanc');
+        if(elD)elD.textContent=done;if(elP)elP.textContent=pend;if(elC)elC.textContent=canc;
+      }
     }).catch(function(){});
     } // end if has order
   }
@@ -17531,7 +17594,15 @@ def _bg_check_orders():
         try:
             conn = get_db()
             try:
-                active = conn.execute("SELECT * FROM orders WHERE status IN ('Processing','Pending','In progress') AND refunded=0").fetchall()
+                # also re-verify recently-completed orders for a bounded window: some providers
+                # mark an order Completed then later reverse it to Canceled/Partial after a quality
+                # check — without this, such a reversal is only ever caught if the customer happens
+                # to open that exact order (which triggers a live check), leaving the orders list
+                # showing a stale 'Completed' badge indefinitely otherwise.
+                active = conn.execute(
+                    "SELECT * FROM orders WHERE (status IN ('Processing','Pending','In progress') "
+                    "OR (status='Completed' AND created_at > ?)) AND refunded=0",
+                    (time.time() - 6 * 3600,)).fetchall()
             finally:
                 conn.close()
             for order in active:
@@ -17558,7 +17629,7 @@ def _bg_check_orders():
                         site_charge = float(order['site_charge'] or 0)
                         qty = int(order['quantity'] or 0)
                         remains = int(result.get('remains', 0))
-                        oid = order['order_id']
+                        oid = order['display_id'] or order['order_id'] or order['id']
                         if new_status == 'Canceled' and site_charge > 0 and not order['refunded']:
                             conn2.execute('UPDATE users SET balance=balance+? WHERE id=?', (site_charge, uid))
                             conn2.execute('UPDATE orders SET refunded=1 WHERE id=?', (order['id'],))
