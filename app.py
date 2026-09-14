@@ -4156,15 +4156,23 @@ def call_ai_api(messages):
     model = get_setting('deepseek_model', 'deepseek-chat') or 'deepseek-chat'
     if not api_key:
         return None, 'لم يتم إعداد مفتاح المساعد الذكي بعد. الرجاء التواصل مع الإدارة.'
-    try:
-        resp = requests.post('https://api.deepseek.com/chat/completions',
-            headers={'Content-Type': 'application/json', 'Authorization': f'Bearer {api_key}'},
-            json={'model': model, 'messages': messages, 'temperature': 0.6, 'top_p': 0.9, 'max_tokens': 500, 'stream': False},
-            timeout=30)
-    except requests.exceptions.Timeout:
-        return None, 'استغرق رد المساعد الذكي وقتاً أطول من المعتاد، حاول مرة أخرى.'
-    except Exception:
-        return None, 'تعذر الاتصال بخدمة الذكاء الاصطناعي، تحقق من اتصالك وحاول مرة أخرى.'
+    resp = None
+    for attempt in range(2):
+        try:
+            resp = requests.post('https://api.deepseek.com/chat/completions',
+                headers={'Content-Type': 'application/json', 'Authorization': f'Bearer {api_key}'},
+                json={'model': model, 'messages': messages, 'temperature': 0.6, 'top_p': 0.9, 'max_tokens': 500, 'stream': False},
+                timeout=30)
+            break
+        except requests.exceptions.Timeout:
+            return None, 'استغرق رد المساعد الذكي وقتاً أطول من المعتاد، حاول مرة أخرى.'
+        except Exception:
+            # a connection-level failure (DNS/reset/refused) is often transient — retry once
+            # after a short pause before giving up, instead of failing on the very first blip
+            if attempt == 0:
+                time.sleep(1.5)
+                continue
+            return None, 'تعذر الاتصال بخدمة الذكاء الاصطناعي، تحقق من اتصالك وحاول مرة أخرى.'
     if resp.status_code != 200:
         return None, 'تعذر الحصول على رد من المساعد الذكي حالياً، حاول مرة أخرى.'
     try:
@@ -17776,8 +17784,10 @@ def _health_watchdog():
         except Exception:
             _fail_count += 1
             if _fail_count >= 3:
-                print('[WATCHDOG] Server unresponsive! Killing process...')
-                os._exit(1)
+                print('[WATCHDOG] الموقع لم يستجب لعدة فحوصات متتالية (على الأرجح ضغط مؤقت على السيرفر). '
+                      'لا يتم إيقاف العملية تلقائياً هنا لتجنّب توقف الموقع بشكل كامل بلا رجوع في حال عدم وجود '
+                      'نظام إعادة تشغيل تلقائي (systemd/pm2). راقب استهلاك الذاكرة والمعالج على السيرفر.')
+                _fail_count = 0
 
 if __name__ == '__main__':
     # ===== فحص ذاتي: هل الأدمنين عندهم اشتراكات push؟ =====
