@@ -4183,6 +4183,42 @@ def call_ai_api(messages):
         return None, 'لم يصل رد من خدمة الذكاء الاصطناعي.'
     return reply, None
 
+def _check_deepseek_connectivity():
+    """يجري طلباً حقيقياً وصغيراً إلى DeepSeek ويرجع سبباً محدداً وواضحاً للفشل
+    (مفتاح خاطئ، رصيد منتهٍ، حظر شبكي، مهلة اتصال...) بدل رسالة عامة."""
+    api_key = get_setting('deepseek_api_key', '')
+    if not api_key:
+        return False, 'لم يتم إعداد مفتاح DeepSeek API بعد من لوحة الإدارة.'
+    try:
+        resp = requests.post('https://api.deepseek.com/chat/completions',
+            headers={'Content-Type': 'application/json', 'Authorization': f'Bearer {api_key}'},
+            json={'model': 'deepseek-chat', 'messages': [{'role': 'user', 'content': 'hi'}], 'max_tokens': 5},
+            timeout=15)
+    except requests.exceptions.SSLError as e:
+        return False, f'فشل الاتصال بسبب مشكلة شهادة SSL: {str(e)[:150]}'
+    except requests.exceptions.ConnectionError as e:
+        return False, f'تعذّر الوصول لسيرفرات DeepSeek من هذا السيرفر (مشكلة شبكة/DNS/جدار حماية): {str(e)[:150]}'
+    except requests.exceptions.Timeout:
+        return False, 'انتهت مهلة الاتصال بـ DeepSeek (أكثر من 15 ثانية) — الشبكة بطيئة جداً أو محجوبة.'
+    except Exception as e:
+        return False, f'خطأ غير متوقع أثناء الاتصال: {str(e)[:150]}'
+    if resp.status_code == 200:
+        return True, 'الاتصال يعمل بشكل طبيعي.'
+    if resp.status_code == 401:
+        return False, 'مفتاح DeepSeek غير صحيح أو منتهي الصلاحية (خطأ 401) — أنشئ مفتاحاً جديداً من platform.deepseek.com.'
+    if resp.status_code == 402:
+        return False, 'رصيد حساب DeepSeek غير كافٍ (خطأ 402).'
+    if resp.status_code == 429:
+        return False, 'تجاوزت الحد المسموح من الطلبات إلى DeepSeek حالياً (خطأ 429) — عادة مؤقت، أعد المحاولة بعد قليل.'
+    return False, f'DeepSeek رجّع رمز غير متوقع: {resp.status_code} — {resp.text[:150]}'
+
+@app.route('/api/admin/ai/test-connection', methods=['POST'])
+def api_admin_ai_test_connection():
+    if 'user_id' not in session or not session.get('is_admin'):
+        return jsonify(ok=False, msg='غير مصرح'), 403
+    ok, msg = _check_deepseek_connectivity()
+    return jsonify(ok=ok, msg=msg)
+
 def ai_account_status_context(user_id):
     # SECURITY: every query below is scoped to this exact user_id (the authenticated
     # session's own id) — never accept a user/order id from chat text for lookups,
@@ -10839,6 +10875,8 @@ html:not([data-theme="dark"]) .rv-star-btn{color:rgba(0,0,0,.1)}
       <div class="field-group" style="margin-bottom:0"><div class="field-label"><i class="fa-solid fa-microchip"></i> الموديل</div><input type="text" class="text-input" id="deepseekModelIn" placeholder="deepseek-chat" dir="ltr" style="text-align:left;font-family:var(--font-num);font-size:11px"></div>
     </div>
     <div style="padding:10px 14px;border-radius:10px;background:var(--primary-bg);border:1px solid var(--card-border);font-size:10px;color:var(--text2);line-height:1.8;font-weight:600;margin-bottom:12px"><i class="fa-solid fa-lightbulb"></i> احصل على مفتاح API من <a href="https://platform.deepseek.com" target="_blank" style="color:var(--primary);font-weight:800">platform.deepseek.com</a> — المساعد لن يعمل للمستخدمين قبل إدخال مفتاح صالح هنا.</div>
+    <div id="aiTestConnStatus" style="display:none;margin-bottom:12px;font-size:11px;padding:10px 14px;border-radius:10px;background:var(--input-bg);color:var(--text2);line-height:1.7"></div>
+    <button onclick="testAiConnection()" id="btnAiTestConn" class="btn-primary" style="background:var(--card);color:var(--primary);border:1.5px solid var(--primary);box-shadow:none;margin-bottom:12px"><i class="fa-solid fa-satellite-dish"></i> اختبار الاتصال الآن</button>
     <div style="background:var(--card);border:1px solid var(--card-border);border-radius:14px;padding:16px;margin-bottom:12px">
       <div class="sec-label"><i class="fa-solid fa-comment-dots"></i> إشعارات المساعد الذكي التلقائية</div>
       <div style="font-size:10px;color:var(--text3);margin-bottom:12px">يرسل المساعد رسالة تلقائية عند إنشاء طلب جديد، وعند غياب المستخدم عن الموقع فترة طويلة — الضغط على الإشعار يفتح محادثة مباشرة معه</div>
@@ -14017,6 +14055,25 @@ async function runAutoImportNow(){
   btn.disabled=false;btn.innerHTML=orig;
 }
 window.runAutoImportNow=runAutoImportNow;
+async function testAiConnection(){
+  var btn=document.getElementById('btnAiTestConn');
+  var st=document.getElementById('aiTestConnStatus');
+  var orig=btn.innerHTML;btn.disabled=true;btn.innerHTML='<i class="fa-solid fa-spinner fa-spin"></i> جاري الاختبار...';
+  st.style.display='none';
+  try{
+    var r=await fetch('/api/admin/ai/test-connection',{method:'POST'});
+    var d=await r.json();
+    st.style.display='block';
+    st.style.color=d.ok?'var(--green)':'var(--red)';
+    st.innerHTML=(d.ok?'<i class="fa-solid fa-circle-check"></i> ':'<i class="fa-solid fa-circle-xmark"></i> ')+esc(d.msg||'');
+    toast(d.ok?'الاتصال يعمل':'فشل الاتصال',d.ok?'success':'error');
+  }catch(e){
+    st.style.display='block';st.style.color='var(--red)';st.textContent='تعذر الاتصال بالسيرفر';
+    toast('تعذر الاتصال بالسيرفر','error');
+  }
+  btn.disabled=false;btn.innerHTML=orig;
+}
+window.testAiConnection=testAiConnection;
 function uploadAiIcon(input){
   if(!input.files||!input.files[0])return;
   var file=input.files[0];
@@ -17829,6 +17886,17 @@ if __name__ == '__main__':
         print()
     except Exception as _e:
         print(f' ⚠ admin push self-check failed: {_e}')
+
+    try:
+        print('═' * 60)
+        print(' 🤖 فحص الاتصال بخدمة الذكاء الاصطناعي (DeepSeek)')
+        print('═' * 60)
+        _dsk_ok, _dsk_msg = _check_deepseek_connectivity()
+        print(f' {"✅" if _dsk_ok else "❌"} {_dsk_msg}')
+        print('═' * 60)
+        print()
+    except Exception as _e:
+        print(f' ⚠ DeepSeek self-check failed: {_e}')
 
     bg = threading.Thread(target=_bg_check_orders, daemon=True)
     bg.start()
