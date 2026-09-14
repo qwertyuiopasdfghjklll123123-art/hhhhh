@@ -4148,20 +4148,22 @@ def _default_asiacell_tiers():
     return [{'iqd': v, 'bonus': 0} for v in ASIACELL_TIER_AMOUNTS]
 
 # ============================================================
-# المساعد الذكي (AI) - DeepSeek API
+# المساعد الذكي (AI) - NVIDIA API
 # ============================================================
 
+AI_API_BASE = 'https://integrate.api.nvidia.com/v1/chat/completions'
+
 def call_ai_api(messages):
-    api_key = get_setting('deepseek_api_key', '')
-    model = get_setting('deepseek_model', 'deepseek-chat') or 'deepseek-chat'
+    api_key = get_setting('nvidia_api_key', '')
+    model = get_setting('nvidia_model', 'openai/gpt-oss-20b') or 'openai/gpt-oss-20b'
     if not api_key:
         return None, 'لم يتم إعداد مفتاح المساعد الذكي بعد. الرجاء التواصل مع الإدارة.'
     resp = None
     for attempt in range(2):
         try:
-            resp = requests.post('https://api.deepseek.com/chat/completions',
+            resp = requests.post(AI_API_BASE,
                 headers={'Content-Type': 'application/json', 'Authorization': f'Bearer {api_key}'},
-                json={'model': model, 'messages': messages, 'temperature': 0.6, 'top_p': 0.9, 'max_tokens': 500, 'stream': False},
+                json={'model': model, 'messages': messages, 'temperature': 1, 'top_p': 1, 'max_tokens': 4096, 'stream': False},
                 timeout=30)
             break
         except requests.exceptions.Timeout:
@@ -4176,6 +4178,8 @@ def call_ai_api(messages):
     if resp.status_code != 200:
         return None, 'تعذر الحصول على رد من المساعد الذكي حالياً، حاول مرة أخرى.'
     try:
+        # gpt-oss reasoning models may also include a separate reasoning_content field —
+        # only the final content is ever shown to end users, never the internal reasoning trace
         reply = resp.json()['choices'][0]['message']['content']
     except Exception:
         reply = None
@@ -4183,40 +4187,41 @@ def call_ai_api(messages):
         return None, 'لم يصل رد من خدمة الذكاء الاصطناعي.'
     return reply, None
 
-def _check_deepseek_connectivity():
-    """يجري طلباً حقيقياً وصغيراً إلى DeepSeek ويرجع سبباً محدداً وواضحاً للفشل
+def _check_ai_connectivity():
+    """يجري طلباً حقيقياً وصغيراً لخدمة الذكاء الاصطناعي ويرجع سبباً محدداً وواضحاً للفشل
     (مفتاح خاطئ، رصيد منتهٍ، حظر شبكي، مهلة اتصال...) بدل رسالة عامة."""
-    api_key = get_setting('deepseek_api_key', '')
+    api_key = get_setting('nvidia_api_key', '')
+    model = get_setting('nvidia_model', 'openai/gpt-oss-20b') or 'openai/gpt-oss-20b'
     if not api_key:
-        return False, 'لم يتم إعداد مفتاح DeepSeek API بعد من لوحة الإدارة.'
+        return False, 'لم يتم إعداد مفتاح API الخاص بالمساعد الذكي بعد من لوحة الإدارة.'
     try:
-        resp = requests.post('https://api.deepseek.com/chat/completions',
+        resp = requests.post(AI_API_BASE,
             headers={'Content-Type': 'application/json', 'Authorization': f'Bearer {api_key}'},
-            json={'model': 'deepseek-chat', 'messages': [{'role': 'user', 'content': 'hi'}], 'max_tokens': 5},
+            json={'model': model, 'messages': [{'role': 'user', 'content': 'hi'}], 'max_tokens': 5},
             timeout=15)
     except requests.exceptions.SSLError as e:
         return False, f'فشل الاتصال بسبب مشكلة شهادة SSL: {str(e)[:150]}'
     except requests.exceptions.ConnectionError as e:
-        return False, f'تعذّر الوصول لسيرفرات DeepSeek من هذا السيرفر (مشكلة شبكة/DNS/جدار حماية): {str(e)[:150]}'
+        return False, f'تعذّر الوصول لسيرفر المساعد الذكي من هذا السيرفر (مشكلة شبكة/DNS/جدار حماية): {str(e)[:150]}'
     except requests.exceptions.Timeout:
-        return False, 'انتهت مهلة الاتصال بـ DeepSeek (أكثر من 15 ثانية) — الشبكة بطيئة جداً أو محجوبة.'
+        return False, 'انتهت مهلة الاتصال (أكثر من 15 ثانية) — الشبكة بطيئة جداً أو محجوبة.'
     except Exception as e:
         return False, f'خطأ غير متوقع أثناء الاتصال: {str(e)[:150]}'
     if resp.status_code == 200:
         return True, 'الاتصال يعمل بشكل طبيعي.'
     if resp.status_code == 401:
-        return False, 'مفتاح DeepSeek غير صحيح أو منتهي الصلاحية (خطأ 401) — أنشئ مفتاحاً جديداً من platform.deepseek.com.'
+        return False, 'مفتاح API غير صحيح أو منتهي الصلاحية (خطأ 401) — أنشئ مفتاحاً جديداً من build.nvidia.com.'
     if resp.status_code == 402:
-        return False, 'رصيد حساب DeepSeek غير كافٍ (خطأ 402).'
+        return False, 'رصيد الحساب غير كافٍ (خطأ 402).'
     if resp.status_code == 429:
-        return False, 'تجاوزت الحد المسموح من الطلبات إلى DeepSeek حالياً (خطأ 429) — عادة مؤقت، أعد المحاولة بعد قليل.'
-    return False, f'DeepSeek رجّع رمز غير متوقع: {resp.status_code} — {resp.text[:150]}'
+        return False, 'تجاوزت الحد المسموح من الطلبات حالياً (خطأ 429) — عادة مؤقت، أعد المحاولة بعد قليل.'
+    return False, f'الخدمة رجّعت رمز غير متوقع: {resp.status_code} — {resp.text[:150]}'
 
 @app.route('/api/admin/ai/test-connection', methods=['POST'])
 def api_admin_ai_test_connection():
     if 'user_id' not in session or not session.get('is_admin'):
         return jsonify(ok=False, msg='غير مصرح'), 403
-    ok, msg = _check_deepseek_connectivity()
+    ok, msg = _check_ai_connectivity()
     return jsonify(ok=ok, msg=msg)
 
 def ai_account_status_context(user_id):
@@ -6277,7 +6282,7 @@ def api_admin_site_settings_get():
             'backup_enabled','backup_interval','tg_bot_token','tg_chat_id','provider_api_url','provider_api_key',
             'rate_IQD','rate_EUR','rate_SAR','rate_AED','rate_TRY','google_client_id',
             'support_whatsapp','site_terms','site_privacy','skip_email_verify',
-            'deepseek_api_key','deepseek_model','ai_logo',
+            'nvidia_api_key','nvidia_model','ai_logo',
             'daily_bonus_enabled','daily_bonus_amount',
             'auto_import_enabled','auto_import_profit_pct',
             'ai_notif_enabled','ai_inactivity_days']
@@ -6310,7 +6315,7 @@ def api_admin_site_settings_save():
     data = freq.get_json() or {}
     allowed = ['site_name','site_name_color','smtp_enabled','smtp_host','smtp_port','smtp_tls','smtp_email','smtp_password','smtp_sender_name',
                'backup_enabled','backup_interval','tg_bot_token','tg_chat_id','provider_api_url','provider_api_key',
-               'google_client_id','deepseek_api_key','deepseek_model','ai_logo',
+               'google_client_id','nvidia_api_key','nvidia_model','ai_logo',
                'support_whatsapp','site_terms','site_privacy','skip_email_verify',
                'daily_bonus_enabled','daily_bonus_amount',
                'auto_import_enabled','auto_import_profit_pct',
@@ -10535,7 +10540,7 @@ html:not([data-theme="dark"]) .rv-star-btn{color:rgba(0,0,0,.1)}
       <div class="set-item" onclick="openAdmOV('couponPage');loadCoupons();loadDailyGiftAdmin();loadDailyBonusSettings()"><div class="set-ic" style="background:rgba(236,72,153,.1);color:#ec4899"><i class="fa-solid fa-gift"></i></div><div class="set-info"><div class="set-name">كوبونات الهدية</div><div class="set-desc">إنشاء كوبونات مجانية للمستخدمين</div></div><i class="fa-solid fa-chevron-left set-arr"></i></div>
       <div class="set-item" onclick="openAdmOV('reviewsAdmPage');loadAdminReviews()"><div class="set-ic" style="background:rgba(245,158,11,.1);color:#f59e0b"><i class="fa-solid fa-star"></i></div><div class="set-info"><div class="set-name">إدارة التقييمات</div><div class="set-desc">عرض وإخفاء تقييمات العملاء</div></div><i class="fa-solid fa-chevron-left set-arr"></i></div>
       <div class="set-item" onclick="openAdmOV('currencyPage');loadCurrencySettings()"><div class="set-ic" style="background:rgba(245,158,11,.1);color:#f59e0b"><i class="fa-solid fa-coins"></i></div><div class="set-info"><div class="set-name">أسعار صرف العملات</div><div class="set-desc">تحكم بأسعار الصرف المعروضة للمستخدمين</div></div><i class="fa-solid fa-chevron-left set-arr"></i></div>
-      <div class="set-item" onclick="openAdmOV('aiSettingsPage');loadAiSettings()"><div class="set-ic" style="background:var(--primary-bg);color:var(--primary)"><i class="fa-solid fa-robot"></i></div><div class="set-info"><div class="set-name">المساعد الذكي (AI)</div><div class="set-desc">مفتاح DeepSeek API الذي يشغّل مساعد الدردشة</div></div><i class="fa-solid fa-chevron-left set-arr"></i></div>
+      <div class="set-item" onclick="openAdmOV('aiSettingsPage');loadAiSettings()"><div class="set-ic" style="background:var(--primary-bg);color:var(--primary)"><i class="fa-solid fa-robot"></i></div><div class="set-info"><div class="set-name">المساعد الذكي (AI)</div><div class="set-desc">مفتاح NVIDIA API الذي يشغّل مساعد الدردشة</div></div><i class="fa-solid fa-chevron-left set-arr"></i></div>
       <div class="set-item" onclick="openAdmOV('autoImportPage');loadAutoImportSettings()"><div class="set-ic" style="background:rgba(16,185,129,.1);color:var(--green)"><i class="fa-solid fa-cloud-arrow-down"></i></div><div class="set-info"><div class="set-name">الاستيراد التلقائي للخدمات</div><div class="set-desc">يفحص المزوّدين كل 6 ساعات ويضيف الخدمات الجديدة تلقائياً</div></div><i class="fa-solid fa-chevron-left set-arr"></i></div>
       <div class="set-item" onclick="openAdmOV('googlePage');loadGoogleSettings()"><div class="set-ic" style="background:rgba(66,133,244,.1);color:#4285F4"><i class="fa-brands fa-google"></i></div><div class="set-info"><div class="set-name">تسجيل Google</div><div class="set-desc">ربط تسجيل الدخول بحساب Google</div></div><i class="fa-solid fa-chevron-left set-arr"></i></div>
       <div class="set-item" onclick="openAdmOV('sitePoliciesPage');loadSitePolicies()"><div class="set-ic" style="background:rgba(37,211,102,.1);color:#25d366"><i class="fa-brands fa-whatsapp"></i></div><div class="set-info"><div class="set-name">الدعم والسياسات</div><div class="set-desc">رقم واتساب، الشروط والأحكام، سياسة الخصوصية</div></div><i class="fa-solid fa-chevron-left set-arr"></i></div>
@@ -10870,7 +10875,7 @@ html:not([data-theme="dark"]) .rv-star-btn{color:rgba(0,0,0,.1)}
 <div class="overlay-page admin-only" id="aiSettingsPage">
   <div class="ov-topbar"><button class="ov-back" onclick="document.getElementById('aiSettingsPage').classList.remove('show')"><i class="fa-solid fa-arrow-right"></i></button><div class="ov-title"><i class="fa-solid fa-robot"></i> المساعد الذكي (AI)</div></div>
   <div class="ov-body">
-    <div style="text-align:center;padding:8px 0 16px"><div id="aiIconPreview" style="width:52px;height:52px;border-radius:50%;overflow:hidden;display:inline-flex;align-items:center;justify-content:center;margin-bottom:8px"><img src="__AI_ICON__" alt="" style="width:100%;height:100%;object-fit:contain"></div><div style="font-size:15px;font-weight:800">مساعد الذكاء الاصطناعي</div><div style="font-size:10px;color:var(--text3)">يعمل عبر DeepSeek API — يجاوب المستخدمين عن الخدمات، الطلبات، والرصيد</div></div>
+    <div style="text-align:center;padding:8px 0 16px"><div id="aiIconPreview" style="width:52px;height:52px;border-radius:50%;overflow:hidden;display:inline-flex;align-items:center;justify-content:center;margin-bottom:8px"><img src="__AI_ICON__" alt="" style="width:100%;height:100%;object-fit:contain"></div><div style="font-size:15px;font-weight:800">مساعد الذكاء الاصطناعي</div><div style="font-size:10px;color:var(--text3)">يعمل عبر NVIDIA API — يجاوب المستخدمين عن الخدمات، الطلبات، والرصيد</div></div>
     <div style="background:var(--card);border:1px solid var(--card-border);border-radius:14px;padding:16px;margin-bottom:12px">
       <div class="sec-label"><i class="fa-solid fa-image"></i> أيقونة المساعد الذكي</div>
       <div onclick="document.getElementById('aiIconFileIn').click()" style="width:100%;padding:16px;border:2px dashed var(--card-border);border-radius:14px;text-align:center;cursor:pointer;background:var(--input-bg)">
@@ -10879,10 +10884,10 @@ html:not([data-theme="dark"]) .rv-star-btn{color:rgba(0,0,0,.1)}
       </div>
     </div>
     <div style="background:var(--card);border:1px solid var(--card-border);border-radius:14px;padding:16px;margin-bottom:12px">
-      <div class="field-group"><div class="field-label"><i class="fa-solid fa-key"></i> DeepSeek API Key</div><input type="text" class="text-input" id="deepseekKeyIn" placeholder="sk-xxxxxxxxxxxxxxxx" dir="ltr" style="text-align:left;font-family:var(--font-num);font-size:11px"></div>
-      <div class="field-group" style="margin-bottom:0"><div class="field-label"><i class="fa-solid fa-microchip"></i> الموديل</div><input type="text" class="text-input" id="deepseekModelIn" placeholder="deepseek-chat" dir="ltr" style="text-align:left;font-family:var(--font-num);font-size:11px"></div>
+      <div class="field-group"><div class="field-label"><i class="fa-solid fa-key"></i> NVIDIA API Key</div><input type="text" class="text-input" id="nvidiaKeyIn" placeholder="nvapi-xxxxxxxxxxxxxxxx" dir="ltr" style="text-align:left;font-family:var(--font-num);font-size:11px"></div>
+      <div class="field-group" style="margin-bottom:0"><div class="field-label"><i class="fa-solid fa-microchip"></i> الموديل</div><input type="text" class="text-input" id="nvidiaModelIn" placeholder="openai/gpt-oss-20b" dir="ltr" style="text-align:left;font-family:var(--font-num);font-size:11px"></div>
     </div>
-    <div style="padding:10px 14px;border-radius:10px;background:var(--primary-bg);border:1px solid var(--card-border);font-size:10px;color:var(--text2);line-height:1.8;font-weight:600;margin-bottom:12px"><i class="fa-solid fa-lightbulb"></i> احصل على مفتاح API من <a href="https://platform.deepseek.com" target="_blank" style="color:var(--primary);font-weight:800">platform.deepseek.com</a> — المساعد لن يعمل للمستخدمين قبل إدخال مفتاح صالح هنا.</div>
+    <div style="padding:10px 14px;border-radius:10px;background:var(--primary-bg);border:1px solid var(--card-border);font-size:10px;color:var(--text2);line-height:1.8;font-weight:600;margin-bottom:12px"><i class="fa-solid fa-lightbulb"></i> احصل على مفتاح API مجاني من <a href="https://build.nvidia.com" target="_blank" style="color:var(--primary);font-weight:800">build.nvidia.com</a> — المساعد لن يعمل للمستخدمين قبل إدخال مفتاح صالح هنا.</div>
     <div id="aiTestConnStatus" style="display:none;margin-bottom:12px;font-size:11px;padding:10px 14px;border-radius:10px;background:var(--input-bg);color:var(--text2);line-height:1.7"></div>
     <button onclick="testAiConnection()" id="btnAiTestConn" class="btn-primary" style="background:var(--card);color:var(--primary);border:1.5px solid var(--primary);box-shadow:none;margin-bottom:12px"><i class="fa-solid fa-satellite-dish"></i> اختبار الاتصال الآن</button>
     <div style="background:var(--card);border:1px solid var(--card-border);border-radius:14px;padding:16px;margin-bottom:12px">
@@ -14004,15 +14009,15 @@ function renderCurrencyRatesList(settings){
 async function loadAiSettings(){
   try{var r=await fetch('/api/admin/site-settings');var d=await r.json();
     if(d.ok){var s=d.settings||d;
-      if(s.deepseek_api_key)document.getElementById('deepseekKeyIn').value=s.deepseek_api_key;
-      document.getElementById('deepseekModelIn').value=s.deepseek_model||'deepseek-chat';
+      if(s.nvidia_api_key)document.getElementById('nvidiaKeyIn').value=s.nvidia_api_key;
+      document.getElementById('nvidiaModelIn').value=s.nvidia_model||'openai/gpt-oss-20b';
       document.getElementById('aiNotifToggle').classList.toggle('on',s.ai_notif_enabled!=='0');
       document.getElementById('aiInactivityDaysIn').value=s.ai_inactivity_days||'3';
     }
   }catch(e){}
 }
 async function saveAiSettings(){
-  var data={deepseek_api_key:document.getElementById('deepseekKeyIn').value.trim(),deepseek_model:document.getElementById('deepseekModelIn').value.trim()||'deepseek-chat',
+  var data={nvidia_api_key:document.getElementById('nvidiaKeyIn').value.trim(),nvidia_model:document.getElementById('nvidiaModelIn').value.trim()||'openai/gpt-oss-20b',
             ai_notif_enabled:document.getElementById('aiNotifToggle').classList.contains('on')?'1':'0',
             ai_inactivity_days:document.getElementById('aiInactivityDaysIn').value||'3'};
   try{var r=await fetch('/api/admin/site-settings',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});
@@ -17897,14 +17902,14 @@ if __name__ == '__main__':
 
     try:
         print('═' * 60)
-        print(' 🤖 فحص الاتصال بخدمة الذكاء الاصطناعي (DeepSeek)')
+        print(' 🤖 فحص الاتصال بخدمة الذكاء الاصطناعي (NVIDIA)')
         print('═' * 60)
-        _dsk_ok, _dsk_msg = _check_deepseek_connectivity()
-        print(f' {"✅" if _dsk_ok else "❌"} {_dsk_msg}')
+        _ai_ok, _ai_msg = _check_ai_connectivity()
+        print(f' {"✅" if _ai_ok else "❌"} {_ai_msg}')
         print('═' * 60)
         print()
     except Exception as _e:
-        print(f' ⚠ DeepSeek self-check failed: {_e}')
+        print(f' ⚠ AI connectivity self-check failed: {_e}')
 
     bg = threading.Thread(target=_bg_check_orders, daemon=True)
     bg.start()
