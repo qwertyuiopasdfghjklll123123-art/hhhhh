@@ -765,6 +765,7 @@ def init_db():
         'ALTER TABLE users ADD COLUMN is_admin INTEGER DEFAULT 0',
         'ALTER TABLE users ADD COLUMN balance REAL DEFAULT 0',
         'ALTER TABLE users ADD COLUMN banned INTEGER DEFAULT 0',
+        'ALTER TABLE users ADD COLUMN username TEXT',
         'ALTER TABLE payment_methods ADD COLUMN bot_link TEXT DEFAULT ""',
         'ALTER TABLE payment_methods ADD COLUMN image TEXT DEFAULT ""',
         'ALTER TABLE custom_services ADD COLUMN desc_text TEXT DEFAULT ""',
@@ -992,6 +993,24 @@ def init_db():
         created_at REAL DEFAULT (strftime('%s','now'))
     )''')
     conn.commit()
+    conn.execute('''CREATE TABLE IF NOT EXISTS favorites(
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER NOT NULL,
+        service_id TEXT NOT NULL,
+        service_name TEXT DEFAULT '',
+        platform TEXT DEFAULT '',
+        category TEXT DEFAULT '',
+        rate TEXT DEFAULT '0',
+        min_qty INTEGER DEFAULT 0,
+        max_qty INTEGER DEFAULT 0,
+        custom INTEGER DEFAULT 0,
+        created_at REAL DEFAULT (strftime('%s','now'))
+    )''')
+    conn.commit()
+    try:
+        conn.execute('CREATE UNIQUE INDEX IF NOT EXISTS idx_fav_user_svc ON favorites(user_id, service_id)')
+        conn.commit()
+    except: pass
     conn.execute('''CREATE TABLE IF NOT EXISTS service_filters(
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         filter_type TEXT NOT NULL,
@@ -1936,33 +1955,43 @@ def api_register():
     if len(pw) < 6:
         return jsonify(ok=False, msg='كلمة المرور يجب أن تكون 6 أحرف على الأقل'), 400
 
-    token = str(secrets.randbelow(900000) + 100000)
+    skip_verify = get_setting('skip_email_verify', '0') == '1'
+    token = None if skip_verify else str(secrets.randbelow(900000) + 100000)
     conn = get_db()
     try:
         _pid = _next_public_id()
-        conn.execute('INSERT INTO users(name,email,password,verify_token,public_id) VALUES(?,?,?,?,?)',
-                     (name, email, hash_pw(pw), token, _pid))
+        conn.execute('INSERT INTO users(name,email,password,verify_token,verified,public_id) VALUES(?,?,?,?,?,?)',
+                     (name, email, hash_pw(pw), token, 1 if skip_verify else 0, _pid))
         conn.commit()
+        new_user = conn.execute('SELECT * FROM users WHERE email=?', (email,)).fetchone()
         ref_code = str(data.get('ref_code', '')).strip().upper()
-        if ref_code:
+        if ref_code and new_user:
             try:
-                new_user = conn.execute('SELECT id FROM users WHERE email=?', (email,)).fetchone()
-                if new_user:
-                    new_uid = new_user['id']
-                    _get_or_create_referral(new_uid)
-                    referrer = conn.execute('SELECT * FROM referrals WHERE code=?', (ref_code,)).fetchone()
-                    if referrer and referrer['user_id'] != new_uid:
-                        conn.execute('UPDATE referrals SET referred_by=? WHERE user_id=?', (referrer['user_id'], new_uid))
-                        conn.execute('UPDATE referrals SET ref_count=ref_count+1 WHERE user_id=?', (referrer['user_id'],))
-                        conn.commit()
+                new_uid = new_user['id']
+                _get_or_create_referral(new_uid)
+                referrer = conn.execute('SELECT * FROM referrals WHERE code=?', (ref_code,)).fetchone()
+                if referrer and referrer['user_id'] != new_uid:
+                    conn.execute('UPDATE referrals SET referred_by=? WHERE user_id=?', (referrer['user_id'], new_uid))
+                    conn.execute('UPDATE referrals SET ref_count=ref_count+1 WHERE user_id=?', (referrer['user_id'],))
+                    conn.commit()
             except:
                 pass
         conn.commit()
     except sqlite3.IntegrityError:
         conn.close()
         return jsonify(ok=False, msg='البريد الإلكتروني مسجل مسبقاً'), 400
-    conn.close()
 
+    if skip_verify:
+        session.permanent = True
+        session['user_id'] = new_user['id']
+        session['user_name'] = new_user['name']
+        session['user_email'] = new_user['email']
+        session['is_admin'] = bool(new_user['is_admin'])
+        push_user_notif(new_user['id'], 'system', f'مرحباً بك في {get_setting("site_name","fastcrand")}! ', 'تم تفعيل حسابك بنجاح. ابدأ بشحن رصيدك وطلب خدماتك الأولى!', 'promo', goto='recharge:')
+        conn.close()
+        return jsonify(ok=True, msg='تم إنشاء الحساب بنجاح!', auto_login=True)
+
+    conn.close()
     send_verify_email(email, token)
     return jsonify(ok=True, msg='تم إنشاء الحساب! تحقق من بريدك الإلكتروني')
 
@@ -5422,6 +5451,43 @@ def api_custom_services_public():
         services[svc['id']] = svc
     return jsonify(ok=True, services=services)
 
+@app.route('/api/favorites')
+def api_favorites_list():
+    if 'user_id' not in session:
+        return jsonify(ok=False, msg='غير مصرح'), 401
+    conn = get_db()
+    rows = conn.execute('SELECT * FROM favorites WHERE user_id=? ORDER BY created_at DESC', (session['user_id'],)).fetchall()
+    conn.close()
+    return jsonify(ok=True, favorites=[dict(r) for r in rows])
+
+@app.route('/api/favorites/toggle', methods=['POST'])
+def api_favorites_toggle():
+    if 'user_id' not in session:
+        return jsonify(ok=False, msg='غير مصرح'), 401
+    uid = session['user_id']
+    data = freq.get_json() or {}
+    service_id = str(data.get('service_id', '')).strip()
+    if not service_id:
+        return jsonify(ok=False, msg='خدمة غير صالحة')
+    conn = get_db()
+    existing = conn.execute('SELECT id FROM favorites WHERE user_id=? AND service_id=?', (uid, service_id)).fetchone()
+    if existing:
+        conn.execute('DELETE FROM favorites WHERE id=?', (existing['id'],))
+        conn.commit()
+        conn.close()
+        return jsonify(ok=True, favorited=False)
+    try:
+        conn.execute('''INSERT INTO favorites(user_id,service_id,service_name,platform,category,rate,min_qty,max_qty,custom)
+                         VALUES(?,?,?,?,?,?,?,?,?)''',
+                     (uid, service_id, str(data.get('service_name', ''))[:200], str(data.get('platform', ''))[:100],
+                      str(data.get('category', ''))[:100], str(data.get('rate', '0')), int(data.get('min') or 0),
+                      int(data.get('max') or 0), 1 if data.get('custom') else 0))
+        conn.commit()
+    except sqlite3.IntegrityError:
+        pass
+    conn.close()
+    return jsonify(ok=True, favorited=True)
+
 @app.route('/api/admin/custom_services', methods=['POST'])
 def api_admin_cs_list():
     if 'user_id' not in session:
@@ -5702,7 +5768,7 @@ def api_admin_site_settings_get():
     keys = ['site_name','site_name_color','smtp_enabled','smtp_host','smtp_port','smtp_tls','smtp_email','smtp_password','smtp_sender_name',
             'backup_enabled','backup_interval','tg_bot_token','tg_chat_id','provider_api_url','provider_api_key',
             'rate_IQD','rate_EUR','rate_SAR','rate_AED','rate_TRY','google_client_id',
-            'support_whatsapp','site_terms','site_privacy',
+            'support_whatsapp','site_terms','site_privacy','skip_email_verify',
             'deepseek_api_key','deepseek_model','ai_logo']
     out = {}
     conn = get_db()
@@ -5734,7 +5800,7 @@ def api_admin_site_settings_save():
     allowed = ['site_name','site_name_color','smtp_enabled','smtp_host','smtp_port','smtp_tls','smtp_email','smtp_password','smtp_sender_name',
                'backup_enabled','backup_interval','tg_bot_token','tg_chat_id','provider_api_url','provider_api_key',
                'google_client_id','deepseek_api_key','deepseek_model','ai_logo',
-               'support_whatsapp','site_terms','site_privacy'] + [f'rate_{c}' for c in CURRENCY_DEFAULT_RATES]
+               'support_whatsapp','site_terms','site_privacy','skip_email_verify'] + [f'rate_{c}' for c in CURRENCY_DEFAULT_RATES]
     conn = get_db()
     for k in allowed:
         if k in data:
@@ -7112,6 +7178,7 @@ body{font-family:IBM Plex Sans Arabic,'Tajawal',sans-serif;background:var(--bg);
     .then(function(r){return r.json();})
     .then(function(d){
       if(d.ok){
+        if(d.auto_login){toast(d.msg,'success');setTimeout(function(){window.location.replace('/app')},800);return}
         _verifyEmail=email;
         document.getElementById('verifyAddr').textContent=email;
         document.getElementById('registerForm').style.display='none';
@@ -7497,9 +7564,15 @@ html:not([data-theme="dark"]) .ai-cs-card::after{background:linear-gradient(105d
 .ai-cs-info{flex:1}.ai-cs-title{font-size:12px;font-weight:800;display:flex;align-items:center;gap:4px}.ai-cs-title i{color:var(--primary);font-size:9px}
 .ai-cs-tags{display:flex;gap:4px;margin-top:4px}.ai-cs-tag{padding:2px 7px;border-radius:5px;font-size:9px;font-weight:700;background:var(--primary-bg);color:var(--primary)}
 .ai-cs-arrow{color:var(--text3);font-size:10px;flex-shrink:0}
-.cs-rot-dots{display:flex;gap:3px;flex-shrink:0;margin:0 2px}
-.cs-rot-dot{width:5px;height:5px;border-radius:50%;background:var(--card-border);transition:all .25s}
-.cs-rot-dot.on{background:var(--primary);width:14px;border-radius:3px}
+.cs-carousel-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;padding:0 2px}
+.cs-carousel-title{font-size:12px;font-weight:800;color:var(--text);display:flex;align-items:center;gap:5px}
+.cs-carousel-title i{color:var(--primary);font-size:10px}
+.cs-carousel-head a{font-size:10px;font-weight:700;color:var(--primary);text-decoration:none;display:flex;align-items:center;gap:3px;cursor:pointer}
+.ai-cs-card-big{padding:18px 16px}
+.ai-cs-ic-big{width:52px;height:52px;font-size:20px;border-radius:14px}
+.cs-rot-dots{display:flex;gap:4px;justify-content:center;margin-top:9px;cursor:pointer;padding:6px}
+.cs-rot-dot{width:6px;height:6px;border-radius:50%;background:var(--card-border);transition:all .25s}
+.cs-rot-dot.on{background:var(--primary);width:16px;border-radius:3px}
 .cs-rot-slide{animation:rvSlideIn .5s ease}
 .ai-note{padding:10px 16px;display:flex;align-items:center;gap:8px;background:var(--note-bg);font-size:10px;font-weight:600;color:var(--note-text);border-bottom:1px solid rgba(191,219,254,.15)}
 [data-theme="dark"] .ai-note{border-bottom-color:rgba(99,102,241,.1)}
@@ -8196,6 +8269,10 @@ body:has(.overlay-page.show) .bottom-nav{opacity:0;pointer-events:none;transitio
 .ow-bread{display:flex;align-items:center;gap:6px;margin-bottom:10px;font-size:11px;font-weight:600;color:var(--text3)}.ow-bread .crumb{color:var(--primary)}.ow-bread .sep{font-size:8px}
 .ow-list{display:flex;flex-direction:column;gap:8px}
 .ow-item{display:flex;align-items:center;gap:12px;padding:12px 14px;background:var(--card);border:1.5px solid var(--card-border);border-radius:14px;cursor:pointer;transition:all .2s}.ow-item:hover{border-color:var(--primary);background:var(--primary-bg);transform:translateX(-3px)}.ow-item:active{transform:scale(.98)}
+.ow-fav-btn{width:30px;height:30px;border-radius:8px;border:1px solid var(--card-border);background:var(--input-bg);color:var(--text3);display:flex;align-items:center;justify-content:center;font-size:12px;cursor:pointer;flex-shrink:0;transition:all .2s}
+.ow-fav-btn.on{background:rgba(239,68,68,.1);border-color:rgba(239,68,68,.3);color:#ef4444}
+.ow-fav-btn:active{transform:scale(.9)}
+.fav-list{background:var(--card);border:1px solid var(--card-border);border-radius:14px;overflow:hidden}
 .ow-item .wi-icon{width:34px;height:34px;border-radius:10px;display:flex;align-items:center;justify-content:center;color:#fff;font-size:14px;flex-shrink:0}
 .ow-item .wi-info{flex:1;min-width:0}.ow-item .wi-name{font-size:13px;font-weight:700;color:var(--text);line-height:1.4}.ow-item .wi-sub{font-size:10px;color:var(--text3);font-weight:600}
 .ow-item .wi-arrow{color:var(--text3);font-size:10px;transition:all .2s}.ow-item:hover .wi-arrow{transform:translateX(-4px);color:var(--primary)}
@@ -9028,6 +9105,18 @@ body.chat-mode{padding-bottom:0!important;overflow:hidden!important;height:100vh
 .cmodal-btns button:active{transform:scale(.96)}
 .cmodal-cancel{background:var(--input-bg);color:var(--text)}
 .cmodal-ok.red{background:var(--red);color:#fff}
+.logout-sheet-ov{position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:99999;display:flex;align-items:flex-end;justify-content:center;opacity:0;visibility:hidden;transition:all .25s ease}
+.logout-sheet-ov.show{opacity:1;visibility:visible}
+.logout-sheet-box{width:100%;max-width:480px;background:var(--card);border-radius:24px 24px 0 0;padding:12px 24px calc(24px + env(safe-area-inset-bottom,0px));text-align:center;transform:translateY(100%);transition:transform .3s cubic-bezier(.32,.72,.24,1)}
+.logout-sheet-ov.show .logout-sheet-box{transform:translateY(0)}
+.logout-sheet-handle{width:36px;height:4px;border-radius:2px;background:var(--card-border);margin:0 auto 18px}
+.logout-sheet-ic{width:56px;height:56px;border-radius:50%;display:flex;align-items:center;justify-content:center;margin:0 auto 16px;font-size:22px;background:rgba(239,68,68,.1);color:var(--red)}
+.logout-sheet-title{font-size:16px;font-weight:800;color:var(--text);margin-bottom:6px}
+.logout-sheet-desc{font-size:12px;color:var(--text3);margin-bottom:20px;line-height:1.7}
+.logout-sheet-btns{display:flex;gap:10px}
+.logout-sheet-btns button{flex:1;padding:13px;border-radius:14px;font-size:13px;font-family:var(--font);cursor:pointer;-webkit-tap-highlight-color:transparent}
+.logout-sheet-cancel{border:1.5px solid var(--card-border);background:transparent;color:var(--text2);font-weight:700}
+.logout-sheet-confirm{border:none;background:var(--red);color:#fff;font-weight:800}
 .cmodal-ok.amber{background:#f59e0b;color:#fff}
 .cmodal-ok.blue{background:#3b82f6;color:#fff}
 /* ═══ REVIEWS SECTION ═══ */
@@ -9052,16 +9141,19 @@ html:not([data-theme="dark"]) .rv-bar-bg{background:rgba(0,0,0,.05)}
 .rv-bar-fill{height:100%;border-radius:3px;background:#f59e0b;transition:width .6s ease}
 .rv-bar-pct{font-size:7px;color:var(--text3);font-family:var(--font-num);font-weight:700;width:24px;text-align:left}
 .rv-grid{position:relative;overflow:hidden}
-.rv-item{padding:12px;border-radius:10px;background:var(--platform-bg);border:1px solid var(--card-border);display:flex;gap:10px}
+.rv-item{padding:18px;border-radius:16px;background:var(--platform-bg);border:1px solid var(--card-border);display:flex;gap:12px;position:relative;overflow:hidden}
 .rv-item.rv-slide{animation:rvSlideIn .5s ease}
 @keyframes rvSlideIn{from{opacity:0;transform:translateX(24px)}to{opacity:1;transform:translateX(0)}}
-.rv-av{width:32px;height:32px;border-radius:9px;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:900;color:#fff;flex-shrink:0;margin-top:2px}
+.rv-item::after{content:'';position:absolute;top:0;left:-100%;width:60%;height:100%;pointer-events:none;z-index:2;animation:pc5sweep 4s ease-in-out .5s infinite}
+html:not([data-theme="dark"]) .rv-item::after{background:linear-gradient(105deg,transparent 40%,rgba(255,255,255,.4) 45%,rgba(255,255,255,.7) 50%,rgba(255,255,255,.4) 55%,transparent 60%)}
+[data-theme="dark"] .rv-item::after{background:linear-gradient(105deg,transparent 40%,rgba(255,255,255,.02) 45%,rgba(255,255,255,.05) 50%,rgba(255,255,255,.02) 55%,transparent 60%)}
+.rv-av{width:48px;height:48px;border-radius:13px;display:flex;align-items:center;justify-content:center;font-size:16px;font-weight:900;color:#fff;flex-shrink:0;margin-top:2px}
 .rv-av.c1{background:linear-gradient(135deg,#6366f1,#818cf8)}.rv-av.c2{background:linear-gradient(135deg,#10b981,#34d399)}.rv-av.c3{background:linear-gradient(135deg,#f59e0b,#fbbf24)}.rv-av.c4{background:linear-gradient(135deg,#0ea5e9,#38bdf8)}.rv-av.c5{background:linear-gradient(135deg,#ef4444,#f87171)}.rv-av.c6{background:linear-gradient(135deg,#ec4899,#f472b6)}
-.rv-body{flex:1;min-width:0}.rv-top{display:flex;align-items:center;justify-content:space-between;margin-bottom:4px}
-.rv-name{font-size:10px;font-weight:800;display:flex;align-items:center;gap:4px}
-.rv-verified{color:var(--green);font-size:7px}
-.rv-item-stars{display:flex;gap:1px}.rv-item-stars i{font-size:7px;color:#f59e0b}
-.rv-text{font-size:10px;color:var(--text2);line-height:1.7}
+.rv-body{flex:1;min-width:0}.rv-top{display:flex;align-items:center;justify-content:space-between;margin-bottom:6px}
+.rv-name{font-size:13px;font-weight:800;display:flex;align-items:center;gap:5px}
+.rv-verified{color:var(--green);font-size:9px}
+.rv-item-stars{display:flex;gap:2px}.rv-item-stars i{font-size:10px;color:#f59e0b}
+.rv-text{font-size:12px;color:var(--text2);line-height:1.7}
 .rv-footer{display:flex;align-items:center;gap:8px;margin-top:6px}
 .rv-date{font-size:8px;color:var(--text3);font-weight:600}
 .rv-refresh{display:flex;align-items:center;justify-content:center;gap:4px;margin-top:10px;font-size:8px;color:var(--text3);font-weight:600}
@@ -9225,13 +9317,15 @@ html:not([data-theme="dark"]) .rv-star-btn{color:rgba(0,0,0,.1)}
     <div class="md-item admin-only" onclick="toggleMobDrawer();document.getElementById('adminRefillPage').classList.add('show');if(typeof loadAdminRefill==='function')loadAdminRefill()"><i class="fa-solid fa-recycle"></i> التعويض التلقائي</div>
     <div class="md-item admin-only" onclick="toggleMobDrawer();document.getElementById('masterKeyPage').classList.add('show');if(typeof loadMasterKey==='function')loadMasterKey()"><i class="fa-solid fa-key"></i> المفتاح الرئيسي</div>
     <div class="md-item" onclick="toggleMobDrawer();document.getElementById('apiPage').classList.add('show');document.getElementById('apiUrlDisplay').textContent=location.origin+'/api/v2';fetch('/api/get-key').then(function(r){return r.json()}).then(function(d){document.getElementById('apiKeyDisplay').textContent=d.key||'لم يتم توليد مفتاح بعد'})"><i class="fa-solid fa-plug"></i> API للريسيلر</div>
-    <a class="md-item" href="#" onclick="event.preventDefault();customConfirm('تسجيل الخروج','هل أنت متأكد من تسجيل الخروج من حسابك؟','right-from-bracket','red',function(){window.location.href='/api/logout'})" style="color:var(--red);margin-top:8px"><i class="fa-solid fa-right-from-bracket"></i> تسجيل خروج</a>
+    <a class="md-item" href="#" onclick="event.preventDefault();openLogoutSheet()" style="color:var(--red);margin-top:8px"><i class="fa-solid fa-right-from-bracket"></i> تسجيل خروج</a>
   </div>
 </div>
-<div id="currWrap" style="position:fixed;top:52px;right:12px;z-index:150;display:none">
-  <div style="background:var(--card);border:1px solid var(--card-border);border-radius:12px;box-shadow:var(--shadow-lg);padding:4px;min-width:180px;max-height:340px;overflow-y:auto">
-    <input type="text" id="currSearch" placeholder="بحث..." style="width:100%;padding:7px 9px;margin-bottom:3px;border-radius:8px;border:1px solid var(--input-border);background:var(--input-bg);color:var(--text);font-size:12px;font-family:inherit;box-sizing:border-box">
-    <div id="currOptsList">
+<div id="currWrap" class="logout-sheet-ov" onclick="if(event.target===this)closeCurrSheet()">
+  <div class="logout-sheet-box" style="padding-left:16px;padding-right:16px;max-height:78vh;display:flex;flex-direction:column">
+    <div class="logout-sheet-handle"></div>
+    <div style="font-size:15px;font-weight:800;color:var(--text);margin-bottom:12px;display:flex;align-items:center;gap:6px;justify-content:center"><i class="fa-solid fa-coins" style="color:var(--primary);font-size:13px"></i> اختر العملة</div>
+    <input type="text" id="currSearch" placeholder="ابحث عن عملة..." style="width:100%;padding:11px 14px;margin-bottom:8px;border-radius:12px;border:1px solid var(--input-border);background:var(--input-bg);color:var(--text);font-size:13px;font-family:inherit;box-sizing:border-box;flex-shrink:0">
+    <div id="currOptsList" style="overflow-y:auto;text-align:right">
     <div class="currency-opt active" data-code="USD" data-flag="us"><img src="https://flagcdn.com/w40/us.png" style="width:18px;height:13px;border-radius:2px;object-fit:cover"> USD — دولار أمريكي</div>
     <div class="currency-opt" data-code="IQD" data-flag="iq"><img src="https://flagcdn.com/w40/iq.png" style="width:18px;height:13px;border-radius:2px;object-fit:cover"> IQD — دينار عراقي</div>
     <div class="currency-opt" data-code="SAR" data-flag="sa"><img src="https://flagcdn.com/w40/sa.png" style="width:18px;height:13px;border-radius:2px;object-fit:cover"> SAR — ريال سعودي</div>
@@ -9323,6 +9417,7 @@ html:not([data-theme="dark"]) .rv-star-btn{color:rgba(0,0,0,.1)}
     </div>
     <div style="margin-bottom:10px">
       <div id="customSvcsSec"></div>
+      <div id="favSvcsSec" style="margin-top:10px"></div>
       <div class="platforms-card" style="margin-top:10px">
         <div class="sec-label"><i class="fa-solid fa-globe"></i> اختر المنصة</div>
         <div class="platforms-grid" id="pGrid"></div>
@@ -9397,7 +9492,7 @@ html:not([data-theme="dark"]) .rv-star-btn{color:rgba(0,0,0,.1)}
           <div class="asd"><div class="asd-n" id="accStatTickets">0</div><div class="asd-l">تذاكر</div></div>
           <div class="asd"><div class="asd-n" id="accStatBal">$0</div><div class="asd-l">رصيد</div></div>
         </div>
-        <a class="acc-logout-desk" href="#" onclick="event.preventDefault();customConfirm('تسجيل الخروج','هل أنت متأكد من تسجيل الخروج من حسابك؟','right-from-bracket','red',function(){window.location.href='/api/logout'})"><i class="fa-solid fa-right-from-bracket"></i> تسجيل الخروج</a>
+        <a class="acc-logout-desk" href="#" onclick="event.preventDefault();openLogoutSheet()"><i class="fa-solid fa-right-from-bracket"></i> تسجيل الخروج</a>
       </div>
       <div class="qa-card">
         <div class="qa-title"><i class="fa-solid fa-bolt"></i> إجراءات سريعة</div>
@@ -9579,10 +9674,6 @@ html:not([data-theme="dark"]) .rv-star-btn{color:rgba(0,0,0,.1)}
       <div class="ref-mini-stats"><div class="rms"><div class="rms-n" id="accRefCount">0</div><div class="rms-l">إحالة</div></div><div class="rms"><div class="rms-n" id="accRefEarn">$0</div><div class="rms-l">أرباح</div></div></div>
     </div>
 
-    <div class="sec-sep">النشاط الأخير</div>
-    <div class="activity-card">
-      <div id="accActivityList"><div style="text-align:center;padding:16px;color:var(--text3);font-size:10px">لا يوجد نشاط بعد</div></div>
-    </div>
 
     <div class="sec-sep nonadmin-only">حول التطبيق</div>
     <div class="acc-card nonadmin-only">
@@ -9598,7 +9689,7 @@ html:not([data-theme="dark"]) .rv-star-btn{color:rgba(0,0,0,.1)}
       </a>
     </div>
 
-    <a class="logout-btn mob-logout" href="#" onclick="event.preventDefault();customConfirm('تسجيل الخروج','هل أنت متأكد من تسجيل الخروج من حسابك؟','right-from-bracket','red',function(){window.location.href='/api/logout'})"><i class="fa-solid fa-right-from-bracket"></i> تسجيل الخروج</a>
+    <a class="logout-btn mob-logout" href="#" onclick="event.preventDefault();openLogoutSheet()"><i class="fa-solid fa-right-from-bracket"></i> تسجيل الخروج</a>
 
     </div><!-- /acc-right -->
     </div><!-- /acc-desktop -->
@@ -9832,6 +9923,9 @@ html:not([data-theme="dark"]) .rv-star-btn{color:rgba(0,0,0,.1)}
       <div class="field-group"><div class="field-label"><i class="fa-solid fa-at"></i> البريد الإلكتروني</div><input type="email" class="text-input" id="smtpEmail" placeholder="support@fastcrand.com" dir="ltr" style="text-align:left;font-family:var(--font-num);font-size:12px"></div>
       <div class="field-group"><div class="field-label"><i class="fa-solid fa-key"></i> كلمة مرور التطبيق</div><input type="password" class="text-input" id="smtpPass" placeholder="App Password" dir="ltr" style="text-align:left;font-family:var(--font-num);font-size:12px"></div>
       <div class="field-group" style="margin-bottom:0"><div class="field-label"><i class="fa-solid fa-user"></i> اسم المرسل</div><input type="text" class="text-input" id="smtpSender" value="__SITE_NAME__" placeholder="اسم يظهر بالبريد"></div>
+    </div>
+    <div style="background:var(--card);border:1px solid var(--card-border);border-radius:14px;padding:16px;margin-bottom:12px">
+      <div style="display:flex;align-items:center;justify-content:space-between"><div><div style="font-size:13px;font-weight:700">إنشاء حساب بدون كود تحقق</div><div style="font-size:10px;color:var(--text3);margin-top:2px">تفعيل المستخدم فوراً بعد التسجيل دون إرسال/طلب رمز تأكيد بالبريد</div></div><div class="adm-toggle" id="skipVerifyToggle" onclick="this.classList.toggle('on')"><div class="adm-toggle-dot"></div></div></div>
     </div>
     <button onclick="testSMTP()" class="btn-outline" style="margin-bottom:6px"><i class="fa-solid fa-paper-plane"></i> إرسال بريد تجريبي</button>
     <div id="smtpTestRes" style="display:none;padding:10px 12px;border-radius:10px;font-size:11px;font-weight:700;margin-bottom:6px;align-items:center;gap:6px"></div>
@@ -10128,10 +10222,12 @@ html:not([data-theme="dark"]) .rv-star-btn{color:rgba(0,0,0,.1)}
     <div class="ow-bread" id="owBread"></div>
     <div id="owStep1">
       <div class="sec-label"><i class="fa-solid fa-folder"></i> اختر القسم</div>
+      <div class="ord-search"><i class="fa-solid fa-magnifying-glass"></i><input type="text" id="owCatSearch" placeholder="ابحث عن قسم..." oninput="_owFilterList('owCatList',this.value)"></div>
       <div class="ow-list" id="owCatList"></div>
     </div>
     <div id="owStep2" style="display:none">
       <div class="sec-label"><i class="fa-solid fa-cart-shopping"></i> اختر الخدمة</div>
+      <div class="ord-search"><i class="fa-solid fa-magnifying-glass"></i><input type="text" id="owSvcSearch" placeholder="ابحث عن خدمة..." oninput="_owFilterList('owSvcList',this.value)"></div>
       <div class="ow-list" id="owSvcList"></div>
     </div>
     <div id="owStep3" style="display:none">
@@ -10154,8 +10250,33 @@ html:not([data-theme="dark"]) .rv-star-btn{color:rgba(0,0,0,.1)}
       <div class="ow-dual-row"><div class="ow-glass-card ow-dual-card" id="owQtyCard"><div class="ow-glass-label"><i class="fa-solid fa-hashtag"></i> الكمية</div><input type="number" class="ow-glass-input ow-qty-input" placeholder="1000" min="1" id="owQty"><span id="owMinH" style="display:none">10</span><span id="owMaxH" style="display:none">100000</span></div><div class="ow-glass-card ow-dual-card ow-total-card"><div class="ow-glass-label"><i class="fa-solid fa-tag"></i> المجموع</div><div class="ow-total-amount"><span id="owPriceVal" data-usd="0">$0.00</span></div></div></div>
       <div style="display:flex;justify-content:space-between;margin:4px 4px 10px;font-size:10px;font-weight:700;color:var(--text3)" id="owMinMaxRow"><span id="owMinLabel"></span><span id="owMaxLabel"></span></div>
       <div class="ow-notice"><i class="fa-solid fa-circle-info"></i><p>تأكد إن الحساب <b>عام (Public)</b> قبل الطلب. لا تطلب نفس الخدمة مرتين على نفس الرابط.</p></div>
-      <button class="ow-submit" id="owBtnOrder"><i class="fa-solid fa-paper-plane"></i> إرسال الطلب</button>
+      <div style="display:flex;gap:8px">
+        <button class="ow-submit" id="owBtnAddCart" style="flex:1;background:var(--card);color:var(--primary);border:1.5px solid var(--primary);box-shadow:none"><i class="fa-solid fa-cart-plus"></i> أضف للسلة</button>
+        <button class="ow-submit" id="owBtnOrder" style="flex:1"><i class="fa-solid fa-paper-plane"></i> إرسال الطلب</button>
+      </div>
     </div>
+  </div>
+</div>
+<div id="cartFab" style="display:none;position:fixed;bottom:80px;left:16px;z-index:500">
+  <div id="cartFabBtn" style="display:flex;align-items:center;gap:8px;background:var(--primary);color:#fff;padding:12px 16px;border-radius:16px;box-shadow:0 6px 20px var(--primary-glow);cursor:pointer">
+    <i class="fa-solid fa-cart-shopping"></i>
+    <span id="cartFabCount" style="background:rgba(255,255,255,.25);border-radius:8px;padding:1px 7px;font-size:11px;font-weight:800;font-family:var(--font-num)">0</span>
+    <span id="cartFabTotal" style="font-family:var(--font-num);font-weight:800;font-size:13px"></span>
+  </div>
+</div>
+<div id="cartSheetOv" class="logout-sheet-ov" onclick="if(event.target===this)closeCartSheet()">
+  <div class="logout-sheet-box" style="text-align:right;max-height:78vh;display:flex;flex-direction:column">
+    <div class="logout-sheet-handle"></div>
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+      <div style="font-size:15px;font-weight:800"><i class="fa-solid fa-cart-shopping" style="color:var(--primary)"></i> السلة (<span id="cartCount2">0</span>)</div>
+      <button onclick="closeCartSheet()" style="background:none;border:none;color:var(--text3);font-size:16px;cursor:pointer"><i class="fa-solid fa-xmark"></i></button>
+    </div>
+    <div id="cartItemsList" style="overflow-y:auto;flex:1"></div>
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:12px 2px;border-top:1px solid var(--card-border);margin-top:8px">
+      <span style="font-size:12px;color:var(--text3);font-weight:700">الإجمالي</span>
+      <span id="cartTotalVal" style="font-family:var(--font-num);font-size:18px;font-weight:900;color:var(--primary)">$0.00</span>
+    </div>
+    <button class="btn-primary" id="cartSubmitAllBtn" onclick="submitCart()" style="width:100%"><i class="fa-solid fa-paper-plane"></i> إرسال كل الطلبات</button>
   </div>
 </div>
 <style>
@@ -10850,9 +10971,10 @@ print(r.json())</pre>
   })();
 
   var cW=document.getElementById('currWrap');
-  document.getElementById('currBtn').addEventListener('click',function(e){e.stopPropagation();cW.style.display=cW.style.display==='block'?'none':'block';if(cW.style.display==='block'){var cs=document.getElementById('currSearch');if(cs){cs.value='';cs.focus();}document.querySelectorAll('.currency-opt').forEach(function(o){o.style.display=''})}});
-  document.addEventListener('click',function(e){if(!e.target.closest('#currWrap')&&!e.target.closest('#currBtn')){cW.style.display='none'}});
-  document.querySelectorAll('.currency-opt').forEach(function(o){o.addEventListener('click',function(){document.querySelectorAll('.currency-opt').forEach(function(x){x.classList.remove('active')});this.classList.add('active');setCurrency(this.dataset.code);cW.style.display='none'})});
+  function closeCurrSheet(){cW.classList.remove('show')}
+  window.closeCurrSheet=closeCurrSheet;
+  document.getElementById('currBtn').addEventListener('click',function(e){e.stopPropagation();cW.classList.add('show');var cs=document.getElementById('currSearch');if(cs){cs.value='';cs.focus();}document.querySelectorAll('.currency-opt').forEach(function(o){o.style.display=''})});
+  document.querySelectorAll('.currency-opt').forEach(function(o){o.addEventListener('click',function(){document.querySelectorAll('.currency-opt').forEach(function(x){x.classList.remove('active')});this.classList.add('active');setCurrency(this.dataset.code);closeCurrSheet()})});
   var curSearchEl=document.getElementById('currSearch');
   if(curSearchEl)curSearchEl.addEventListener('input',function(){
     var q=this.value.trim().toLowerCase();
@@ -10945,22 +11067,31 @@ print(r.json())</pre>
     document.getElementById('owBadge').textContent=keys.length+' قسم';
     var list=document.getElementById('owCatList');list.innerHTML='';
     keys.forEach(function(c,i){
-      var item=document.createElement('div');item.className='ow-item ow-anim';item.style.animationDelay=(i*0.04)+'s';
+      var item=document.createElement('div');item.className='ow-item ow-anim';item.style.animationDelay=(i*0.04)+'s';item.dataset.nm=c.toLowerCase();
       item.addEventListener('click',function(){_owCat=c;owOpenCategory(c)});
       item.innerHTML='<div class="wi-icon" style="background:'+cl+ex+'"><i class="'+ic+'"></i></div><div class="wi-info"><div class="wi-name">'+c+'</div><div class="wi-sub">'+cats[c].length+' خدمات</div></div><i class="fa-solid fa-chevron-left wi-arrow"></i>';
       list.appendChild(item);
     });
     owShowStep(1);
+    var _owCatSearch=document.getElementById('owCatSearch');if(_owCatSearch){_owCatSearch.value='';_owFilterList('owCatList','')}
     _owSkippedCat=(keys.length===1);
     var _owPage=document.getElementById('orderWizPage');_owPage.classList.add('show');_owPage.scrollTop=0;
     if(_owSkippedCat){_owCat=keys[0];owOpenCategory(keys[0])}
   }
+  function _owFilterList(listId,q){
+    q=(q||'').trim().toLowerCase();
+    document.querySelectorAll('#'+listId+' .ow-item').forEach(function(el){
+      el.style.display=(!q||(el.dataset.nm||'').indexOf(q)>-1)?'':'none';
+    });
+  }
+  window._owFilterList=_owFilterList;
   function owOpenCategory(cat){
     var svcs=(allData[_owPlatform]&&allData[_owPlatform].categories[cat])||[];
     var pk=_owKey(_owPlatform),ic=_owIcon(_owPlatform),cl=_owColor(_owPlatform),ex=_owExtra(_owPlatform);
     var list=document.getElementById('owSvcList');list.innerHTML='';
+    var _owSvcSearch=document.getElementById('owSvcSearch');if(_owSvcSearch){_owSvcSearch.value='';_owFilterList('owSvcList','')}
     svcs.forEach(function(s,i){
-      var item=document.createElement('div');item.className='ow-item ow-anim';item.style.animationDelay=(i*0.04)+'s';
+      var item=document.createElement('div');item.className='ow-item ow-anim';item.style.animationDelay=(i*0.04)+'s';item.dataset.nm=s.name.toLowerCase();
       item.addEventListener('click',function(){
         _owSvcId=s.id;_owRate=parseFloat(s.rate);_owSvcName=s.name;
         document.getElementById('owQty').setAttribute('min',s.min);document.getElementById('owQty').setAttribute('max',s.max);document.getElementById('owQty').placeholder=s.min+' - '+s.max;
@@ -10980,6 +11111,14 @@ print(r.json())</pre>
         owShowStep(3);
       });
       item.innerHTML='<div class="wi-icon" style="background:'+cl+ex+'"><i class="'+ic+'"></i></div><div class="wi-info"><div class="wi-name">'+s.name+'</div><div class="wi-sub">'+s.min.toLocaleString()+' - '+s.max.toLocaleString()+'</div></div><div class="wi-price">'+fmtP(parseFloat(s.rate))+'</div>';
+      var favBtn=document.createElement('button');
+      favBtn.className='ow-fav-btn'+(isFavorited(s.id)?' on':'');
+      favBtn.innerHTML='<i class="fa-'+(isFavorited(s.id)?'solid':'regular')+' fa-heart"></i>';
+      favBtn.addEventListener('click',function(e){
+        e.stopPropagation();
+        toggleFavorite({service_id:s.id,service_name:s.name,platform:_owPlatform,category:cat,rate:s.rate,min:s.min,max:s.max,custom:false},favBtn);
+      });
+      item.appendChild(favBtn);
       list.appendChild(item);
     });
     owShowStep(2);
@@ -11001,6 +11140,77 @@ print(r.json())</pre>
       else{var tt='error';var mm=d.msg||'حدث خطأ';if(mm.indexOf('نشط')>-1||mm.indexOf('نفس الرابط')>-1)tt='warning';toast(mm,tt)}btn.disabled=false
     }).catch(function(){toast('حدث خطأ بالاتصال','error');btn.disabled=false});
   });
+
+  var _cart=[];
+  function _cartValidateAndBuild(){
+    if(!_owSvcId){toast('اختر خدمة أولاً','error');return null}
+    var link=document.getElementById('owLink').value;var qty=document.getElementById('owQty').value;
+    if(window._owIsComment){var cmtVal=(document.getElementById('owComments')||{}).value||'';var cmtLines=cmtVal.split('\n').filter(function(l){return l.trim().length>0});if(!cmtLines.length){toast('اكتب تعليق واحد على الأقل','error');return null}qty=cmtLines.length;document.getElementById('owQty').value=qty}
+    if(!link||!qty){toast('أدخل الرابط والكمية','error');return null}
+    var qtyNum=parseInt(qty),mnQ=parseInt(document.getElementById('owQty').getAttribute('min'))||1,mxQ=parseInt(document.getElementById('owQty').getAttribute('max'))||100000;
+    if(qtyNum<mnQ){toast('الحد الأدنى للكمية '+mnQ.toLocaleString(),'error');return null}
+    if(qtyNum>mxQ){toast('الحد الأقصى للكمية '+mxQ.toLocaleString(),'error');return null}
+    return {service:_owSvcId,service_name:_owSvcName||'',link:link,quantity:qtyNum,price:parseFloat(document.getElementById('owPriceVal').dataset.usd||0),comments:(document.getElementById('owComments')||{}).value||''};
+  }
+  function addToCart(){
+    var item=_cartValidateAndBuild();if(!item)return;
+    var dup=_cart.some(function(c){return String(c.service)===String(item.service)&&c.link===item.link});
+    if(dup){toast('هذه الخدمة بنفس الرابط موجودة بالسلة مسبقاً','warning');return}
+    _cart.push(item);
+    toast('أُضيف للسلة ('+_cart.length+')','success');
+    document.getElementById('orderWizPage').classList.remove('show');
+    renderCartPopup();
+  }
+  window.addToCart=addToCart;
+  document.getElementById('owBtnAddCart').addEventListener('click',addToCart);
+  function renderCartPopup(){
+    var fab=document.getElementById('cartFab');if(!fab)return;
+    if(!_cart.length){fab.style.display='none';return}
+    fab.style.display='block';
+    document.getElementById('cartFabCount').textContent=_cart.length;
+    var total=_cart.reduce(function(s,c){return s+c.price},0);
+    document.getElementById('cartFabTotal').textContent=fmtP(total);
+    renderCartSheet();
+  }
+  function renderCartSheet(){
+    var cc=document.getElementById('cartCount2');if(!cc)return;
+    cc.textContent=_cart.length;
+    var total=_cart.reduce(function(s,c){return s+c.price},0);
+    document.getElementById('cartTotalVal').textContent=fmtP(total);
+    var h='';
+    _cart.forEach(function(c,i){
+      h+='<div class="acc-item" style="cursor:default"><div class="mi-ic blue"><i class="fa-solid fa-cart-shopping"></i></div><div class="mi-info"><div class="mi-title">'+esc(c.service_name||('خدمة #'+c.service))+'</div><div class="mi-desc">الكمية: '+c.quantity.toLocaleString()+' — '+fmtP(c.price)+'</div></div><button class="ow-fav-btn" onclick="removeCartItem('+i+')" title="حذف من السلة"><i class="fa-solid fa-trash-can"></i></button></div>';
+    });
+    document.getElementById('cartItemsList').innerHTML=h;
+  }
+  function removeCartItem(i){_cart.splice(i,1);renderCartPopup();if(!_cart.length)closeCartSheet();else renderCartSheet()}
+  window.removeCartItem=removeCartItem;
+  function openCartSheet(){renderCartSheet();document.getElementById('cartSheetOv').classList.add('show')}
+  function closeCartSheet(){document.getElementById('cartSheetOv').classList.remove('show')}
+  window.openCartSheet=openCartSheet;window.closeCartSheet=closeCartSheet;
+  document.getElementById('cartFabBtn').addEventListener('click',openCartSheet);
+  async function submitCart(){
+    if(!_cart.length)return;
+    var btn=document.getElementById('cartSubmitAllBtn');
+    btn.disabled=true;btn.innerHTML='<i class="fa-solid fa-spinner fa-spin"></i> جاري الإرسال...';
+    var okCount=0,failMsgs=[],remaining=[];
+    for(var i=0;i<_cart.length;i++){
+      var item=_cart[i];
+      try{
+        var r=await fetch('/api/order',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(item)});
+        var d=await r.json();
+        if(d.ok){okCount++;if(d.balance!==undefined){var b=document.getElementById('hudBalVal');if(b){b.dataset.usd=d.balance;b.textContent=fmtP(d.balance)}}}
+        else{failMsgs.push((item.service_name||'خدمة')+': '+(d.msg||'خطأ'));remaining.push(item)}
+      }catch(e){failMsgs.push((item.service_name||'خدمة')+': خطأ بالاتصال');remaining.push(item)}
+    }
+    _cart=remaining;
+    btn.disabled=false;btn.innerHTML='<i class="fa-solid fa-paper-plane"></i> إرسال كل الطلبات';
+    if(okCount>0){toast('تم إرسال '+okCount+' طلب بنجاح','success');loadOrders()}
+    if(failMsgs.length)toast(failMsgs.length+' طلب فشل: '+failMsgs[0],'error');
+    if(!_cart.length)closeCartSheet();else renderCartSheet();
+    renderCartPopup();
+  }
+  window.submitCart=submitCart;
 
   var allOrders=[];
   function loadOrders(attempt){
@@ -11039,9 +11249,9 @@ print(r.json())</pre>
       var st=o.status||'Pending';
       var dispId=o.order||('L'+o.id);
       var qty=parseInt(o.quantity)||0;
-      var stColor=st==='Completed'?'var(--green)':st==='Canceled'?'var(--red)':st==='Processing'||st==='In progress'?'var(--primary)':'var(--card-border)';
-      var stProg=st==='Completed'?100:st==='Canceled'?100:st==='Processing'||st==='In progress'?50:st==='Partial'?75:0;
-      var stPct=st==='Completed'?'مكتمل':st==='Canceled'?'ملغاة':st==='Processing'||st==='In progress'?'جاري':'—';
+      var stColor=st==='Completed'?'var(--green)':st==='Canceled'?'var(--red)':st==='Processing'||st==='In progress'?'var(--primary)':st==='Partial'?'#f59e0b':'#eab308';
+      var stProg=st==='Completed'?100:st==='Canceled'?100:st==='Processing'||st==='In progress'?50:st==='Partial'?75:8;
+      var stPct=st==='Completed'?'مكتمل':st==='Canceled'?'ملغاة':st==='Processing'||st==='In progress'?'جاري':st==='Partial'?'جزئي':'بانتظار المعالجة';
       var date=o.date||'';
       h+='<div class="ocard" data-idx="'+idx+'">';
       h+='<div class="oc-top"><div class="oc-svc">'+(o.service_name||'خدمة #'+o.service)+'</div><div class="oc-price-wrap"><div class="oc-price" data-usd="'+(o.charge||0)+'">'+fmtP(o.charge||0)+'</div></div></div>';
@@ -13051,6 +13261,8 @@ function _csPriceOf(s){
   if(isSub&&s.packages&&s.packages.length)return '$'+parseFloat(s.packages[0].price||0).toFixed(2)+' / '+(s.packages[0].duration||'شهر');
   return s.rate?('$'+parseFloat(s.rate).toFixed(2)+' / 1000'):'';
 }
+function _csOpenAll(e){if(e){e.preventDefault();e.stopPropagation()}document.getElementById('customSvcsPage').classList.add('show');showCustomSvcsPage()}
+window._csOpenAll=_csOpenAll;
 function _csRenderCard(){
   var el=document.getElementById('customSvcsSec');if(!el||!_csRotList.length)return;
   var s=_csRotList[_csRotIdx];
@@ -13058,9 +13270,14 @@ function _csRenderCard(){
   var icHtml=s.image?'<img src="'+esc(s.image)+'" style="width:100%;height:100%;object-fit:cover;border-radius:inherit">':(_d2?'<i class="'+_d2+'"></i>':'<i class="fa-solid fa-gem"></i>');
   var dotsHtml='';
   if(_csRotList.length>1){
-    dotsHtml='<div class="cs-rot-dots">'+_csRotList.map(function(_,i){return '<span class="cs-rot-dot'+(i===_csRotIdx?' on':'')+'"></span>'}).join('')+'</div>';
+    dotsHtml='<div class="cs-rot-dots" onclick="_csOpenAll(event)" title="عرض جميع الخدمات المخصصة">'+_csRotList.map(function(_,i){return '<span class="cs-rot-dot'+(i===_csRotIdx?' on':'')+'"></span>'}).join('')+'</div>';
   }
-  el.innerHTML='<div class="ai-cs-card cs-rot-slide" id="csRotCard" onclick="if(!this._swiped)openCustomSvc(\''+s.id+'\');this._swiped=false"><div class="ai-cs-ic">'+icHtml+'</div><div class="ai-cs-info"><div class="ai-cs-title"><i class="fa-solid fa-gem"></i> '+esc(s.name)+'</div><div style="font-size:10px;color:var(--text3);font-weight:700;margin-top:1px">'+_csPriceOf(s)+'</div></div>'+dotsHtml+'<div class="ai-cs-arrow"><i class="fa-solid fa-chevron-left"></i></div></div>';
+  el.innerHTML='<div class="cs-carousel-head"><div class="cs-carousel-title"><i class="fa-solid fa-gem"></i> خدمات مخصصة</div><a href="#" onclick="_csOpenAll(event)">عرض الكل <i class="fa-solid fa-chevron-left" style="font-size:9px"></i></a></div>'+
+  '<div class="ai-cs-card ai-cs-card-big cs-rot-slide" id="csRotCard" onclick="if(!this._swiped)openCustomSvc(\''+s.id+'\');this._swiped=false">'+
+  '<div class="ai-cs-ic ai-cs-ic-big">'+icHtml+'</div>'+
+  '<div class="ai-cs-info"><div class="ai-cs-title" style="font-size:14px">'+esc(s.name)+'</div><div style="font-size:11px;color:var(--text3);font-weight:700;margin-top:2px">'+_csPriceOf(s)+'</div></div>'+
+  '<div class="ai-cs-arrow"><i class="fa-solid fa-chevron-left"></i></div>'+
+  '</div>'+dotsHtml;
   _csWireSwipe();
 }
 function _csStartRotation(){
@@ -13324,7 +13541,60 @@ async function submitAddCS(){var name=(document.getElementById('csAddName').valu
 async function deleteCS(sid){customConfirm('حذف الخدمة','هل تريد حذف هذه الخدمة؟','trash','red',async function(){try{var r=await fetch('/api/admin/custom_services/delete',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:sid})});var d=await r.json();if(d.ok){toast('تم الحذف','success');loadAdminCS();loadCustomServices(true)}}catch(e){toast('خطأ','error')}})}
 async function loadAdminCO(){var el=document.getElementById('adminCOBody');el.innerHTML='<div class="loading">جاري التحميل...</div>';try{var r=await fetch('/api/admin/custom_orders',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({})});var d=await r.json();if(!d.ok){el.innerHTML='غير مصرح';return}var orders=d.orders||[];var stCls={pending:'co-pend',processing:'co-proc',completed:'co-comp',canceled:'co-canc'};var stL={pending:'معلّق',processing:'قيد التنفيذ',completed:'مكتمل',canceled:'ملغي'};var stIc={pending:'fa-clock',processing:'fa-spinner fa-spin',completed:'fa-check-double',canceled:'fa-xmark'};var h='<div class="co-count"><span>'+orders.length+'</span> طلب</div>';if(!orders.length)h+='<div style="text-align:center;padding:40px 16px"><div style="font-size:2rem;opacity:.15;margin-bottom:8px"><i class="fa-solid fa-inbox"></i></div><div style="font-size:12px;color:var(--text3);font-weight:700">لا توجد طلبات</div></div>';orders.forEach(function(o){var cls=stCls[o.status]||'co-pend';var label=stL[o.status]||o.status;var ic=stIc[o.status]||'fa-clock';h+='<div class="co-card"><div class="co-r1"><div class="co-badge '+cls+'"><i class="fa-solid '+ic+'"></i> '+label+'</div><div class="co-nm">'+esc(o.service_name||'')+'</div></div><div class="co-meta"><div class="co-mt"><i class="fa-solid fa-hashtag"></i> <span class="co-id">'+esc(o.id)+'</span></div><div class="co-mt"><i class="fa-solid fa-user"></i> '+(o.user_name||'#'+o.user_id)+'</div><div class="co-mt"><i class="fa-solid fa-dollar-sign"></i> $'+parseFloat(o.cost||0).toFixed(2)+'</div>'+(o.type==='subscription'?'<div class="co-mt"><i class="fa-solid fa-box-open"></i> '+esc(o.package||'')+'</div>':'<div class="co-mt"><i class="fa-solid fa-cubes"></i> '+(o.quantity||0)+' كمية</div>')+'</div>';if(o.link)h+='<div class="co-link"><i class="fa-solid fa-link"></i><span>'+esc(o.link)+'</span></div>';if(o.status!=='completed'&&o.status!=='canceled'){h+='<div class="co-pills"><button class="co-pb co-cn" onclick="updateCO(\''+o.id+'\',\'canceled\')"><i class="fa-solid fa-xmark"></i> إلغاء</button><button class="co-pb co-dn" onclick="updateCO(\''+o.id+'\',\'completed\')"><i class="fa-solid fa-check"></i> مكتمل</button><button class="co-pb co-ex" onclick="updateCO(\''+o.id+'\',\'processing\')"><i class="fa-solid fa-gear"></i> تنفيذ</button></div>'}h+='</div>'});el.innerHTML=h}catch(e){el.innerHTML='خطأ'}}
 async function updateCO(oid,status){try{var r=await fetch('/api/admin/custom_orders/update',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({order_id:oid,status:status})});var d=await r.json();if(d.ok){toast('تم التحديث','success');loadAdminCO()}else toast(d.error||'خطأ','error')}catch(e){toast('خطأ','error')}}
-setTimeout(function(){loadCustomServices()},1200);
+var _favIds=new Set(),_favData={};
+function isFavorited(sid){return _favIds.has(String(sid))}
+async function loadFavorites(){
+  try{
+    var r=await fetch('/api/favorites');var d=await r.json();
+    if(!d.ok)return;
+    _favIds=new Set();_favData={};
+    (d.favorites||[]).forEach(function(f){_favIds.add(String(f.service_id));_favData[f.service_id]=f});
+    renderFavorites();
+  }catch(e){}
+}
+async function toggleFavorite(payload,btnEl){
+  try{
+    var r=await fetch('/api/favorites/toggle',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
+    var d=await r.json();
+    if(!d.ok){toast(d.msg||'خطأ','error');return}
+    if(d.favorited){_favIds.add(String(payload.service_id));toast('أُضيفت للمفضلة','success')}
+    else{_favIds.delete(String(payload.service_id));toast('أُزيلت من المفضلة','success')}
+    if(btnEl){btnEl.classList.toggle('on',d.favorited);btnEl.innerHTML='<i class="fa-'+(d.favorited?'solid':'regular')+' fa-heart"></i>'}
+    loadFavorites();
+  }catch(e){toast('خطأ بالاتصال','error')}
+}
+window.toggleFavorite=toggleFavorite;
+function renderFavorites(){
+  var sec=document.getElementById('favSvcsSec');if(!sec)return;
+  var favs=Object.values(_favData);
+  if(!favs.length){sec.innerHTML='';return}
+  var h='<div class="cs-carousel-head"><div class="cs-carousel-title"><i class="fa-solid fa-heart" style="color:#ef4444"></i> المفضلة</div></div>';
+  h+='<div class="fav-list">';
+  favs.slice(0,8).forEach(function(f){
+    h+='<div class="acc-item fav-item" data-fid="'+esc(String(f.service_id))+'">'+
+       '<div class="mi-ic" style="background:rgba(239,68,68,.1);color:#ef4444"><i class="fa-solid fa-heart"></i></div>'+
+       '<div class="mi-info"><div class="mi-title">'+esc(f.service_name)+'</div><div class="mi-desc">'+esc(f.platform||'')+(f.custom?' — خدمة مخصصة':'')+' — $'+parseFloat(f.rate||0).toFixed(2)+'</div></div>'+
+       '<button class="ow-fav-btn on" title="إزالة من المفضلة"><i class="fa-solid fa-heart"></i></button>'+
+       '</div>';
+  });
+  h+='</div>';
+  sec.innerHTML=h;
+  sec.querySelectorAll('.fav-item').forEach(function(row){
+    var fid=row.dataset.fid;var f=_favData[fid];if(!f)return;
+    row.addEventListener('click',function(e){
+      if(e.target.closest('.ow-fav-btn'))return;
+      aiGoToService({id:f.service_id,platform:f.platform,category:f.category,custom:!!f.custom});
+    });
+    var rmBtn=row.querySelector('.ow-fav-btn');
+    rmBtn.addEventListener('click',function(e){
+      e.stopPropagation();
+      row.remove();
+      toggleFavorite({service_id:f.service_id},null);
+    });
+  });
+}
+window.renderFavorites=renderFavorites;
+setTimeout(function(){loadCustomServices();loadFavorites()},1200);
 
 document.querySelectorAll('.overlay-page').forEach(function(el){
   new MutationObserver(function(){
@@ -14726,6 +14996,7 @@ function loadSiteSettings(){
     if(s.site_name_color)_snLoadSaved(s.site_name_color);
     if(s.has_logo){var lp=document.getElementById('logoPreviewAdm');if(lp)lp.innerHTML='<img src="/api/admin/logo?t='+Date.now()+'" style="width:100%;height:100%;object-fit:cover">'}
     var smtpTog=document.getElementById('smtpToggle');if(smtpTog){if(s.smtp_enabled==='1')smtpTog.classList.add('on');else smtpTog.classList.remove('on')}
+    var skvTog=document.getElementById('skipVerifyToggle');if(skvTog){if(s.skip_email_verify==='1')skvTog.classList.add('on');else skvTog.classList.remove('on')}
     var sh=document.getElementById('smtpHost');if(sh)sh.value=s.smtp_host||'smtp.gmail.com';
     var sp=document.getElementById('smtpPort');if(sp)sp.value=s.smtp_port||'587';
     var st=document.getElementById('smtpTLS');if(st)st.value=s.smtp_tls||'TLS';
@@ -14848,7 +15119,8 @@ function deletePwaIcon(){
 }
 function saveSMTP(){
   var tog=document.getElementById('smtpToggle');
-  var data={smtp_enabled:tog.classList.contains('on')?'1':'0',smtp_host:document.getElementById('smtpHost').value,smtp_port:document.getElementById('smtpPort').value,smtp_tls:document.getElementById('smtpTLS').value,smtp_email:document.getElementById('smtpEmail').value,smtp_password:document.getElementById('smtpPass').value,smtp_sender_name:document.getElementById('smtpSender').value};
+  var skvTog=document.getElementById('skipVerifyToggle');
+  var data={smtp_enabled:tog.classList.contains('on')?'1':'0',skip_email_verify:(skvTog&&skvTog.classList.contains('on'))?'1':'0',smtp_host:document.getElementById('smtpHost').value,smtp_port:document.getElementById('smtpPort').value,smtp_tls:document.getElementById('smtpTLS').value,smtp_email:document.getElementById('smtpEmail').value,smtp_password:document.getElementById('smtpPass').value,smtp_sender_name:document.getElementById('smtpSender').value};
   fetch('/api/admin/site-settings',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)}).then(function(r){return r.json()}).then(function(d){
     if(d.ok)toast('تم حفظ إعدادات SMTP ','success');else toast('خطأ','error');
   });
@@ -15104,6 +15376,10 @@ function customConfirm(title,desc,icon,color,cb){
 }
 function cmOk(){document.getElementById('cmodal').classList.remove('show');if(_cmCb)_cmCb();_cmCb=null}
 function cmNo(){document.getElementById('cmodal').classList.remove('show');_cmCb=null}
+function openLogoutSheet(){document.getElementById('logoutSheetOv').classList.add('show')}
+function closeLogoutSheet(){document.getElementById('logoutSheetOv').classList.remove('show')}
+function confirmLogoutAction(){window.location.href='/api/logout'}
+window.openLogoutSheet=openLogoutSheet;window.closeLogoutSheet=closeLogoutSheet;window.confirmLogoutAction=confirmLogoutAction;
 
 /* ═══ REVIEWS SYSTEM ═══ */
 var _rvStars=0;
@@ -15694,6 +15970,18 @@ try{var mkSt=document.createElement('style');mkSt.textContent='@keyframes mkPuls
     <div class="cmodal-btns">
       <button class="cmodal-ok red" onclick="cmOk()">تأكيد</button>
       <button class="cmodal-cancel" onclick="cmNo()">إلغاء</button>
+    </div>
+  </div>
+</div>
+<div class="logout-sheet-ov" id="logoutSheetOv" onclick="if(event.target===this)closeLogoutSheet()">
+  <div class="logout-sheet-box">
+    <div class="logout-sheet-handle"></div>
+    <div class="logout-sheet-ic"><i class="fa-solid fa-right-from-bracket"></i></div>
+    <div class="logout-sheet-title">تسجيل الخروج</div>
+    <div class="logout-sheet-desc">هل أنت متأكد من رغبتك في تسجيل الخروج من حسابك؟</div>
+    <div class="logout-sheet-btns">
+      <button class="logout-sheet-cancel" onclick="closeLogoutSheet()">إلغاء</button>
+      <button class="logout-sheet-confirm" onclick="confirmLogoutAction()">تأكيد الخروج</button>
     </div>
   </div>
 </div>
