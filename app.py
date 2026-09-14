@@ -4429,9 +4429,9 @@ def api_admin_orders():
     if 'user_id' not in session or not session.get('is_admin'):
         return jsonify(ok=False, msg='غير مصرح'), 403
     conn = get_db()
-    rows = conn.execute('''SELECT o.*, u.name as user_name, u.email as user_email 
-                          FROM orders o LEFT JOIN users u ON o.user_id=u.id 
-                          ORDER BY o.created_at DESC''').fetchall()
+    rows = conn.execute('''SELECT o.*, u.name as user_name, u.email as user_email
+                          FROM orders o LEFT JOIN users u ON o.user_id=u.id
+                          ORDER BY o.created_at DESC LIMIT 3000''').fetchall()
     conn.close()
     orders = []
     for r in rows:
@@ -5022,7 +5022,7 @@ def api_admin_users():
     if 'user_id' not in session or not session.get('is_admin'):
         return jsonify(ok=False), 403
     conn = get_db()
-    rows = conn.execute('SELECT id,name,email,balance,banned,is_admin,public_id FROM users ORDER BY created_at DESC').fetchall()
+    rows = conn.execute('SELECT id,name,email,balance,banned,is_admin,public_id FROM users ORDER BY created_at DESC LIMIT 5000').fetchall()
     conn.close()
     users = []
     for r in rows:
@@ -5296,7 +5296,7 @@ def api_admin_tickets():
     if 'user_id' not in session or not session.get('is_admin'):
         return jsonify(ok=False, error='unauthorized'), 401
     conn = get_db()
-    rows = conn.execute('SELECT t.*, u.name as user_name, u.email as user_email FROM tickets t LEFT JOIN users u ON t.user_id=u.id ORDER BY t.created_at DESC').fetchall()
+    rows = conn.execute('SELECT t.*, u.name as user_name, u.email as user_email FROM tickets t LEFT JOIN users u ON t.user_id=u.id ORDER BY t.created_at DESC LIMIT 2000').fetchall()
     result = []
     for t in rows:
         msgs = conn.execute('SELECT * FROM ticket_messages WHERE ticket_id=? ORDER BY created_at ASC', (t['id'],)).fetchall()
