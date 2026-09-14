@@ -4181,10 +4181,11 @@ def ai_account_status_context(user_id):
     # so a user can never be shown another user's orders or recharges.
     conn = get_db()
     lines = []
-    orders = conn.execute("SELECT order_id, service_name, quantity, charge, status, created_at FROM orders WHERE user_id=? ORDER BY created_at DESC LIMIT 8", (user_id,)).fetchall()
+    orders = conn.execute("SELECT id, display_id, service_name, quantity, charge, status, created_at FROM orders WHERE user_id=? ORDER BY created_at DESC LIMIT 8", (user_id,)).fetchall()
     for o in orders:
         when = time.strftime('%Y-%m-%d %H:%M', time.localtime(o['created_at']))
-        lines.append(f"- طلب #{o['order_id']}: خدمة \"{o['service_name']}\" — الكمية {o['quantity']} — السعر ${o['charge']} — الحالة: {o['status']} — بتاريخ {when}.")
+        oref = o['display_id'] or o['id']
+        lines.append(f"- طلب #{oref}: خدمة \"{o['service_name']}\" — الكمية {o['quantity']} — السعر ${o['charge']} — الحالة: {o['status']} — بتاريخ {when}.")
     custom_orders = conn.execute("SELECT id, service_name, quantity, cost, status, created_at FROM custom_orders WHERE user_id=? ORDER BY created_at DESC LIMIT 5", (user_id,)).fetchall()
     for c in custom_orders:
         when = time.strftime('%Y-%m-%d %H:%M', time.localtime(c['created_at']))
@@ -4307,6 +4308,8 @@ def api_ai_chat():
         if m['name'] and m['name'] in reply:
             service_card = m
             break
+    if not service_card and svc_matches:
+        service_card = svc_matches[0]
 
     conn = get_db()
     conn.execute('INSERT INTO ai_messages(conversation_id, role, content, created_at) VALUES(?,?,?,?)',
@@ -4428,6 +4431,7 @@ def api_admin_orders():
             'site_charge': r['site_charge'] if 'site_charge' in r.keys() else r['charge'],
             'status': r['status'], 'user_name': r['user_name'],
             'user_email': r['user_email'], 'user_id': r['user_id'],
+            'refunded': r['refunded'] if 'refunded' in r.keys() else 0,
             'created_at': r['created_at']
         })
     return jsonify(ok=True, orders=orders)
@@ -4474,6 +4478,45 @@ def api_admin_order_resend():
     except Exception as e:
         conn.close()
         return jsonify(ok=False, msg=f'خطأ: {str(e)}')
+
+@app.route('/api/admin/order/set-status', methods=['POST'])
+def api_admin_order_set_status():
+    if 'user_id' not in session or not session.get('is_admin'):
+        return jsonify(ok=False, msg='غير مصرح'), 403
+    data = freq.get_json() or {}
+    try:
+        oid = int(data.get('id', 0))
+    except (TypeError, ValueError):
+        oid = 0
+    new_status = str(data.get('status', '')).strip()
+    valid_statuses = {'Completed', 'Processing', 'Pending', 'In progress', 'Canceled', 'Partial', 'Error', 'Queued'}
+    if not oid or new_status not in valid_statuses:
+        return jsonify(ok=False, msg='بيانات غير صحيحة')
+    try:
+        refund_amount = round(float(data.get('refund_amount', 0) or 0), 4)
+    except (TypeError, ValueError):
+        refund_amount = 0
+    conn = get_db()
+    row = conn.execute('SELECT * FROM orders WHERE id=?', (oid,)).fetchone()
+    if not row:
+        conn.close()
+        return jsonify(ok=False, msg='الطلب غير موجود')
+    old_status = row['status']
+    conn.execute('UPDATE orders SET status=? WHERE id=?', (new_status, oid))
+    display_ref = row['display_id'] or row['order_id'] or str(oid)
+    if refund_amount > 0 and not row['refunded']:
+        conn.execute('UPDATE users SET balance=balance+? WHERE id=?', (refund_amount, row['user_id']))
+        conn.execute('UPDATE orders SET refunded=1 WHERE id=?', (oid,))
+        push_user_notif(row['user_id'], 'system', f'استرجاع ${refund_amount:.2f}',
+                         f'طلب #{display_ref} — تم إرجاع المبلغ إلى رصيدك', 'wallet', goto='wallet:')
+    if new_status == 'Completed' and old_status != 'Completed':
+        push_user_notif(row['user_id'], 'order', f'طلب #{display_ref} اكتمل', f'{row["service_name"]}', 'done', goto=f'order:{display_ref}')
+    elif new_status != old_status:
+        push_user_notif(row['user_id'], 'order', f'تحديث حالة طلب #{display_ref}',
+                         f'{row["service_name"]} — الحالة الآن: {new_status}', 'order', goto=f'order:{display_ref}')
+    conn.commit()
+    conn.close()
+    return jsonify(ok=True, msg='تم تحديث حالة الطلب')
 
 @app.route('/api/admin/stats')
 def api_admin_stats():
@@ -8506,6 +8549,8 @@ html:not([data-theme="dark"]) .ai-cs-card::after{background:linear-gradient(105d
 .sc-btn{flex:1;padding:7px;border:none;border-radius:8px;font-family:var(--font);font-size:10px;font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:5px;transition:.2s}
 .sc-btn.resend{background:rgba(99,102,241,.1);color:var(--primary);border:1px solid rgba(99,102,241,.15)}
 .sc-btn.resend:hover{background:rgba(99,102,241,.2)}
+.sc-btn.status{background:rgba(59,130,246,.08);color:#3b82f6;border:1px solid rgba(59,130,246,.15)}
+.sc-btn.status:hover{background:rgba(59,130,246,.18)}
 .sc-btn.cancel{background:rgba(239,68,68,.06);color:var(--red);border:1px solid rgba(239,68,68,.1)}
 .smm-row-resend:active{transform:scale(.85);background:rgba(99,102,241,.15)}
 .smm-row-resend:disabled{opacity:.3;cursor:default}
@@ -14237,11 +14282,12 @@ function _smmRenderList(){
     if(o.link){h+='<div class="sc-gi" style="grid-column:1/-1"><div class="sc-gi-l"><i class="fa-solid fa-link"></i> الرابط</div><div class="sc-gi-v link">'+esc(o.link)+'</div></div>'}
     h+='</div>';
 
+    h+='<div class="sc-actions">';
     if(showResend){
-      h+='<div class="sc-actions">';
       h+='<button class="sc-btn resend" onclick="event.stopPropagation();resendSMMOrder(\''+esc(o.order)+'\')"><i class="fa-solid fa-rotate"></i> إعادة إرسال</button>';
-      h+='</div>';
     }
+    h+='<button class="sc-btn status" onclick="event.stopPropagation();openOrderStSheet('+o.id+',\''+esc(displayId)+'\',\''+esc(o.status)+'\',\''+price+'\','+(o.refunded?1:0)+')"><i class="fa-solid fa-pen-to-square"></i> تغيير الحالة</button>';
+    h+='</div>';
 
     h+='</div></div>';
   });
@@ -14271,6 +14317,50 @@ async function resendSMMOrder(oid){
       loadAdminSMMOrders();
     }else{toast(d.msg||'خطأ','error');if(btn){btn.disabled=false;btn.innerHTML='<i class="fa-solid fa-rotate"></i>'}}
   }catch(e){toast('خطأ بالاتصال','error');if(btn){btn.disabled=false;btn.innerHTML='<i class="fa-solid fa-rotate"></i>'}}
+}
+var _ordSt={id:0,siteCharge:0,refunded:0};
+function openOrderStSheet(id,displayId,currentStatus,siteCharge,refunded){
+  _ordSt={id:id,siteCharge:parseFloat(siteCharge||0),refunded:refunded?1:0};
+  document.getElementById('ordStRef').textContent='#'+displayId;
+  var sel=document.getElementById('ordStSelect');
+  sel.innerHTML=Object.keys(_smmStL).map(function(k){return '<option value="'+k+'"'+(k===currentStatus?' selected':'')+'>'+_smmStL[k]+'</option>'}).join('');
+  document.getElementById('ordStRefundIn').value='0';
+  document.getElementById('ordStRefundedNote').style.display=_ordSt.refunded?'block':'none';
+  document.getElementById('ordStMsg').style.display='none';
+  _ordStOnStatusChange();
+  document.getElementById('orderStSheetOv').classList.add('show');
+}
+function closeOrderStSheet(){document.getElementById('orderStSheetOv').classList.remove('show')}
+function _ordStOnStatusChange(){
+  var st=document.getElementById('ordStSelect').value;
+  var wrap=document.getElementById('ordStRefundWrap');
+  if(st==='Canceled'||st==='Partial'){
+    wrap.style.display='block';
+    if(st==='Canceled'&&!_ordSt.refunded)document.getElementById('ordStRefundIn').value=_ordSt.siteCharge.toFixed(2);
+  }else{
+    wrap.style.display='none';
+  }
+}
+async function saveOrderStatusChange(){
+  var btn=document.getElementById('ordStSaveBtn');
+  var msg=document.getElementById('ordStMsg');
+  msg.style.display='none';
+  var newStatus=document.getElementById('ordStSelect').value;
+  var refundWrap=document.getElementById('ordStRefundWrap');
+  var refundAmount=refundWrap.style.display!=='none'?(parseFloat(document.getElementById('ordStRefundIn').value)||0):0;
+  btn.disabled=true;btn.innerHTML='<i class="fa-solid fa-spinner fa-spin"></i>';
+  try{
+    var r=await fetch('/api/admin/order/set-status',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:_ordSt.id,status:newStatus,refund_amount:refundAmount})});
+    var d=await r.json();
+    if(d.ok){
+      toast(d.msg||'تم تحديث حالة الطلب','success');
+      closeOrderStSheet();
+      loadAdminSMMOrders();
+    }else{
+      msg.textContent=d.msg||'خطأ';msg.style.display='block';
+    }
+  }catch(e){msg.textContent='خطأ بالاتصال';msg.style.display='block'}
+  btn.disabled=false;btn.innerHTML='حفظ';
 }
 async function loadAdminCS(){var el=document.getElementById('adminCSBody');el.innerHTML='<div class="loading">جاري التحميل...</div>';try{var r=await fetch('/api/admin/custom_services',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({})});var d=await r.json();if(!d.ok){el.innerHTML='غير مصرح';return}var svcs=Object.values(d.services||{});var h='<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px"><div><div style="font-size:15px;font-weight:900;color:var(--text)"><i class="fa-solid fa-box"></i> الخدمات المخصصة</div><div style="font-size:11px;color:var(--text3)">'+svcs.length+' خدمة</div></div><button onclick="showAddCSForm()" class="btn-sm-green"><i class="fa-solid fa-plus"></i> إضافة</button></div>';h+='<div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:14px"><div style="background:var(--card);border:1px solid var(--card-border);border-radius:12px;padding:10px;text-align:center"><div style="font-size:17px;font-weight:900;color:#eab308">'+svcs.filter(function(s){return s.type==='subscription'}).length+'</div><div style="font-size:9px;color:var(--text3)"><i class="fa-solid fa-box"></i> اشتراكات</div></div><div style="background:var(--card);border:1px solid var(--card-border);border-radius:12px;padding:10px;text-align:center"><div style="font-size:17px;font-weight:900;color:#ec4899">'+svcs.filter(function(s){return s.type==='social'}).length+'</div><div style="font-size:9px;color:var(--text3)"><i class="fa-solid fa-mobile-screen"></i> سوشيال</div></div></div>';h+='<div id="csList">';if(!svcs.length)h+='<div style="text-align:center;padding:20px;color:var(--text3)">لا توجد خدمات — اضغط + إضافة</div>';svcs.forEach(function(s){var info=s.type==='subscription'?(s.packages||[]).length+' باقات':'$'+s.rate+'/1K';var _aI=_detectSvcIcon(s.name);var icHtml=_aI?'<div style="width:38px;height:38px;border-radius:10px;display:flex;align-items:center;justify-content:center;background:var(--primary-bg);border:1px solid var(--card-border)"><i class="'+_aI+'" style="font-size:16px;color:var(--primary)"></i></div>':s.image?'<div style="width:38px;height:38px;border-radius:10px;overflow:hidden"><img src="'+esc(s.image)+'" style="width:100%;height:100%;object-fit:cover"></div>':'<div style="font-size:1.2rem;width:38px;text-align:center">'+(s.icon||'')+'</div>';h+='<div style="background:var(--card);border:1px solid var(--card-border);border-radius:14px;padding:12px;margin-bottom:8px"><div style="display:flex;align-items:center;gap:10px">'+icHtml+'<div style="flex:1"><div style="font-size:13px;font-weight:700;color:var(--text)">'+esc(s.name)+' <span style="font-size:9px;padding:2px 6px;border-radius:4px;background:'+(s.type==='subscription'?'rgba(234,179,8,.1);color:#eab308':'rgba(236,72,153,.1);color:#ec4899')+'">'+(s.type==='subscription'?'اشتراك':'سوشيال')+'</span></div><div style="font-size:10px;color:var(--text3)">'+info+'</div></div><button onclick="deleteCS(\''+s.id+'\')" style="padding:6px 10px;background:rgba(239,68,68,.1);color:var(--red);border:none;border-radius:8px;font-size:12px;cursor:pointer"><i class="fa-solid fa-trash"></i></button></div></div>'});h+='</div>';el.innerHTML=h}catch(e){el.innerHTML='خطأ'}}
 var _csAddType='';
@@ -16764,6 +16854,27 @@ try{var mkSt=document.createElement('style');mkSt.textContent='@keyframes mkPuls
     <div class="logout-sheet-btns">
       <button class="logout-sheet-cancel" onclick="closeLogoutSheet()">إلغاء</button>
       <button class="logout-sheet-confirm" onclick="confirmLogoutAction()">تأكيد الخروج</button>
+    </div>
+  </div>
+</div>
+<div class="logout-sheet-ov" id="orderStSheetOv" onclick="if(event.target===this)closeOrderStSheet()">
+  <div class="logout-sheet-box">
+    <div class="logout-sheet-handle"></div>
+    <div class="logout-sheet-ic" style="background:rgba(59,130,246,.1);color:#3b82f6"><i class="fa-solid fa-pen-to-square"></i></div>
+    <div class="logout-sheet-title">تغيير حالة الطلب <span id="ordStRef" style="color:var(--primary)"></span></div>
+    <div class="logout-sheet-desc">اختر الحالة الجديدة لهذا الطلب</div>
+    <div style="margin-bottom:12px;text-align:right">
+      <select id="ordStSelect" onchange="_ordStOnStatusChange()" style="width:100%;padding:12px;border-radius:12px;border:1.5px solid var(--input-border);background:var(--input-bg);color:var(--text);font-family:var(--font);font-size:13px;font-weight:700"></select>
+    </div>
+    <div id="ordStRefundWrap" style="display:none;margin-bottom:12px;text-align:right">
+      <label style="display:block;font-size:11px;color:var(--text3);margin-bottom:6px;font-weight:700">مبلغ الاسترجاع للعميل ($) — اتركه 0 لعدم الاسترجاع</label>
+      <input type="number" id="ordStRefundIn" step="0.01" min="0" style="width:100%;padding:12px;border-radius:12px;border:1.5px solid var(--input-border);background:var(--input-bg);color:var(--text);font-family:var(--font);font-size:13px;font-weight:700;box-sizing:border-box" placeholder="0.00">
+      <div id="ordStRefundedNote" style="display:none;font-size:10px;color:#f59e0b;margin-top:6px"><i class="fa-solid fa-triangle-exclamation"></i> تم استرجاع مبلغ لهذا الطلب مسبقاً</div>
+    </div>
+    <div id="ordStMsg" style="font-size:11px;color:var(--red);margin-bottom:10px;display:none;text-align:center"></div>
+    <div class="logout-sheet-btns">
+      <button class="logout-sheet-cancel" onclick="closeOrderStSheet()">إلغاء</button>
+      <button class="logout-sheet-confirm" id="ordStSaveBtn" style="background:#3b82f6" onclick="saveOrderStatusChange()">حفظ</button>
     </div>
   </div>
 </div>
