@@ -1279,6 +1279,12 @@ def _master_key_auth():
     mk_header = freq.headers.get('X-Master-Key', '').strip()
     if not mk_header:
         return
+    # لا نستبدل جلسة متصفح فعلية بها تسجيل دخول حقيقي (عميل أو أدمن) — المفتاح
+    # الرئيسي مخصص لأدوات/سكربتات خارجية بلا جلسة أصلاً. بدون هذا الشرط، أي طلب
+    # (حتى نداء خلفي من نفس الصفحة) يحمل هذا الترويسة بالخطأ كان يقلب جلسة
+    # المستخدم الحالية بالكامل إلى حساب أدمن دون علمه.
+    if 'user_id' in session:
+        return
     mk_enabled = get_setting('master_key_enabled', '0')
     mk_value = get_setting('master_key_value', '')
     if mk_enabled != '1' or not mk_value or mk_header != mk_value:
