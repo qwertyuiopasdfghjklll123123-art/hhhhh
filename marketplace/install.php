@@ -52,6 +52,19 @@ if ($mysqlReady) {
     foreach ($users as $u) if (!empty($u['is_admin']) && !empty($u['password_hash'])) { $hasAdmin = true; break; }
 }
 
+/* حالة شائعة: يُحذف ملف الموقع من الاستضافة ويُرفع من جديد (نسخة محدّثة
+   مثلاً) بينما تبقى قاعدة بيانات MySQL نفسها كما هي — بكل متاجرها ومنتجاتها
+   وحساب الأدمن. بمجرد إعادة إدخال نفس بيانات الاتصال أعلاه، إن وجدنا حساب
+   أدمن جاهزاً فعلاً في هذه القاعدة فالموقع مُنصَّب مسبقاً ولا داعي لإعادة
+   خطوة اسم الموقع/الأدمن — نفتح التطبيق مباشرة تلقائياً. يبقى بالإمكان
+   الوصول لنموذج إعادة الضبط يدوياً عبر install.php?reset=1 (مثلاً لضبط
+   أدمن جديد عمداً). */
+$isSiteFormPost = $_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['form'] ?? '') === 'site';
+if ($mysqlReady && $hasAdmin && !isset($_GET['reset']) && !$isSiteFormPost) {
+    header('Location: index.php');
+    exit;
+}
+
 $done = false;
 $error = '';
 
