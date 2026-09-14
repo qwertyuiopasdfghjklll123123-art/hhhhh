@@ -757,6 +757,11 @@ if ($action !== '') {
     if ($action === 'apply_vendor') {
         $user = current_user();
         if (my_store() || my_pending_store()) redirect('index.php?page=account');
+        $fee = (float)get_settings()['monthly_fee'];
+        if ((float)$user['wallet'] < $fee) {
+            flash('err', 'رصيدك بالمحفظة لا يكفي لدفع رسم الاشتراك الأول (' . money($fee) . ') — اشحن رصيدك أولاً ثم قدّم الطلب');
+            redirect('index.php?page=apply-vendor');
+        }
         $doc = handle_upload('document');
         $stores = db_read('stores');
         $stores[] = [
@@ -772,16 +777,26 @@ if ($action !== '') {
             'theme'=>['primary'=>'#f2b100','radius'=>16,'density'=>'comfortable','layout'=>'grid2'],
             'sections'=>[], 'earnings'=>0, 'earnings_log'=>[], 'last_fee_at'=>null,
             'subscription_expires_at'=>null, 'suspended'=>false,
+            'application_fee_paid'=>$fee,
             'created_at'=>time(),
         ];
         db_write('stores', $stores);
+        if ($fee > 0) {
+            $users = db_read('users');
+            foreach ($users as &$u) if ($u['id'] === $user['id']) {
+                $u['wallet'] = (float)$u['wallet'] - $fee;
+                $u['wallet_log'][] = ['amount'=>-$fee, 'note'=>'رسم اشتراك أول — طلب متجر "' . trim((string)($_POST['name'] ?? '')) . '" (قيد المراجعة)', 'at'=>time()];
+            }
+            unset($u);
+            db_write('users', $users);
+        }
         $notifBody = $user['name'] . ' (' . $user['phone'] . ') قدّم طلب انضمام كتاجر' . "\n"
             . 'اسم المتجر: ' . trim((string)($_POST['name'] ?? '')) . "\n"
             . 'التصنيف: ' . trim((string)($_POST['category'] ?? '')) . "\n"
             . 'الوصف: ' . trim((string)($_POST['description'] ?? '')) . "\n"
             . 'هاتف المتجر: ' . trim((string)($_POST['contact_phone'] ?? '')) . ' — واتساب: ' . trim((string)($_POST['contact_whatsapp'] ?? ''));
         add_notification('admin', 'طلب انضمام جديد', $notifBody, 'index.php?page=admin&section=applications', 'store');
-        flash('ok', 'تم إرسال طلبك بنجاح، سيتم مراجعته من قبل الإدارة قريباً');
+        flash('ok', $fee > 0 ? ('تم إرسال طلبك وخصم رسم الاشتراك الأول (' . money($fee) . ') من محفظتك، سيتم مراجعته من قبل الإدارة قريباً — يُسترد المبلغ كاملاً إن رُفض الطلب') : 'تم إرسال طلبك بنجاح، سيتم مراجعته من قبل الإدارة قريباً');
         redirect('index.php?page=account');
     }
 
@@ -1012,12 +1027,18 @@ if ($action !== '') {
 
         if ($action === 'vendor_renew_subscription') {
             if (!empty($store['suspended'])) { flash('err', 'متجرك معلّق من قبل الإدارة، تواصل معها لإعادة التفعيل'); redirect('index.php?page=vendor'); }
+            $vendorUser = current_user();
             $fee = (float)get_settings()['monthly_fee'];
-            if ((float)($store['earnings'] ?? 0) < $fee) { flash('err', 'رصيدك المتاح بالمتجر لا يكفي لتجديد الاشتراك (' . money($fee) . ')'); redirect('index.php?page=vendor'); }
+            if ((float)$vendorUser['wallet'] < $fee) { flash('err', 'رصيدك بالمحفظة لا يكفي لتجديد الاشتراك (' . money($fee) . ') — اشحن رصيدك أولاً'); redirect('index.php?page=vendor'); }
+            $users = db_read('users');
+            foreach ($users as &$u) if ($u['id'] === $vendorUser['id']) {
+                $u['wallet'] = (float)$u['wallet'] - $fee;
+                $u['wallet_log'][] = ['amount'=>-$fee, 'note'=>'رسم اشتراك شهري (تجديد متجر "' . $store['name'] . '")', 'at'=>time()];
+            }
+            unset($u);
+            db_write('users', $users);
             $stores = db_read('stores');
             foreach ($stores as &$s) if ($s['id'] === $store['id']) {
-                $s['earnings'] = (float)$s['earnings'] - $fee;
-                $s['earnings_log'][] = ['amount'=>-$fee, 'note'=>'رسم اشتراك شهري (تجديد ذاتي)', 'at'=>time()];
                 $s['last_fee_at'] = time();
                 $base = max((int)time(), (int)($s['subscription_expires_at'] ?? 0));
                 $s['subscription_expires_at'] = $base + 86400 * SUBSCRIPTION_DAYS;
@@ -1025,7 +1046,7 @@ if ($action !== '') {
             }
             unset($s);
             db_write('stores', $stores);
-            flash('ok', 'تم تجديد اشتراك متجرك ' . SUBSCRIPTION_DAYS . ' يوم إضافي');
+            flash('ok', 'تم تحصيل ' . money($fee) . ' من محفظتك وتجديد اشتراك متجرك ' . SUBSCRIPTION_DAYS . ' يوم إضافي');
             redirect('index.php?page=vendor');
         }
 
@@ -1066,7 +1087,7 @@ if ($action !== '') {
     }
 
     // إجراءات الأدمن
-    $adminActions = ['admin_approve','admin_reject','admin_topup','admin_toggle_featured','admin_collect_fee','admin_update_fee','admin_update_branding','admin_update_ai_key','admin_update_google_key','admin_add_payment_method','admin_delete_payment_method','admin_approve_topup','admin_reject_topup','admin_approve_withdraw','admin_reject_withdraw','admin_resolve_complaint','admin_toggle_suspend','admin_add_category','admin_delete_category','admin_toggle_admin','admin_broadcast','admin_add_coupon','admin_delete_coupon','admin_update_backup','admin_backup_now','admin_restore_backup','admin_update_db_config'];
+    $adminActions = ['admin_approve','admin_reject','admin_topup','admin_toggle_featured','admin_update_fee','admin_update_branding','admin_update_ai_key','admin_update_google_key','admin_add_payment_method','admin_delete_payment_method','admin_approve_topup','admin_reject_topup','admin_approve_withdraw','admin_reject_withdraw','admin_resolve_complaint','admin_toggle_suspend','admin_add_category','admin_delete_category','admin_toggle_admin','admin_broadcast','admin_add_coupon','admin_delete_coupon','admin_update_backup','admin_backup_now','admin_restore_backup','admin_update_db_config'];
     if (in_array($action, $adminActions, true)) {
         if (!is_admin_user()) redirect('index.php');
 
@@ -1086,12 +1107,26 @@ if ($action !== '') {
         }
         if ($action === 'admin_reject') {
             $stores = db_read('stores');
-            $owner = null;
-            foreach ($stores as &$s) if ($s['id'] === (int)$_POST['store_id']) { $s['status'] = 'rejected'; $owner = $s['owner_user_id']; }
+            $owner = null; $refund = 0.0;
+            foreach ($stores as &$s) if ($s['id'] === (int)$_POST['store_id']) {
+                $s['status'] = 'rejected';
+                $owner = $s['owner_user_id'];
+                $refund = (float)($s['application_fee_paid'] ?? 0);
+                $s['application_fee_paid'] = 0;
+            }
             unset($s);
             db_write('stores', $stores);
-            if ($owner) add_notification($owner, 'تم رفض طلب متجرك', 'للأسف تمت مراجعة طلبك كتاجر ولم تتم الموافقة عليه.', 'index.php?page=account', 'store');
-            flash('ok', 'تم رفض الطلب');
+            if ($owner && $refund > 0) {
+                $users = db_read('users');
+                foreach ($users as &$u) if ($u['id'] === $owner) {
+                    $u['wallet'] = (float)$u['wallet'] + $refund;
+                    $u['wallet_log'][] = ['amount'=>$refund, 'note'=>'استرداد رسم اشتراك أول — رُفض طلب المتجر', 'at'=>time()];
+                }
+                unset($u);
+                db_write('users', $users);
+            }
+            if ($owner) add_notification($owner, 'تم رفض طلب متجرك', 'للأسف تمت مراجعة طلبك كتاجر ولم تتم الموافقة عليه.' . ($refund > 0 ? (' تم استرداد ' . money($refund) . ' لمحفظتك.') : ''), 'index.php?page=account', 'store');
+            flash('ok', 'تم رفض الطلب' . ($refund > 0 ? ' واسترداد رسم الاشتراك للتاجر' : ''));
             redirect('index.php?page=admin&section=applications');
         }
         if ($action === 'admin_topup') {
@@ -1163,26 +1198,6 @@ if ($action !== '') {
                 flash('ok', 'تم إرسال الإشعار لكل المستخدمين');
             }
             redirect('index.php?page=admin&section=broadcast');
-        }
-        if ($action === 'admin_collect_fee') {
-            $sid = (int)$_POST['store_id'];
-            $fee = (float)get_settings()['monthly_fee'];
-            $stores = db_read('stores');
-            $owner = null;
-            foreach ($stores as &$s) if ($s['id'] === $sid) {
-                $s['earnings'] = (float)$s['earnings'] - $fee;
-                $s['earnings_log'][] = ['amount'=>-$fee, 'note'=>'رسم اشتراك شهري (تجديد الاشتراك)', 'at'=>time()];
-                $s['last_fee_at'] = time();
-                $base = max((int)time(), (int)($s['subscription_expires_at'] ?? 0));
-                $s['subscription_expires_at'] = $base + 86400 * SUBSCRIPTION_DAYS;
-                $s['suspended'] = false;
-                $owner = $s['owner_user_id'];
-            }
-            unset($s);
-            db_write('stores', $stores);
-            if ($owner) add_notification($owner, 'تجديد الاشتراك', 'تم تحصيل ' . money($fee) . ' وتجديد اشتراك متجرك ' . SUBSCRIPTION_DAYS . ' يوم إضافي.', 'index.php?page=vendor', 'store');
-            flash('ok', 'تم تحصيل الرسم وتجديد الاشتراك ' . SUBSCRIPTION_DAYS . ' يوم');
-            redirect('index.php?page=admin&section=stores');
         }
         if ($action === 'admin_approve_withdraw') {
             $rid = (int)($_POST['request_id'] ?? 0);
@@ -2580,9 +2595,17 @@ function page_ai(): string {
 /* ===================== تقديم طلب تاجر ===================== */
 function page_apply_vendor(): string {
     if (my_store() || my_pending_store()) return '<div class="empty-state an"><i class="fas fa-circle-check"></i><p>لديك متجر أو طلب قيد المراجعة مسبقاً</p></div>';
+    $fee = (float)get_settings()['monthly_fee'];
+    $wallet = (float)(current_user()['wallet'] ?? 0);
     ob_start(); ?>
     <h2 style="font-size:1.05rem;font-weight:800;margin:6px 0 6px" class="an">تقديم طلب كتاجر</h2>
     <p style="font-size:.75rem;color:var(--muted);margin-bottom:18px" class="an">عبّي بيانات متجرك، وراح تراجع الإدارة طلبك وتفعّل حسابك كتاجر بعد الموافقة.</p>
+    <?php if ($fee > 0): ?>
+    <div class="flash <?= $wallet >= $fee ? 'flash-ok' : 'flash-err' ?> an">
+        <i class="fas fa-circle-info"></i> سيُخصم رسم اشتراك أول قدره <?= money($fee) ?> من رصيد محفظتك (<?= money($wallet) ?>) فور إرسال الطلب — يُسترد كاملاً إن رُفض الطلب، ويبقى محتسباً كأول شهر اشتراك إن تمت الموافقة.
+        <?php if ($wallet < $fee): ?><br><strong>رصيدك الحالي لا يكفي — اشحنه أولاً من صفحة حسابي.</strong><?php endif; ?>
+    </div>
+    <?php endif; ?>
     <form method="post" enctype="multipart/form-data" class="card an">
         <input type="hidden" name="action" value="apply_vendor">
         <div class="field"><label>اسم المتجر</label><input type="text" name="name" required></div>
@@ -2591,7 +2614,7 @@ function page_apply_vendor(): string {
         <div class="field"><label>رقم الهاتف</label><input type="tel" name="contact_phone" required></div>
         <div class="field"><label>رقم واتساب (اختياري)</label><input type="tel" name="contact_whatsapp"></div>
         <div class="field"><label>مستند إثبات (هوية / سجل تجاري)</label><input type="file" name="document" accept="image/*,.pdf"></div>
-        <button class="btn" type="submit"><i class="fas fa-paper-plane"></i> إرسال الطلب</button>
+        <button class="btn" type="submit" <?= ($fee > 0 && $wallet < $fee) ? 'disabled style="opacity:.5"' : '' ?>><i class="fas fa-paper-plane"></i> إرسال الطلب</button>
     </form>
     <?php return ob_get_clean();
 }
@@ -2624,20 +2647,21 @@ function page_vendor(): string {
         echo '<div class="flash flash-err an">⚠️ متجرك ' . h($why) . ' وما يظهر حالياً بالسوق للمشترين. ' . ($suspendedByAdmin ? 'تواصل مع الإدارة لإعادة التفعيل.' : '') . '</div>';
         if (!$suspendedByAdmin) {
             $fee = (float)get_settings()['monthly_fee'];
-            $canRenew = (float)($store['earnings'] ?? 0) >= $fee;
+            $wallet = (float)(current_user()['wallet'] ?? 0);
+            $canRenew = $wallet >= $fee;
             ?>
             <div class="card an" style="margin-bottom:14px">
-                <div class="row-between"><span style="font-size:.8rem">رصيدك المتاح بالمتجر</span><strong style="color:var(--accent)"><?= money($store['earnings'] ?? 0) ?></strong></div>
+                <div class="row-between"><span style="font-size:.8rem">رصيدك بالمحفظة</span><strong style="color:var(--accent)"><?= money($wallet) ?></strong></div>
                 <form method="post" style="margin-top:10px">
                     <input type="hidden" name="action" value="vendor_renew_subscription">
-                    <button class="btn btn-sm" type="submit" <?= $canRenew ? '' : 'disabled style="opacity:.5"' ?>><i class="fas fa-calendar-check"></i> تجديد الاشتراك (<?= money($fee) ?>)</button>
+                    <button class="btn btn-sm" type="submit" <?= $canRenew ? '' : 'disabled style="opacity:.5"' ?>><i class="fas fa-calendar-check"></i> تسديد وتفعيل المتجر (<?= money($fee) ?>)</button>
                 </form>
-                <?php if (!$canRenew): ?><p style="font-size:.7rem;color:var(--danger);margin-top:8px">رصيدك المتاح لا يكفي — انتظر توفّر رصيد من طلباتك أو تواصل مع الإدارة</p><?php endif; ?>
+                <?php if (!$canRenew): ?><p style="font-size:.7rem;color:var(--danger);margin-top:8px">رصيدك بالمحفظة لا يكفي — اشحن رصيدك ثم عد لهذه الصفحة للتسديد وإعادة تفعيل المتجر تلقائياً</p><?php endif; ?>
             </div>
             <?php
         }
     } elseif (($store['subscription_expires_at'] ?? null) && $store['subscription_expires_at'] - time() < 86400 * 5) {
-        echo '<div class="flash flash-ok an">⏳ اشتراكك ينتهي بتاريخ ' . date('Y-m-d', $store['subscription_expires_at']) . ' — تواصل مع الإدارة للتجديد.</div>';
+        echo '<div class="flash flash-ok an">⏳ اشتراكك ينتهي بتاريخ ' . date('Y-m-d', $store['subscription_expires_at']) . ' — تأكد من كفاية رصيد محفظتك (' . money((float)get_settings()['monthly_fee']) . ') قبل موعد الانتهاء لتجديده تلقائياً من هذه الصفحة.</div>';
     }
     echo vendor_tabs($section);
 
@@ -2972,7 +2996,6 @@ function page_admin(): string {
     }
 
     if ($section === 'stores') {
-        $fee = (float)get_settings()['monthly_fee'];
         foreach ($stores as $s) { if ($s['status'] !== 'approved') continue;
             $owner = $usersById[$s['owner_user_id']] ?? null; ?>
             <div class="table-card an">
@@ -2997,10 +3020,7 @@ function page_admin(): string {
                         <span class="d-st-b st-on">نشط لين <?= date('Y-m-d', $s['subscription_expires_at']) ?></span>
                     <?php endif; ?>
                 </div>
-                <div style="display:flex;gap:8px;margin-top:10px">
-                    <form method="post" style="width:100%" onsubmit="return confirm('تحصيل <?= h((string)$fee) ?> د.ع وتجديد الاشتراك <?= SUBSCRIPTION_DAYS ?> يوم؟')"><input type="hidden" name="action" value="admin_collect_fee"><input type="hidden" name="store_id" value="<?= $s['id'] ?>"><button class="btn btn-sm btn-outline" type="submit"><i class="fas fa-calendar-check"></i> تحصيل وتجديد الاشتراك</button></form>
-                </div>
-                <form method="post" style="margin-top:8px"><input type="hidden" name="action" value="admin_toggle_suspend"><input type="hidden" name="store_id" value="<?= $s['id'] ?>">
+                <form method="post" style="margin-top:10px"><input type="hidden" name="action" value="admin_toggle_suspend"><input type="hidden" name="store_id" value="<?= $s['id'] ?>">
                     <button class="btn btn-sm <?= !empty($s['suspended']) ? '' : 'btn-outline' ?>" style="<?= !empty($s['suspended']) ? '' : 'border-color:var(--danger);color:var(--danger)' ?>" type="submit"><i class="fas fa-power-off"></i> <?= !empty($s['suspended']) ? 'إعادة تفعيل المتجر' : 'تعليق المتجر يدوياً' ?></button>
                 </form>
             </div>
