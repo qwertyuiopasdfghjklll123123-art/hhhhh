@@ -3,7 +3,7 @@
 html{scroll-behavior:smooth}
 :root{--bg:#f8f6f3;--card:#fff;--text:#1a1a2e;--muted:#6b7280;--accent:#f2b100;--accent2:#ffcf40;--shadow:0 1px 2px rgba(242,177,0,.08),0 6px 18px rgba(242,177,0,.08);--border:rgba(242,177,0,.14);--hover-bg:rgba(242,177,0,.07);--gradient:linear-gradient(135deg,#f2b100,#ffcf40);--danger:#e5484d;--success:#2f9e5c;--radius:16px}
 [data-theme="dark"]{--bg:#0d0d0d;--card:#1a1a1a;--text:#f0ece0;--muted:#a89f8e;--accent:#ffcf40;--accent2:#ffe27a;--shadow:0 1px 2px rgba(0,0,0,.5),0 6px 20px rgba(0,0,0,.6);--border:rgba(255,207,64,.14);--hover-bg:rgba(255,207,64,.08);--gradient:linear-gradient(135deg,#ffcf40,#ffe27a)}
-body{font-family:'IBM Plex Sans Arabic',sans-serif;background:var(--bg);color:var(--text);min-height:100vh;min-height:100dvh;overflow-x:hidden;position:relative;transition:background .3s,color .3s;animation:pageIn .5s ease both;scrollbar-width:none}
+body{font-family:'Cairo','Tajawal',-apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,Tahoma,sans-serif;background:var(--bg);color:var(--text);min-height:100vh;min-height:100dvh;overflow-x:hidden;position:relative;transition:background .3s,color .3s;animation:pageIn .5s ease both;scrollbar-width:none}
 body::-webkit-scrollbar{display:none}
 @keyframes pageIn{from{opacity:0}to{opacity:1}}
 @keyframes fadeUp{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:translateY(0)}}
@@ -115,7 +115,8 @@ button,input,select,textarea{font-family:inherit;color:inherit}
 .login-logo{font-size:2rem;font-weight:900;display:flex;align-items:center;gap:10px;background:var(--gradient);-webkit-background-clip:text;-webkit-text-fill-color:transparent;margin-bottom:6px}
 .login-logo-img{width:40px;height:40px;border-radius:12px;object-fit:cover}
 .login-sub{font-size:.78rem;color:var(--muted);margin-bottom:26px;text-align:center}
-.login-card{width:100%;max-width:360px;background:var(--card);border-radius:22px;padding:24px;box-shadow:var(--shadow)}
+.login-card{width:100%;max-width:360px;background:var(--card);border-radius:28px;padding:24px;box-shadow:var(--shadow)}
+.auth-page .btn,.login-card .btn{border-radius:100px}
 .login-admin-link{margin-top:18px;font-size:.7rem;color:var(--muted);text-align:center}
 .auth-divider{display:flex;align-items:center;gap:10px;margin:16px 0;font-size:.68rem;color:var(--muted)}
 .auth-divider::before,.auth-divider::after{content:'';flex:1;height:1px;background:var(--border)}
