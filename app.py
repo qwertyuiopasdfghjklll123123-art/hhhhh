@@ -4232,11 +4232,16 @@ def ai_find_services(query, limit=8):
 
 def ai_services_context(matches):
     if not matches:
-        return ''
+        return ("\n\nملاحظة: البحث في كتالوج الموقع الفعلي لم يجد خدمة تطابق كلمات سؤال المستخدم بالضبط. "
+                 "هذا لا يعني أبداً أن الخدمة غير متوفرة — فقد تكون موجودة بمسمى أو صياغة مختلفة قليلاً عمّا كتبه المستخدم. "
+                 "لا تجزم إطلاقاً بعدم توفر أي خدمة أو منصة ولا تقل \"غير متوفرة\" أو \"لا نقدمها\". بدلاً من ذلك، اطلب من المستخدم "
+                 "توضيح اسم الخدمة أو المنصة بشكل أدق، أو انصحه بتصفح قائمة الخدمات كاملة من الصفحة الرئيسية ليجد ما يريد.")
     lines = [f"- \"{m['name']}\" ({m['platform']} / {m['category']}) — السعر: ${m['rate']} لكل 1000" + (' — خدمة مخصصة' if m.get('custom') else '') for m in matches]
-    return ("\n\nخدمات من كتالوج الموقع الفعلي تطابق سؤال المستخدم (استخدم فقط هذه الأسماء والأسعار الحقيقية، لا تخترع خدمات أو أسعار أخرى):\n"
+    return ("\n\nخدمات من كتالوج الموقع الفعلي تطابق سؤال المستخدم — هذه الخدمات متوفرة فعلاً الآن (استخدم فقط هذه الأسماء والأسعار "
+            "الحقيقية، لا تخترع خدمات أو أسعار أخرى، ولا تقل أبداً إنها غير متوفرة بما أنها مذكورة هنا):\n"
             + "\n".join(lines)
-            + "\nإذا نصحت المستخدم بخدمة معينة، اذكر اسمها كاملاً وحرفياً كما هو مكتوب أعلاه بين علامتي اقتباس مرة واحدة في ردك حتى يظهر له كبطاقة قابلة للنقر.")
+            + "\nإذا كان هناك أكثر من خدمة مطابقة، اختر الأنسب لسؤال المستخدم تحديداً ورشّحها له كأفضل خيار."
+              "\nإذا نصحت المستخدم بخدمة معينة، اذكر اسمها كاملاً وحرفياً كما هو مكتوب أعلاه بين علامتي اقتباس مرة واحدة في ردك حتى يظهر له كبطاقة قابلة للنقر.")
 
 def ai_payment_methods_context():
     try:
@@ -7330,6 +7335,23 @@ body{font-family:IBM Plex Sans Arabic,'Tajawal',sans-serif;background:var(--bg);
 .svc-teaser-meta{font-size:10px;color:var(--text3);margin-top:2px}
 .svc-teaser-price{font-size:13px;font-weight:900;color:var(--green,#10b981);flex-shrink:0}
 .svc-teaser::after{content:'';position:absolute;inset:0;pointer-events:none;background:linear-gradient(100deg,transparent 35%,rgba(255,255,255,.16) 50%,transparent 65%);background-size:220% 100%;animation:shimmer 3.2s infinite}
+.section-subtitle-row{display:flex;align-items:center;justify-content:center;gap:8px;margin-top:4px}
+.section-subtitle-row p{margin:0}
+.mini-interactive{width:26px;height:26px;border-radius:50%;background:var(--primary-glow);color:var(--primary);display:inline-flex;align-items:center;justify-content:center;font-size:10px;cursor:pointer;animation:miniBounce 1.8s ease-in-out infinite;border:none;flex-shrink:0;transition:transform .2s;padding:0}
+.mini-interactive:hover{transform:scale(1.2)}
+@keyframes miniBounce{0%,100%{transform:translateY(0)}50%{transform:translateY(-4px)}}
+.stepper{max-width:640px;margin:0 auto}
+.stepper-circles{position:relative;display:flex;justify-content:space-between;align-items:center;max-width:420px;margin:0 auto 28px;padding:0 4px}
+.stepper-line{position:absolute;top:50%;right:24px;left:24px;height:3px;background:var(--card-border);border-radius:3px;transform:translateY(-50%);z-index:0}
+.stepper-line-fill{height:100%;width:0%;background:linear-gradient(90deg,var(--primary),var(--primary-light));border-radius:3px;transition:width .5s cubic-bezier(.4,0,.2,1)}
+.stepper-circle{position:relative;z-index:1;width:48px;height:48px;border-radius:50%;background:var(--card);border:2px solid var(--card-border);color:var(--text3);font-size:16px;display:flex;align-items:center;justify-content:center;cursor:pointer;transition:all .35s cubic-bezier(.34,1.56,.64,1);font-family:inherit}
+.stepper-circle.active{background:linear-gradient(135deg,var(--primary),var(--primary-light));border-color:transparent;color:#fff;transform:scale(1.15);box-shadow:0 4px 18px var(--primary-glow),0 0 0 5px var(--primary-glow)}
+.stepper-circle.done{background:var(--primary-glow);border-color:var(--primary);color:var(--primary)}
+.stepper-panel{background:var(--card);border:1px solid var(--card-border);border-radius:18px;padding:26px 24px;text-align:center;min-height:110px;position:relative}
+.stepper-panel-content{animation:stepFade .4s ease}
+.stepper-panel-content h3{font-size:16px;font-weight:800;margin-bottom:8px;color:var(--text)}
+.stepper-panel-content p{font-size:13px;color:var(--text3);line-height:1.8;margin:0 auto;max-width:440px}
+@keyframes stepFade{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
 .btn-google{width:100%;padding:11px;border:1.5px solid var(--card-border);border-radius:10px;background:var(--card);color:var(--text);font-size:14px;font-weight:700;cursor:pointer;font-family:IBM Plex Sans Arabic,'Tajawal',sans-serif;transition:all .3s;display:flex;align-items:center;justify-content:center;gap:10px}
 .btn-google:hover{border-color:var(--primary);box-shadow:0 2px 12px var(--primary-glow)}
 .msg-toast{position:fixed;top:80px;left:50%;transform:translateX(-50%);padding:11px 22px;border-radius:12px;font-size:13px;font-weight:700;z-index:9999;animation:fadeUp .3s ease;font-family:IBM Plex Sans Arabic,'Tajawal',sans-serif;max-width:90%;background:#1e1e2e;color:#fff;border:1px solid rgba(255,255,255,.12);box-shadow:0 8px 28px rgba(0,0,0,.35);display:flex;align-items:center;gap:8px;backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px)}
@@ -7538,12 +7560,22 @@ body{font-family:IBM Plex Sans Arabic,'Tajawal',sans-serif;background:var(--bg);
 </div>
 
 <section class="section section-alt">
-  <div class="section-title reveal"><h2><i class="fa-solid fa-route" style="color:var(--primary)"></i> كيف يعمل __SITE_NAME__؟</h2><p>كل ما تحتاج معرفته لتبدأ بثقة خلال دقائق</p></div>
-  <div class="steps-container" style="margin-bottom:48px">
-    <div class="step reveal"><div class="step-num">1</div><div class="step-content"><h3><i class="fa-solid fa-user-plus"></i> أنشئ حسابك</h3><p>سجّل حساب جديد مجاناً باستخدام بريدك الإلكتروني. ستصلك رسالة تأكيد — اضغط على الرابط لتفعيل حسابك والبدء فوراً.</p></div></div>
-    <div class="step reveal"><div class="step-num">2</div><div class="step-content"><h3><i class="fa-solid fa-wallet"></i> اشحن رصيدك</h3><p>أضف رصيد لحسابك بسهولة عبر طرق دفع متعددة وسريعة. الحد الأدنى للشحن يبدأ من $1 فقط.</p></div></div>
-    <div class="step reveal"><div class="step-num">3</div><div class="step-content"><h3><i class="fa-solid fa-cart-shopping"></i> اختر خدمتك واطلب</h3><p>تصفّح قائمة الخدمات أو اسأل مساعدنا الذكي عمّا تحتاجه، أدخل رابط حسابك أو منشورك، ثم اضغط "طلب".</p></div></div>
-    <div class="step reveal"><div class="step-num">4</div><div class="step-content"><h3><i class="fa-solid fa-chart-line"></i> تابع طلبك</h3><p>بعد تأكيد الطلب، يبدأ التنفيذ تلقائياً. تابع حالة طلبك من لوحة التحكم وشاهد النتائج تظهر على حسابك في دقائق!</p></div></div>
+  <div class="section-title reveal">
+    <h2><i class="fa-solid fa-route" style="color:var(--primary)"></i> كيف يعمل __SITE_NAME__؟</h2>
+    <div class="section-subtitle-row">
+      <p>أربع خطوات وتبدأ</p>
+      <button type="button" class="mini-interactive" id="miniStepIndicator" title="الخطوة التالية"><i class="fa-solid fa-chevron-left"></i></button>
+    </div>
+  </div>
+  <div class="stepper reveal" style="margin-bottom:48px">
+    <div class="stepper-circles" id="stepperCircles">
+      <div class="stepper-line"><div class="stepper-line-fill" id="stepperLineFill"></div></div>
+      <button type="button" class="stepper-circle" data-step="0"><i class="fa-solid fa-user-plus"></i></button>
+      <button type="button" class="stepper-circle" data-step="1"><i class="fa-solid fa-wallet"></i></button>
+      <button type="button" class="stepper-circle" data-step="2"><i class="fa-solid fa-cart-shopping"></i></button>
+      <button type="button" class="stepper-circle" data-step="3"><i class="fa-solid fa-chart-line"></i></button>
+    </div>
+    <div class="stepper-panel" id="stepperPanel"></div>
   </div>
 
   <div class="explain-grid">
@@ -7650,6 +7682,38 @@ body{font-family:IBM Plex Sans Arabic,'Tajawal',sans-serif;background:var(--bg);
         },350);
       },3200);
     }
+  })();
+
+  (function(){
+    var stepsData=[
+      {ic:'fa-solid fa-user-plus',title:'أنشئ حسابك',text:'سجّل حساب جديد مجاناً باستخدام بريدك الإلكتروني. ستصلك رسالة تأكيد — اضغط على الرابط لتفعيل حسابك والبدء فوراً.'},
+      {ic:'fa-solid fa-wallet',title:'اشحن رصيدك',text:'أضف رصيد لحسابك بسهولة عبر طرق دفع متعددة وسريعة. الحد الأدنى للشحن يبدأ من $1 فقط.'},
+      {ic:'fa-solid fa-cart-shopping',title:'اختر خدمتك واطلب',text:'تصفّح قائمة الخدمات أو اسأل مساعدنا الذكي عمّا تحتاجه، أدخل رابط حسابك أو منشورك، ثم اضغط "طلب".'},
+      {ic:'fa-solid fa-chart-line',title:'تابع طلبك',text:'بعد تأكيد الطلب، يبدأ التنفيذ تلقائياً. تابع حالة طلبك من لوحة التحكم وشاهد النتائج تظهر على حسابك في دقائق!'}
+    ];
+    var curStep=0,stepTimer=null;
+    var circles=document.querySelectorAll('.stepper-circle');
+    var panel=document.getElementById('stepperPanel');
+    var lineFill=document.getElementById('stepperLineFill');
+    function renderStep(i){
+      curStep=i;
+      circles.forEach(function(c,idx){
+        c.classList.toggle('active',idx===i);
+        c.classList.toggle('done',idx<i);
+      });
+      if(lineFill)lineFill.style.width=(i/(stepsData.length-1)*100)+'%';
+      var s=stepsData[i];
+      if(panel)panel.innerHTML='<div class="stepper-panel-content"><h3><i class="'+s.ic+'" style="color:var(--primary);margin-left:6px"></i>'+s.title+'</h3><p>'+s.text+'</p></div>';
+    }
+    function resetTimer(){
+      if(stepTimer)clearInterval(stepTimer);
+      stepTimer=setInterval(function(){renderStep((curStep+1)%stepsData.length)},4500);
+    }
+    function goToStep(i){renderStep(i);resetTimer();}
+    circles.forEach(function(c,idx){c.addEventListener('click',function(){goToStep(idx)})});
+    if(circles.length){renderStep(0);resetTimer();}
+    var mini=document.getElementById('miniStepIndicator');
+    if(mini)mini.addEventListener('click',function(){goToStep((curStep+1)%stepsData.length)});
   })();
 
   var currentTab='login';
