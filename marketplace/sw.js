@@ -1,4 +1,4 @@
-const CACHE_NAME = 'souq-cache-v1';
+const CACHE_NAME = 'souq-cache-v2';
 const CORE_ASSETS = ['assets/style.css', 'assets/app.js', 'assets/icon-192.png', 'assets/icon-512.png'];
 
 /* لا يخزّن أي صفحة أو بيانات ديناميكية إطلاقاً — فقط ملفات الواجهة الثابتة
@@ -31,7 +31,24 @@ self.addEventListener('fetch', (event) => {
   if (url.origin !== self.location.origin) return;
   if (!CORE_ASSETS.some((a) => url.pathname.endsWith('/' + a) || url.pathname.endsWith(a))) return;
 
+  /* stale-while-revalidate: نرجع النسخة المخزّنة فوراً (سرعة التحميل نفسها
+     كالسابق)، لكن نجلب بالخلفية نسخة جديدة من الشبكة ونحدّث بها المخزن
+     المؤقت دائماً — بهذا لو رُفع تحديث لـ app.js/style.css بدون تذكّر رفع
+     رقم إصدار CACHE_NAME، أقصى تأخير لوصول التحديث لجهاز المستخدم زيارة
+     واحدة فقط، بدل بقاء نسخة قديمة من الكود مخزّنة للأبد وتسبب أزراراً لا
+     تعمل بسبب عدم توافقها مع HTML الحالي. */
   event.respondWith(
-    caches.match(req).then((cached) => cached || fetch(req))
+    caches.open(CACHE_NAME).then(async (cache) => {
+      const cached = await cache.match(req);
+      const networkFetch = fetch(req).then((res) => {
+        if (res && res.ok) cache.put(req, res.clone());
+        return res;
+      });
+      if (cached) {
+        networkFetch.catch(() => {});
+        return cached;
+      }
+      return networkFetch;
+    })
   );
 });
