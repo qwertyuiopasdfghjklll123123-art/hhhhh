@@ -1501,7 +1501,6 @@ function renderAccounts() {
     html += '</div>';
   });
   html += '<button class="btn-outline" onclick="openAddAccountSheet()">' + icon('plus', 12) + ' إضافة حساب</button>';
-  html += '<button class="btn-outline" onclick="showSection(\'api\')">' + icon('rocket', 12) + ' مفاتيح API لربط موقع خارجي</button>';
   c.innerHTML = html;
 
   accounts.filter(a => !a.logged_in).forEach(acc => pollLogin(acc.id, gen));
@@ -1513,7 +1512,7 @@ async function renderApi() {
   const cached = dataCache.apiKeys;
   c.innerHTML =
     '<div class="page-title"><h2>' + icon('rocket', 18) + ' واجهة API</h2>' +
-    '<button onclick="showSection(\'accounts\')" style="height:36px;padding:0 14px;border:2px solid rgba(5,134,147,0.08);border-radius:var(--radius-sm);background:transparent;color:var(--text-secondary);font-size:12px;font-weight:700;cursor:pointer;font-family:inherit">رجوع</button>' +
+    '<button onclick="showSection(\'settings\')" style="height:36px;padding:0 14px;border:2px solid rgba(5,134,147,0.08);border-radius:var(--radius-sm);background:transparent;color:var(--text-secondary);font-size:12px;font-weight:700;cursor:pointer;font-family:inherit">رجوع</button>' +
     '</div>' +
     '<div id="apiBox">' + (cached ? apiKeysHtml(cached) : '<div class="text-muted text-[11px]">جارِ التحميل...</div>') + '</div>';
   loadApiKeys();
@@ -1556,13 +1555,24 @@ function apiKeysHtml(d) {
     '</div>';
 
   html += '<div class="card">' +
-    '<div class="card-header"><h4>' + icon('info', 14) + ' تعليمات الربط</h4></div>' +
-    '<p class="text-[12px] text-muted mb-2">من موقعك الخارجي، أرسل طلب POST لهذا الرابط وحط المفتاح بترويسة X-API-Key:</p>' +
+    '<div class="card-header"><h4>' + icon('info', 14) + ' تعليمات وأمثلة الاستخدام</h4></div>' +
+    '<p class="text-[12px] text-muted mb-2">من موقعك الخارجي، أرسل طلب POST لهذا الرابط وحط المفتاح بترويسة X-API-Key، مع رقم الهاتف وcode أو message:</p>' +
     '<div style="background:var(--card-soft);border-radius:10px;padding:10px;font-family:monospace;font-size:11px;direction:ltr;text-align:left;overflow-x:auto;white-space:pre-wrap;word-break:break-all">' +
     'POST ' + origin + '/api/v1/send\n' +
     'X-API-Key: YOUR_KEY\n' +
     'Content-Type: application/json\n\n' +
     '{\n  "phone": "9647701234567",\n  "code": "123456"\n}' +
+    '</div>' +
+    '<p class="text-[11px] text-muted mt-2 mb-1">الرد عند النجاح: <code>{"ok": true}</code> — وعند الفشل: <code>{"ok": false, "error": "..."}</code></p>' +
+    '<label class="field-label">مثال بلغة Python (مكتبة requests)</label>' +
+    '<div style="background:var(--card-soft);border-radius:10px;padding:10px;font-family:monospace;font-size:11px;direction:ltr;text-align:left;overflow-x:auto;white-space:pre-wrap;word-break:break-all">' +
+    'import requests\n\n' +
+    'resp = requests.post(\n' +
+    '    "' + origin + '/api/v1/send",\n' +
+    '    headers={"X-API-Key": "YOUR_KEY"},\n' +
+    '    json={"phone": "9647701234567", "code": "123456"},\n' +
+    ')\n' +
+    'print(resp.json())' +
     '</div>' +
     '<p class="text-[11px] text-muted mt-2">تكدر تبعث "message" بدل "code" حتى ترسل نص حر مو رمز تحقق بس. حد أقصى 20 طلب بالدقيقة لكل مفتاح.</p>' +
     '</div>';
@@ -2131,6 +2141,10 @@ function renderSettings() {
       '</div>' +
       '<div class="settings-item" onclick="showSection(\'subscribers\')">' +
         '<div class="left"><div class="icon-wrap primary">' + icon('subscribers', 15) + '</div><div><span class="text">الاشتراكات</span><span class="sub-text">إدارة مشتركينك وتذكيرات التجديد</span></div></div>' +
+        '<i class="fas fa-chevron-left chevron"></i>' +
+      '</div>' +
+      '<div class="settings-item" onclick="showSection(\'api\')">' +
+        '<div class="left"><div class="icon-wrap primary">' + icon('rocket', 15) + '</div><div><span class="text">مفاتيح API</span><span class="sub-text">ربط موقع خارجي لإرسال أكواد عبر رقمك</span></div></div>' +
         '<i class="fas fa-chevron-left chevron"></i>' +
       '</div>' +
       (IS_ADMIN ? (
