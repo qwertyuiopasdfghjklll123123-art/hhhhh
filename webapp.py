@@ -827,7 +827,9 @@ def new_account_entry(acc_id, owner, name):
         "campaign_list_lock": threading.Lock(),
         "campaign": {
             "total": 0, "sent": 0, "failed": 0, "running": False, "failed_numbers": [], "scheduled_for": None,
-            "pending_numbers": [], "stop_requested": False,
+            "pending_numbers": [], "stop_requested": False, "cancel_requested": False, "paused": False,
+            "text": "", "delay": DEFAULT_DELAY, "media_path": None, "media_delay": DEFAULT_MEDIA_DELAY,
+            "started_at": None,
         },
         "history": [],
         "auto_reply": {"enabled": False, "ai_enabled": False, "rules": []},
@@ -1093,13 +1095,22 @@ def find_otp_sender_account():
 
 def run_campaign(acc, numbers, text, delay, media_path, media_delay=DEFAULT_MEDIA_DELAY):
     """تسحب الأرقام واحد وحدة من طابور مشترك (pending_numbers) بدل نسخة ثابتة محلية - هذا
-    يسمح لطلبات HTTP ثانية (إيقاف الحملة، استثناء رقم معين) تعدّل نفس الطابور وهي الحملة
-    شغالة، بمزامنة عبر campaign_list_lock حتى ما يصير تعارض بين السحب والحذف."""
+    يسمح لطلبات HTTP ثانية (إيقاف مؤقت، إلغاء نهائي، استثناء رقم معين) تعدّل نفس الطابور
+    وهي الحملة شغالة، بمزامنة عبر campaign_list_lock حتى ما يصير تعارض بين السحب والحذف.
+    تحفظ نص/فاصل/وسائط الحملة بالحالة نفسها حتى تقدر resume_campaign تكمّلها من نفس النقطة
+    لاحقاً (مو بس توقفها) - هذا الفرق بين "إيقاف مؤقت قابل للاستئناف" و"إلغاء نهائي"."""
     state = acc["campaign"]
-    started = datetime.now().strftime("%Y-%m-%d %H:%M")
+    started = state.get("started_at") or datetime.now().strftime("%Y-%m-%d %H:%M")
     with acc["campaign_list_lock"]:
         state["pending_numbers"] = list(numbers)
         state["stop_requested"] = False
+        state["cancel_requested"] = False
+        state["paused"] = False
+        state["text"] = text
+        state["delay"] = delay
+        state["media_path"] = media_path
+        state["media_delay"] = media_delay
+    state["started_at"] = started
     add_event(acc["owner"], acc["name"], "بدأت حملة جديدة", f'جارِ إرسال {state["total"]} رسالة', kind="info")
     while True:
         with acc["campaign_list_lock"]:
@@ -1117,15 +1128,24 @@ def run_campaign(acc, numbers, text, delay, media_path, media_delay=DEFAULT_MEDI
                 state["failed_numbers"].append(number)
         if has_more and not state["stop_requested"]:
             time.sleep(delay)
-    stopped_early = state["stop_requested"]
+
     state["running"] = False
     state["scheduled_for"] = None
+    paused = state["stop_requested"] and not state["cancel_requested"] and bool(state["pending_numbers"])
+    state["paused"] = paused
+    if paused:
+        remaining = len(state["pending_numbers"])
+        add_event(acc["owner"], acc["name"], "أُوقفت الحملة مؤقتاً", f'نجح {state["sent"]} لحد الآن، تبقى {remaining} - تكدر تكمّلها لاحقاً', kind="warning")
+        return
+
+    cancelled = state["cancel_requested"]
+    state["started_at"] = None
     state["pending_numbers"] = []
     acc["history"].insert(0, {"time": started, "total": state["total"], "sent": state["sent"], "failed": state["failed"], "text": text})
     del acc["history"][20:]
-    if stopped_early:
+    if cancelled:
         skipped = state["total"] - state["sent"] - state["failed"]
-        add_event(acc["owner"], acc["name"], "أوقفت الحملة يدوياً", f'نجح {state["sent"]}، تبقى {skipped} بدون إرسال', kind="warning")
+        add_event(acc["owner"], acc["name"], "أُلغيت الحملة نهائياً", f'نجح {state["sent"]}، أُلغي {skipped} بدون إرسال', kind="warning")
     else:
         finish_kind = "success" if state["failed"] == 0 else "warning"
         add_event(acc["owner"], acc["name"], "اكتملت الحملة", f'نجح {state["sent"]} من {state["total"]}، فشل {state["failed"]}', kind=finish_kind)
@@ -2553,7 +2573,7 @@ def send_announcement(acc_id):
         media_path = os.path.abspath(os.path.join(UPLOADS_DIR, f"{uuid.uuid4().hex}_{media.filename}"))
         media.save(media_path)
 
-    acc["campaign"].update(total=len(numbers), sent=0, failed=0, running=True, failed_numbers=[], scheduled_for=None, stop_requested=False)
+    acc["campaign"].update(total=len(numbers), sent=0, failed=0, running=True, failed_numbers=[], scheduled_for=None, stop_requested=False, cancel_requested=False, paused=False, started_at=None)
     threading.Thread(target=run_campaign, args=(acc, numbers, text, delay, media_path, media_delay), daemon=True).start()
     return jsonify(ok=True, total=len(numbers))
 
@@ -2612,6 +2632,22 @@ def dashboard_campaigns():
             rows.append({**h, "account_name": a["name"]})
     rows.sort(key=lambda r: r["time"], reverse=True)
     return jsonify(rows[:20])
+
+
+@app.route("/dashboard/running_campaigns")
+@login_required
+def dashboard_running_campaigns():
+    """كل الحملات الجارية أو الموقوفة مؤقتاً (قابلة للاستئناف) على كل حسابات المستخدم -
+    تُستخدم بقسم الإحصائيات لعرض كل الحملات النشطة عبر كل الحسابات بمكان وحد، بعكس صفحة
+    الحملات اللي تعرض حساب واحد بس بكل مرة (الحساب المُختار)."""
+    uid = session["user_id"]
+    my_accounts = [a for a in accounts.values() if a["owner"] == uid]
+    rows = []
+    for a in my_accounts:
+        state = a["campaign"]
+        if state["running"] or state.get("paused"):
+            rows.append({"account_id": a["id"], "account_name": a["name"], **state})
+    return jsonify(rows)
 
 
 @app.route("/accounts", methods=["GET"])
@@ -2806,7 +2842,7 @@ def campaign(acc_id):
         except ValueError:
             run_at = None
 
-    acc["campaign"].update(total=len(numbers), sent=0, failed=0, running=True, failed_numbers=[], scheduled_for=None, stop_requested=False)
+    acc["campaign"].update(total=len(numbers), sent=0, failed=0, running=True, failed_numbers=[], scheduled_for=None, stop_requested=False, cancel_requested=False, paused=False, started_at=None)
 
     if run_at and run_at > datetime.now():
         acc["campaign"]["scheduled_for"] = run_at.strftime("%Y-%m-%d %H:%M")
@@ -2828,7 +2864,7 @@ def campaign(acc_id):
 def campaign_status(acc_id):
     acc = get_owned_account(acc_id)
     if not acc:
-        return jsonify(total=0, sent=0, failed=0, running=False, failed_numbers=[], scheduled_for=None, pending_numbers=[])
+        return jsonify(total=0, sent=0, failed=0, running=False, failed_numbers=[], scheduled_for=None, pending_numbers=[], paused=False)
     return jsonify(**acc["campaign"])
 
 
@@ -2842,11 +2878,50 @@ def campaign_history(acc_id):
 @app.route("/accounts/<acc_id>/campaign/stop", methods=["POST"])
 @login_required
 def stop_campaign(acc_id):
+    """إيقاف مؤقت - يحافظ على الأرقام اللي لسا ما انبعثتلها الرسالة (pending_numbers) حتى
+    تقدر تكمّل الحملة لاحقاً بنفس النص والإعدادات عبر resume_campaign. للإلغاء النهائي
+    (بدون إمكانية استئناف) استخدم /campaign/cancel."""
     acc = get_owned_account(acc_id)
     if not acc:
         return jsonify(ok=False, error="حساب غير موجود"), 400
     acc["campaign"]["stop_requested"] = True
     return jsonify(ok=True)
+
+
+@app.route("/accounts/<acc_id>/campaign/cancel", methods=["POST"])
+@login_required
+def cancel_campaign(acc_id):
+    """إلغاء نهائي - يوقف الحملة الجارية ويرمي الأرقام المتبقية (بعكس /campaign/stop اللي
+    يحافظ عليها للاستئناف)."""
+    acc = get_owned_account(acc_id)
+    if not acc:
+        return jsonify(ok=False, error="حساب غير موجود"), 400
+    acc["campaign"]["stop_requested"] = True
+    acc["campaign"]["cancel_requested"] = True
+    return jsonify(ok=True)
+
+
+@app.route("/accounts/<acc_id>/campaign/resume", methods=["POST"])
+@login_required
+def resume_campaign(acc_id):
+    """يكمّل حملة موقوفة مؤقتاً من نفس النقطة (نفس النص/الوسائط/الفواصل)، بدون ما يصفّر
+    عدد المُرسَل/الفاشل لحد الآن - يستمر بس على الأرقام المتبقية بـ pending_numbers."""
+    acc = get_owned_account(acc_id)
+    if not acc:
+        return jsonify(ok=False, error="حساب غير موجود"), 400
+    if acc["driver"] is None:
+        return jsonify(ok=False, error="تأكد من تسجيل الدخول لهذا الحساب أولاً"), 400
+    state = acc["campaign"]
+    if state["running"]:
+        return jsonify(ok=False, error="فيه حملة شغالة أصلاً على هذا الحساب"), 400
+    if not state.get("paused") or not state.get("pending_numbers"):
+        return jsonify(ok=False, error="ما فيه حملة موقوفة مؤقتاً قابلة للاستئناف على هذا الحساب"), 400
+    numbers = list(state["pending_numbers"])
+    text, delay, media_path, media_delay = state["text"], state["delay"], state["media_path"], state["media_delay"]
+    state["running"] = True
+    state["paused"] = False
+    threading.Thread(target=run_campaign, args=(acc, numbers, text, delay, media_path, media_delay), daemon=True).start()
+    return jsonify(ok=True, total=len(numbers))
 
 
 @app.route("/accounts/<acc_id>/campaign/exclude", methods=["POST"])

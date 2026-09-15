@@ -1045,6 +1045,10 @@ async function submitName() {
   .settings-item .icon-wrap.primary { background: rgba(5,134,147,0.08); color: var(--primary); }
   .settings-item .icon-wrap.blue { background: rgba(59,130,246,0.08); color: #3B82F6; }
   .settings-item .icon-wrap.red { background: rgba(239,68,68,0.08); color: #EF4444; }
+  .settings-item .icon-wrap.purple { background: rgba(139,92,246,0.08); color: #8B5CF6; }
+  .settings-item .icon-wrap.green { background: rgba(16,185,129,0.08); color: #10B981; }
+  .settings-item .icon-wrap.orange { background: rgba(245,158,11,0.08); color: #F59E0B; }
+  .settings-item .icon-wrap.indigo { background: rgba(99,102,241,0.08); color: #6366F1; }
   .settings-item .text { font-size: 14px; font-weight: 600; color: var(--text-primary); }
   .settings-item .sub-text { font-size: 11px; color: var(--text-muted); display: block; }
   .settings-item .chevron { color: var(--text-muted); font-size: 14px; transition: var(--transition-base); }
@@ -1378,7 +1382,7 @@ function renderActiveSection(myGen) {
   if (section === 'home') renderHome();
   else if (section === 'accounts') renderAccounts();
   else if (section === 'campaigns') renderCampaigns(myGen);
-  else if (section === 'analytics') renderAnalytics();
+  else if (section === 'analytics') renderAnalytics(myGen);
   else if (section === 'autoreply') renderAutoReply();
   else if (section === 'admin') renderAdmin();
   else if (section === 'subscribers') renderSubscribers();
@@ -2021,14 +2025,20 @@ async function refreshCampaignState(accId, myGen) {
   }
 }
 
-function runningCampaignHtml(accId, r) {
-  if (!r.running) return '';
+function runningCampaignHtml(accId, r, accName) {
+  if (!r.running && !r.paused) return '';
   const pending = r.pending_numbers || [];
+  const nameLabel = accName ? '<span style="color:var(--text-muted);font-size:11px;font-weight:400"> · ' + accName + '</span>' : '';
+  const controls = r.running
+    ? '<button class="btn-outline btn-small" style="width:auto;color:#dc2626;border-color:rgba(220,38,38,.3)" onclick="pauseCampaign(\'' + accId + '\')">' + icon('trash', 10) + ' إيقاف مؤقت</button>'
+    : '<span class="flex items-center gap-1">' +
+        '<button class="btn-outline btn-small" style="width:auto" onclick="resumeCampaign(\'' + accId + '\')">' + icon('rocket', 10) + ' استئناف</button>' +
+        '<button class="btn-outline btn-small" style="width:auto;color:#dc2626;border-color:rgba(220,38,38,.3)" onclick="cancelCampaign(\'' + accId + '\')">' + icon('trash', 10) + ' إلغاء نهائي</button>' +
+      '</span>';
   return '<div class="card">' +
-    '<div class="card-header"><h4>' + icon('rocket', 14) + ' الحملة جارية الآن</h4>' +
-    '<button class="btn-outline btn-small" style="width:auto;color:#dc2626;border-color:rgba(220,38,38,.3)" onclick="stopCampaign(\'' + accId + '\')">' + icon('trash', 10) + ' إيقاف</button>' +
-    '</div>' +
-    '<p class="text-[11px] text-muted mb-2">تبقى ' + pending.length + ' رقم لم تُرسل له الرسالة بعد - تكدر تستثني رقم معين حتى تتخطاه الحملة.</p>' +
+    '<div class="card-header"><h4>' + icon('rocket', 14) + ' ' + (r.running ? 'الحملة جارية الآن' : 'الحملة موقوفة مؤقتاً') + nameLabel + '</h4>' + controls + '</div>' +
+    '<p class="text-[11px] text-muted mb-2">' + (r.running ? 'تبقى' : 'باقي') + ' ' + pending.length + ' رقم لم تُرسل له الرسالة بعد' +
+    (r.running ? ' - تكدر تستثني رقم معين حتى تتخطاه الحملة.' : ' - تكدر تكمّل الحملة من نفس النقطة أو تلغيها نهائياً.') + '</p>' +
     '<div style="max-height:180px;overflow-y:auto">' +
     (pending.length ? pending.map(n =>
       '<div class="history-row" style="padding:6px 0"><span dir="ltr" style="font-size:12px">' + n + '</span>' +
@@ -2037,8 +2047,18 @@ function runningCampaignHtml(accId, r) {
     '</div></div>';
 }
 
-async function stopCampaign(accId) {
+async function pauseCampaign(accId) {
   await fetch('/accounts/' + accId + '/campaign/stop', { method: 'POST' });
+  refreshCampaignState(accId, gen);
+}
+
+async function cancelCampaign(accId) {
+  await fetch('/accounts/' + accId + '/campaign/cancel', { method: 'POST' });
+  refreshCampaignState(accId, gen);
+}
+
+async function resumeCampaign(accId) {
+  await fetch('/accounts/' + accId + '/campaign/resume', { method: 'POST' });
   refreshCampaignState(accId, gen);
 }
 
@@ -2050,6 +2070,18 @@ async function excludeNumber(accId, number) {
 }
 
 /* ---------- قسم الإحصائيات ---------- */
+async function loadRunningCampaigns(myGen) {
+  if (myGen !== gen) return;
+  const rows = await fetch('/dashboard/running_campaigns').then(r => r.json());
+  if (myGen !== gen) return;
+  const box = document.getElementById('analyticsRunning');
+  if (!box) return;
+  box.innerHTML = rows.length
+    ? rows.map(r => runningCampaignHtml(r.account_id, r, r.account_name)).join('')
+    : '';
+  setTimeout(() => loadRunningCampaigns(myGen), 2000);
+}
+
 function analyticsStatsHtml(stats) {
   return statMiniHtml(stats.messages_sent.toLocaleString(), 'إجمالي الرسائل', 'primary') +
     statMiniHtml(stats.success_rate + '%', 'معدل النجاح', 'green') +
@@ -2064,12 +2096,13 @@ function analyticsPerfHtml(stats) {
     '<div class="history-row"><span>معدل نجاح الحملات</span><span class="pill pill-green">' + avgRate + '%</span></div>';
 }
 
-async function renderAnalytics() {
+async function renderAnalytics(myGen) {
   const c = document.getElementById('content');
   const cs = dataCache.dashboardStats, cr = dataCache.dashboardCampaigns;
   c.innerHTML =
     '<div class="page-title"><h2>' + icon('analytics', 18) + ' الإحصائيات</h2></div>' +
     '<div class="stats-mini-row" id="analyticsStats" style="grid-template-columns:repeat(3,1fr)">' + (cs ? analyticsStatsHtml(cs) : '<div class="text-muted text-[11px]">جارِ التحميل...</div>') + '</div>' +
+    '<div id="analyticsRunning"></div>' +
     '<div class="card">' +
       '<div class="card-header"><h4>' + icon('trophy', 14) + ' أداء الحملات</h4></div>' +
       '<div id="analyticsPerf">' + (cs ? analyticsPerfHtml(cs) : '<div class="text-muted text-[11px]">جارِ التحميل...</div>') + '</div>' +
@@ -2079,6 +2112,7 @@ async function renderAnalytics() {
       '<div id="analyticsHistory">' + (cr ? historyRowsHtml(cr) : '<div class="text-muted text-[11px]">جارِ التحميل...</div>') + '</div>' +
     '</div>';
   if (cr) { campaignHistory = cr; campaignHistoryAccName = ''; }
+  loadRunningCampaigns(myGen);
 
   const [stats, rows] = await Promise.all([
     fetch('/dashboard/stats').then(r => r.json()),
@@ -2114,7 +2148,6 @@ function renderAutoReply() {
 /* ---------- قسم الإعدادات ---------- */
 function renderSettings() {
   const c = document.getElementById('content');
-  const notifState = ('Notification' in window) ? Notification.permission : 'غير مدعوم';
   const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
   const initial = (CURRENT_USER || '؟').trim().charAt(0).toUpperCase();
 
@@ -2128,28 +2161,24 @@ function renderSettings() {
     '<div class="settings-list">' +
       '<div class="settings-head">' + icon('settings', 12) + ' الإعدادات العامة</div>' +
       '<div class="settings-item">' +
-        '<div class="left"><div class="icon-wrap primary">' + icon('moon', 15) + '</div><div><span class="text">الوضع الداكن</span><span class="sub-text">تفعيل المظهر الداكن للتطبيق</span></div></div>' +
+        '<div class="left"><div class="icon-wrap purple">' + icon('moon', 15) + '</div><div><span class="text">الوضع الداكن</span><span class="sub-text">تفعيل المظهر الداكن للتطبيق</span></div></div>' +
         '<label class="toggle-switch"><input type="checkbox" id="darkModeToggle"' + (isDark ? ' checked' : '') + ' onchange="toggleTheme()"><span class="slider"></span></label>' +
       '</div>' +
-      '<div class="settings-item" onclick="ensureNotifPermission()">' +
-        '<div class="left"><div class="icon-wrap blue">' + icon('bell', 15) + '</div><div><span class="text">الإشعارات</span><span class="sub-text">الحالة الحالية: ' + notifState + '</span></div></div>' +
-        '<i class="fas fa-chevron-left chevron"></i>' +
-      '</div>' +
       '<div class="settings-item" onclick="showSection(\'autoreply\')">' +
-        '<div class="left"><div class="icon-wrap primary">' + icon('autoreply', 15) + '</div><div><span class="text">الرد الآلي</span><span class="sub-text">قيد التطوير - يتوفر قريباً</span></div></div>' +
+        '<div class="left"><div class="icon-wrap blue">' + icon('autoreply', 15) + '</div><div><span class="text">الرد الآلي</span><span class="sub-text">قيد التطوير - يتوفر قريباً</span></div></div>' +
         '<i class="fas fa-chevron-left chevron"></i>' +
       '</div>' +
       '<div class="settings-item" onclick="showSection(\'subscribers\')">' +
-        '<div class="left"><div class="icon-wrap primary">' + icon('subscribers', 15) + '</div><div><span class="text">الاشتراكات</span><span class="sub-text">إدارة مشتركينك وتذكيرات التجديد</span></div></div>' +
+        '<div class="left"><div class="icon-wrap green">' + icon('subscribers', 15) + '</div><div><span class="text">الاشتراكات</span><span class="sub-text">إدارة مشتركينك وتذكيرات التجديد</span></div></div>' +
         '<i class="fas fa-chevron-left chevron"></i>' +
       '</div>' +
       '<div class="settings-item" onclick="showSection(\'api\')">' +
-        '<div class="left"><div class="icon-wrap primary">' + icon('rocket', 15) + '</div><div><span class="text">مفاتيح API</span><span class="sub-text">ربط موقع خارجي لإرسال أكواد عبر رقمك</span></div></div>' +
+        '<div class="left"><div class="icon-wrap orange">' + icon('rocket', 15) + '</div><div><span class="text">مفاتيح API</span><span class="sub-text">ربط موقع خارجي لإرسال أكواد عبر رقمك</span></div></div>' +
         '<i class="fas fa-chevron-left chevron"></i>' +
       '</div>' +
       (IS_ADMIN ? (
         '<div class="settings-item" onclick="showSection(\'admin\')">' +
-          '<div class="left"><div class="icon-wrap primary">' + icon('admin', 15) + '</div><div><span class="text">لوحة تحكم الأدمن</span><span class="sub-text">إدارة الاشتراكات والذكاء الاصطناعي</span></div></div>' +
+          '<div class="left"><div class="icon-wrap indigo">' + icon('admin', 15) + '</div><div><span class="text">لوحة تحكم الأدمن</span><span class="sub-text">إدارة الاشتراكات والذكاء الاصطناعي</span></div></div>' +
           '<i class="fas fa-chevron-left chevron"></i>' +
         '</div>'
       ) : '') +
