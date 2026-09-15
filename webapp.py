@@ -23,6 +23,7 @@
 
 import base64
 import concurrent.futures
+import hashlib
 import html
 import json
 import os
@@ -90,6 +91,9 @@ otp_codes = {}  # phone -> {code, expires, verified}
 otp_lock = threading.Lock()
 otp_send_status = {}  # phone -> {status: sending/sent/failed, error}
 otp_send_lock = threading.Lock()
+api_rate_limit = {}  # key_hash -> [أوقات آخر الطلبات] - يحدد إساءة استخدام مفتاح API مسرّب
+api_rate_lock = threading.Lock()
+API_RATE_LIMIT_PER_MIN = 20
 trial_check_cache = {}  # user_id -> آخر وقت (monotonic) تحقق فيه من انتهاء التجربة
 trial_check_lock = threading.Lock()
 TRIAL_CHECK_INTERVAL = 60  # ثواني - يمنع ضرب قاعدة البيانات بكل استطلاع إشعارات (كل 5 ثواني)
@@ -247,6 +251,19 @@ def init_db():
     sub_settings_cols = [r["name"] for r in conn.execute("PRAGMA table_info(subscription_settings)").fetchall()]
     if "start_message" not in sub_settings_cols:
         conn.execute("ALTER TABLE subscription_settings ADD COLUMN start_message TEXT NOT NULL DEFAULT ''")
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS api_keys (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            owner INTEGER NOT NULL,
+            account_id TEXT NOT NULL,
+            label TEXT NOT NULL DEFAULT '',
+            key_hash TEXT NOT NULL,
+            key_prefix TEXT NOT NULL,
+            created_at TEXT NOT NULL DEFAULT '',
+            last_used_at TEXT,
+            revoked INTEGER NOT NULL DEFAULT 0
+        )
+    """)
     conn.commit()
     conn.close()
 
@@ -392,6 +409,50 @@ def db_list_users():
     rows = conn.execute("SELECT id, email, phone, name, is_admin, plan_active, plan_ends_at, trial_ends_at, created_at FROM users ORDER BY id").fetchall()
     conn.close()
     return rows
+
+
+def db_create_api_key(owner, account_id, label):
+    """تولّد مفتاح API عشوائي، تخزن بصمته (SHA-256) بس بقاعدة البيانات، وترجع المفتاح
+    الخام مرة وحدة فقط (نفس نمط أي مزود API - ما يُسترجع بعدها، بس يُستبدل)."""
+    raw_key = "wsl_" + secrets.token_hex(24)
+    key_hash = hashlib.sha256(raw_key.encode()).hexdigest()
+    key_prefix = raw_key[:12]
+    conn = get_db()
+    conn.execute(
+        "INSERT INTO api_keys (owner, account_id, label, key_hash, key_prefix, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+        (owner, account_id, label, key_hash, key_prefix, datetime.now().strftime("%Y-%m-%d %H:%M")),
+    )
+    conn.commit()
+    conn.close()
+    return raw_key
+
+
+def db_list_api_keys(owner):
+    conn = get_db()
+    rows = conn.execute("SELECT * FROM api_keys WHERE owner = ? ORDER BY id DESC", (owner,)).fetchall()
+    conn.close()
+    return rows
+
+
+def db_revoke_api_key(key_id, owner):
+    conn = get_db()
+    conn.execute("UPDATE api_keys SET revoked = 1 WHERE id = ? AND owner = ?", (key_id, owner))
+    conn.commit()
+    conn.close()
+
+
+def db_get_api_key_by_hash(key_hash):
+    conn = get_db()
+    row = conn.execute("SELECT * FROM api_keys WHERE key_hash = ? AND revoked = 0", (key_hash,)).fetchone()
+    conn.close()
+    return row
+
+
+def db_touch_api_key(key_id):
+    conn = get_db()
+    conn.execute("UPDATE api_keys SET last_used_at = ? WHERE id = ?", (datetime.now().strftime("%Y-%m-%d %H:%M"), key_id))
+    conn.commit()
+    conn.close()
 
 
 def db_create_payment_request(user_id, plan_name, amount_iqd, reference):
@@ -724,6 +785,20 @@ def get_owned_account(acc_id):
     return acc
 
 
+def check_api_rate_limit(key_hash):
+    """يمنع إساءة استخدام مفتاح API مسرّب - حد بسيط بذاكرة العملية (كافٍ لسيرفر واحد،
+    نفس افتراض بقية الحالة المؤقتة بالتطبيق زي otp_codes)."""
+    now = time.time()
+    with api_rate_lock:
+        times = [t for t in api_rate_limit.get(key_hash, []) if now - t < 60]
+        if len(times) >= API_RATE_LIMIT_PER_MIN:
+            api_rate_limit[key_hash] = times
+            return False
+        times.append(now)
+        api_rate_limit[key_hash] = times
+        return True
+
+
 # ---------------------------------------------------------------- حسابات واتساب
 
 def add_event(owner, account_name, title, body, kind="info"):
@@ -749,7 +824,11 @@ def new_account_entry(acc_id, owner, name):
         "driver": None,
         "lock": threading.Lock(),
         "ar_lock": threading.Lock(),
-        "campaign": {"total": 0, "sent": 0, "failed": 0, "running": False, "failed_numbers": [], "scheduled_for": None},
+        "campaign_list_lock": threading.Lock(),
+        "campaign": {
+            "total": 0, "sent": 0, "failed": 0, "running": False, "failed_numbers": [], "scheduled_for": None,
+            "pending_numbers": [], "stop_requested": False,
+        },
         "history": [],
         "auto_reply": {"enabled": False, "ai_enabled": False, "rules": []},
         "watching": False,
@@ -1013,10 +1092,21 @@ def find_otp_sender_account():
 
 
 def run_campaign(acc, numbers, text, delay, media_path, media_delay=DEFAULT_MEDIA_DELAY):
+    """تسحب الأرقام واحد وحدة من طابور مشترك (pending_numbers) بدل نسخة ثابتة محلية - هذا
+    يسمح لطلبات HTTP ثانية (إيقاف الحملة، استثناء رقم معين) تعدّل نفس الطابور وهي الحملة
+    شغالة، بمزامنة عبر campaign_list_lock حتى ما يصير تعارض بين السحب والحذف."""
     state = acc["campaign"]
     started = datetime.now().strftime("%Y-%m-%d %H:%M")
+    with acc["campaign_list_lock"]:
+        state["pending_numbers"] = list(numbers)
+        state["stop_requested"] = False
     add_event(acc["owner"], acc["name"], "بدأت حملة جديدة", f'جارِ إرسال {state["total"]} رسالة', kind="info")
-    for i, number in enumerate(numbers):
+    while True:
+        with acc["campaign_list_lock"]:
+            if state["stop_requested"] or not state["pending_numbers"]:
+                break
+            number = state["pending_numbers"].pop(0)
+            has_more = bool(state["pending_numbers"])
         with acc["lock"]:
             try:
                 send_to(acc["driver"], number, text, media_path, media_delay)
@@ -1025,14 +1115,20 @@ def run_campaign(acc, numbers, text, delay, media_path, media_delay=DEFAULT_MEDI
                 print(f"[حملة] فشل إرسال لـ {number} (حساب {acc['name']}): {e}")
                 state["failed"] += 1
                 state["failed_numbers"].append(number)
-        if i < len(numbers) - 1:
+        if has_more and not state["stop_requested"]:
             time.sleep(delay)
+    stopped_early = state["stop_requested"]
     state["running"] = False
     state["scheduled_for"] = None
+    state["pending_numbers"] = []
     acc["history"].insert(0, {"time": started, "total": state["total"], "sent": state["sent"], "failed": state["failed"], "text": text})
     del acc["history"][20:]
-    finish_kind = "success" if state["failed"] == 0 else "warning"
-    add_event(acc["owner"], acc["name"], "اكتملت الحملة", f'نجح {state["sent"]} من {state["total"]}، فشل {state["failed"]}', kind=finish_kind)
+    if stopped_early:
+        skipped = state["total"] - state["sent"] - state["failed"]
+        add_event(acc["owner"], acc["name"], "أوقفت الحملة يدوياً", f'نجح {state["sent"]}، تبقى {skipped} بدون إرسال', kind="warning")
+    else:
+        finish_kind = "success" if state["failed"] == 0 else "warning"
+        add_event(acc["owner"], acc["name"], "اكتملت الحملة", f'نجح {state["sent"]} من {state["total"]}، فشل {state["failed"]}', kind=finish_kind)
 
 
 def find_account_for_subscription_send(owner_id):
@@ -2457,7 +2553,7 @@ def send_announcement(acc_id):
         media_path = os.path.abspath(os.path.join(UPLOADS_DIR, f"{uuid.uuid4().hex}_{media.filename}"))
         media.save(media_path)
 
-    acc["campaign"].update(total=len(numbers), sent=0, failed=0, running=True, failed_numbers=[], scheduled_for=None)
+    acc["campaign"].update(total=len(numbers), sent=0, failed=0, running=True, failed_numbers=[], scheduled_for=None, stop_requested=False)
     threading.Thread(target=run_campaign, args=(acc, numbers, text, delay, media_path, media_delay), daemon=True).start()
     return jsonify(ok=True, total=len(numbers))
 
@@ -2710,7 +2806,7 @@ def campaign(acc_id):
         except ValueError:
             run_at = None
 
-    acc["campaign"].update(total=len(numbers), sent=0, failed=0, running=True, failed_numbers=[], scheduled_for=None)
+    acc["campaign"].update(total=len(numbers), sent=0, failed=0, running=True, failed_numbers=[], scheduled_for=None, stop_requested=False)
 
     if run_at and run_at > datetime.now():
         acc["campaign"]["scheduled_for"] = run_at.strftime("%Y-%m-%d %H:%M")
@@ -2732,7 +2828,7 @@ def campaign(acc_id):
 def campaign_status(acc_id):
     acc = get_owned_account(acc_id)
     if not acc:
-        return jsonify(total=0, sent=0, failed=0, running=False, failed_numbers=[], scheduled_for=None)
+        return jsonify(total=0, sent=0, failed=0, running=False, failed_numbers=[], scheduled_for=None, pending_numbers=[])
     return jsonify(**acc["campaign"])
 
 
@@ -2741,6 +2837,126 @@ def campaign_status(acc_id):
 def campaign_history(acc_id):
     acc = get_owned_account(acc_id)
     return jsonify(acc["history"] if acc else [])
+
+
+@app.route("/accounts/<acc_id>/campaign/stop", methods=["POST"])
+@login_required
+def stop_campaign(acc_id):
+    acc = get_owned_account(acc_id)
+    if not acc:
+        return jsonify(ok=False, error="حساب غير موجود"), 400
+    acc["campaign"]["stop_requested"] = True
+    return jsonify(ok=True)
+
+
+@app.route("/accounts/<acc_id>/campaign/exclude", methods=["POST"])
+@login_required
+def exclude_campaign_number(acc_id):
+    """تشيل رقم معين من طابور الأرقام اللي لسا ما انبعثتلها الرسالة - تتخطاه الحملة الجارية
+    دون ما توقفها بالكامل."""
+    acc = get_owned_account(acc_id)
+    if not acc:
+        return jsonify(ok=False, error="حساب غير موجود"), 400
+    data = request.json or {}
+    number = re.sub(r"\D", "", str(data.get("number", "")))
+    if not number:
+        return jsonify(ok=False, error="رقم غير صالح"), 400
+    with acc["campaign_list_lock"]:
+        pending = acc["campaign"].get("pending_numbers") or []
+        if number in pending:
+            pending.remove(number)
+    return jsonify(ok=True)
+
+
+# ---------------------------------------------------------------- واجهة OTP الخارجية (API)
+
+@app.route("/api_keys", methods=["GET"])
+@login_required
+def list_api_keys():
+    user = db_get_user_by_id(session["user_id"])
+    rows = db_list_api_keys(session["user_id"])
+    return jsonify(
+        plan_active=effective_plan_active(user) if user else False,
+        keys=[
+            {
+                "id": r["id"], "label": r["label"], "account_id": r["account_id"],
+                "key_prefix": r["key_prefix"], "created_at": r["created_at"],
+                "last_used_at": r["last_used_at"], "revoked": bool(r["revoked"]),
+            }
+            for r in rows
+        ],
+    )
+
+
+@app.route("/api_keys", methods=["POST"])
+@login_required
+def create_api_key():
+    """توليد مفتاح API جديد مرتبط بحساب واتساب محدد يملكه المستخدم - يتطلب اشتراك فعّال
+    (مو تجربة مجانية) لأن هذا يفتح ربط المنصة بموقع خارجي، أخطر من إرسال حملة داخل التطبيق."""
+    user = db_get_user_by_id(session["user_id"])
+    if not user or not effective_plan_active(user):
+        return jsonify(ok=False, error="مفاتيح API تحتاج اشتراك مفعّل (مو فترة تجربة)", needs_subscription=True), 402
+    data = request.json or {}
+    acc_id = data.get("account_id")
+    acc = get_owned_account(acc_id)
+    if not acc:
+        return jsonify(ok=False, error="اختر حساب واتساب صحيح تملكه"), 400
+    label = (data.get("label") or "").strip()[:60]
+    raw_key = db_create_api_key(session["user_id"], acc_id, label)
+    return jsonify(ok=True, key=raw_key)
+
+
+@app.route("/api_keys/<int:key_id>", methods=["DELETE"])
+@login_required
+def revoke_api_key(key_id):
+    db_revoke_api_key(key_id, session["user_id"])
+    return jsonify(ok=True)
+
+
+@app.route("/api/v1/send", methods=["POST"])
+def api_send_otp():
+    """نقطة API عامة (بدون جلسة تسجيل دخول) - أي موقع خارجي يربطها بمفتاح API حتى يرسل
+    رمز تحقق أو رسالة نصية عبر رقم واتساب المستخدم المرتبط بالمفتاح. محصورة بمفتاح صالح
+    غير ملغى + اشتراك فعّال لصاحب المفتاح + حد أقصى للطلبات بالدقيقة لكل مفتاح."""
+    auth_header = request.headers.get("Authorization", "")
+    raw_key = request.headers.get("X-API-Key") or (auth_header[7:].strip() if auth_header.startswith("Bearer ") else "")
+    if not raw_key:
+        return jsonify(ok=False, error="مفتاح API مفقود - أرسله بترويسة X-API-Key أو Authorization: Bearer <key>"), 401
+
+    key_hash = hashlib.sha256(raw_key.encode()).hexdigest()
+    key_row = db_get_api_key_by_hash(key_hash)
+    if not key_row:
+        return jsonify(ok=False, error="مفتاح API غير صالح أو ملغى"), 401
+
+    if not check_api_rate_limit(key_hash):
+        return jsonify(ok=False, error="تجاوزت الحد المسموح من الطلبات (20 بالدقيقة)، حاول بعد قليل"), 429
+
+    user = db_get_user_by_id(key_row["owner"])
+    if not user or not effective_plan_active(user):
+        return jsonify(ok=False, error="اشتراك صاحب المفتاح غير فعّال حالياً"), 402
+
+    acc = accounts.get(key_row["account_id"])
+    if not acc or acc["owner"] != key_row["owner"] or acc["driver"] is None or not account_logged_in_fast(acc):
+        return jsonify(ok=False, error="حساب الواتساب المرتبط بهذا المفتاح غير متصل حالياً"), 400
+
+    data = request.get_json(silent=True) or {}
+    phone = re.sub(r"\D", "", str(data.get("phone", "")))
+    if not phone:
+        return jsonify(ok=False, error="أرسل رقم هاتف صالح بحقل phone"), 400
+    code = str(data.get("code") or "").strip()
+    message = str(data.get("message") or "").strip()
+    if not message:
+        if not code:
+            return jsonify(ok=False, error="أرسل code أو message بجسم الطلب"), 400
+        message = f"رمز التحقق الخاص بك: {code}\nصالح لمدة 10 دقائق."
+
+    db_touch_api_key(key_row["id"])
+    try:
+        with acc["lock"]:
+            send_to(acc["driver"], phone, message)
+    except Exception as e:
+        return jsonify(ok=False, error=f"فشل الإرسال: {e}"), 502
+    return jsonify(ok=True)
 
 
 @app.route("/accounts/<acc_id>/auto_reply", methods=["GET"])

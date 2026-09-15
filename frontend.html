@@ -1156,6 +1156,18 @@ async function submitName() {
   </div>
 </div>
 
+<div class="confirm-overlay" id="newApiKeyOverlay" onclick="closeNewApiKeySheet()"></div>
+<div class="confirm-sheet" id="newApiKeySheet">
+  <div class="sheet-handle"></div>
+  <div class="sheet-title">🔑 مفتاح API الجديد</div>
+  <div class="sheet-message">احفظه الحين - ما راح تكدر تشوفه مرة ثانية بعد ما تسكّر هذي الرسالة.</div>
+  <div id="newApiKeyValue" dir="ltr" style="background:var(--card-soft);border-radius:10px;padding:12px;font-family:monospace;font-size:13px;text-align:center;word-break:break-all;margin-bottom:16px"></div>
+  <div class="sheet-actions">
+    <button class="btn-cancel" onclick="closeNewApiKeySheet()"><i class="fas fa-times"></i> تمام، حفظته</button>
+    <button class="btn-confirm-gold" onclick="copyNewApiKey(this)"><i class="fas fa-copy"></i> نسخ</button>
+  </div>
+</div>
+
 <div class="confirm-overlay" id="deleteMyDataSuccessOverlay" onclick="closeDeleteMyDataSuccessSheet()"></div>
 <div class="confirm-sheet" id="deleteMyDataSuccessSheet">
   <div class="sheet-handle"></div>
@@ -1193,7 +1205,7 @@ const ICONS = {
   logout: 'fas fa-right-from-bracket', users: 'fas fa-users', payments: 'fas fa-receipt',
   rocket: 'fas fa-rocket', trophy: 'fas fa-trophy', list: 'fas fa-list', info: 'fas fa-circle-info', clock: 'fas fa-clock',
   check: 'fas fa-check', checkCircle: 'fas fa-circle-check', warn: 'fas fa-triangle-exclamation', trash: 'fas fa-trash',
-  image: 'fas fa-image',
+  image: 'fas fa-image', lock: 'fas fa-lock',
 };
 function icon(name, size) {
   size = size || 20;
@@ -1201,7 +1213,7 @@ function icon(name, size) {
 }
 
 const CURRENT_USER = "__USERNAME__";
-const SECTION_LABELS = { home: 'الرئيسية', accounts: 'حسابي', campaigns: 'الحملات', autoreply: 'الرد الآلي', analytics: 'إحصائيات', admin: 'التحكم', settings: 'الإعدادات', subscribers: 'الاشتراكات' };
+const SECTION_LABELS = { home: 'الرئيسية', accounts: 'حسابي', campaigns: 'الحملات', autoreply: 'الرد الآلي', analytics: 'إحصائيات', admin: 'التحكم', settings: 'الإعدادات', subscribers: 'الاشتراكات', api: 'واجهة API' };
 
 function initChrome() {
   document.querySelectorAll('.bottom-nav-minimal .nav-item').forEach(function (el) {
@@ -1370,6 +1382,7 @@ function renderActiveSection(myGen) {
   else if (section === 'autoreply') renderAutoReply();
   else if (section === 'admin') renderAdmin();
   else if (section === 'subscribers') renderSubscribers();
+  else if (section === 'api') renderApi();
   else renderSettings();
 }
 
@@ -1488,9 +1501,122 @@ function renderAccounts() {
     html += '</div>';
   });
   html += '<button class="btn-outline" onclick="openAddAccountSheet()">' + icon('plus', 12) + ' إضافة حساب</button>';
+  html += '<button class="btn-outline" onclick="showSection(\'api\')">' + icon('rocket', 12) + ' مفاتيح API لربط موقع خارجي</button>';
   c.innerHTML = html;
 
   accounts.filter(a => !a.logged_in).forEach(acc => pollLogin(acc.id, gen));
+}
+
+/* ---------- قسم واجهة API (OTP خارجي) ---------- */
+async function renderApi() {
+  const c = document.getElementById('content');
+  const cached = dataCache.apiKeys;
+  c.innerHTML =
+    '<div class="page-title"><h2>' + icon('rocket', 18) + ' واجهة API</h2>' +
+    '<button onclick="showSection(\'accounts\')" style="height:36px;padding:0 14px;border:2px solid rgba(5,134,147,0.08);border-radius:var(--radius-sm);background:transparent;color:var(--text-secondary);font-size:12px;font-weight:700;cursor:pointer;font-family:inherit">رجوع</button>' +
+    '</div>' +
+    '<div id="apiBox">' + (cached ? apiKeysHtml(cached) : '<div class="text-muted text-[11px]">جارِ التحميل...</div>') + '</div>';
+  loadApiKeys();
+}
+
+function apiKeysHtml(d) {
+  if (!d.plan_active) {
+    return '<div class="card text-center text-muted text-[12px]" style="padding:24px 16px">' +
+      icon('lock', 22) +
+      '<p class="mt-2">مفاتيح API لإرسال رموز التحقق من موقع خارجي تحتاج اشتراك مفعّل (مو فترة التجربة المجانية).</p>' +
+      '<button class="btn-submit" style="margin-top:10px" onclick="showSection(\'settings\')">فعّل اشتراكك</button>' +
+      '</div>';
+  }
+  const origin = window.location.origin;
+  const accOptions = accounts.map(a => [a.id, a.name + (a.logged_in ? '' : ' (غير متصل)')]);
+  let html = '<div class="card">' +
+    '<div class="card-header"><h4>' + icon('plus', 14) + ' توليد مفتاح جديد</h4></div>' +
+    (accounts.length
+      ? '<label class="field-label">الحساب المُرسِل (رقم واتساب الأكواد)</label>' + customSelectHtml('apiKeyAccountSelect', accOptions, accounts[0].id)
+      : '<div class="empty-state">ضيف حساب واتساب أول من قسم "حسابي"</div>') +
+    '<label class="field-label">وصف (اختياري - يساعدك تعرف وين تستخدمه)</label>' +
+    '<input id="apiKeyLabel" type="text" placeholder="مثال: موقع المتجر" maxlength="60">' +
+    '<button class="btn-submit"' + (accounts.length ? '' : ' disabled') + ' onclick="generateApiKey()">' + icon('plus', 14) + ' توليد مفتاح</button>' +
+    '<div id="apiKeyMsg" class="text-center text-[12px] font-bold mt-2"></div>' +
+    '</div>';
+
+  html += '<div class="card">' +
+    '<div class="card-header"><h4>' + icon('users', 14) + ' مفاتيحك</h4></div>' +
+    (d.keys.length ? d.keys.map(k => {
+      const accName = (accounts.find(a => a.id === k.account_id) || {}).name || k.account_id;
+      return '<div class="history-row"><span class="flex items-center gap-2">' +
+        '<span dir="ltr" style="font-family:monospace;font-size:12px">' + k.key_prefix + '••••••••</span>' +
+        '<span style="color:var(--text-muted);font-size:11px">' + accName + (k.label ? ' · ' + k.label : '') + '</span>' +
+      '</span>' +
+      (k.revoked
+        ? '<span class="pill pill-red">ملغى</span>'
+        : '<button class="btn-outline btn-small" style="width:auto;color:#dc2626;border-color:rgba(220,38,38,.3)" onclick="revokeApiKey(' + k.id + ')">إلغاء</button>') +
+      '</div>';
+    }).join('') : '<div class="text-muted text-[11px]">ما عندك مفاتيح بعد</div>') +
+    '</div>';
+
+  html += '<div class="card">' +
+    '<div class="card-header"><h4>' + icon('info', 14) + ' تعليمات الربط</h4></div>' +
+    '<p class="text-[12px] text-muted mb-2">من موقعك الخارجي، أرسل طلب POST لهذا الرابط وحط المفتاح بترويسة X-API-Key:</p>' +
+    '<div style="background:var(--card-soft);border-radius:10px;padding:10px;font-family:monospace;font-size:11px;direction:ltr;text-align:left;overflow-x:auto;white-space:pre-wrap;word-break:break-all">' +
+    'POST ' + origin + '/api/v1/send\n' +
+    'X-API-Key: YOUR_KEY\n' +
+    'Content-Type: application/json\n\n' +
+    '{\n  "phone": "9647701234567",\n  "code": "123456"\n}' +
+    '</div>' +
+    '<p class="text-[11px] text-muted mt-2">تكدر تبعث "message" بدل "code" حتى ترسل نص حر مو رمز تحقق بس. حد أقصى 20 طلب بالدقيقة لكل مفتاح.</p>' +
+    '</div>';
+
+  return html;
+}
+
+async function loadApiKeys() {
+  const d = await fetch('/api_keys').then(r => r.json());
+  dataCache.apiKeys = d;
+  const box = document.getElementById('apiBox');
+  if (box) box.innerHTML = apiKeysHtml(d);
+}
+
+async function generateApiKey() {
+  const msgEl = document.getElementById('apiKeyMsg');
+  const accSelect = document.getElementById('apiKeyAccountSelect');
+  const accountId = accSelect ? accSelect.value : null;
+  if (!accountId) { msgEl.innerText = 'ضيف حساب واتساب أول'; return; }
+  const label = document.getElementById('apiKeyLabel').value.trim();
+  msgEl.innerText = 'جارِ التوليد...';
+  const r = await fetch('/api_keys', {
+    method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({ account_id: accountId, label: label })
+  }).then(res => res.json());
+  if (!r.ok) { msgEl.innerText = 'فشل: ' + (r.error || ''); return; }
+  msgEl.innerText = '';
+  openNewApiKeySheet(r.key);
+  loadApiKeys();
+}
+
+async function revokeApiKey(id) {
+  await fetch('/api_keys/' + id, { method: 'DELETE' });
+  loadApiKeys();
+}
+
+let _newApiKeyValue = '';
+function openNewApiKeySheet(key) {
+  _newApiKeyValue = key;
+  document.getElementById('newApiKeyValue').innerText = key;
+  document.getElementById('newApiKeyOverlay').classList.add('show');
+  document.getElementById('newApiKeySheet').classList.add('show');
+}
+function closeNewApiKeySheet() {
+  document.getElementById('newApiKeyOverlay').classList.remove('show');
+  document.getElementById('newApiKeySheet').classList.remove('show');
+}
+function copyNewApiKey(btn) {
+  if (!navigator.clipboard) return;
+  navigator.clipboard.writeText(_newApiKeyValue).then(() => {
+    const old = btn.innerHTML;
+    btn.innerHTML = '<i class="fas fa-check"></i> نُسخ';
+    setTimeout(() => { btn.innerHTML = old; }, 1500);
+  });
 }
 
 async function pollLogin(accId, myGen) {
@@ -1749,6 +1875,7 @@ function renderCampaigns(myGen) {
     '<div class="stat-cell"><div class="stat-num text-gold" id="statTotal">0</div><div class="stat-label">الإجمالي</div></div>' +
     '</div>' +
     '<div id="msg" class="text-center text-[12px] font-bold mt-2"></div>' +
+    '<div id="runningCampaignBox"></div>' +
     '<h3 style="font-size:12px;font-weight:800;color:var(--primary);margin:18px 0 8px">جميع الحملات</h3>';
   const cachedHistory = dataCache['campaigns_' + acc.id];
   html += '<div id="historyBox">' + (cachedHistory ? historyRowsHtml(cachedHistory, true) : '<div class="text-muted text-[11px]">جارِ التحميل...</div>') + '</div>';
@@ -1874,12 +2001,42 @@ async function refreshCampaignState(accId, myGen) {
   const msg = document.getElementById('msg');
   if (r.scheduled_for && !r.running) msg.innerText = '';
   else if (r.scheduled_for) msg.innerText = 'مجدولة لـ ' + r.scheduled_for;
+  const runBox = document.getElementById('runningCampaignBox');
+  if (runBox) runBox.innerHTML = runningCampaignHtml(accId, r);
   if (r.running || r.scheduled_for) {
     setTimeout(() => refreshCampaignState(accId, myGen), 2000);
   } else if (r.total > 0 && msg.innerText === '') {
     msg.innerText = 'انتهت الحملة';
     loadHistory(accId);
   }
+}
+
+function runningCampaignHtml(accId, r) {
+  if (!r.running) return '';
+  const pending = r.pending_numbers || [];
+  return '<div class="card">' +
+    '<div class="card-header"><h4>' + icon('rocket', 14) + ' الحملة جارية الآن</h4>' +
+    '<button class="btn-outline btn-small" style="width:auto;color:#dc2626;border-color:rgba(220,38,38,.3)" onclick="stopCampaign(\'' + accId + '\')">' + icon('trash', 10) + ' إيقاف</button>' +
+    '</div>' +
+    '<p class="text-[11px] text-muted mb-2">تبقى ' + pending.length + ' رقم لم تُرسل له الرسالة بعد - تكدر تستثني رقم معين حتى تتخطاه الحملة.</p>' +
+    '<div style="max-height:180px;overflow-y:auto">' +
+    (pending.length ? pending.map(n =>
+      '<div class="history-row" style="padding:6px 0"><span dir="ltr" style="font-size:12px">' + n + '</span>' +
+      '<button class="btn-outline btn-small" style="width:auto;padding:3px 10px" onclick="excludeNumber(\'' + accId + '\', \'' + n + '\')">استثناء</button></div>'
+    ).join('') : '<div class="text-muted text-[11px]">آخر رقم بالطابور، جارِ إرساله الآن</div>') +
+    '</div></div>';
+}
+
+async function stopCampaign(accId) {
+  await fetch('/accounts/' + accId + '/campaign/stop', { method: 'POST' });
+  refreshCampaignState(accId, gen);
+}
+
+async function excludeNumber(accId, number) {
+  await fetch('/accounts/' + accId + '/campaign/exclude', {
+    method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ number: number })
+  });
+  refreshCampaignState(accId, gen);
 }
 
 /* ---------- قسم الإحصائيات ---------- */
