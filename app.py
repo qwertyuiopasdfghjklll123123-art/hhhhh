@@ -692,6 +692,7 @@ SMM_API_KEY = '1c0218b705ad1d031562ab810b11552e'
 _services_cache = {'data': None, 'time': 0}
 _all_services_cache = {'data': None, 'time': 0}
 _refresh_lock = threading.Lock()
+_all_refresh_lock = threading.Lock()
 SERVICES_CACHE_FILE = '/root/fc_services_cache.json'
 
 def _load_services_from_file():
@@ -760,10 +761,8 @@ def get_smm_services():
         pass
     return _services_cache['data'] or []
 
-def get_all_smm_services():
+def _all_services_do_refresh():
     now = time.time()
-    if _all_services_cache['data'] is not None and now - _all_services_cache['time'] < 120:
-        return _all_services_cache['data']
     all_svcs = []
     try:
         provs = get_all_providers()
@@ -800,7 +799,7 @@ def get_all_smm_services():
         new_count = len(all_svcs)
         if old_count > 20 and new_count < old_count * 0.5:
             _all_services_cache['time'] = now - 90
-            return old_data
+            return
         old_ids = set((str(s.get('service','')) + ':' + str(s.get('_prov_id',''))) for s in (_all_services_cache['data'] or []))
         new_ids = set((str(s.get('service','')) + ':' + str(s.get('_prov_id',''))) for s in all_svcs)
         _all_services_cache['data'] = all_svcs
@@ -809,6 +808,25 @@ def get_all_smm_services():
             _bump_svc_version_only()
     except:
         pass
+
+def get_all_smm_services():
+    now = time.time()
+    if _all_services_cache['data'] is not None and now - _all_services_cache['time'] < 120:
+        return _all_services_cache['data']
+    if _all_services_cache['data'] is not None:
+        def _bg_refresh():
+            if not _all_refresh_lock.acquire(blocking=False):
+                return
+            try:
+                _all_services_do_refresh()
+            finally:
+                _all_refresh_lock.release()
+        _executor.submit(_bg_refresh)
+        return _all_services_cache['data']
+    with _all_refresh_lock:
+        if _all_services_cache['data'] is not None and time.time() - _all_services_cache['time'] < 120:
+            return _all_services_cache['data']
+        _all_services_do_refresh()
     return _all_services_cache['data'] if _all_services_cache['data'] is not None else []
 
 from flask import g as flask_g
@@ -3528,6 +3546,11 @@ def api_order():
     except: pass
     if not user['is_admin'] and site_price > 0:
         conn.execute('UPDATE users SET balance=balance-? WHERE id=?', (site_price, session['user_id']))
+        # commit immediately so the SQLite write lock is released before the slow
+        # provider network calls below — holding it open across up to ~25s of HTTP
+        # requests would stall every other write on the site (other orders, admin
+        # edits, background jobs) for the duration
+        conn.commit()
     _api_url, _api_key, _prov_id = _find_service_provider(service)
     provider_has_balance = False
     try:
@@ -3762,6 +3785,7 @@ def api_order_status(order_id):
 
 AUTO_REFILL_INTERVAL = 24 * 3600
 AUTO_REFILL_LOG = []
+_auto_refill_lock = threading.Lock()
 
 def _auto_refill_loop():
     time.sleep(120)
@@ -3773,6 +3797,15 @@ def _auto_refill_loop():
         time.sleep(AUTO_REFILL_INTERVAL)
 
 def _run_auto_refill():
+    if not _auto_refill_lock.acquire(blocking=False):
+        print(' Auto-refill already running — تخطي هذه الجولة')
+        return
+    try:
+        _run_auto_refill_impl()
+    finally:
+        _auto_refill_lock.release()
+
+def _run_auto_refill_impl():
     now = time.time(); total=0; success=0; failed=0; skipped=0; results=[]
     print(f"\n === بدء جولة التعويض التلقائي === {time.strftime('%Y-%m-%d %H:%M:%S')}")
     # كاش لبيانات APIs حسب prov_id
@@ -5702,16 +5735,13 @@ def api_admin_profits():
     if 'user_id' not in session or not session.get('is_admin'):
         return jsonify(ok=False), 403
     conn = get_db()
-    rows = conn.execute('SELECT * FROM orders').fetchall()
+    row = conn.execute(
+        'SELECT COUNT(*) AS cnt, COALESCE(SUM(CAST(charge AS REAL)),0) AS rev FROM orders'
+    ).fetchone()
     conn.close()
-    total_revenue = 0
-    total_provider = 0
-    total_orders = 0
-    for o in rows:
-        c = float(o['charge'] or 0)
-        total_revenue += c
-        total_orders += 1
-        total_provider += round(c / MARKUP_RATE, 4) if MARKUP_RATE > 0 else c
+    total_orders = row['cnt']
+    total_revenue = row['rev']
+    total_provider = round(total_revenue / MARKUP_RATE, 4) if MARKUP_RATE > 0 else total_revenue
     profit = round(total_revenue - total_provider, 2)
     margin = round((profit / total_revenue * 100), 1) if total_revenue > 0 else 0
     avg_profit = round(profit / total_orders, 2) if total_orders > 0 else 0
@@ -17788,9 +17818,9 @@ def _bg_check_orders():
                     finally:
                         conn2.close()
                 except Exception as e:
-                    pass
+                    print(f"[ORDERS-CHECK] Failed to recheck order #{order['display_id'] or order['id']}: {e}")
         except Exception as e:
-            pass
+            print(f'[ORDERS-CHECK] Cycle failed: {e}')
 
 def _bg_sync_prices():
     pass
@@ -17806,7 +17836,7 @@ def _bg_sync_prices():
                     _services_cache['time'] = time.time()
                     _save_services_to_file(data)
         except Exception as e:
-            pass
+            print(f'[PRICE-SYNC] Failed to sync prices: {e}')
         time.sleep(180)
 
 def _bg_cleanup_images():
