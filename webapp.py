@@ -1993,16 +1993,21 @@ def whatsapp_send_status():
 
 @app.route("/auth/bootstrap/qr/<acc_id>")
 def bootstrap_qr(acc_id):
+    """كانت تاخذ صورة الباركود مباشرة بثريد الطلب نفسه، بدون قفل acc["lock"] وبدون أي حد
+    زمني - خطر حقيقي: لو تعلّق المتصفح لحظة (نفس المشكلة اللي account_qr_png انبنت أصلاً
+    لتفاديها بمسار إضافة حساب عادي)، وهذا المسار يُستطلع كل 2.5 ثانية من صفحة الإعداد
+    الأولي، تتكدّس طلبات HTTP عالقة تحاول تستخدم نفس المتصفح بنفس الوقت بدون تزامن. صار
+    يعيد استخدام account_qr_png() نفسها (حساب الإعداد الأولي عادي تماماً بنيوياً - يمر عبر
+    نفس new_account_entry مثل أي حساب، بس عليه علم bootstrap إضافي)."""
     if db_count_users() > 0:
         return "", 204
     acc = accounts.get(acc_id)
     if not acc or not acc.get("bootstrap") or acc["driver"] is None:
         return "", 204
-    try:
-        canvas = acc["driver"].find_element(By.TAG_NAME, "canvas")
-        return Response(canvas.screenshot_as_png, mimetype="image/png")
-    except Exception:
+    png = account_qr_png(acc)
+    if png is None:
         return "", 204
+    return Response(png, mimetype="image/png")
 
 
 def do_send_bootstrap_code(acc_id):
@@ -2950,24 +2955,27 @@ def exclude_campaign_number(acc_id):
 def list_api_keys():
     user = db_get_user_by_id(session["user_id"])
     rows = db_list_api_keys(session["user_id"])
-    return jsonify(
-        plan_active=effective_plan_active(user) if user else False,
-        keys=[
-            {
-                "id": r["id"], "label": r["label"], "account_id": r["account_id"],
-                "key_prefix": r["key_prefix"], "created_at": r["created_at"],
-                "last_used_at": r["last_used_at"], "revoked": bool(r["revoked"]),
-            }
-            for r in rows
-        ],
-    )
+    keys = []
+    for r in rows:
+        acc = accounts.get(r["account_id"])
+        connected = bool(acc and acc["driver"] is not None and account_logged_in_fast(acc))
+        keys.append({
+            "id": r["id"], "label": r["label"], "account_id": r["account_id"],
+            "key_prefix": r["key_prefix"], "created_at": r["created_at"],
+            "last_used_at": r["last_used_at"], "revoked": bool(r["revoked"]),
+            "account_connected": connected,
+        })
+    return jsonify(plan_active=effective_plan_active(user) if user else False, keys=keys)
 
 
 @app.route("/api_keys", methods=["POST"])
 @login_required
 def create_api_key():
     """توليد مفتاح API جديد مرتبط بحساب واتساب محدد يملكه المستخدم - يتطلب اشتراك فعّال
-    (مو تجربة مجانية) لأن هذا يفتح ربط المنصة بموقع خارجي، أخطر من إرسال حملة داخل التطبيق."""
+    (مو تجربة مجانية) لأن هذا يفتح ربط المنصة بموقع خارجي، أخطر من إرسال حملة داخل التطبيق.
+    الحساب لازم يكون متصل فعلياً وقت التوليد - مفتاح لحساب غير متصل بلا فائدة من الأصل،
+    وأي إرسال عبره غير المتصل يُرفض عند /api/v1/send تلقائياً (ويعمل من نفسه فور إعادة
+    الاتصال، بدون أي حاجة لإعادة تفعيل يدوية للمفتاح)."""
     user = db_get_user_by_id(session["user_id"])
     if not user or not effective_plan_active(user):
         return jsonify(ok=False, error="مفاتيح API تحتاج اشتراك مفعّل (مو فترة تجربة)", needs_subscription=True), 402
@@ -2976,6 +2984,8 @@ def create_api_key():
     acc = get_owned_account(acc_id)
     if not acc:
         return jsonify(ok=False, error="اختر حساب واتساب صحيح تملكه"), 400
+    if acc["driver"] is None or not account_logged_in_fast(acc):
+        return jsonify(ok=False, error="اختر حساب واتساب متصل حالياً - ما يمكن توليد مفتاح لحساب غير متصل"), 400
     label = (data.get("label") or "").strip()[:60]
     raw_key = db_create_api_key(session["user_id"], acc_id, label)
     return jsonify(ok=True, key=raw_key)

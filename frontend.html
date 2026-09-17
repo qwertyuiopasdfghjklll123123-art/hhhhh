@@ -1531,15 +1531,16 @@ function apiKeysHtml(d) {
       '</div>';
   }
   const origin = window.location.origin;
-  const accOptions = accounts.map(a => [a.id, a.name + (a.logged_in ? '' : ' (غير متصل)')]);
+  const connectedAccounts = accounts.filter(a => a.logged_in);
+  const accOptions = connectedAccounts.map(a => [a.id, a.name]);
   let html = '<div class="card">' +
     '<div class="card-header"><h4>' + icon('plus', 14) + ' توليد مفتاح جديد</h4></div>' +
-    (accounts.length
-      ? '<label class="field-label">الحساب المُرسِل (رقم واتساب الأكواد)</label>' + customSelectHtml('apiKeyAccountSelect', accOptions, accounts[0].id)
-      : '<div class="empty-state">ضيف حساب واتساب أول من قسم "حسابي"</div>') +
+    (connectedAccounts.length
+      ? '<label class="field-label">الحساب المُرسِل (رقم واتساب الأكواد)</label>' + customSelectHtml('apiKeyAccountSelect', accOptions, connectedAccounts[0].id)
+      : '<div class="empty-state">ما عندك حساب واتساب متصل حالياً - وصّل حساب من قسم "حسابي" حتى تگدر تولّد مفتاح له</div>') +
     '<label class="field-label">وصف (اختياري - يساعدك تعرف وين تستخدمه)</label>' +
     '<input id="apiKeyLabel" type="text" placeholder="مثال: موقع المتجر" maxlength="60">' +
-    '<button class="btn-submit"' + (accounts.length ? '' : ' disabled') + ' onclick="generateApiKey()">' + icon('plus', 14) + ' توليد مفتاح</button>' +
+    '<button class="btn-submit"' + (connectedAccounts.length ? '' : ' disabled') + ' onclick="generateApiKey()">' + icon('plus', 14) + ' توليد مفتاح</button>' +
     '<div id="apiKeyMsg" class="text-center text-[12px] font-bold mt-2"></div>' +
     '</div>';
 
@@ -1553,9 +1554,15 @@ function apiKeysHtml(d) {
       '</span>' +
       (k.revoked
         ? '<span class="pill pill-red">ملغى</span>'
-        : '<button class="btn-outline btn-small" style="width:auto;color:#dc2626;border-color:rgba(220,38,38,.3)" onclick="revokeApiKey(' + k.id + ')">إلغاء</button>') +
+        : '<span class="flex items-center gap-1">' +
+            '<span class="pill ' + (k.account_connected ? 'pill-green' : 'pill-amber') + '">' + (k.account_connected ? 'متصل' : 'متوقف مؤقتاً') + '</span>' +
+            '<button class="btn-outline btn-small" style="width:auto;color:#dc2626;border-color:rgba(220,38,38,.3)" onclick="revokeApiKey(' + k.id + ')">إلغاء</button>' +
+          '</span>') +
       '</div>';
     }).join('') : '<div class="text-muted text-[11px]">ما عندك مفاتيح بعد</div>') +
+    (d.keys.some(k => !k.revoked && !k.account_connected)
+      ? '<p class="text-[11px] text-muted mt-2">🔸 المفاتيح "متوقفة مؤقتاً" حسابها غير متصل حالياً - الإرسال عبرها يرفض تلقائياً لحد ما يعاود الحساب الاتصال، بدون أي حاجة تعيد تفعيلها يدوياً.</p>'
+      : '') +
     '</div>';
 
   html += '<div class="card">' +
