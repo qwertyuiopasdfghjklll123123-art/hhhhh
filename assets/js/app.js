@@ -118,7 +118,48 @@
       openModal('modalResetPassword');
       return;
     }
+
+    var addProviderBtn = e.target.closest('[data-action="open-provider-modal"]');
+    if (addProviderBtn) {
+      resetProviderModal();
+      openModal('modalProvider');
+      return;
+    }
+
+    var editProviderBtn = e.target.closest('[data-action="edit-provider"]');
+    if (editProviderBtn) {
+      resetProviderModal();
+      setValue('providerFormAction', 'update_provider');
+      setValue('providerId', editProviderBtn.getAttribute('data-id'));
+      setValue('providerLabel', editProviderBtn.getAttribute('data-label'));
+      setValue('providerBaseUrl', editProviderBtn.getAttribute('data-base-url'));
+      setValue('providerTextModel', editProviderBtn.getAttribute('data-text-model'));
+      setValue('providerVisionModel', editProviderBtn.getAttribute('data-vision-model'));
+      var titleEl = document.getElementById('providerModalTitle');
+      if (titleEl) { titleEl.innerHTML = '<i class="fa-solid fa-microchip"></i> تعديل مزوّد ذكاء اصطناعي'; }
+      var keyHint = document.getElementById('providerKeyHint');
+      if (keyHint) { keyHint.textContent = 'اترك الحقل فارغاً للإبقاء على المفتاح الحالي كما هو.'; }
+      var submitBtn = document.getElementById('providerSubmitBtn');
+      if (submitBtn) { submitBtn.innerHTML = '<i class="fa-solid fa-check"></i> حفظ التعديلات'; }
+      openModal('modalProvider');
+      return;
+    }
   });
+
+  /** يعيد نموذج مزوّد الذكاء الاصطناعي المنبثق إلى وضع "إضافة" الافتراضي */
+  function resetProviderModal() {
+    var form = document.getElementById('providerForm');
+    if (!form) { return; }
+    form.reset();
+    setValue('providerFormAction', 'add_provider');
+    setValue('providerId', '');
+    var titleEl = document.getElementById('providerModalTitle');
+    if (titleEl) { titleEl.innerHTML = '<i class="fa-solid fa-microchip"></i> إضافة مزوّد ذكاء اصطناعي'; }
+    var keyHint = document.getElementById('providerKeyHint');
+    if (keyHint) { keyHint.textContent = 'يُشفَّر قبل التخزين ولا يظهر لأي مستخدم بعد حفظه.'; }
+    var submitBtn = document.getElementById('providerSubmitBtn');
+    if (submitBtn) { submitBtn.innerHTML = '<i class="fa-solid fa-check"></i> إضافة'; }
+  }
 
   function setValue(id, value) {
     var el = document.getElementById(id);
@@ -176,6 +217,7 @@
     var btnSendChat = document.getElementById('btnSendChat');
     var chatImageInput = document.getElementById('chatImageInput');
     var btnAttachGithub = document.getElementById('btnAttachGithub');
+    var providerSelect = document.getElementById('providerSelect');
 
     var modalGithubBrowse = document.getElementById('modalGithubBrowse');
     var githubPathBar = document.getElementById('githubPathBar');
@@ -296,15 +338,25 @@
       var bubble = document.createElement('div');
       bubble.className = 'msg-bubble';
 
+      var providerLabel = null;
       if (meta) {
         try {
           var m = typeof meta === 'string' ? JSON.parse(meta) : meta;
           if (m && m.path) { appendAttachmentNote(bubble, 'fa-brands fa-github', m.path); }
           if (m && m.image) { appendAttachmentNote(bubble, 'fa-regular fa-image', m.image); }
+          if (m && m.provider) { providerLabel = m.provider; }
         } catch (e) { /* تجاهل بيانات meta غير صالحة */ }
       }
 
       renderContent(bubble, content);
+
+      if (providerLabel) {
+        var tag = document.createElement('div');
+        tag.className = 'msg-provider-tag';
+        tag.innerHTML = '<i class="fa-solid fa-microchip"></i>';
+        tag.appendChild(document.createTextNode(' ' + providerLabel));
+        bubble.appendChild(tag);
+      }
 
       msg.appendChild(avatar);
       msg.appendChild(bubble);
@@ -600,6 +652,7 @@
       appendTyping();
 
       var payload = { project_id: projectId, conversation_id: currentConversationId, content: text };
+      if (providerSelect && providerSelect.value) { payload.provider_id = providerSelect.value; }
       if (pendingAttachment) { payload.attach_path = pendingAttachment.path; }
       if (pendingImage) {
         payload.image_base64 = pendingImage.base64;
@@ -621,7 +674,7 @@
         addConvToRail(data.conversation_id, data.title || 'محادثة جديدة');
         currentConversationId = data.conversation_id;
       }
-      appendMessage('assistant', data.reply);
+      appendMessage('assistant', data.reply, data.provider ? { provider: data.provider } : null);
     }
 
     if (chatForm) {

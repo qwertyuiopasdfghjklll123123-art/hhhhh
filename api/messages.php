@@ -26,6 +26,7 @@ $body = json_body();
 
 $projectId   = (int) ($body['project_id'] ?? 0);
 $convId      = isset($body['conversation_id']) ? (int) $body['conversation_id'] : 0;
+$providerId  = isset($body['provider_id']) ? (int) $body['provider_id'] : 0;
 $content     = trim((string) ($body['content'] ?? ''));
 $attachPath  = trim((string) ($body['attach_path'] ?? ''));
 $imageBase64 = (string) ($body['image_base64'] ?? '');
@@ -56,10 +57,43 @@ if (!$context) {
     json_response(['success' => false, 'error' => 'سياق المشروع غير مهيأ'], 422);
 }
 
-$nvidiaKey = Crypto::decrypt($context['nvidia_api_key']);
-if (!$nvidiaKey) {
-    json_response(['success' => false, 'error' => 'لم يتم ضبط مفتاح NVIDIA NIM API لهذا المشروع بعد. أضفه من تبويب الإعدادات.'], 422);
+/* ---------- اختيار مزوّد الذكاء الاصطناعي (المحدَّد يدوياً أو الافتراضي) ---------- */
+
+$provider = null;
+if ($providerId > 0) {
+    $provStmt = db()->prepare('SELECT * FROM ai_providers WHERE id = ? AND project_id = ?');
+    $provStmt->execute([$providerId, $projectId]);
+    $provider = $provStmt->fetch();
 }
+if (!$provider) {
+    $provStmt = db()->prepare('SELECT * FROM ai_providers WHERE project_id = ? ORDER BY is_default DESC, created_at ASC LIMIT 1');
+    $provStmt->execute([$projectId]);
+    $provider = $provStmt->fetch();
+}
+if (!$provider) {
+    json_response(['success' => false, 'error' => 'لم يتم إضافة أي مزوّد ذكاء اصطناعي لهذا المشروع بعد. أضف واحداً (NVIDIA NIM أو أي مزوّد آخر) من تبويب الإعدادات.'], 422);
+}
+
+$providerApiKey = Crypto::decrypt($provider['api_key']);
+if (!$providerApiKey) {
+    json_response(['success' => false, 'error' => "تعذّر قراءة مفتاح المزوّد «{$provider['label']}». أعد إدخاله من تبويب الإعدادات."], 422);
+}
+
+$hasImage = $imageBase64 !== '' && $imageMime !== '';
+
+if ($hasImage) {
+    if (!preg_match('/^image\/(png|jpe?g|webp|gif)$/i', $imageMime)) {
+        json_response(['success' => false, 'error' => 'صيغة الصورة غير مدعومة.'], 422);
+    }
+    if (strlen($imageBase64) > 8000000) {
+        json_response(['success' => false, 'error' => 'حجم الصورة كبير جداً.'], 422);
+    }
+    if (!$provider['vision_model']) {
+        json_response(['success' => false, 'error' => "المزوّد «{$provider['label']}» لا يملك نموذج رؤية مُعرَّف. عدّله من الإعدادات أو اختر مزوّداً آخر يدعم الصور."], 422);
+    }
+}
+
+/* ---------- التحقق من/إنشاء المحادثة ---------- */
 
 if ($convId > 0) {
     $convStmt = db()->prepare('SELECT id FROM ai_conversations WHERE id = ? AND user_id = ? AND project_id = ?');
@@ -73,6 +107,8 @@ if ($convId > 0) {
         ->execute([$projectId, $user['id'], $title !== '' ? $title : 'محادثة جديدة']);
     $convId = (int) db()->lastInsertId();
 }
+
+/* ---------- ملف GitHub مرفق (اختياري) - يُجلب من السيرفر مباشرة لضمان صحته ---------- */
 
 $extraContext = null;
 $attachedMeta = null;
@@ -90,14 +126,12 @@ if ($attachPath !== '') {
     }
 }
 
-$systemPrompt = NvidiaClient::buildSystemPrompt($context['sql_schema'], $context['system_rules'], $extraContext);
+$systemPrompt = AiClient::buildSystemPrompt($context['sql_schema'], $context['system_rules'], $extraContext);
 
 $histStmt = db()->prepare('SELECT role, content FROM ai_messages WHERE conversation_id = ? ORDER BY id DESC LIMIT 16');
 $histStmt->execute([$convId]);
 $history = array_reverse($histStmt->fetchAll());
 $priorMessages = array_map(static fn (array $m): array => ['role' => $m['role'], 'content' => $m['content']], $history);
-
-$hasImage = $imageBase64 !== '' && $imageMime !== '';
 
 $userMessageMeta = $attachedMeta;
 if ($hasImage) {
@@ -108,14 +142,10 @@ $userContentToStore = $content !== '' ? $content : '(صورة بدون نص مر
 db()->prepare('INSERT INTO ai_messages (conversation_id, role, content, meta) VALUES (?, ?, ?, ?)')
     ->execute([$convId, 'user', $userContentToStore, $userMessageMeta ? json_encode($userMessageMeta, JSON_UNESCAPED_UNICODE) : null]);
 
+/* ---------- استدعاء مزوّد الذكاء الاصطناعي المحدَّد ---------- */
+
 if ($hasImage) {
-    if (!preg_match('/^image\/(png|jpe?g|webp|gif)$/i', $imageMime)) {
-        json_response(['success' => false, 'error' => 'صيغة الصورة غير مدعومة.'], 422);
-    }
-    if (strlen($imageBase64) > 8000000) {
-        json_response(['success' => false, 'error' => 'حجم الصورة كبير جداً.'], 422);
-    }
-    $client = new NvidiaClient($nvidiaKey, $context['nvidia_vision_model'] ?: 'meta/llama-3.2-90b-vision-instruct');
+    $client = new AiClient($providerApiKey, $provider['base_url'], $provider['vision_model']);
     $result = $client->chatWithImage(
         $systemPrompt,
         $content !== '' ? $content : 'صف هذه الصورة وحلّلها ضمن سياق المشروع.',
@@ -124,30 +154,31 @@ if ($hasImage) {
         $priorMessages
     );
 } else {
-    $client = new NvidiaClient($nvidiaKey, $context['nvidia_text_model'] ?: 'meta/llama-3.1-70b-instruct');
+    $client = new AiClient($providerApiKey, $provider['base_url'], $provider['text_model']);
     $messages = array_merge([['role' => 'system', 'content' => $systemPrompt]], $priorMessages, [['role' => 'user', 'content' => $content]]);
     $result = $client->chat($messages);
 }
 
 if (!$result['success']) {
     db()->prepare('INSERT INTO ai_messages (conversation_id, role, content) VALUES (?, ?, ?)')
-        ->execute([$convId, 'assistant', 'تعذّر الحصول على رد من المساعد الذكي: ' . $result['error']]);
+        ->execute([$convId, 'assistant', "تعذّر الحصول على رد من «{$provider['label']}»: " . $result['error']]);
     json_response(['success' => false, 'error' => $result['error'], 'conversation_id' => $convId], 502);
 }
 
-db()->prepare('INSERT INTO ai_messages (conversation_id, role, content) VALUES (?, ?, ?)')
-    ->execute([$convId, 'assistant', $result['content']]);
+db()->prepare('INSERT INTO ai_messages (conversation_id, role, content, meta) VALUES (?, ?, ?, ?)')
+    ->execute([$convId, 'assistant', $result['content'], json_encode(['provider' => $provider['label']], JSON_UNESCAPED_UNICODE)]);
 
 db()->prepare('UPDATE ai_conversations SET updated_at = NOW() WHERE id = ?')->execute([$convId]);
 
 $titleStmt = db()->prepare('SELECT title FROM ai_conversations WHERE id = ?');
 $titleStmt->execute([$convId]);
 
-log_activity((int) $user['id'], 'ai_chat', "استخدام المساعد الذكي في مشروع: {$project['name']}");
+log_activity((int) $user['id'], 'ai_chat', "استخدام المساعد الذكي ({$provider['label']}) في مشروع: {$project['name']}");
 
 json_response([
     'success'         => true,
     'conversation_id' => $convId,
     'title'           => $titleStmt->fetchColumn(),
     'reply'           => $result['content'],
+    'provider'        => $provider['label'],
 ]);

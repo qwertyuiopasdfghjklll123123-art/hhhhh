@@ -2,8 +2,10 @@
 declare(strict_types=1);
 
 /**
- * عميل NVIDIA NIM API — متوافق مع بنية استدعاءات OpenAI Chat Completions.
- * التوثيق: https://integrate.api.nvidia.com/v1/chat/completions
+ * عميل ذكاء اصطناعي عام — متوافق مع بنية استدعاءات OpenAI Chat Completions.
+ * يعمل مع أي مزوّد يطابق هذه البنية عبر تحديد نقطة الاتصال (base URL) الخاصة
+ * به: NVIDIA NIM (الافتراضي)، OpenAI، Groq، DeepSeek، Together AI، OpenRouter،
+ * Mistral، أو أي نموذج مستضاف ذاتياً (vLLM/Ollama بواجهة متوافقة مع OpenAI).
  *
  * يدعم:
  *   - محادثات نصية عادية (chat)
@@ -14,17 +16,19 @@ declare(strict_types=1);
  * ملاحظة أمنية: هذا الصف يُستخدم من طرف السيرفر فقط. مفتاح الـ API لا يصل
  * إطلاقاً إلى متصفح المستخدم.
  */
-final class NvidiaClient
+final class AiClient
 {
-    private const ENDPOINT = 'https://integrate.api.nvidia.com/v1/chat/completions';
+    public const DEFAULT_ENDPOINT = 'https://integrate.api.nvidia.com/v1/chat/completions';
 
     private string $apiKey;
+    private string $baseUrl;
     private string $model;
     private int $timeout;
 
-    public function __construct(string $apiKey, string $model = 'meta/llama-3.1-70b-instruct', int $timeout = 90)
+    public function __construct(string $apiKey, string $baseUrl = self::DEFAULT_ENDPOINT, string $model = 'meta/llama-3.1-70b-instruct', int $timeout = 90)
     {
         $this->apiKey  = $apiKey;
+        $this->baseUrl = $baseUrl !== '' ? $baseUrl : self::DEFAULT_ENDPOINT;
         $this->model   = $model;
         $this->timeout = $timeout;
     }
@@ -98,10 +102,10 @@ final class NvidiaClient
     private function send(array $payload): array
     {
         if (trim($this->apiKey) === '') {
-            return ['success' => false, 'error' => 'مفتاح NVIDIA NIM API غير مُعرَّف لهذا المشروع. أضفه من شاشة سياق المشروع.'];
+            return ['success' => false, 'error' => 'لا يوجد مفتاح API صالح لهذا المزوّد.'];
         }
 
-        $ch = curl_init(self::ENDPOINT);
+        $ch = curl_init($this->baseUrl);
         curl_setopt_array($ch, [
             CURLOPT_RETURNTRANSFER => true,
             CURLOPT_POST           => true,
@@ -121,7 +125,7 @@ final class NvidiaClient
         if ($response === false) {
             $error = curl_error($ch);
             curl_close($ch);
-            return ['success' => false, 'error' => 'تعذّر الاتصال بخدمة NVIDIA NIM: ' . $error];
+            return ['success' => false, 'error' => 'تعذّر الاتصال بمزوّد الذكاء الاصطناعي: ' . $error];
         }
 
         $status = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
@@ -136,7 +140,7 @@ final class NvidiaClient
 
         $content = $data['choices'][0]['message']['content'] ?? null;
         if (!is_string($content)) {
-            return ['success' => false, 'error' => 'استجابة غير متوقعة من واجهة NVIDIA NIM.', 'raw' => $data];
+            return ['success' => false, 'error' => 'استجابة غير متوقعة من مزوّد الذكاء الاصطناعي.', 'raw' => $data];
         }
 
         return [
