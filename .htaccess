@@ -1,0 +1,30 @@
+# =====================================================================
+# إعدادات أمان عامة على مستوى جذر المشروع (Apache)
+# =====================================================================
+
+# منع عرض محتويات المجلدات
+Options -Indexes -MultiViews
+ServerSignature Off
+
+# منع الوصول المباشر لملفات الإعداد والبيانات الحساسة من أي مكان في المشروع
+<FilesMatch "(^config\.php|^config\.sample\.php|\.sql|\.env|\.htpasswd|composer\.(json|lock))$">
+    Require all denied
+</FilesMatch>
+
+<IfModule mod_headers.c>
+    Header always set X-Content-Type-Options "nosniff"
+    Header always set X-Frame-Options "DENY"
+    Header always set Referrer-Policy "strict-origin-when-cross-origin"
+    Header unset X-Powered-By
+</IfModule>
+
+<IfModule mod_php.c>
+    php_flag display_errors Off
+    php_flag expose_php Off
+</IfModule>
+
+# رفع حد رفع الملفات قليلاً لدعم لصق صور داخل محادثة المساعد الذكي (Vision)
+<IfModule mod_php.c>
+    php_value upload_max_filesize 8M
+    php_value post_max_size 10M
+</IfModule>

@@ -1,0 +1,13 @@
+# بيانات الاعتماد المولَّدة أثناء التثبيت - لا تُرفع للمستودع أبداً
+/config/config.php
+
+# ملفات النظام والمحررات
+.DS_Store
+Thumbs.db
+*.log
+.idea/
+.vscode/
+
+# اعتماديات اختيارية إن استُخدم Composer مستقبلاً
+/vendor/
+composer.lock
