@@ -339,13 +339,28 @@
       bubble.className = 'msg-bubble';
 
       var providerLabel = null;
+      var reasoningText = null;
       if (meta) {
         try {
           var m = typeof meta === 'string' ? JSON.parse(meta) : meta;
           if (m && m.path) { appendAttachmentNote(bubble, 'fa-brands fa-github', m.path); }
           if (m && m.image) { appendAttachmentNote(bubble, 'fa-regular fa-image', m.image); }
           if (m && m.provider) { providerLabel = m.provider; }
+          if (m && m.reasoning) { reasoningText = m.reasoning; }
         } catch (e) { /* تجاهل بيانات meta غير صالحة */ }
+      }
+
+      if (reasoningText) {
+        var details = document.createElement('details');
+        details.className = 'msg-reasoning';
+        var summary = document.createElement('summary');
+        summary.innerHTML = '<i class="fa-solid fa-brain"></i> تفكير النموذج';
+        details.appendChild(summary);
+        var reasoningBody = document.createElement('div');
+        reasoningBody.className = 'msg-reasoning-body';
+        renderContent(reasoningBody, reasoningText);
+        details.appendChild(reasoningBody);
+        bubble.appendChild(details);
       }
 
       renderContent(bubble, content);
@@ -674,7 +689,13 @@
         addConvToRail(data.conversation_id, data.title || 'محادثة جديدة');
         currentConversationId = data.conversation_id;
       }
-      appendMessage('assistant', data.reply, data.provider ? { provider: data.provider } : null);
+      var replyMeta = null;
+      if (data.provider || data.reasoning) {
+        replyMeta = {};
+        if (data.provider) { replyMeta.provider = data.provider; }
+        if (data.reasoning) { replyMeta.reasoning = data.reasoning; }
+      }
+      appendMessage('assistant', data.reply, replyMeta);
     }
 
     if (chatForm) {

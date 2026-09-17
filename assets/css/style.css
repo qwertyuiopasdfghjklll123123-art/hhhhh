@@ -905,6 +905,42 @@ textarea.form-control { resize: vertical; min-height: 42px; }
   padding: 3px 10px; border-radius: 100px; margin-bottom: 8px;
 }
 
+.msg-reasoning {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  margin-bottom: 10px;
+  overflow: hidden;
+}
+.msg-reasoning summary {
+  display: flex; align-items: center; gap: 7px;
+  padding: 8px 12px;
+  font-size: 0.74rem; font-weight: 600; color: var(--text-muted);
+  cursor: pointer;
+  list-style: none;
+  user-select: none;
+}
+.msg-reasoning summary::-webkit-details-marker { display: none; }
+.msg-reasoning summary::before {
+  content: '\f105';
+  font-family: 'Font Awesome 6 Free';
+  font-weight: 900;
+  font-size: 0.65rem;
+  transition: transform 0.15s;
+  color: var(--text-faint);
+}
+.msg-reasoning[open] summary::before { transform: rotate(90deg); }
+.msg-reasoning summary i { color: var(--accent); }
+.msg-reasoning-body {
+  padding: 2px 14px 12px;
+  font-size: 0.8rem;
+  color: var(--text-faint);
+  border-top: 1px solid var(--border);
+  padding-top: 10px;
+}
+.msg-reasoning-body p { margin: 0 0 8px; white-space: pre-wrap; word-break: break-word; }
+.msg-reasoning-body p:last-child { margin-bottom: 0; }
+
 .msg-provider-tag {
   display: flex; align-items: center; gap: 6px;
   font-size: 0.66rem; color: var(--text-faint);

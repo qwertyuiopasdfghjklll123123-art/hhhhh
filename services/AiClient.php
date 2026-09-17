@@ -71,7 +71,7 @@ final class AiClient
             'messages'    => $messages,
             'temperature' => 0.4,
             'top_p'       => 0.9,
-            'max_tokens'  => 2048,
+            'max_tokens'  => 4096,
             'stream'      => false,
         ], $options);
 
@@ -138,16 +138,28 @@ final class AiClient
             return ['success' => false, 'error' => $message, 'status' => $status];
         }
 
-        $content = $data['choices'][0]['message']['content'] ?? null;
-        if (!is_string($content)) {
+        $message = $data['choices'][0]['message'] ?? null;
+        if (!is_array($message)) {
             return ['success' => false, 'error' => 'استجابة غير متوقعة من مزوّد الذكاء الاصطناعي.', 'raw' => $data];
         }
 
+        $content   = is_string($message['content'] ?? null) ? $message['content'] : '';
+        // بعض نماذج الاستدلال (reasoning) مثل gpt-oss تعيد سلسلة تفكيرها في
+        // reasoning_content منفصلة عن الإجابة النهائية في content.
+        $reasoning = is_string($message['reasoning_content'] ?? null) && trim($message['reasoning_content']) !== ''
+            ? $message['reasoning_content']
+            : null;
+
+        if ($content === '' && $reasoning === null) {
+            return ['success' => false, 'error' => 'استجابة فارغة من مزوّد الذكاء الاصطناعي.', 'raw' => $data];
+        }
+
         return [
-            'success' => true,
-            'content' => $content,
-            'usage'   => $data['usage'] ?? null,
-            'model'   => $data['model'] ?? $this->model,
+            'success'   => true,
+            'content'   => $content,
+            'reasoning' => $reasoning,
+            'usage'     => $data['usage'] ?? null,
+            'model'     => $data['model'] ?? $this->model,
         ];
     }
 }

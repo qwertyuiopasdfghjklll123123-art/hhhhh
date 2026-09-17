@@ -389,12 +389,15 @@ require __DIR__ . '/includes/layout_start.php';
               <option value="meta/llama-3.1-70b-instruct">
               <option value="meta/llama-3.1-405b-instruct">
               <option value="nvidia/llama-3.1-nemotron-70b-instruct">
+              <option value="openai/gpt-oss-20b" label="NVIDIA NIM · نموذج استدلال Reasoning">
+              <option value="openai/gpt-oss-120b" label="NVIDIA NIM · نموذج استدلال Reasoning">
               <option value="gpt-4o">
               <option value="gpt-4o-mini">
               <option value="deepseek-chat">
               <option value="mistralai/mixtral-8x22b-instruct-v0.1">
               <option value="qwen/qwen2.5-coder-32b-instruct">
             </datalist>
+            <p class="form-hint">نماذج الاستدلال (Reasoning) مثل <code>openai/gpt-oss-*</code> تعرض خطوات تفكيرها في المحادثة ضمن قسم قابل للطي قبل الإجابة النهائية.</p>
           </div>
           <div class="form-group">
             <label class="form-label">نموذج الرؤية (اختياري)</label>

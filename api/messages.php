@@ -165,8 +165,13 @@ if (!$result['success']) {
     json_response(['success' => false, 'error' => $result['error'], 'conversation_id' => $convId], 502);
 }
 
+$assistantMeta = ['provider' => $provider['label']];
+if (!empty($result['reasoning'])) {
+    $assistantMeta['reasoning'] = $result['reasoning'];
+}
+
 db()->prepare('INSERT INTO ai_messages (conversation_id, role, content, meta) VALUES (?, ?, ?, ?)')
-    ->execute([$convId, 'assistant', $result['content'], json_encode(['provider' => $provider['label']], JSON_UNESCAPED_UNICODE)]);
+    ->execute([$convId, 'assistant', $result['content'], json_encode($assistantMeta, JSON_UNESCAPED_UNICODE)]);
 
 db()->prepare('UPDATE ai_conversations SET updated_at = NOW() WHERE id = ?')->execute([$convId]);
 
@@ -180,5 +185,6 @@ json_response([
     'conversation_id' => $convId,
     'title'           => $titleStmt->fetchColumn(),
     'reply'           => $result['content'],
+    'reasoning'       => $result['reasoning'] ?? null,
     'provider'        => $provider['label'],
 ]);
