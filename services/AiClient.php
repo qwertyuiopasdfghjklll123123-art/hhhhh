@@ -113,6 +113,11 @@ final class AiClient
                 'Authorization: Bearer ' . $this->apiKey,
                 'Content-Type: application/json',
                 'Accept: application/json',
+                // تعطيل انتظار "100 Continue": أجسام الطلبات هنا (موجّه النظام + المحادثة)
+                // غالباً أكبر من 1KB فيفعّلها cURL تلقائياً، وبعض الخوادم/الوسطاء خلف
+                // موازنات التحميل لا يردّون عليها إطلاقاً فيتجمّد الطلب حتى انتهاء المهلة
+                // رغم أن الاتصال بنفس المضيف يعمل بسرعة لأي طلب بلا جسم (مثل HEAD/GET).
+                'Expect:',
             ],
             CURLOPT_POSTFIELDS     => json_encode($payload, JSON_UNESCAPED_UNICODE),
             CURLOPT_TIMEOUT        => $this->timeout,
@@ -121,6 +126,9 @@ final class AiClient
             CURLOPT_SSL_VERIFYHOST => 2,
             CURLOPT_FOLLOWLOCATION => true,
             CURLOPT_MAXREDIRS      => 3,
+            // بعض الوسطاء (Load Balancers/CDN) أمام واجهات API تتعثّر مع تفاوض HTTP/2
+            // عبر ALPN فيتجمّد الطلب صامتاً؛ تثبيت HTTP/1.1 صريحاً أكثر توافقاً وأماناً هنا.
+            CURLOPT_HTTP_VERSION   => CURL_HTTP_VERSION_1_1,
         ]);
 
         $response = curl_exec($ch);

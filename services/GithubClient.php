@@ -113,6 +113,8 @@ final class GithubClient
             'Accept: application/vnd.github+json',
             'X-GitHub-Api-Version: 2022-11-28',
             'User-Agent: PHP-Projects-Dashboard',
+            // تعطيل انتظار "100 Continue" - راجع الملاحظة في AiClient::send() لنفس السبب.
+            'Expect:',
         ];
         $opts = [
             CURLOPT_RETURNTRANSFER => true,
@@ -124,6 +126,7 @@ final class GithubClient
             CURLOPT_SSL_VERIFYHOST => 2,
             CURLOPT_FOLLOWLOCATION => true,
             CURLOPT_MAXREDIRS      => 3,
+            CURLOPT_HTTP_VERSION   => CURL_HTTP_VERSION_1_1,
         ];
         if ($body !== null) {
             $opts[CURLOPT_POSTFIELDS] = json_encode($body, JSON_UNESCAPED_UNICODE);
