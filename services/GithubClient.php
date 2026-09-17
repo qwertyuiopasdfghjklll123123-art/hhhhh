@@ -107,54 +107,71 @@ final class GithubClient
             return ['success' => false, 'error' => 'إعدادات GitHub غير مكتملة لهذا المشروع (Owner / Repo / Token).'];
         }
 
-        $ch = curl_init(self::API_BASE . $endpoint);
-        $headers = [
-            'Authorization: Bearer ' . $this->token,
-            'Accept: application/vnd.github+json',
-            'X-GitHub-Api-Version: 2022-11-28',
-            'User-Agent: PHP-Projects-Dashboard',
-            // تعطيل انتظار "100 Continue" - راجع الملاحظة في AiClient::send() لنفس السبب.
-            'Expect:',
-        ];
-        $opts = [
-            CURLOPT_RETURNTRANSFER => true,
-            CURLOPT_CUSTOMREQUEST  => $method,
-            CURLOPT_HTTPHEADER     => $headers,
-            CURLOPT_TIMEOUT        => 30,
-            CURLOPT_CONNECTTIMEOUT => 12,
-            CURLOPT_SSL_VERIFYPEER => true,
-            CURLOPT_SSL_VERIFYHOST => 2,
-            CURLOPT_FOLLOWLOCATION => true,
-            CURLOPT_MAXREDIRS      => 3,
-            CURLOPT_HTTP_VERSION   => CURL_HTTP_VERSION_1_1,
-        ];
-        if ($body !== null) {
-            $opts[CURLOPT_POSTFIELDS] = json_encode($body, JSON_UNESCAPED_UNICODE);
-        }
-        curl_setopt_array($ch, $opts);
+        // إعادة محاولة واحدة فقط عند فشل على مستوى النقل (مهلة/DNS/اتصال) دون أي
+        // رد فعلي من GitHub؛ إن وصل رد HTTP فعلي (نجاحاً أو خطأً) لا نعيد المحاولة.
+        $maxAttempts = 2;
+        $transportError = '';
 
-        $response = curl_exec($ch);
-        if ($response === false) {
-            $error = curl_error($ch);
-            curl_close($ch);
-            return ['success' => false, 'error' => 'تعذّر الاتصال بـ GitHub API: ' . $error];
-        }
-
-        $status       = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
-        $effectiveUrl = (string) curl_getinfo($ch, CURLINFO_EFFECTIVE_URL);
-        curl_close($ch);
-
-        $data = json_decode($response, true);
-
-        if ($status < 200 || $status >= 300) {
-            $message = $data['message'] ?? null;
-            if ($message === null) {
-                $bodySnippet = trim(mb_substr((string) $response, 0, 200));
-                $message = 'HTTP ' . $status . ' من ' . $effectiveUrl . ($bodySnippet !== '' ? ' — ' . $bodySnippet : ' (رد فارغ)');
+        for ($attempt = 1; $attempt <= $maxAttempts; $attempt++) {
+            $ch = curl_init(self::API_BASE . $endpoint);
+            $headers = [
+                'Authorization: Bearer ' . $this->token,
+                'Accept: application/vnd.github+json',
+                'X-GitHub-Api-Version: 2022-11-28',
+                'User-Agent: PHP-Projects-Dashboard',
+                // تعطيل انتظار "100 Continue" - راجع الملاحظة في AiClient::send() لنفس السبب.
+                'Expect:',
+            ];
+            $opts = [
+                CURLOPT_RETURNTRANSFER => true,
+                CURLOPT_CUSTOMREQUEST  => $method,
+                CURLOPT_HTTPHEADER     => $headers,
+                CURLOPT_TIMEOUT        => 30,
+                CURLOPT_CONNECTTIMEOUT => 12,
+                CURLOPT_SSL_VERIFYPEER => true,
+                CURLOPT_SSL_VERIFYHOST => 2,
+                CURLOPT_FOLLOWLOCATION => true,
+                CURLOPT_MAXREDIRS      => 3,
+                CURLOPT_HTTP_VERSION   => CURL_HTTP_VERSION_1_1,
+            ];
+            if ($body !== null) {
+                $opts[CURLOPT_POSTFIELDS] = json_encode($body, JSON_UNESCAPED_UNICODE);
             }
-            return ['success' => false, 'error' => $message, 'status' => $status];
+            curl_setopt_array($ch, $opts);
+
+            $response = curl_exec($ch);
+
+            if ($response === false) {
+                $transportError = curl_error($ch);
+                curl_close($ch);
+                if ($attempt < $maxAttempts) {
+                    usleep(500000);
+                    continue;
+                }
+                return [
+                    'success' => false,
+                    'error'   => 'تعذّر الاتصال بـ GitHub API بعد ' . $maxAttempts . ' محاولات: ' . $transportError,
+                ];
+            }
+
+            $status       = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
+            $effectiveUrl = (string) curl_getinfo($ch, CURLINFO_EFFECTIVE_URL);
+            curl_close($ch);
+
+            $data = json_decode($response, true);
+
+            if ($status < 200 || $status >= 300) {
+                $message = $data['message'] ?? null;
+                if ($message === null) {
+                    $bodySnippet = trim(mb_substr((string) $response, 0, 200));
+                    $message = 'HTTP ' . $status . ' من ' . $effectiveUrl . ($bodySnippet !== '' ? ' — ' . $bodySnippet : ' (رد فارغ)');
+                }
+                return ['success' => false, 'error' => $message, 'status' => $status];
+            }
+
+            return ['success' => true, 'data' => $data, 'status' => $status];
         }
 
-        return ['success' => true, 'data' => $data, 'status' => $status];
+        return ['success' => false, 'error' => 'تعذّر الاتصال بـ GitHub API: ' . $transportError];
     }
 }

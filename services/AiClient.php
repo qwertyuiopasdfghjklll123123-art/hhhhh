@@ -105,43 +105,66 @@ final class AiClient
             return ['success' => false, 'error' => 'لا يوجد مفتاح API صالح لهذا المزوّد.'];
         }
 
-        $ch = curl_init($this->baseUrl);
-        curl_setopt_array($ch, [
-            CURLOPT_RETURNTRANSFER => true,
-            CURLOPT_POST           => true,
-            CURLOPT_HTTPHEADER     => [
-                'Authorization: Bearer ' . $this->apiKey,
-                'Content-Type: application/json',
-                'Accept: application/json',
-                // تعطيل انتظار "100 Continue": أجسام الطلبات هنا (موجّه النظام + المحادثة)
-                // غالباً أكبر من 1KB فيفعّلها cURL تلقائياً، وبعض الخوادم/الوسطاء خلف
-                // موازنات التحميل لا يردّون عليها إطلاقاً فيتجمّد الطلب حتى انتهاء المهلة
-                // رغم أن الاتصال بنفس المضيف يعمل بسرعة لأي طلب بلا جسم (مثل HEAD/GET).
-                'Expect:',
-            ],
-            CURLOPT_POSTFIELDS     => json_encode($payload, JSON_UNESCAPED_UNICODE),
-            CURLOPT_TIMEOUT        => $this->timeout,
-            CURLOPT_CONNECTTIMEOUT => 15,
-            CURLOPT_SSL_VERIFYPEER => true,
-            CURLOPT_SSL_VERIFYHOST => 2,
-            CURLOPT_FOLLOWLOCATION => true,
-            CURLOPT_MAXREDIRS      => 3,
-            // بعض الوسطاء (Load Balancers/CDN) أمام واجهات API تتعثّر مع تفاوض HTTP/2
-            // عبر ALPN فيتجمّد الطلب صامتاً؛ تثبيت HTTP/1.1 صريحاً أكثر توافقاً وأماناً هنا.
-            CURLOPT_HTTP_VERSION   => CURL_HTTP_VERSION_1_1,
-        ]);
+        // إعادة محاولة واحدة فقط عند فشل على مستوى النقل (مهلة/DNS/اتصال) دون أي
+        // رد فعلي من الخادم؛ هذا النوع تحديداً متقطّع أحياناً (نفس المزوّد قد ينجح
+        // مرة ويتجمّد أخرى)، بخلاف رد HTTP فعلي (حتى لو خطأ) الذي لا فائدة من إعادته.
+        $maxAttempts = 2;
+        $transportError = '';
 
-        $response = curl_exec($ch);
-        if ($response === false) {
-            $error = curl_error($ch);
+        for ($attempt = 1; $attempt <= $maxAttempts; $attempt++) {
+            $ch = curl_init($this->baseUrl);
+            curl_setopt_array($ch, [
+                CURLOPT_RETURNTRANSFER => true,
+                CURLOPT_POST           => true,
+                CURLOPT_HTTPHEADER     => [
+                    'Authorization: Bearer ' . $this->apiKey,
+                    'Content-Type: application/json',
+                    'Accept: application/json',
+                    // تعطيل انتظار "100 Continue": أجسام الطلبات هنا (موجّه النظام + المحادثة)
+                    // غالباً أكبر من 1KB فيفعّلها cURL تلقائياً، وبعض الخوادم/الوسطاء خلف
+                    // موازنات التحميل لا يردّون عليها إطلاقاً فيتجمّد الطلب حتى انتهاء المهلة
+                    // رغم أن الاتصال بنفس المضيف يعمل بسرعة لأي طلب بلا جسم (مثل HEAD/GET).
+                    'Expect:',
+                ],
+                CURLOPT_POSTFIELDS     => json_encode($payload, JSON_UNESCAPED_UNICODE),
+                CURLOPT_TIMEOUT        => $this->timeout,
+                CURLOPT_CONNECTTIMEOUT => 15,
+                CURLOPT_SSL_VERIFYPEER => true,
+                CURLOPT_SSL_VERIFYHOST => 2,
+                CURLOPT_FOLLOWLOCATION => true,
+                CURLOPT_MAXREDIRS      => 3,
+                // بعض الوسطاء (Load Balancers/CDN) أمام واجهات API تتعثّر مع تفاوض HTTP/2
+                // عبر ALPN فيتجمّد الطلب صامتاً؛ تثبيت HTTP/1.1 صريحاً أكثر توافقاً وأماناً هنا.
+                CURLOPT_HTTP_VERSION   => CURL_HTTP_VERSION_1_1,
+            ]);
+
+            $response = curl_exec($ch);
+
+            if ($response === false) {
+                $transportError = curl_error($ch);
+                curl_close($ch);
+                if ($attempt < $maxAttempts) {
+                    usleep(500000);
+                    continue;
+                }
+                return [
+                    'success' => false,
+                    'error'   => 'تعذّر الاتصال بمزوّد الذكاء الاصطناعي (' . $this->baseUrl . ') بعد ' . $maxAttempts . ' محاولات: ' . $transportError,
+                ];
+            }
+
+            $status       = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
+            $effectiveUrl = (string) curl_getinfo($ch, CURLINFO_EFFECTIVE_URL);
             curl_close($ch);
-            return ['success' => false, 'error' => 'تعذّر الاتصال بمزوّد الذكاء الاصطناعي (' . $this->baseUrl . '): ' . $error];
+
+            return $this->parseResponse($response, $status, $effectiveUrl);
         }
 
-        $status       = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
-        $effectiveUrl = (string) curl_getinfo($ch, CURLINFO_EFFECTIVE_URL);
-        curl_close($ch);
+        return ['success' => false, 'error' => 'تعذّر الاتصال بمزوّد الذكاء الاصطناعي: ' . $transportError];
+    }
 
+    private function parseResponse(string $response, int $status, string $effectiveUrl): array
+    {
         $data = json_decode($response, true);
 
         if ($status < 200 || $status >= 300) {
