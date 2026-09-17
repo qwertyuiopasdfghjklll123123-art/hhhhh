@@ -5,6 +5,99 @@ if (!defined('APP_ROOT')) {
     define('APP_ROOT', dirname(__DIR__));
 }
 
+/* ------------------------------------------------------------------ */
+/* معالجة الأخطاء الفادحة: صفحة خطأ واضحة بدل صفحة 500 فارغة من الاستضافة */
+/* (display_errors مُعطَّل عمداً في .htaccess لأسباب أمنية، لذا بدون هذا   */
+/* المعالِج لن يرى أحد أي تفاصيل عند حدوث خطأ في الإنتاج)                 */
+/* ------------------------------------------------------------------ */
+
+function diagnose_fatal_hint(string $message): string
+{
+    if (str_contains($message, 'ai_providers') || str_contains($message, "doesn't exist") || str_contains($message, 'Unknown column')) {
+        return 'يبدو أن قاعدة البيانات تحتاج تحديثاً. شغّل ملف database/migrate_ai_providers.sql على قاعدة بياناتك ثم أعد المحاولة (خاص بمن ثبّت النظام قبل إضافة مزوّدي الذكاء الاصطناعي المتعددين).';
+    }
+    if (preg_match('/\b(AiClient|GithubClient|NvidiaClient)\b/', $message)) {
+        return 'أحد ملفات الأصناف البرمجية داخل مجلد services/ غير موجود على السيرفر. تأكد من رفع كل ملفات آخر نسخة كاملة (وأن services/AiClient.php موجود فعلاً).';
+    }
+    return '';
+}
+
+function render_fatal_error_page(string $hint = ''): void
+{
+    if (headers_sent()) {
+        return;
+    }
+    http_response_code(500);
+
+    if (function_exists('is_ajax_request') && is_ajax_request()) {
+        header('Content-Type: application/json; charset=utf-8');
+        echo json_encode([
+            'success' => false,
+            'error'   => 'حدث خطأ غير متوقع في الخادم.' . ($hint !== '' ? ' ' . $hint : ''),
+        ], JSON_UNESCAPED_UNICODE);
+        return;
+    }
+
+    $debug = false;
+    try {
+        $debug = (bool) (app_config()['app']['debug'] ?? false);
+    } catch (Throwable $e) {
+        // تعذّر حتى قراءة الإعدادات؛ نكمل بدون تفعيل وضع التصحيح
+    }
+
+    header('Content-Type: text/html; charset=utf-8');
+    echo '<!DOCTYPE html><html lang="ar" dir="rtl"><head><meta charset="UTF-8">'
+        . '<meta name="viewport" content="width=device-width, initial-scale=1.0"><title>خطأ في الخادم</title>'
+        . '<style>body{background:#0a0a0b;color:#f1f0ee;font-family:system-ui,-apple-system,"Segoe UI",Tahoma,sans-serif;'
+        . 'display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0;padding:24px}'
+        . '.box{max-width:580px;background:#18181b;border:1px solid rgba(255,255,255,.09);border-radius:18px;padding:32px}'
+        . 'h1{font-size:1.15rem;margin:0 0 14px}p{color:#9c9ca3;line-height:1.85;margin:0 0 10px;font-size:.9rem}'
+        . 'code{background:#202023;padding:2px 8px;border-radius:6px;font-size:.85em;direction:ltr;display:inline-block}'
+        . 'pre{background:#0e0e10;padding:14px;border-radius:10px;overflow:auto;font-size:.76rem;direction:ltr;text-align:left;color:#f2a93c;white-space:pre-wrap}</style>'
+        . '</head><body><div class="box">'
+        . '<h1>⚠️ تعذّر تنفيذ هذا الطلب</h1>'
+        . '<p>حدث خطأ غير متوقع في الخادم. تم تسجيل التفاصيل الكاملة في سجل أخطاء PHP (error_log) على السيرفر.</p>';
+
+    if ($hint !== '') {
+        echo '<p><strong>السبب المحتمل:</strong> ' . e($hint) . '</p>';
+    } else {
+        echo '<p>راجع سجل الأخطاء من لوحة تحكم الاستضافة (Error Log) لمعرفة التفاصيل الدقيقة.</p>';
+    }
+
+    if ($debug) {
+        $err = error_get_last();
+        if ($err) {
+            echo '<pre>' . e($err['message'] . ' — ' . $err['file'] . ':' . $err['line']) . '</pre>';
+        }
+    }
+
+    echo '</div></body></html>';
+}
+
+register_shutdown_function(static function (): void {
+    $error = error_get_last();
+    if ($error === null) {
+        return;
+    }
+    $fatalTypes = [E_ERROR, E_PARSE, E_CORE_ERROR, E_COMPILE_ERROR, E_USER_ERROR, E_RECOVERABLE_ERROR];
+    if (!in_array($error['type'], $fatalTypes, true)) {
+        return;
+    }
+    error_log('Fatal error: ' . $error['message'] . ' in ' . $error['file'] . ':' . $error['line']);
+    if (ob_get_level() > 0) {
+        ob_end_clean();
+    }
+    render_fatal_error_page(diagnose_fatal_hint($error['message']));
+});
+
+set_exception_handler(static function (Throwable $e): void {
+    error_log('Uncaught ' . get_class($e) . ': ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+    if (ob_get_level() > 0) {
+        ob_end_clean();
+    }
+    render_fatal_error_page(diagnose_fatal_hint($e->getMessage()));
+});
+
 /**
  * تنظيف/تشفير المخرجات لمنع ثغرات XSS. يُستخدم حول كل خرج نصي في القوالب.
  */
