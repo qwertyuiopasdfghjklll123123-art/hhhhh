@@ -1442,15 +1442,21 @@ def restore_one_account(acc_id):
         watch_account(acc_id)
 
 
-def kill_orphaned_chrome_processes(known_ids):
-    """يقتل عمليات كروم/chromedriver يتيمة من حسابات واتساب قديمة ما عادت موجودة بقاعدة
-    البيانات. تصير هيك لو السيرفر انوقف بأمر قاسي (kill -9 أو fuser -k، وكلاهما يرسل
-    SIGKILL اللي ما ينلتقط أبداً بأي كود تنظيف بايثون) بدل إيقاف نظيف - تضل عمليات كروم
-    شغالة للأبد بذاكرة السيرفر بدون ما يعرف عنها أي بروسس بايثون جديد. تأكدنا من هذا فعلياً
-    بمخرجات ps حقيقية من VPS المستخدم: 6 عمليات كروم قديمة (لحسابات محذوفة/قديمة) كانت تاكل
-    وحدها نحو 3 غيغابايت من أصل 3.8 غيغابايت رام الجهاز، وهذا السبب الحقيقي وراء Swap
-    الممتلئة 100% وفشل رمز QR بالظهور. تفحص فقط عمليات كروم تشير لمجلد SESSIONS_ROOT الخاص
-    بهذا التطبيق تحديداً (عبر cmdline)، حتى ما تلمس أي عملية ثانية على نفس السيرفر."""
+def kill_orphaned_chrome_processes():
+    """يقتل كل عمليات كروم يتيمة من تشغيلة سيرفر سابقة (عبر cmdline تشير لمجلد
+    SESSIONS_ROOT الخاص بهذا التطبيق تحديداً، حتى ما تلمس أي عملية ثانية على نفس
+    السيرفر). تنادى مرة وحيدة بإقلاع السيرفر، *قبل* ما تشغّل هالتشغيلة الجديدة ولا كروم
+    واحد لأي حساب - فأي عملية كروم موجودة بهذي اللحظة بالضبط هي حتماً يتيمة من تشغيلة
+    سابقة، سواء كان الحساب لسا موجود بقاعدة البيانات أو لا. سابقاً كانت تتجنب قتل عمليات
+    الحسابات "المعروفة" (لسا موجودة بقاعدة البيانات) ظناً إنها قد تكون شغالة شرعياً -
+    هذا كان خطأ يسبب بالضبط المشكلة اللي صارت فعلياً: لو السيرفر انعاد تشغيله بأمر
+    عادي (pkill -f webapp.py مثلاً، يقتل بايثون بس وما يلمس عمليات كروم الفرعية إطلاقاً)
+    بدل إعادة إقلاع كاملة للسيرفر، يضل كروم القديم شغال ماسك قفل مجلد بروفايل الحساب
+    (--user-data-dir)، فمحاولة فتح كروم جديد لنفس الحساب تفشل بخطأ
+    "cannot create default profile directory" والباركود ما يظهر أبداً لهذا الحساب لحد ما
+    يُقتل الكروم اليتيم يدوياً أو يعاد تشغيل السيرفر بالكامل (kill -9). تأكدنا سابقاً من
+    فئة مشكلة الذاكرة المشابهة فعلياً بمخرجات ps حقيقية من VPS المستخدم: عمليات كروم قديمة
+    كانت تاكل غيغابايتات من الرام وحدها."""
     if not os.path.isdir("/proc"):
         return
     pattern = re.compile(r"wa_sessions/([^/\s]+)")
@@ -1467,7 +1473,7 @@ def kill_orphaned_chrome_processes(known_ids):
         except (FileNotFoundError, ProcessLookupError, PermissionError):
             continue
         m = pattern.search(cmdline)
-        if not m or m.group(1) in known_ids:
+        if not m:
             continue
         try:
             os.kill(int(entry), signal.SIGKILL)
@@ -1475,14 +1481,14 @@ def kill_orphaned_chrome_processes(known_ids):
         except (ProcessLookupError, PermissionError):
             pass
     if killed_ids:
-        print(f"[تنظيف] قتلت عمليات كروم يتيمة من {len(killed_ids)} حساب قديم ما عاد موجود: {', '.join(sorted(killed_ids))}")
+        print(f"[تنظيف] قتلت عمليات كروم يتيمة من {len(killed_ids)} حساب من تشغيلة سابقة: {', '.join(sorted(killed_ids))}")
 
 
 def restore_wa_accounts():
     """يستعيد كل حسابات واتساب المحفوظة بقاعدة البيانات عند إقلاع السيرفر، حتى لا يحتاج
     المستخدم يضيف حسابه ويمسح QR من جديد بعد كل إعادة تشغيل أو تحديث كود."""
     rows = db_list_wa_accounts()
-    kill_orphaned_chrome_processes({row["id"] for row in rows})
+    kill_orphaned_chrome_processes()
     for row in rows:
         acc_id = row["id"]
         accounts[acc_id] = new_account_entry(acc_id, row["owner"], row["name"])
