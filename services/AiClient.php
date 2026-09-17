@@ -25,7 +25,7 @@ final class AiClient
     private string $model;
     private int $timeout;
 
-    public function __construct(string $apiKey, string $baseUrl = self::DEFAULT_ENDPOINT, string $model = 'meta/llama-3.1-70b-instruct', int $timeout = 90)
+    public function __construct(string $apiKey, string $baseUrl = self::DEFAULT_ENDPOINT, string $model = 'openai/gpt-oss-20b', int $timeout = 90)
     {
         $this->apiKey  = $apiKey;
         $this->baseUrl = $baseUrl !== '' ? $baseUrl : self::DEFAULT_ENDPOINT;

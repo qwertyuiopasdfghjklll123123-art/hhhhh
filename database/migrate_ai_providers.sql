@@ -23,7 +23,7 @@ CREATE TABLE IF NOT EXISTS `ai_providers` (
   `label` VARCHAR(100) NOT NULL,
   `base_url` VARCHAR(255) NOT NULL DEFAULT 'https://integrate.api.nvidia.com/v1/chat/completions',
   `api_key` TEXT NOT NULL COMMENT 'مشفّر',
-  `text_model` VARCHAR(150) NOT NULL DEFAULT 'meta/llama-3.1-70b-instruct',
+  `text_model` VARCHAR(150) NOT NULL DEFAULT 'openai/gpt-oss-20b',
   `vision_model` VARCHAR(150) NULL,
   `is_default` TINYINT(1) NOT NULL DEFAULT 0,
   `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -41,7 +41,7 @@ SELECT
   'NVIDIA NIM (تمت ترقيته تلقائياً)',
   'https://integrate.api.nvidia.com/v1/chat/completions',
   pc.nvidia_api_key,
-  COALESCE(NULLIF(pc.nvidia_text_model, ''), 'meta/llama-3.1-70b-instruct'),
+  COALESCE(NULLIF(pc.nvidia_text_model, ''), 'openai/gpt-oss-20b'),
   NULLIF(pc.nvidia_vision_model, ''),
   1
 FROM `project_context` pc

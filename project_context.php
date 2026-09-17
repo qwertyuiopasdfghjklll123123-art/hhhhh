@@ -80,7 +80,7 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
     if ($formAction === 'add_provider' || $formAction === 'update_provider') {
         $label       = trim((string) ($_POST['label'] ?? ''));
         $baseUrl     = trim((string) ($_POST['base_url'] ?? '')) ?: AiClient::DEFAULT_ENDPOINT;
-        $textModel   = trim((string) ($_POST['text_model'] ?? '')) ?: 'meta/llama-3.1-70b-instruct';
+        $textModel   = trim((string) ($_POST['text_model'] ?? '')) ?: 'openai/gpt-oss-20b';
         $visionModel = trim((string) ($_POST['vision_model'] ?? ''));
         $apiKeyInput = trim((string) ($_POST['api_key'] ?? ''));
         $makeDefault = isset($_POST['is_default']);
@@ -384,20 +384,19 @@ require __DIR__ . '/includes/layout_start.php';
         <div class="form-grid-2">
           <div class="form-group">
             <label class="form-label">نموذج النصوص</label>
-            <input class="form-control" type="text" name="text_model" id="providerTextModel" list="textModels" value="meta/llama-3.1-70b-instruct" required>
+            <input class="form-control" type="text" name="text_model" id="providerTextModel" list="textModels" value="openai/gpt-oss-20b" required>
             <datalist id="textModels">
-              <option value="meta/llama-3.1-70b-instruct">
-              <option value="meta/llama-3.1-405b-instruct">
-              <option value="nvidia/llama-3.1-nemotron-70b-instruct">
               <option value="openai/gpt-oss-20b" label="NVIDIA NIM · نموذج استدلال Reasoning">
               <option value="openai/gpt-oss-120b" label="NVIDIA NIM · نموذج استدلال Reasoning">
+              <option value="meta/llama-3.1-405b-instruct">
+              <option value="nvidia/llama-3.1-nemotron-70b-instruct">
               <option value="gpt-4o">
               <option value="gpt-4o-mini">
               <option value="deepseek-chat">
               <option value="mistralai/mixtral-8x22b-instruct-v0.1">
               <option value="qwen/qwen2.5-coder-32b-instruct">
             </datalist>
-            <p class="form-hint">نماذج الاستدلال (Reasoning) مثل <code>openai/gpt-oss-*</code> تعرض خطوات تفكيرها في المحادثة ضمن قسم قابل للطي قبل الإجابة النهائية.</p>
+            <p class="form-hint">نماذج الاستدلال (Reasoning) مثل <code>openai/gpt-oss-*</code> تعرض خطوات تفكيرها في المحادثة ضمن قسم قابل للطي قبل الإجابة النهائية. كتالوج النماذج يتغيّر باستمرار — إن ظهر خطأ "end of life" لأي نموذج، استبدله باسم نموذج آخر متوفر حالياً من نفس المزوّد.</p>
           </div>
           <div class="form-group">
             <label class="form-label">نموذج الرؤية (اختياري)</label>
