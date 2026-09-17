@@ -119,22 +119,32 @@ final class AiClient
             CURLOPT_CONNECTTIMEOUT => 15,
             CURLOPT_SSL_VERIFYPEER => true,
             CURLOPT_SSL_VERIFYHOST => 2,
+            CURLOPT_FOLLOWLOCATION => true,
+            CURLOPT_MAXREDIRS      => 3,
         ]);
 
         $response = curl_exec($ch);
         if ($response === false) {
             $error = curl_error($ch);
             curl_close($ch);
-            return ['success' => false, 'error' => 'تعذّر الاتصال بمزوّد الذكاء الاصطناعي: ' . $error];
+            return ['success' => false, 'error' => 'تعذّر الاتصال بمزوّد الذكاء الاصطناعي (' . $this->baseUrl . '): ' . $error];
         }
 
-        $status = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        $status       = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        $effectiveUrl = (string) curl_getinfo($ch, CURLINFO_EFFECTIVE_URL);
         curl_close($ch);
 
         $data = json_decode($response, true);
 
         if ($status < 200 || $status >= 300) {
-            $message = $data['error']['message'] ?? $data['message'] ?? ('HTTP ' . $status);
+            $message = $data['error']['message'] ?? $data['message'] ?? null;
+            if ($message === null) {
+                // لا رسالة خطأ منظَّمة من المزوّد؛ نُرفق الرابط الفعلي وعينة من الرد الخام
+                // بدل "HTTP 404" وحدها، حتى يكون سبب الخطأ واضحاً من أول مرة (مسار خاطئ،
+                // اسم نموذج غير موجود، توجيه غير متوقَّع...).
+                $bodySnippet = trim(mb_substr((string) $response, 0, 200));
+                $message = 'HTTP ' . $status . ' من ' . $effectiveUrl . ($bodySnippet !== '' ? ' — ' . $bodySnippet : ' (رد فارغ)');
+            }
             return ['success' => false, 'error' => $message, 'status' => $status];
         }
 

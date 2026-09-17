@@ -122,6 +122,8 @@ final class GithubClient
             CURLOPT_CONNECTTIMEOUT => 12,
             CURLOPT_SSL_VERIFYPEER => true,
             CURLOPT_SSL_VERIFYHOST => 2,
+            CURLOPT_FOLLOWLOCATION => true,
+            CURLOPT_MAXREDIRS      => 3,
         ];
         if ($body !== null) {
             $opts[CURLOPT_POSTFIELDS] = json_encode($body, JSON_UNESCAPED_UNICODE);
@@ -135,13 +137,18 @@ final class GithubClient
             return ['success' => false, 'error' => 'تعذّر الاتصال بـ GitHub API: ' . $error];
         }
 
-        $status = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        $status       = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        $effectiveUrl = (string) curl_getinfo($ch, CURLINFO_EFFECTIVE_URL);
         curl_close($ch);
 
         $data = json_decode($response, true);
 
         if ($status < 200 || $status >= 300) {
-            $message = $data['message'] ?? ('HTTP ' . $status);
+            $message = $data['message'] ?? null;
+            if ($message === null) {
+                $bodySnippet = trim(mb_substr((string) $response, 0, 200));
+                $message = 'HTTP ' . $status . ' من ' . $effectiveUrl . ($bodySnippet !== '' ? ' — ' . $bodySnippet : ' (رد فارغ)');
+            }
             return ['success' => false, 'error' => $message, 'status' => $status];
         }
 
