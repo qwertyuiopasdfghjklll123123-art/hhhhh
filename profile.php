@@ -44,6 +44,14 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
         }
         redirect('profile.php');
     }
+
+    if ($formAction === 'disconnect_github') {
+        db()->prepare('UPDATE users SET github_oauth_token = NULL, github_oauth_username = NULL WHERE id = ?')
+            ->execute([$user['id']]);
+        log_activity((int) $user['id'], 'github_disconnect', 'إلغاء ربط حساب GitHub');
+        flash('success', 'تم إلغاء ربط حساب GitHub.');
+        redirect('profile.php');
+    }
 }
 
 $stmt = db()->prepare('SELECT * FROM users WHERE id = ?');
@@ -106,6 +114,28 @@ require __DIR__ . '/includes/layout_start.php';
         </div>
         <button type="submit" class="btn btn-primary"><i class="fa-solid fa-key"></i> تحديث كلمة المرور</button>
       </form>
+    </div>
+  </section>
+</div>
+
+<div class="settings-stack">
+  <section class="card">
+    <div class="card-header"><h2><i class="fa-brands fa-github"></i> حساب GitHub</h2></div>
+    <div class="card-body">
+      <?php if (!empty($fullUser['github_oauth_username'])): ?>
+        <div class="github-connect-status">
+          <span class="badge badge-active"><i class="fa-solid fa-circle-check"></i> متصل كـ @<?= e($fullUser['github_oauth_username']) ?></span>
+          <p class="form-hint" style="margin:10px 0 0">يُستخدم هذا الحساب تلقائياً للوصول إلى أي مستودع GitHub تربطه بمشاريعك (بدل إنشاء ولصق Personal Access Token يدوياً).</p>
+        </div>
+        <form method="post" action="profile.php" class="stack-form" style="margin-top:14px" data-confirm="قطع ربط حساب GitHub؟ ستتوقف مزايا GitHub (القراءة والرفع) في كل مشاريعك حتى تربطه من جديد.">
+          <?= csrf_field() ?>
+          <input type="hidden" name="form_action" value="disconnect_github">
+          <button type="submit" class="btn btn-secondary"><i class="fa-solid fa-link-slash"></i> قطع الربط</button>
+        </form>
+      <?php else: ?>
+        <p class="form-hint" style="margin:0 0 14px">اربط حساب GitHub الخاص بك لتفعيل قراءة ملفات المستودعات ورفع التعديلات (Commits) عبر المساعد الذكي في مشاريعك.</p>
+        <a href="github_oauth_start.php?<?= http_build_query(['return' => 'profile.php']) ?>" class="btn btn-primary"><i class="fa-brands fa-github"></i> ربط حساب GitHub</a>
+      <?php endif; ?>
     </div>
   </section>
 </div>

@@ -10,8 +10,9 @@ if ($method === 'GET') {
     if ($projectId <= 0) {
         json_response(['success' => false, 'error' => 'project_id مطلوب'], 422);
     }
-    $stmt = db()->prepare('SELECT id, title, updated_at FROM ai_conversations WHERE project_id = ? AND user_id = ? ORDER BY updated_at DESC');
-    $stmt->execute([$projectId, $user['id']]);
+    $mode = ($_GET['mode'] ?? 'chat') === 'code' ? 'code' : 'chat';
+    $stmt = db()->prepare('SELECT id, title, updated_at FROM ai_conversations WHERE project_id = ? AND user_id = ? AND mode = ? ORDER BY updated_at DESC');
+    $stmt->execute([$projectId, $user['id'], $mode]);
     json_response(['success' => true, 'conversations' => $stmt->fetchAll()]);
 }
 

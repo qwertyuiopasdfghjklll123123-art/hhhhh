@@ -17,11 +17,24 @@ CREATE TABLE IF NOT EXISTS `users` (
   `password_hash` VARCHAR(255) NOT NULL,
   `role` ENUM('admin','user') NOT NULL DEFAULT 'user',
   `status` ENUM('active','disabled') NOT NULL DEFAULT 'active',
+  `github_oauth_token` TEXT NULL COMMENT 'مشفّر - رمز وصول GitHub الشخصي بعد الربط عبر OAuth',
+  `github_oauth_username` VARCHAR(190) NULL COMMENT 'اسم مستخدم GitHub المرتبط',
   `last_login_at` DATETIME NULL DEFAULT NULL,
   `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   `updated_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`),
   UNIQUE KEY `uniq_users_email` (`email`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ---------------------------------------------------------------------
+-- إعدادات عامة على مستوى النظام (Key/Value) — مثل بيانات GitHub OAuth App
+-- القيم الحساسة تُخزَّن مشفّرة من طرف التطبيق قبل الحفظ هنا (انظر includes/settings.php)
+-- ---------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS `app_settings` (
+  `setting_key` VARCHAR(100) NOT NULL,
+  `setting_value` TEXT NULL,
+  `updated_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`setting_key`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ---------------------------------------------------------------------
@@ -73,26 +86,27 @@ CREATE TABLE IF NOT EXISTS `project_context` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ---------------------------------------------------------------------
--- مزوّدو الذكاء الاصطناعي لكل مشروع (متعدد): يمكن إضافة أكثر من مفتاح NVIDIA،
--- أو أي مزوّد آخر متوافق مع بنية OpenAI Chat Completions (OpenAI, Groq,
--- DeepSeek, Together AI, OpenRouter, Mistral, نموذج مستضاف ذاتياً...) عبر
--- تحديد نقطة الاتصال (base_url) الخاصة به ومفتاح الـ API الخاص به.
+-- مزوّدو الذكاء الاصطناعي (عامّون على مستوى النظام كله، يديرهم الأدمن فقط
+-- من ai_providers.php، وتشاركهم كل المشاريع والمحادثات). يمكن إضافة أكثر
+-- من مفتاح NVIDIA، أو أي مزوّد آخر متوافق مع بنية OpenAI Chat Completions
+-- (OpenAI, Groq, DeepSeek, Together AI, OpenRouter, Mistral, نموذج مستضاف
+-- ذاتياً...) عبر تحديد نقطة الاتصال (base_url) الخاصة به ومفتاحه الخاص.
 -- api_key تُخزَّن مشفّرة (AES-256-GCM) عبر Crypto::encrypt()
 -- ---------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS `ai_providers` (
   `id` INT UNSIGNED NOT NULL AUTO_INCREMENT,
-  `project_id` INT UNSIGNED NOT NULL,
   `label` VARCHAR(100) NOT NULL,
   `base_url` VARCHAR(255) NOT NULL DEFAULT 'https://integrate.api.nvidia.com/v1/chat/completions',
   `api_key` TEXT NOT NULL COMMENT 'مشفّر',
   `text_model` VARCHAR(150) NOT NULL DEFAULT 'openai/gpt-oss-20b',
   `vision_model` VARCHAR(150) NULL,
   `is_default` TINYINT(1) NOT NULL DEFAULT 0,
+  `created_by` INT UNSIGNED NULL COMMENT 'الأدمن الذي أضافه، NULL إن حُذف حسابه لاحقاً',
   `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   `updated_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`),
-  KEY `idx_provider_project` (`project_id`),
-  CONSTRAINT `fk_provider_project` FOREIGN KEY (`project_id`) REFERENCES `projects` (`id`) ON DELETE CASCADE
+  KEY `idx_provider_created_by` (`created_by`),
+  CONSTRAINT `fk_provider_user` FOREIGN KEY (`created_by`) REFERENCES `users` (`id`) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ---------------------------------------------------------------------
@@ -102,6 +116,7 @@ CREATE TABLE IF NOT EXISTS `ai_conversations` (
   `id` INT UNSIGNED NOT NULL AUTO_INCREMENT,
   `project_id` INT UNSIGNED NOT NULL,
   `user_id` INT UNSIGNED NOT NULL,
+  `mode` ENUM('chat','code') NOT NULL DEFAULT 'chat' COMMENT 'chat = دردشة عادية، code = مساعد كود يستكشف مستودع GitHub',
   `title` VARCHAR(190) NOT NULL DEFAULT 'محادثة جديدة',
   `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   `updated_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,

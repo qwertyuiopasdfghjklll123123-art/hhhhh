@@ -43,6 +43,12 @@ $appName       = app_config()['app']['name'] ?? 'لوحة إدارة المشا�
       <a href="users.php" class="nav-item <?= $activeNav === 'users' ? 'active' : '' ?>">
         <i class="fa-solid fa-users nav-icon"></i><span>المستخدمون</span>
       </a>
+      <a href="ai_providers.php" class="nav-item <?= $activeNav === 'ai_providers' ? 'active' : '' ?>">
+        <i class="fa-solid fa-microchip nav-icon"></i><span>مزوّدو الذكاء الاصطناعي</span>
+      </a>
+      <a href="admin_settings.php" class="nav-item <?= $activeNav === 'admin_settings' ? 'active' : '' ?>">
+        <i class="fa-solid fa-gear nav-icon"></i><span>إعدادات النظام</span>
+      </a>
       <?php endif; ?>
       <a href="profile.php" class="nav-item <?= $activeNav === 'profile' ? 'active' : '' ?>">
         <i class="fa-solid fa-user-gear nav-icon"></i><span>حسابي</span>

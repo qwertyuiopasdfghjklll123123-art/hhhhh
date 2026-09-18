@@ -674,7 +674,37 @@ textarea.form-control { resize: vertical; min-height: 42px; }
 
 .settings-stack { max-width: 880px; }
 
-/* مزوّدو الذكاء الاصطناعي (متعددون لكل مشروع) */
+/* حالة ربط GitHub عبر OAuth (زر الربط أو شارة "متصل") */
+.github-connect-status { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.link-muted { font-size: 0.78rem; color: var(--text-muted); }
+.link-muted:hover { color: var(--accent); }
+
+/* خطوات إعداد تطبيق GitHub OAuth (إعدادات النظام) */
+.oauth-steps {
+  margin: 0 0 18px;
+  padding-inline-start: 22px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  font-size: 0.83rem;
+  color: var(--text-muted);
+  line-height: 1.8;
+}
+.oauth-steps code { background: var(--surface-2); padding: 1px 6px; border-radius: 5px; font-size: 0.85em; }
+
+.copy-box {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 6px;
+  background: var(--surface-2);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  padding: 8px 10px;
+}
+.copy-box code { flex: 1; background: none; padding: 0; font-size: 0.78rem; color: var(--text); overflow-x: auto; white-space: nowrap; }
+
+/* مزوّدو الذكاء الاصطناعي (عامّون على مستوى النظام، يديرهم الأدمن من ai_providers.php) */
 .provider-list { display: flex; flex-direction: column; }
 .provider-row {
   display: flex;

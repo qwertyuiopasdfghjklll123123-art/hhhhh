@@ -30,7 +30,7 @@ if (!$context) {
     json_response(['success' => false, 'error' => 'سياق المشروع غير موجود'], 404);
 }
 
-$token = Crypto::decrypt($context['github_token']);
+$token = resolve_github_token($context, $user);
 if (!$token || !$context['github_owner'] || !$context['github_repo']) {
     json_response(['success' => false, 'error' => 'إعدادات GitHub غير مكتملة لهذا المشروع.'], 422);
 }

@@ -61,17 +61,15 @@ if (!$context) {
 
 $provider = null;
 if ($providerId > 0) {
-    $provStmt = db()->prepare('SELECT * FROM ai_providers WHERE id = ? AND project_id = ?');
-    $provStmt->execute([$providerId, $projectId]);
+    $provStmt = db()->prepare('SELECT * FROM ai_providers WHERE id = ?');
+    $provStmt->execute([$providerId]);
     $provider = $provStmt->fetch();
 }
 if (!$provider) {
-    $provStmt = db()->prepare('SELECT * FROM ai_providers WHERE project_id = ? ORDER BY is_default DESC, created_at ASC LIMIT 1');
-    $provStmt->execute([$projectId]);
-    $provider = $provStmt->fetch();
+    $provider = db()->query('SELECT * FROM ai_providers ORDER BY is_default DESC, created_at ASC LIMIT 1')->fetch();
 }
 if (!$provider) {
-    json_response(['success' => false, 'error' => 'لم يتم إضافة أي مزوّد ذكاء اصطناعي لهذا المشروع بعد. أضف واحداً (NVIDIA NIM أو أي مزوّد آخر) من تبويب الإعدادات.'], 422);
+    json_response(['success' => false, 'error' => 'لم يتم إضافة أي مزوّد ذكاء اصطناعي بعد. يجب على مسؤول النظام إضافة واحد من صفحة «مزوّدو الذكاء الاصطناعي».'], 422);
 }
 
 $providerApiKey = Crypto::decrypt($provider['api_key']);
@@ -96,14 +94,14 @@ if ($hasImage) {
 /* ---------- التحقق من/إنشاء المحادثة ---------- */
 
 if ($convId > 0) {
-    $convStmt = db()->prepare('SELECT id FROM ai_conversations WHERE id = ? AND user_id = ? AND project_id = ?');
+    $convStmt = db()->prepare("SELECT id FROM ai_conversations WHERE id = ? AND user_id = ? AND project_id = ? AND mode = 'chat'");
     $convStmt->execute([$convId, $user['id'], $projectId]);
     if (!$convStmt->fetch()) {
         json_response(['success' => false, 'error' => 'المحادثة غير موجودة'], 404);
     }
 } else {
     $title = truncate($content !== '' ? $content : 'محادثة بالصورة', 60);
-    db()->prepare('INSERT INTO ai_conversations (project_id, user_id, title) VALUES (?, ?, ?)')
+    db()->prepare("INSERT INTO ai_conversations (project_id, user_id, mode, title) VALUES (?, ?, 'chat', ?)")
         ->execute([$projectId, $user['id'], $title !== '' ? $title : 'محادثة جديدة']);
     $convId = (int) db()->lastInsertId();
 }
@@ -113,7 +111,7 @@ if ($convId > 0) {
 $extraContext = null;
 $attachedMeta = null;
 if ($attachPath !== '') {
-    $githubToken = Crypto::decrypt($context['github_token']);
+    $githubToken = resolve_github_token($context, $user);
     if ($githubToken && $context['github_owner'] && $context['github_repo']) {
         $gh = new GithubClient($githubToken, $context['github_owner'], $context['github_repo'], $context['github_branch'] ?: 'main');
         $fileRes = $gh->getFile($attachPath);

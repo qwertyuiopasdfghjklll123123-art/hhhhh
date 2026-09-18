@@ -13,8 +13,9 @@ if (!defined('APP_ROOT')) {
 
 function diagnose_fatal_hint(string $message): string
 {
-    if (str_contains($message, 'ai_providers') || str_contains($message, "doesn't exist") || str_contains($message, 'Unknown column')) {
-        return 'يبدو أن قاعدة البيانات تحتاج تحديثاً. شغّل ملف database/migrate_ai_providers.sql على قاعدة بياناتك ثم أعد المحاولة (خاص بمن ثبّت النظام قبل إضافة مزوّدي الذكاء الاصطناعي المتعددين).';
+    if (str_contains($message, 'ai_providers') || str_contains($message, 'app_settings') || str_contains($message, 'github_oauth')
+        || str_contains($message, "doesn't exist") || str_contains($message, 'Unknown column')) {
+        return 'يبدو أن قاعدة البيانات تحتاج تحديثاً. شغّل ملف database/migrate_global_providers_and_oauth.sql على قاعدة بياناتك ثم أعد المحاولة (خاص بمن ثبّت النظام قبل جعل مزوّدي الذكاء الاصطناعي عامّين وإضافة ربط GitHub عبر OAuth).';
     }
     if (preg_match('/\b(AiClient|GithubClient|NvidiaClient)\b/', $message)) {
         return 'أحد ملفات الأصناف البرمجية داخل مجلد services/ غير موجود على السيرفر. تأكد من رفع كل ملفات آخر نسخة كاملة (وأن services/AiClient.php موجود فعلاً).';
@@ -297,4 +298,24 @@ function log_activity(?int $userId, string $action, string $description = ''): v
     } catch (Throwable $e) {
         error_log('activity_log insert failed: ' . $e->getMessage());
     }
+}
+
+/**
+ * رمز GitHub الفعّال لمشروع معيّن مع مستخدم معيّن: يُفضَّل رمز حساب المستخدم
+ * المربوط عبر OAuth (زر "ربط GitHub" — الطريقة الموصى بها والوحيدة لأي اتصال
+ * جديد)، مع دعم توافقي لـ Token يدوي محفوظ خصيصاً لسياق مشروع أُعدَّ قبل
+ * إضافة الربط عبر OAuth.
+ */
+function resolve_github_token(array $context, array $user): ?string
+{
+    if (!empty($user['github_oauth_token'])) {
+        $decoded = Crypto::decrypt($user['github_oauth_token']);
+        if ($decoded !== null && $decoded !== '') {
+            return $decoded;
+        }
+    }
+    if (!empty($context['github_token'])) {
+        return Crypto::decrypt($context['github_token']);
+    }
+    return null;
 }

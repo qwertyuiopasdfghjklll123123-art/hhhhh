@@ -78,6 +78,42 @@ final class GithubClient
         return ['success' => true, 'items' => $items];
     }
 
+    /**
+     * يجلب قائمة مسطّحة (بلا مجلدات) بكل ملفات المستودع دفعة واحدة عبر Git Trees API
+     * (بدل التصفح التكراري مجلداً تلو الآخر)، لبناء لمحة عامة عن بنية المستودع تُحقن
+     * ضمن موجّه النظام لقسم "الكود". محدودة بعدد أقصى من الملفات لتفادي تضخّم
+     * الموجّه في المستودعات الضخمة.
+     * يعيد ['success','files' => [['path'=>string,'size'=>int], ...],'truncated' => bool]
+     */
+    public function getTree(int $maxEntries = 500): array
+    {
+        $res = $this->request('GET', "/repos/{$this->owner}/{$this->repo}/git/trees/" . rawurlencode($this->branch) . '?recursive=1');
+        if (!$res['success']) {
+            return $res;
+        }
+
+        $data = $res['data'];
+        $rawTree = is_array($data['tree'] ?? null) ? $data['tree'] : [];
+        $blobs = array_values(array_filter($rawTree, static fn ($entry): bool => ($entry['type'] ?? '') === 'blob'));
+
+        $files = [];
+        foreach ($blobs as $entry) {
+            if (count($files) >= $maxEntries) {
+                break;
+            }
+            $files[] = [
+                'path' => (string) ($entry['path'] ?? ''),
+                'size' => (int) ($entry['size'] ?? 0),
+            ];
+        }
+
+        return [
+            'success'   => true,
+            'files'     => $files,
+            'truncated' => !empty($data['truncated']) || count($blobs) > count($files),
+        ];
+    }
+
     /** ينشئ ملفاً جديداً أو يحدّث ملفاً موجوداً (Commit مباشر على الفرع المحدد) */
     public function createOrUpdateFile(string $path, string $content, string $commitMessage, ?string $sha = null): array
     {

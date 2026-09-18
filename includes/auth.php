@@ -15,7 +15,7 @@ function current_user(): ?array
         return null;
     }
 
-    $stmt = db()->prepare('SELECT id, name, email, role, status FROM users WHERE id = ? LIMIT 1');
+    $stmt = db()->prepare('SELECT id, name, email, role, status, github_oauth_token, github_oauth_username FROM users WHERE id = ? LIMIT 1');
     $stmt->execute([$_SESSION['user_id']]);
     $user = $stmt->fetch();
 

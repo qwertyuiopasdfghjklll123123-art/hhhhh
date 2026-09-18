@@ -126,6 +126,20 @@
       return;
     }
 
+    var copyTextBtn = e.target.closest('[data-action="copy-text"]');
+    if (copyTextBtn) {
+      var copySource = document.getElementById(copyTextBtn.getAttribute('data-copy-target'));
+      if (copySource && navigator.clipboard && navigator.clipboard.writeText) {
+        var copyIcon = copyTextBtn.querySelector('i');
+        var prevIconClass = copyIcon ? copyIcon.className : '';
+        navigator.clipboard.writeText(copySource.textContent || '').then(function () {
+          if (copyIcon) { copyIcon.className = 'fa-solid fa-check'; }
+          setTimeout(function () { if (copyIcon) { copyIcon.className = prevIconClass; } }, 1500);
+        }).catch(function () {});
+      }
+      return;
+    }
+
     var editProviderBtn = e.target.closest('[data-action="edit-provider"]');
     if (editProviderBtn) {
       resetProviderModal();
@@ -206,6 +220,8 @@
   function initChat(root) {
     var projectId = root.getAttribute('data-project-id');
     var hasGithub = root.getAttribute('data-has-github') === '1';
+    var mode = root.getAttribute('data-mode') === 'code' ? 'code' : 'chat';
+    var sendEndpoint = mode === 'code' ? 'api/code_chat.php' : 'api/messages.php';
 
     var chatMessages = document.getElementById('chatMessages');
     var chatWelcome = document.getElementById('chatWelcome');
@@ -345,6 +361,9 @@
           var m = typeof meta === 'string' ? JSON.parse(meta) : meta;
           if (m && m.path) { appendAttachmentNote(bubble, 'fa-brands fa-github', m.path); }
           if (m && m.image) { appendAttachmentNote(bubble, 'fa-regular fa-image', m.image); }
+          if (m && m.files_read && m.files_read.length) {
+            appendAttachmentNote(bubble, 'fa-solid fa-folder-open', 'اطّلع على: ' + m.files_read.join('، '));
+          }
           if (m && m.provider) { providerLabel = m.provider; }
           if (m && m.reasoning) { reasoningText = m.reasoning; }
         } catch (e) { /* تجاهل بيانات meta غير صالحة */ }
@@ -676,7 +695,7 @@
       }
       clearAttachments();
 
-      var data = await apiFetch('api/messages.php', { method: 'POST', body: payload });
+      var data = await apiFetch(sendEndpoint, { method: 'POST', body: payload });
       removeTyping();
       sending = false;
       btnSendChat.disabled = false;
@@ -690,10 +709,11 @@
         currentConversationId = data.conversation_id;
       }
       var replyMeta = null;
-      if (data.provider || data.reasoning) {
+      if (data.provider || data.reasoning || (data.files_read && data.files_read.length)) {
         replyMeta = {};
         if (data.provider) { replyMeta.provider = data.provider; }
         if (data.reasoning) { replyMeta.reasoning = data.reasoning; }
+        if (data.files_read && data.files_read.length) { replyMeta.files_read = data.files_read; }
       }
       appendMessage('assistant', data.reply, replyMeta);
     }
