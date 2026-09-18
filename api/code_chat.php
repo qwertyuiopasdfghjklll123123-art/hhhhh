@@ -23,7 +23,6 @@ $projectId  = (int) ($body['project_id'] ?? 0);
 $convId     = isset($body['conversation_id']) ? (int) $body['conversation_id'] : 0;
 $providerId = isset($body['provider_id']) ? (int) $body['provider_id'] : 0;
 $content    = trim((string) ($body['content'] ?? ''));
-$attachPath = trim((string) ($body['attach_path'] ?? ''));
 
 if ($projectId <= 0) {
     json_response(['success' => false, 'error' => 'مشروع غير صالح'], 422);
@@ -84,18 +83,9 @@ if ($convId > 0) {
     $convId = (int) db()->lastInsertId();
 }
 
-/* ---------- تجهيز نظرة عامة عن المستودع + الملف المرفَق يدوياً (إن وُجد) ---------- */
+/* ---------- تجهيز نظرة عامة عن المستودع ---------- */
 
 $filesRead = [];
-$preReadBlock = '';
-
-if ($attachPath !== '') {
-    $attachRes = $gh->getFile($attachPath);
-    if ($attachRes['success']) {
-        $preReadBlock = "### {$attachPath} (مرفَق من المستخدم)\n```\n" . truncate_file_content($attachRes['content']) . "\n```";
-        $filesRead[] = $attachPath;
-    }
-}
 
 $treeRes = $gh->getTree();
 $systemPrompt = code_chat_build_system_prompt(
@@ -106,8 +96,7 @@ $systemPrompt = code_chat_build_system_prompt(
     $treeRes['success'] ? $treeRes['truncated'] : false,
     $context['sql_schema'],
     $context['system_rules'],
-    project_skills_combined($projectId),
-    $preReadBlock
+    project_skills_combined($projectId)
 );
 
 /* ---------- سجل المحادثة السابق (أزواج سؤال/جواب نهائية فقط — بلا تفاصيل جولات القراءة) ---------- */
@@ -117,9 +106,8 @@ $histStmt->execute([$convId]);
 $history = array_reverse($histStmt->fetchAll());
 $priorMessages = array_map(static fn (array $m): array => ['role' => $m['role'], 'content' => $m['content']], $history);
 
-$userMessageMeta = $attachPath !== '' ? ['path' => $attachPath] : null;
 db()->prepare('INSERT INTO ai_messages (conversation_id, role, content, meta) VALUES (?, ?, ?, ?)')
-    ->execute([$convId, 'user', $content, $userMessageMeta ? json_encode($userMessageMeta, JSON_UNESCAPED_UNICODE) : null]);
+    ->execute([$convId, 'user', $content, null]);
 
 $client = new AiClient($providerApiKey, $provider['base_url'], $provider['text_model']);
 
@@ -314,8 +302,7 @@ function code_chat_build_system_prompt(
     bool $treeTruncated,
     ?string $sqlSchema,
     ?string $systemRules,
-    ?string $skillContent,
-    string $preReadBlock
+    ?string $skillContent
 ): string {
     $parts = [
         "أنت مساعد برمجي يعمل مثل \"Claude Code\": تستكشف مستودع GitHub التالي وتحل المشاكل أو تنفّذ الطلبات بناءً على محتواه الفعلي بدل التخمين.\n"
@@ -345,10 +332,6 @@ function code_chat_build_system_prompt(
             $list .= "\n… (تم اقتطاع القائمة، المستودع يحتوي ملفات أكثر من المعروض هنا)";
         }
         $parts[] = "### قائمة ملفات المستودع (نظرة عامة)\n{$list}";
-    }
-
-    if ($preReadBlock !== '') {
-        $parts[] = "### ملف مرفَق مسبقاً من المستخدم\n{$preReadBlock}";
     }
 
     if ($skillContent !== null && trim($skillContent) !== '') {

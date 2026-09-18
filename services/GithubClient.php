@@ -79,32 +79,6 @@ final class GithubClient
         ];
     }
 
-    /** يسرد محتويات مجلد (أو جذر المستودع إن ترك المسار فارغاً) */
-    public function listDirectory(string $path = ''): array
-    {
-        $path = ltrim($path, '/');
-        $endpoint = "/repos/{$this->owner}/{$this->repo}/contents/" . $this->encodePath($path) . '?ref=' . rawurlencode($this->branch);
-        $res = $this->request('GET', $endpoint);
-        if (!$res['success']) {
-            return $res;
-        }
-        $raw = $res['data'];
-        if (!is_array($raw) || (isset($raw['type']) && $raw['type'] === 'file')) {
-            return ['success' => false, 'error' => 'المسار المحدد هو ملف وليس مجلداً.'];
-        }
-        $items = [];
-        foreach ($raw as $item) {
-            $items[] = [
-                'name' => $item['name'] ?? '',
-                'path' => $item['path'] ?? '',
-                'type' => $item['type'] ?? 'file',
-                'size' => $item['size'] ?? 0,
-            ];
-        }
-        usort($items, static fn ($a, $b) => [$b['type'], $a['name']] <=> [$a['type'], $b['name']]);
-        return ['success' => true, 'items' => $items];
-    }
-
     /**
      * يجلب قائمة مسطّحة (بلا مجلدات) بكل ملفات المستودع دفعة واحدة عبر Git Trees API
      * (بدل التصفح التكراري مجلداً تلو الآخر)، لبناء لمحة عامة عن بنية المستودع تُحقن

@@ -46,6 +46,40 @@
   --font-mono: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
 }
 
+/* الوضع النهاري (فاتح) - نفس ألوان التمييز (accent/success/danger/...) تقريباً
+   مع خلفيات/أسطح/حدود/نصوص معكوسة لتباين مريح على خلفية بيضاء. مفعَّل عبر
+   data-theme="light" على <html> (يُضبط من زر تبديل الوضع بالقائمة الجانبية،
+   ويُطبَّق فوراً قبل الرسم الأول عبر سكربت مضمَّن في <head> لتفادي وميض). */
+:root[data-theme="light"] {
+  --bg: #f7f6f4;
+  --bg-elevated: #ffffff;
+  --surface: #ffffff;
+  --surface-2: #f0efeb;
+  --surface-hover: #e7e5e0;
+  --border: rgba(0, 0, 0, 0.09);
+  --border-strong: rgba(0, 0, 0, 0.15);
+  --text: #201f1d;
+  --text-muted: #6b6b72;
+  --text-faint: #8e8d94;
+
+  --accent-soft: rgba(204, 124, 94, 0.12);
+
+  --success-hover: #23974a;
+  --success-soft: rgba(47, 179, 68, 0.12);
+
+  --danger-hover: #d92c2c;
+  --danger-soft: rgba(239, 68, 68, 0.1);
+
+  --warning-hover: #d68f1f;
+  --warning-soft: rgba(242, 169, 60, 0.14);
+
+  --info-hover: #2f7fe0;
+  --info-soft: rgba(74, 158, 255, 0.1);
+
+  --shadow-sm: 0 2px 8px rgba(20, 18, 16, 0.08);
+  --shadow-md: 0 10px 28px rgba(20, 18, 16, 0.12);
+}
+
 * { box-sizing: border-box; }
 
 html, body {
@@ -61,6 +95,7 @@ body {
   line-height: 1.65;
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
+  transition: background-color 0.15s ease, color 0.15s ease;
 }
 
 a { color: inherit; text-decoration: none; }
@@ -68,6 +103,12 @@ button { font-family: inherit; }
 ul { list-style: none; margin: 0; padding: 0; }
 h1, h2, h3, h4 { margin: 0; }
 code, pre, textarea.code-textarea { font-family: var(--font-mono); direction: ltr; text-align: left; }
+
+/* انتقال سلس عند تبديل الوضع الداكن/النهاري على أبرز الحاويات (بلا مبالغة على كل عنصر) */
+.app-sidebar, .app-main, .topbar, .card, .modal, .chat-rail, .chat-pane, .msg-bubble,
+.form-control, .stat-card, .project-card, .msg-avatar, .provider-info-card {
+  transition: background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
 
 ::selection { background: var(--accent); color: #fff; }
 
@@ -159,6 +200,79 @@ code, pre, textarea.code-textarea { font-family: var(--font-mono); direction: lt
 
 .nav-icon { width: 18px; text-align: center; font-size: 0.95rem; flex-shrink: 0; }
 
+/* قسم المشروع الحالي داخل القائمة الجانبية نفسها (دردشة عادية/الكود/Skill/الإعدادات)
+   بدل شريط تبويبات منفصل داخل صفحة المشروع - نفس منطق منيو تطبيق كلود: كل
+   شيء بمكان واحد. يظهر فقط عند فتح مشروع (project_context.php). */
+.sidebar-project-block {
+  margin: 2px 0 6px;
+  padding-inline-start: 10px;
+  border-inline-start: 2px solid var(--border-strong);
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.sidebar-project-name {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 9px 12px 7px;
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.sidebar-project-name i { color: var(--accent); flex-shrink: 0; }
+
+.nav-subitem {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  padding: 8px 12px;
+  border-radius: var(--radius-sm);
+  color: var(--text-muted);
+  font-size: 0.82rem;
+  font-weight: 500;
+  transition: background 0.15s, color 0.15s;
+}
+.nav-subitem:hover { background: var(--surface); color: var(--text); }
+.nav-subitem.active { background: var(--accent-soft); color: var(--accent); font-weight: 700; }
+.nav-subitem i { width: 16px; text-align: center; font-size: 0.82rem; flex-shrink: 0; }
+
+/* قائمة سريعة قابلة للتمرير بمشاريع المستخدم للتبديل بينها بلا مغادرة القائمة الجانبية */
+.sidebar-section-label {
+  padding: 12px 12px 4px;
+  font-size: 0.68rem;
+  font-weight: 700;
+  color: var(--text-faint);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.sidebar-project-list {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  max-height: 190px;
+  overflow-y: auto;
+}
+.sidebar-project-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 12px;
+  border-radius: var(--radius-sm);
+  color: var(--text-muted);
+  font-size: 0.8rem;
+  overflow: hidden;
+}
+.sidebar-project-item span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sidebar-project-item:hover { background: var(--surface); color: var(--text); }
+.sidebar-project-item.active { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+.sidebar-project-item i { width: 14px; text-align: center; font-size: 0.6rem; color: var(--text-faint); flex-shrink: 0; }
+.sidebar-project-item.active i { color: var(--accent); }
+.sidebar-empty-hint { padding: 6px 12px; font-size: 0.74rem; color: var(--text-faint); }
+
 .sidebar-footer {
   display: flex;
   flex-direction: column;
@@ -186,6 +300,29 @@ code, pre, textarea.code-textarea { font-family: var(--font-mono); direction: lt
   transition: background 0.15s, color 0.15s, border-color 0.15s;
 }
 .btn-logout:hover { background: var(--danger-soft); color: #f87171; border-color: rgba(239, 68, 68, 0.3); }
+
+.btn-theme-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+  padding: 9px 12px;
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  border: 1px solid var(--border-strong);
+  color: var(--text-muted);
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+.btn-theme-toggle:hover { background: var(--surface-hover); color: var(--text); }
+.btn-theme-toggle .theme-icon-dark,
+.btn-theme-toggle .theme-icon-light { display: none; align-items: center; gap: 8px; }
+.btn-theme-toggle .theme-icon-dark { display: inline-flex; }
+:root[data-theme="light"] .btn-theme-toggle .theme-icon-dark { display: none; }
+:root[data-theme="light"] .btn-theme-toggle .theme-icon-light { display: inline-flex; }
 
 .user-avatar {
   width: 34px;
@@ -688,33 +825,6 @@ textarea.form-control { resize: vertical; min-height: 42px; }
 }
 .project-card-footer span { display: inline-flex; align-items: center; gap: 5px; }
 
-/* منيو جانبي لتبويبات المشروع (دردشة/كود/Skill/إعدادات) بدل شريط أفقي علوي */
-.project-view {
-  display: grid;
-  grid-template-columns: 188px 1fr;
-  gap: 26px;
-  align-items: start;
-}
-.project-tabs {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  position: sticky;
-  top: 0;
-}
-.project-tabs-content { min-width: 0; }
-.tab-btn {
-  display: flex; align-items: center; gap: 10px;
-  padding: 10px 13px;
-  border-radius: var(--radius-sm);
-  border-inline-start: 2px solid transparent;
-  color: var(--text-muted);
-  font-size: 0.85rem;
-  font-weight: 600;
-}
-.tab-btn:hover { color: var(--text); background: var(--surface); }
-.tab-btn.active { color: var(--accent); background: var(--accent-soft); border-inline-start-color: var(--accent); }
-
 .settings-stack { max-width: 880px; }
 .skill-card-actions { display: flex; align-items: center; gap: 10px; margin-top: 4px; }
 
@@ -1184,30 +1294,6 @@ textarea.form-control { resize: vertical; min-height: 42px; }
   flex-shrink: 0;
 }
 
-/* متصفح ملفات GitHub داخل نافذة منبثقة */
-.github-browser { display: flex; flex-direction: column; gap: 10px; }
-.github-path-bar {
-  display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
-  font-size: 0.78rem; color: var(--text-muted);
-}
-.github-path-bar button { background: none; border: none; color: var(--accent); cursor: pointer; font-size: 0.78rem; padding: 2px 4px; }
-.github-path-bar button:hover { text-decoration: underline; }
-.github-file-list { border: 1px solid var(--border); border-radius: var(--radius-sm); max-height: 360px; overflow-y: auto; }
-.gh-item {
-  display: flex; align-items: center; gap: 10px;
-  padding: 10px 14px;
-  border-bottom: 1px solid var(--border);
-  cursor: pointer;
-  font-size: 0.82rem;
-  transition: background 0.12s;
-}
-.gh-item:last-child { border-bottom: none; }
-.gh-item:hover { background: var(--surface-2); }
-.gh-item i { width: 16px; text-align: center; color: var(--text-faint); }
-.gh-item.gh-item-folder i { color: #f2c94c; }
-.gh-item.gh-item-file i { color: var(--info); }
-.gh-item-size { margin-inline-start: auto; font-size: 0.68rem; color: var(--text-faint); }
-
 /* =====================================================================
    استجابة الشاشات (كمبيوتر أولاً، مع دعم كامل للأجهزة اللوحية والهواتف)
    ===================================================================== */
@@ -1239,19 +1325,6 @@ textarea.form-control { resize: vertical; min-height: 42px; }
   .chat-pane { height: 70vh; }
   .msg { max-width: 96%; }
   .project-grid { grid-template-columns: 1fr; }
-
-  /* منيو التبويبات الجانبي يتحول لشريط أفقي قابل للتمرير على الهواتف بدل عمود رأسي يزاحم المحتوى */
-  .project-view { grid-template-columns: 1fr; gap: 14px; }
-  .project-tabs {
-    flex-direction: row;
-    overflow-x: auto;
-    position: static;
-    border-bottom: 1px solid var(--border);
-    padding-bottom: 8px;
-    gap: 4px;
-  }
-  .tab-btn { border-inline-start: none; border-bottom: 2px solid transparent; flex-shrink: 0; white-space: nowrap; }
-  .tab-btn.active { background: none; border-bottom-color: var(--accent); }
 }
 
 @media (max-width: 560px) {

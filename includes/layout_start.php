@@ -6,17 +6,31 @@
  *   $pageTitle   عنوان الصفحة
  *   $activeNav   المعرّف النشط في القائمة الجانبية: dashboard|projects|users|profile
  *   $topbarActions (اختياري) HTML جاهز لأزرار أعلى الصفحة
+ *   $currentProjectNav (اختياري، من project_context.php فقط) = ['project' => صف المشروع, 'tab' => التبويب النشط]
+ *     يعرض تبويبات المشروع الحالي (دردشة/كود/Skill/إعدادات) داخل القائمة
+ *     الجانبية نفسها بدل شريط منفصل داخل الصفحة - نفس منطق قائمة تطبيق Claude.
  */
 $pageTitle     = $pageTitle ?? 'لوحة التحكم';
 $activeNav     = $activeNav ?? '';
 $topbarActions = $topbarActions ?? '';
+$currentProjectNav = $currentProjectNav ?? null;
 $appName       = app_config()['app']['name'] ?? 'لوحة إدارة المشاريع';
+$sidebarProjects = sidebar_projects_for_user($user);
 ?><!DOCTYPE html>
 <html lang="ar" dir="rtl">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title><?= e($pageTitle) ?> · <?= e($appName) ?></title>
+<!-- يطبَّق الوضع الداكن/النهاري المحفوظ فوراً قبل أول رسم لتفادي وميض لون خاطئ -->
+<script nonce="<?= e(csp_nonce()) ?>">
+(function () {
+  try {
+    var t = localStorage.getItem('pmdash_theme');
+    if (t === 'light' || t === 'dark') { document.documentElement.setAttribute('data-theme', t); }
+  } catch (e) {}
+})();
+</script>
 <!-- يضمن أن كل الروابط النسبية (القائمة الجانبية، CSS/JS، النماذج) تُحلّ من
      جذر التطبيق دائماً، حتى عند فتح رابط نظيف معاد كتابته مثل chat/{معرّف}
      حيث يختلف شريط عنوان المتصفح عن مسار السكربت الفعلي المُنفَّذ -->
@@ -40,9 +54,45 @@ $appName       = app_config()['app']['name'] ?? 'لوحة إدارة المشا�
       <a href="dashboard.php" class="nav-item <?= $activeNav === 'dashboard' ? 'active' : '' ?>">
         <i class="fa-solid fa-grip nav-icon"></i><span>لوحة التحكم</span>
       </a>
-      <a href="projects.php" class="nav-item <?= $activeNav === 'projects' ? 'active' : '' ?>">
+      <a href="projects.php" class="nav-item <?= $activeNav === 'projects' && !$currentProjectNav ? 'active' : '' ?>">
         <i class="fa-solid fa-folder-tree nav-icon"></i><span>المشاريع</span>
       </a>
+
+      <?php if ($currentProjectNav): ?>
+      <div class="sidebar-project-block">
+        <div class="sidebar-project-name" title="<?= e($currentProjectNav['project']['name']) ?>">
+          <i class="fa-solid fa-diagram-project"></i><span><?= e($currentProjectNav['project']['name']) ?></span>
+        </div>
+        <a href="<?= e(project_url($currentProjectNav['project'], 'chat')) ?>" class="nav-subitem <?= $currentProjectNav['tab'] === 'chat' ? 'active' : '' ?>">
+          <i class="fa-solid fa-comments"></i><span>الدردشة العادية</span>
+        </a>
+        <a href="<?= e(project_url($currentProjectNav['project'], 'code')) ?>" class="nav-subitem <?= $currentProjectNav['tab'] === 'code' ? 'active' : '' ?>">
+          <i class="fa-solid fa-code"></i><span>الكود</span>
+        </a>
+        <a href="<?= e(project_url($currentProjectNav['project'], 'skill')) ?>" class="nav-subitem <?= $currentProjectNav['tab'] === 'skill' ? 'active' : '' ?>">
+          <i class="fa-solid fa-puzzle-piece"></i><span>Skill</span>
+        </a>
+        <a href="<?= e(project_url($currentProjectNav['project'], 'settings')) ?>" class="nav-subitem <?= $currentProjectNav['tab'] === 'settings' ? 'active' : '' ?>">
+          <i class="fa-solid fa-sliders"></i><span>الإعدادات</span>
+        </a>
+      </div>
+      <?php endif; ?>
+
+      <?php if (!empty($sidebarProjects)): ?>
+      <div class="sidebar-section-label">مشاريعي</div>
+      <div class="sidebar-project-list">
+        <?php foreach ($sidebarProjects as $sp): ?>
+          <a href="<?= e(project_url($sp, 'chat')) ?>"
+             class="sidebar-project-item <?= ($currentProjectNav && (int) $currentProjectNav['project']['id'] === (int) $sp['id']) ? 'active' : '' ?>"
+             title="<?= e($sp['name']) ?>">
+            <i class="fa-solid fa-circle"></i><span><?= e($sp['name']) ?></span>
+          </a>
+        <?php endforeach; ?>
+      </div>
+      <?php elseif ($activeNav === 'projects'): ?>
+      <p class="sidebar-empty-hint">لا توجد مشاريع بعد.</p>
+      <?php endif; ?>
+
       <?php if (($user['role'] ?? '') === 'admin'): ?>
       <a href="users.php" class="nav-item <?= $activeNav === 'users' ? 'active' : '' ?>">
         <i class="fa-solid fa-users nav-icon"></i><span>المستخدمون</span>
@@ -60,6 +110,10 @@ $appName       = app_config()['app']['name'] ?? 'لوحة إدارة المشا�
     </nav>
 
     <div class="sidebar-footer">
+      <button type="button" class="btn-theme-toggle" id="themeToggle" title="تبديل الوضع الداكن/النهاري">
+        <span class="theme-icon-dark"><i class="fa-solid fa-moon"></i> الوضع الداكن</span>
+        <span class="theme-icon-light"><i class="fa-solid fa-sun"></i> الوضع النهاري</span>
+      </button>
       <div class="user-chip">
         <span class="user-avatar"><?= e(mb_strtoupper(mb_substr($user['name'] ?? '?', 0, 1, 'UTF-8'), 'UTF-8')) ?></span>
         <span class="user-meta">

@@ -169,6 +169,21 @@ function start_secure_session(): void
     session_start();
 }
 
+/**
+ * قيمة عشوائية فريدة لكل طلب (وليس لكل جلسة كـ csrf_token()) تُستخدم كـ CSP
+ * nonce للسماح بسكربت واحد مضمَّن محدَّد سلفاً (كشف الوضع الداكن/النهاري في
+ * <head> قبل الرسم الأول) دون إضعاف script-src بالسماح لأي سكربت مضمَّن
+ * (unsafe-inline)، فتبقى الحماية من XSS عبر سكربتات مضمَّنة مُحقنة قائمة.
+ */
+function csp_nonce(): string
+{
+    static $nonce = null;
+    if ($nonce === null) {
+        $nonce = base64_encode(random_bytes(16));
+    }
+    return $nonce;
+}
+
 function send_security_headers(): void
 {
     header('X-Content-Type-Options: nosniff');
@@ -178,7 +193,7 @@ function send_security_headers(): void
     header("Content-Security-Policy: default-src 'self'; " .
         "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdnjs.cloudflare.com; " .
         "font-src 'self' https://fonts.gstatic.com https://cdnjs.cloudflare.com; " .
-        "script-src 'self'; " .
+        "script-src 'self' 'nonce-" . csp_nonce() . "'; " .
         "img-src 'self' data: https:; " .
         "connect-src 'self'");
 }
@@ -367,6 +382,27 @@ function require_project_access(int $projectId, array $user): array
         json_response(['success' => false, 'error' => 'ليست لديك صلاحية الوصول لهذا المشروع'], 403);
     }
     return $project;
+}
+
+/**
+ * قائمة مشاريع المستخدم للتبديل السريع بينها من القائمة الجانبية (نمط قائمة
+ * المحادثات الأخيرة بتطبيق Claude) - مشاريعه فقط، أو الجميع إن كان أدمن، بحد
+ * أقصى معقول (القائمة قابلة للتمرير بذاتها إن تجاوزت المساحة المتاحة).
+ */
+function sidebar_projects_for_user(array $user, int $limit = 25): array
+{
+    try {
+        if (($user['role'] ?? '') === 'admin') {
+            $stmt = db()->prepare('SELECT id, name, public_slug FROM projects ORDER BY updated_at DESC LIMIT ' . max(1, min(100, $limit)));
+            $stmt->execute();
+        } else {
+            $stmt = db()->prepare('SELECT id, name, public_slug FROM projects WHERE created_by = ? ORDER BY updated_at DESC LIMIT ' . max(1, min(100, $limit)));
+            $stmt->execute([$user['id']]);
+        }
+        return $stmt->fetchAll();
+    } catch (Throwable $e) {
+        return [];
+    }
 }
 
 /** يجمع كل مقتطفات Skill المتعددة لمشروع في نص واحد يُحقن ضمن موجّه النظام */

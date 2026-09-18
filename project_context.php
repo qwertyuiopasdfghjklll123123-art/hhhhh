@@ -159,26 +159,11 @@ $providersForJs = array_map(static fn (array $p): array => [
 
 $pageTitle     = $project['name'];
 $activeNav     = 'projects';
+$currentProjectNav = ['project' => $project, 'tab' => $activeTab];
 $topbarActions = '<a href="projects.php" class="btn btn-secondary"><i class="fa-solid fa-arrow-right"></i> رجوع للمشاريع</a>';
 require __DIR__ . '/includes/layout_start.php';
 ?>
 
-<div class="project-view">
-<nav class="project-tabs">
-  <a href="<?= e(project_url($project, 'chat')) ?>" class="tab-btn <?= $activeTab === 'chat' ? 'active' : '' ?>">
-    <i class="fa-solid fa-comments"></i> <span>الدردشة العادية</span>
-  </a>
-  <a href="<?= e(project_url($project, 'code')) ?>" class="tab-btn <?= $activeTab === 'code' ? 'active' : '' ?>">
-    <i class="fa-solid fa-code"></i> <span>الكود</span>
-  </a>
-  <a href="<?= e(project_url($project, 'skill')) ?>" class="tab-btn <?= $activeTab === 'skill' ? 'active' : '' ?>">
-    <i class="fa-solid fa-puzzle-piece"></i> <span>Skill</span>
-  </a>
-  <a href="<?= e(project_url($project, 'settings')) ?>" class="tab-btn <?= $activeTab === 'settings' ? 'active' : '' ?>">
-    <i class="fa-solid fa-sliders"></i> <span>الإعدادات</span>
-  </a>
-</nav>
-<div class="project-tabs-content">
 <?php if ($activeTab === 'settings'): ?>
 
 <div class="settings-stack">
@@ -398,7 +383,7 @@ require __DIR__ . '/includes/layout_start.php';
           <p>اطلب حل مشكلة أو ميزة جديدة في مستودع <code><?= e(($context['github_owner'] ?? '') . '/' . ($context['github_repo'] ?? '')) ?></code>. سيستكشف المساعد الملفات ذات الصلة تلقائياً، ثم يرفع أي تعديل تطلبه كـ Commit مباشر على المستودع بنفسه — مثل مساحة عمل حقيقية، بلا نسخ ولصق يدوي.</p>
         <?php else: ?>
           <h3>المساعد الذكي للمشروع</h3>
-          <p>اسأل عن الكود، اطلب مراجعة أو تعديلاً، أو أرفق ملفاً من GitHub ليُحلَّل. سيتم حقن هيكل قاعدة البيانات وقواعد المشروع المحفوظة تلقائياً ضمن سياق كل طلب.</p>
+          <p>اسأل عن الكود، أو اطلب مراجعة أو تعديلاً. سيتم حقن هيكل قاعدة البيانات وقواعد المشروع ومقتطفات Skill المحفوظة تلقائياً ضمن سياق كل طلب.</p>
         <?php endif; ?>
       </div>
     </div>
@@ -418,9 +403,6 @@ require __DIR__ . '/includes/layout_start.php';
           </select>
         </div>
         <?php endif; ?>
-        <button type="button" class="btn-chip" id="btnAttachGithub" <?= $hasGithubToken ? '' : 'disabled title="اربط حساب GitHub من تبويب الإعدادات أولاً"' ?>>
-          <i class="fa-brands fa-github"></i> إرفاق ملف من GitHub
-        </button>
         <?php if (!$isCode): ?>
         <label class="btn-chip" for="chatImageInput"><i class="fa-regular fa-image"></i> إرفاق صورة</label>
         <input type="file" id="chatImageInput" accept="image/png,image/jpeg,image/webp,image/gif" hidden>
@@ -432,23 +414,6 @@ require __DIR__ . '/includes/layout_start.php';
       </div>
     </form>
   </section>
-</div>
-
-<div class="modal-backdrop" id="modalGithubBrowse">
-  <div class="modal modal-lg">
-    <div class="modal-header">
-      <h3><i class="fa-brands fa-github"></i> اختيار ملف من المستودع</h3>
-      <button type="button" class="btn-icon-only" data-action="close-modal"><i class="fa-solid fa-xmark"></i></button>
-    </div>
-    <div class="modal-body">
-      <div class="github-browser">
-        <div class="github-path-bar" id="githubPathBar"></div>
-        <div class="github-file-list" id="githubFileList">
-          <div class="empty-state"><i class="fa-brands fa-github"></i><p>يتم التحميل...</p></div>
-        </div>
-      </div>
-    </div>
-  </div>
 </div>
 
 <?php if (!$isCode): ?>
@@ -484,7 +449,5 @@ require __DIR__ . '/includes/layout_start.php';
 <?php endif; ?>
 
 <?php endif; ?>
-</div>
-</div>
 
 <?php require __DIR__ . '/includes/layout_end.php'; ?>

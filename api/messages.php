@@ -29,7 +29,6 @@ $projectId   = (int) ($body['project_id'] ?? 0);
 $convId      = isset($body['conversation_id']) ? (int) $body['conversation_id'] : 0;
 $providerId  = isset($body['provider_id']) ? (int) $body['provider_id'] : 0;
 $content     = trim((string) ($body['content'] ?? ''));
-$attachPath  = trim((string) ($body['attach_path'] ?? ''));
 $imageBase64 = (string) ($body['image_base64'] ?? '');
 $imageMime   = (string) ($body['image_mime'] ?? '');
 $imageName   = trim((string) ($body['image_name'] ?? ''));
@@ -138,34 +137,16 @@ if ($convId > 0) {
     $convId = (int) db()->lastInsertId();
 }
 
-/* ---------- ملف GitHub مرفق (اختياري) - يُجلب من السيرفر مباشرة لضمان صحته ---------- */
-
-$extraContext = null;
-$attachedMeta = null;
-if ($attachPath !== '') {
-    $githubToken = resolve_github_token($context, $user);
-    if ($githubToken && $context['github_owner'] && $context['github_repo']) {
-        $gh = new GithubClient($githubToken, $context['github_owner'], $context['github_repo'], $context['github_branch'] ?: 'main');
-        $fileRes = $gh->getFile($attachPath);
-        if ($fileRes['success']) {
-            $extraContext = "ملف مرفق: {$attachPath}\n```\n" . $fileRes['content'] . "\n```";
-            $attachedMeta = ['path' => $attachPath];
-        } else {
-            $extraContext = "تعذّر جلب الملف المرفق ({$attachPath}): " . $fileRes['error'];
-        }
-    }
-}
-
-$systemPrompt = AiClient::buildSystemPrompt($context['sql_schema'], $context['system_rules'], project_skills_combined($projectId), $extraContext);
+$systemPrompt = AiClient::buildSystemPrompt($context['sql_schema'], $context['system_rules'], project_skills_combined($projectId));
 
 $histStmt = db()->prepare('SELECT role, content FROM ai_messages WHERE conversation_id = ? ORDER BY id DESC LIMIT 16');
 $histStmt->execute([$convId]);
 $history = array_reverse($histStmt->fetchAll());
 $priorMessages = array_map(static fn (array $m): array => ['role' => $m['role'], 'content' => $m['content']], $history);
 
-$userMessageMeta = $attachedMeta;
+$userMessageMeta = null;
 if ($hasImage) {
-    $userMessageMeta = array_merge($userMessageMeta ?? [], ['image' => $imageName ?: 'صورة مرفقة']);
+    $userMessageMeta = ['image' => $imageName ?: 'صورة مرفقة'];
     if ($visionProviderLabel !== null) {
         $userMessageMeta['vision_relay'] = $visionProviderLabel;
     }

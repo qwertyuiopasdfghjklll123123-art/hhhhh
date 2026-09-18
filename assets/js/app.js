@@ -61,6 +61,20 @@
   }
 
   /* ------------------------------------------------------------------ */
+  /* تبديل الوضع الداكن/النهاري (يُطبَّق فوراً عبر سكربت مضمَّن بـ layout_start   */
+  /* لتفادي الوميض؛ هذا الجزء يتولّى فقط تبديل الاختيار وحفظه)              */
+  /* ------------------------------------------------------------------ */
+  var themeToggle = document.getElementById('themeToggle');
+  if (themeToggle) {
+    themeToggle.addEventListener('click', function () {
+      var isLight = document.documentElement.getAttribute('data-theme') === 'light';
+      var next = isLight ? 'dark' : 'light';
+      document.documentElement.setAttribute('data-theme', next);
+      try { window.localStorage.setItem('pmdash_theme', next); } catch (e) { /* تجاهل (وضع تصفح خاص مثلاً) */ }
+    });
+  }
+
+  /* ------------------------------------------------------------------ */
   /* نوافذ منبثقة عامة                                                    */
   /* ------------------------------------------------------------------ */
   function openModal(id) {
@@ -341,13 +355,8 @@
     var btnNewChat = document.getElementById('btnNewChat');
     var btnSendChat = document.getElementById('btnSendChat');
     var chatImageInput = document.getElementById('chatImageInput');
-    var btnAttachGithub = document.getElementById('btnAttachGithub');
     var providerSelect = document.getElementById('providerSelect');
     var providerInfoCard = document.getElementById('providerInfoCard');
-
-    var modalGithubBrowse = document.getElementById('modalGithubBrowse');
-    var githubPathBar = document.getElementById('githubPathBar');
-    var githubFileList = document.getElementById('githubFileList');
 
     var commitPath = document.getElementById('commitPath');
     var commitContent = document.getElementById('commitContent');
@@ -355,13 +364,7 @@
     var commitStatus = document.getElementById('commitStatus');
     var btnConfirmCommit = document.getElementById('btnConfirmCommit');
 
-    var btnPickRepo = document.getElementById('btnPickRepo');
-    var repoPickerList = document.getElementById('repoPickerList');
-    var repoPickerSearch = document.getElementById('repoPickerSearch');
-    var repoPickerLoaded = null;
-
     var currentConversationId = null;
-    var pendingAttachment = null;
     var pendingImage = null;
     var sending = false;
 
@@ -470,7 +473,7 @@
         commitBtn.innerHTML = '<i class="fa-solid fa-code-commit"></i> رفع إلى GitHub';
         commitBtn.addEventListener('click', function () {
           commitContent.value = code;
-          commitPath.value = pendingAttachment ? pendingAttachment.path : '';
+          commitPath.value = '';
           commitStatus.style.display = 'none';
           openModal('modalCommit');
         });
@@ -812,20 +815,6 @@
 
     function renderAttachments() {
       chatAttachments.innerHTML = '';
-      if (pendingAttachment) {
-        var chip = document.createElement('span');
-        chip.className = 'attachment-chip';
-        chip.innerHTML = '<i class="fa-brands fa-github"></i>';
-        var span = document.createElement('span');
-        span.textContent = pendingAttachment.path;
-        chip.appendChild(span);
-        var removeBtn = document.createElement('button');
-        removeBtn.type = 'button';
-        removeBtn.innerHTML = '<i class="fa-solid fa-xmark"></i>';
-        removeBtn.addEventListener('click', function () { pendingAttachment = null; renderAttachments(); });
-        chip.appendChild(removeBtn);
-        chatAttachments.appendChild(chip);
-      }
       if (pendingImage) {
         var imgChip = document.createElement('span');
         imgChip.className = 'attachment-chip';
@@ -844,7 +833,7 @@
         chatAttachments.appendChild(imgChip);
       }
     }
-    function clearAttachments() { pendingAttachment = null; pendingImage = null; renderAttachments(); }
+    function clearAttachments() { pendingImage = null; renderAttachments(); }
 
     if (chatImageInput) {
       chatImageInput.addEventListener('change', function () {
@@ -862,91 +851,6 @@
           renderAttachments();
         };
         reader.readAsDataURL(file);
-      });
-    }
-
-    function renderBreadcrumb(path) {
-      githubPathBar.innerHTML = '';
-      var rootBtn = document.createElement('button');
-      rootBtn.type = 'button';
-      rootBtn.innerHTML = '<i class="fa-solid fa-house"></i> الجذر';
-      rootBtn.addEventListener('click', function () { loadGithubDir(''); });
-      githubPathBar.appendChild(rootBtn);
-      if (!path) { return; }
-      var acc = '';
-      path.split('/').forEach(function (seg) {
-        acc = acc ? acc + '/' + seg : seg;
-        githubPathBar.appendChild(document.createTextNode(' / '));
-        var btn = document.createElement('button');
-        btn.type = 'button';
-        btn.textContent = seg;
-        var target = acc;
-        btn.addEventListener('click', function () { loadGithubDir(target); });
-        githubPathBar.appendChild(btn);
-      });
-    }
-
-    function formatSize(bytes) {
-      bytes = Number(bytes) || 0;
-      if (bytes < 1024) { return bytes + ' B'; }
-      if (bytes < 1024 * 1024) { return Math.round(bytes / 1024) + ' KB'; }
-      return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
-    }
-
-    async function loadGithubDir(path) {
-      renderBreadcrumb(path);
-      githubFileList.innerHTML = '<div class="empty-state"><i class="fa-solid fa-spinner fa-spin"></i><p>يتم التحميل...</p></div>';
-      var data = await apiFetch('api/github_file.php?action=tree&project_id=' + encodeURIComponent(projectId) + '&path=' + encodeURIComponent(path));
-      githubFileList.innerHTML = '';
-      if (!data.success) {
-        var err = document.createElement('div');
-        err.className = 'empty-state';
-        err.innerHTML = '<i class="fa-solid fa-triangle-exclamation"></i><p></p>';
-        err.querySelector('p').textContent = data.error || 'تعذّر جلب الملفات.';
-        githubFileList.appendChild(err);
-        return;
-      }
-      if (!data.items || !data.items.length) {
-        githubFileList.innerHTML = '<div class="empty-state"><i class="fa-regular fa-folder-open"></i><p>مجلد فارغ.</p></div>';
-        return;
-      }
-      data.items.forEach(function (item) {
-        var row = document.createElement('div');
-        row.className = 'gh-item ' + (item.type === 'dir' ? 'gh-item-folder' : 'gh-item-file');
-        var icon = document.createElement('i');
-        icon.className = item.type === 'dir' ? 'fa-solid fa-folder' : 'fa-regular fa-file-lines';
-        var name = document.createElement('span');
-        name.textContent = item.name;
-        row.appendChild(icon);
-        row.appendChild(name);
-        if (item.type !== 'dir') {
-          var size = document.createElement('span');
-          size.className = 'gh-item-size';
-          size.textContent = formatSize(item.size);
-          row.appendChild(size);
-        }
-        row.addEventListener('click', function () {
-          if (item.type === 'dir') { loadGithubDir(item.path); } else { selectGithubFile(item.path); }
-        });
-        githubFileList.appendChild(row);
-      });
-    }
-
-    async function selectGithubFile(path) {
-      var data = await apiFetch('api/github_file.php?action=get&project_id=' + encodeURIComponent(projectId) + '&path=' + encodeURIComponent(path));
-      if (!data.success) {
-        window.alert(data.error || 'تعذّر جلب الملف.');
-        return;
-      }
-      pendingAttachment = { path: data.path };
-      renderAttachments();
-      closeModal(modalGithubBrowse);
-    }
-
-    if (btnAttachGithub) {
-      btnAttachGithub.addEventListener('click', function () {
-        openModal('modalGithubBrowse');
-        loadGithubDir('');
       });
     }
 
@@ -997,6 +901,8 @@
       var contentSoFar = '';
       var reasoningSoFar = '';
       var gotAnyDelta = false;
+      var maxAttempts = 2; // إعادة محاولة واحدة فقط عند انقطاع فعلي بالاتصال (شبكة جوال متقطّعة مثلاً)
+      // قبل وصول أي جزء من الرد - نفس مبدأ إعادة المحاولة المستخدم أصلاً في AiClient/GithubClient.
 
       function ensureBubble() {
         if (bubble) { return; }
@@ -1035,61 +941,69 @@
       }
 
       var finalEvent = null;
-      try {
-        var res = await fetch(sendEndpoint, {
-          method: 'POST',
-          headers: {
-            'X-Requested-With': 'XMLHttpRequest',
-            'X-CSRF-Token': csrfToken(),
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify(payload),
-        });
+      for (var attempt = 1; attempt <= maxAttempts; attempt++) {
+        try {
+          var res = await fetch(sendEndpoint, {
+            method: 'POST',
+            headers: {
+              'X-Requested-With': 'XMLHttpRequest',
+              'X-CSRF-Token': csrfToken(),
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(payload),
+          });
 
-        if (!res.ok || !res.body) {
-          var errText = 'HTTP ' + res.status;
-          try { var errData = await res.json(); if (errData && errData.error) { errText = errData.error; } } catch (e) { /* تجاهل */ }
-          removeTyping();
-          appendMessage('assistant', 'تعذّر الحصول على رد: ' + errText);
-          return;
-        }
+          if (!res.ok || !res.body) {
+            var errText = 'HTTP ' + res.status;
+            try { var errData = await res.json(); if (errData && errData.error) { errText = errData.error; } } catch (e) { /* تجاهل */ }
+            removeTyping();
+            appendMessage('assistant', 'تعذّر الحصول على رد: ' + errText);
+            return;
+          }
 
-        var reader = res.body.getReader();
-        var decoder = new TextDecoder('utf-8');
-        var buf = '';
+          var reader = res.body.getReader();
+          var decoder = new TextDecoder('utf-8');
+          var buf = '';
 
-        while (true) {
-          var chunk = await reader.read();
-          if (chunk.done) { break; }
-          buf += decoder.decode(chunk.value, { stream: true });
-          var frames = buf.split('\n\n');
-          buf = frames.pop();
-          for (var f = 0; f < frames.length; f++) {
-            var lines = frames[f].split('\n');
-            for (var l = 0; l < lines.length; l++) {
-              if (lines[l].indexOf('data:') !== 0) { continue; }
-              var jsonText = lines[l].slice(5).trim();
-              if (!jsonText) { continue; }
-              var evt;
-              try { evt = JSON.parse(jsonText); } catch (e) { continue; }
+          while (true) {
+            var chunk = await reader.read();
+            if (chunk.done) { break; }
+            buf += decoder.decode(chunk.value, { stream: true });
+            var frames = buf.split('\n\n');
+            buf = frames.pop();
+            for (var f = 0; f < frames.length; f++) {
+              var lines = frames[f].split('\n');
+              for (var l = 0; l < lines.length; l++) {
+                if (lines[l].indexOf('data:') !== 0) { continue; }
+                var jsonText = lines[l].slice(5).trim();
+                if (!jsonText) { continue; }
+                var evt;
+                try { evt = JSON.parse(jsonText); } catch (e) { continue; }
 
-              if (evt.type === 'delta') {
-                ensureBubble();
-                gotAnyDelta = true;
-                if (evt.kind === 'reasoning') { reasoningSoFar += evt.text; } else { contentSoFar += evt.text; }
-                redraw();
-              } else if (evt.type === 'done' || evt.type === 'error') {
-                finalEvent = evt;
+                if (evt.type === 'delta') {
+                  ensureBubble();
+                  gotAnyDelta = true;
+                  if (evt.kind === 'reasoning') { reasoningSoFar += evt.text; } else { contentSoFar += evt.text; }
+                  redraw();
+                } else if (evt.type === 'done' || evt.type === 'error') {
+                  finalEvent = evt;
+                }
               }
             }
           }
+          break; // اكتمل البث (بنجاح أو بخطأ منظَّم من السيرفر) - لا حاجة لإعادة المحاولة
+        } catch (e) {
+          // انقطاع فعلي على مستوى الشبكة (لا رد HTTP منظَّم إطلاقاً) قبل وصول أي جزء من
+          // الرد بعد - يستحق إعادة محاولة واحدة صامتة (شائع على شبكات الجوال المتقطّعة)
+          // بدل إظهار خطأ فوراً؛ إن وصل أي محتوى فعلاً أو استُنفدت المحاولات، نتوقف.
+          if (gotAnyDelta || attempt >= maxAttempts) {
+            removeTyping();
+            if (!gotAnyDelta) {
+              appendMessage('assistant', 'تعذّر الحصول على رد: تعذّر الاتصال بالسيرفر أو انقطع أثناء الاستقبال.');
+            }
+            return;
+          }
         }
-      } catch (e) {
-        removeTyping();
-        if (!gotAnyDelta) {
-          appendMessage('assistant', 'تعذّر الحصول على رد: تعذّر الاتصال بالسيرفر أو انقطع أثناء الاستقبال.');
-        }
-        return;
       }
 
       removeTyping();
@@ -1128,10 +1042,8 @@
       btnSendChat.disabled = true;
 
       var meta = null;
-      if (pendingAttachment || pendingImage) {
-        meta = {};
-        if (pendingAttachment) { meta.path = pendingAttachment.path; }
-        if (pendingImage) { meta.image = pendingImage.name; }
+      if (pendingImage) {
+        meta = { image: pendingImage.name };
       }
       appendMessage('user', text || '(صورة بدون نص)', meta);
 
@@ -1143,7 +1055,6 @@
         payload.provider_id = providerSelect.value;
         rememberProviderChoice();
       }
-      if (pendingAttachment) { payload.attach_path = pendingAttachment.path; }
       if (pendingImage) {
         payload.image_base64 = pendingImage.base64;
         payload.image_mime = pendingImage.mime;
