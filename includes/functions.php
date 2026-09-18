@@ -229,8 +229,17 @@ function is_ajax_request(): bool
 /* أدوات عامة                                                          */
 /* ------------------------------------------------------------------ */
 
+/**
+ * يعيد التوجيه إلى مسار محلي (يُحوَّل إلى رابط كامل عبر base_url() حتى لا
+ * ينكسر عند التوجيه من رابط نظيف مُعاد كتابته مثل chat/{معرّف}، حيث يختلف
+ * مسار السكربت الفعلي عمّا يراه المتصفح بشريط العنوان) أو رابط خارجي كامل
+ * (يُترك كما هو، مثل رابط تفويض GitHub OAuth).
+ */
 function redirect(string $path): never
 {
+    if (!preg_match('#^https?://#i', $path)) {
+        $path = base_url($path);
+    }
     header('Location: ' . $path);
     exit;
 }
@@ -306,6 +315,26 @@ function log_activity(?int $userId, string $action, string $description = ''): v
  * جديد)، مع دعم توافقي لـ Token يدوي محفوظ خصيصاً لسياق مشروع أُعدَّ قبل
  * إضافة الربط عبر OAuth.
  */
+/** معرّف عشوائي قصير وآمن لعرض المشروع بالرابط بدل رقمه التسلسلي الداخلي */
+function generate_project_slug(): string
+{
+    return bin2hex(random_bytes(5));
+}
+
+/**
+ * رابط صفحة مشروع لتبويب معيّن: نظيف (مثل chat/ab12cd34ef) إن توفّر
+ * public_slug للمشروع، وإلا الصيغة القديمة (project_context.php?id=...)
+ * كخط رجوع يبقى يعمل دائماً حتى لو تعذّرت إعادة الكتابة على استضافة ما.
+ */
+function project_url(array $project, string $tab = 'chat'): string
+{
+    $tab = in_array($tab, ['chat', 'code', 'settings'], true) ? $tab : 'chat';
+    if (!empty($project['public_slug'])) {
+        return $tab . '/' . $project['public_slug'];
+    }
+    return 'project_context.php?id=' . (int) $project['id'] . '&tab=' . $tab;
+}
+
 function resolve_github_token(array $context, array $user): ?string
 {
     if (!empty($user['github_oauth_token'])) {

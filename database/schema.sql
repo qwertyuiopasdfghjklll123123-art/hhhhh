@@ -55,6 +55,7 @@ CREATE TABLE IF NOT EXISTS `login_attempts` (
 -- ---------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS `projects` (
   `id` INT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `public_slug` VARCHAR(20) NULL COMMENT 'معرّف عشوائي يُستخدم بالرابط بدل id التسلسلي',
   `name` VARCHAR(150) NOT NULL,
   `description` TEXT NULL,
   `status` ENUM('active','archived') NOT NULL DEFAULT 'active',
@@ -62,12 +63,13 @@ CREATE TABLE IF NOT EXISTS `projects` (
   `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   `updated_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`),
+  UNIQUE KEY `uniq_projects_slug` (`public_slug`),
   KEY `idx_projects_created_by` (`created_by`),
   CONSTRAINT `fk_projects_user` FOREIGN KEY (`created_by`) REFERENCES `users` (`id`) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ---------------------------------------------------------------------
--- سياق المشروع: هيكل قاعدة البيانات، القواعد البرمجية، بيانات GitHub
+-- سياق المشروع: هيكل قاعدة البيانات، القواعد البرمجية، بيانات GitHub، Skill
 -- القيم الحساسة (github_token) تُخزَّن مشفّرة (AES-256-GCM) عبر Crypto::encrypt()
 -- ---------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS `project_context` (
@@ -75,6 +77,8 @@ CREATE TABLE IF NOT EXISTS `project_context` (
   `project_id` INT UNSIGNED NOT NULL,
   `sql_schema` LONGTEXT NULL,
   `system_rules` LONGTEXT NULL,
+  `skill_filename` VARCHAR(255) NULL COMMENT 'اسم الملف المرفَق للعرض فقط (المحتوى في skill_content)',
+  `skill_content` LONGTEXT NULL COMMENT 'سياق دائم يُحقن ضمن موجّه النظام في كل الأوضاع',
   `github_owner` VARCHAR(190) NULL,
   `github_repo` VARCHAR(190) NULL,
   `github_branch` VARCHAR(100) NOT NULL DEFAULT 'main',
@@ -101,6 +105,8 @@ CREATE TABLE IF NOT EXISTS `ai_providers` (
   `text_model` VARCHAR(150) NOT NULL DEFAULT 'openai/gpt-oss-20b',
   `vision_model` VARCHAR(150) NULL,
   `is_default` TINYINT(1) NOT NULL DEFAULT 0,
+  `tokens_used` BIGINT UNSIGNED NOT NULL DEFAULT 0 COMMENT 'إجمالي التوكنات المستهلكة (تراكمي، من usage.total_tokens بكل رد)',
+  `token_budget` BIGINT UNSIGNED NULL COMMENT 'حد أقصى اختياري يضبطه الأدمن يدوياً لعرض "المتبقي" (لا يوجد API قياسي لجلبه من المزوّد)',
   `created_by` INT UNSIGNED NULL COMMENT 'الأدمن الذي أضافه، NULL إن حُذف حسابه لاحقاً',
   `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   `updated_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,

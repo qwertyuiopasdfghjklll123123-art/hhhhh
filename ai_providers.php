@@ -22,6 +22,8 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
         $visionModel = trim((string) ($_POST['vision_model'] ?? ''));
         $apiKeyInput = trim((string) ($_POST['api_key'] ?? ''));
         $makeDefault = isset($_POST['is_default']);
+        $budgetInput = trim((string) ($_POST['token_budget'] ?? ''));
+        $tokenBudget = $budgetInput !== '' && ctype_digit($budgetInput) ? (int) $budgetInput : null;
 
         if ($label === '' || !filter_var($baseUrl, FILTER_VALIDATE_URL)) {
             flash('error', 'التسمية ونقطة الاتصال (رابط صالح) مطلوبتان.');
@@ -37,10 +39,10 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
                 db()->exec('UPDATE ai_providers SET is_default = 0');
             }
             db()->prepare(
-                'INSERT INTO ai_providers (label, base_url, api_key, text_model, vision_model, is_default, created_by) VALUES (?, ?, ?, ?, ?, ?, ?)'
+                'INSERT INTO ai_providers (label, base_url, api_key, text_model, vision_model, is_default, token_budget, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
             )->execute([
                 $label, $baseUrl, Crypto::encrypt($apiKeyInput), $textModel,
-                $visionModel !== '' ? $visionModel : null, $makeDefault ? 1 : 0, $user['id'],
+                $visionModel !== '' ? $visionModel : null, $makeDefault ? 1 : 0, $tokenBudget, $user['id'],
             ]);
             // أول مزوّد يُضاف على مستوى النظام كله يُصبح افتراضياً تلقائياً حتى لو لم يُحدَّد صراحة
             if ((int) db()->query('SELECT COUNT(*) FROM ai_providers')->fetchColumn() === 1) {
@@ -63,14 +65,22 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
                 db()->exec('UPDATE ai_providers SET is_default = 0');
             }
             db()->prepare(
-                'UPDATE ai_providers SET label = ?, base_url = ?, api_key = ?, text_model = ?, vision_model = ?, is_default = ? WHERE id = ?'
+                'UPDATE ai_providers SET label = ?, base_url = ?, api_key = ?, text_model = ?, vision_model = ?, is_default = ?, token_budget = ? WHERE id = ?'
             )->execute([
                 $label, $baseUrl, $apiKeyEncrypted, $textModel, $visionModel !== '' ? $visionModel : null,
-                $makeDefault ? 1 : 0, $providerId,
+                $makeDefault ? 1 : 0, $tokenBudget, $providerId,
             ]);
             log_activity((int) $user['id'], 'provider_update', "تعديل مزوّد ذكاء اصطناعي: {$label}");
             flash('success', 'تم حفظ تعديلات المزوّد.');
         }
+        redirect('ai_providers.php');
+    }
+
+    if ($formAction === 'reset_usage') {
+        $providerId = (int) ($_POST['provider_id'] ?? 0);
+        db()->prepare('UPDATE ai_providers SET tokens_used = 0 WHERE id = ?')->execute([$providerId]);
+        log_activity((int) $user['id'], 'provider_update', 'تصفير عدّاد التوكنات لمزوّد #' . $providerId);
+        flash('success', 'تم تصفير عدّاد الاستهلاك.');
         redirect('ai_providers.php');
     }
 
@@ -153,6 +163,19 @@ require __DIR__ . '/includes/layout_start.php';
                 <span><?= e($p['text_model']) ?></span>
                 <?php if ($p['vision_model']): ?><span>· رؤية: <?= e($p['vision_model']) ?></span><?php endif; ?>
               </div>
+              <div class="provider-usage">
+                <?php $usagePct = $p['token_budget'] ? min(100, (int) round($p['tokens_used'] / max(1, (int) $p['token_budget']) * 100)) : null; ?>
+                <span class="provider-usage-text">
+                  <i class="fa-solid fa-gauge-high"></i>
+                  المستهلك: <?= number_format((int) $p['tokens_used']) ?> توكن
+                  <?php if ($p['token_budget']): ?>
+                    من <?= number_format((int) $p['token_budget']) ?> (المتبقي: <?= number_format(max(0, (int) $p['token_budget'] - (int) $p['tokens_used'])) ?>)
+                  <?php endif; ?>
+                </span>
+                <?php if ($usagePct !== null): ?>
+                <div class="provider-usage-bar"><div class="provider-usage-fill<?= $usagePct >= 90 ? ' is-danger' : ($usagePct >= 70 ? ' is-warning' : '') ?>" style="width:<?= $usagePct ?>%"></div></div>
+                <?php endif; ?>
+              </div>
             </div>
             <div class="provider-actions">
               <?php if (!$p['is_default']): ?>
@@ -169,9 +192,16 @@ require __DIR__ . '/includes/layout_start.php';
                 data-label="<?= e($p['label']) ?>"
                 data-base-url="<?= e($p['base_url']) ?>"
                 data-text-model="<?= e($p['text_model']) ?>"
-                data-vision-model="<?= e($p['vision_model'] ?? '') ?>">
+                data-vision-model="<?= e($p['vision_model'] ?? '') ?>"
+                data-token-budget="<?= e((string) ($p['token_budget'] ?? '')) ?>">
                 <i class="fa-solid fa-pen"></i>
               </button>
+              <form method="post" action="ai_providers.php" class="inline-form" data-confirm="تصفير عدّاد استهلاك «<?= e($p['label']) ?>»؟">
+                <?= csrf_field() ?>
+                <input type="hidden" name="form_action" value="reset_usage">
+                <input type="hidden" name="provider_id" value="<?= (int) $p['id'] ?>">
+                <button type="submit" class="btn-icon" title="تصفير عدّاد الاستهلاك"><i class="fa-solid fa-rotate-left"></i></button>
+              </form>
               <form method="post" action="ai_providers.php" class="inline-form" data-confirm="حذف مزوّد «<?= e($p['label']) ?>» نهائياً؟ سيؤثر هذا على كل المشاريع التي تستخدمه.">
                 <?= csrf_field() ?>
                 <input type="hidden" name="form_action" value="delete_provider">
@@ -251,6 +281,11 @@ require __DIR__ . '/includes/layout_start.php';
               <option value="microsoft/phi-3.5-vision-instruct">
             </datalist>
           </div>
+        </div>
+        <div class="form-group">
+          <label class="form-label">حد التوكنات الشهري (اختياري)</label>
+          <input class="form-control" type="text" inputmode="numeric" pattern="[0-9]*" name="token_budget" id="providerTokenBudget" placeholder="مثال: 1000000">
+          <p class="form-hint">لعرض "المتبقي" فقط — اكتب الحد الذي تعرفه من لوحة تحكم المزوّد نفسه (NVIDIA/OpenAI...)، فلا يوجد API موحّد لجلبه تلقائياً. اتركه فارغاً لعرض المستهلك بلا حد.</p>
         </div>
         <label class="checkbox-label"><input type="checkbox" name="is_default" id="providerIsDefault" value="1"> تعيين كمزوّد افتراضي</label>
       </div>

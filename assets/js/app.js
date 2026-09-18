@@ -149,6 +149,7 @@
       setValue('providerBaseUrl', editProviderBtn.getAttribute('data-base-url'));
       setValue('providerTextModel', editProviderBtn.getAttribute('data-text-model'));
       setValue('providerVisionModel', editProviderBtn.getAttribute('data-vision-model'));
+      setValue('providerTokenBudget', editProviderBtn.getAttribute('data-token-budget'));
       var titleEl = document.getElementById('providerModalTitle');
       if (titleEl) { titleEl.innerHTML = '<i class="fa-solid fa-microchip"></i> تعديل مزوّد ذكاء اصطناعي'; }
       var keyHint = document.getElementById('providerKeyHint');
@@ -208,6 +209,44 @@
       setTimeout(function () { el.remove(); }, 400);
     }, 5000);
   });
+
+  /* ------------------------------------------------------------------ */
+  /* إرفاق ملف Skill (تعمل فقط داخل تبويب الإعدادات بصفحة project_context.php) */
+  /* ------------------------------------------------------------------ */
+  var skillFileInput = document.getElementById('skillFileInput');
+  if (skillFileInput) {
+    var skillContent = document.getElementById('skillContent');
+    var skillFilename = document.getElementById('skillFilename');
+    var skillFileChip = document.getElementById('skillFileChip');
+    var skillFileChipName = document.getElementById('skillFileChipName');
+    var skillFileRemove = document.getElementById('skillFileRemove');
+
+    skillFileInput.addEventListener('change', function () {
+      var file = skillFileInput.files && skillFileInput.files[0];
+      if (!file) { return; }
+      if (file.size > 2 * 1024 * 1024) {
+        window.alert('حجم الملف كبير جداً (الحد الأقصى 2MB).');
+        skillFileInput.value = '';
+        return;
+      }
+      var reader = new FileReader();
+      reader.onload = function () {
+        skillContent.value = String(reader.result || '');
+        skillFilename.value = file.name;
+        skillFileChipName.textContent = file.name;
+        skillFileChip.style.display = '';
+      };
+      reader.readAsText(file);
+    });
+
+    if (skillFileRemove) {
+      skillFileRemove.addEventListener('click', function () {
+        skillFilename.value = '';
+        skillFileChip.style.display = 'none';
+        skillFileInput.value = '';
+      });
+    }
+  }
 
   /* ------------------------------------------------------------------ */
   /* وحدة المساعد الذكي (تعمل فقط داخل صفحة project_context.php)          */
@@ -309,18 +348,128 @@
       return wrap;
     }
 
+    /**
+     * ينسّق النص الداخلي (عريض/مائل/كود مضمّن) عبر عقد DOM فقط — بلا أي
+     * innerHTML لنص خارجي، لضمان الحماية من XSS بغض النظر عن مصدر النص
+     * (رد نموذج، أو حتى محتوى ملف من GitHub في قسم الكود).
+     */
+    function renderInline(container, text) {
+      var re = /\*\*([^*]+)\*\*|`([^`]+)`|\*([^*]+)\*/g;
+      var lastIndex = 0;
+      var match;
+      while ((match = re.exec(text)) !== null) {
+        if (match.index > lastIndex) {
+          container.appendChild(document.createTextNode(text.slice(lastIndex, match.index)));
+        }
+        var el;
+        if (match[1] !== undefined) { el = document.createElement('strong'); el.textContent = match[1]; }
+        else if (match[2] !== undefined) { el = document.createElement('code'); el.textContent = match[2]; }
+        else { el = document.createElement('em'); el.textContent = match[3]; }
+        container.appendChild(el);
+        lastIndex = re.lastIndex;
+      }
+      if (lastIndex < text.length) {
+        container.appendChild(document.createTextNode(text.slice(lastIndex)));
+      }
+    }
+
+    function buildMarkdownTable(lines) {
+      var wrap = document.createElement('div');
+      wrap.className = 'msg-table-wrap';
+      var table = document.createElement('table');
+      table.className = 'msg-table';
+      var splitRow = function (line) {
+        return line.trim().replace(/^\|/, '').replace(/\|$/, '').split('|').map(function (c) { return c.trim(); });
+      };
+      var thead = document.createElement('thead');
+      var headRow = document.createElement('tr');
+      splitRow(lines[0]).forEach(function (cell) {
+        var th = document.createElement('th');
+        renderInline(th, cell);
+        headRow.appendChild(th);
+      });
+      thead.appendChild(headRow);
+      table.appendChild(thead);
+      var tbody = document.createElement('tbody');
+      for (var r = 2; r < lines.length; r++) {
+        var tr = document.createElement('tr');
+        splitRow(lines[r]).forEach(function (cell) {
+          var td = document.createElement('td');
+          renderInline(td, cell);
+          tr.appendChild(td);
+        });
+        tbody.appendChild(tr);
+      }
+      table.appendChild(tbody);
+      wrap.appendChild(table);
+      return wrap;
+    }
+
+    /** ينسّق فقرة نصية (بلا كتل كود ```) بأسلوب Markdown خفيف: عناوين، قوائم، جداول، فقرات */
+    function renderMarkdownBlock(container, text) {
+      var lines = String(text).replace(/\r\n/g, '\n').split('\n');
+      var paraBuf = [];
+      var i = 0;
+
+      function flushPara() {
+        if (!paraBuf.length) { return; }
+        var p = document.createElement('p');
+        renderInline(p, paraBuf.join(' '));
+        container.appendChild(p);
+        paraBuf = [];
+      }
+
+      while (i < lines.length) {
+        var line = lines[i];
+
+        if (!line.trim()) { flushPara(); i++; continue; }
+
+        var headerMatch = line.match(/^(#{1,4})\s+(.*)$/);
+        if (headerMatch) {
+          flushPara();
+          var h = document.createElement('div');
+          h.className = 'msg-heading msg-heading-' + headerMatch[1].length;
+          renderInline(h, headerMatch[2]);
+          container.appendChild(h);
+          i++; continue;
+        }
+
+        if (/^\s*\|.*\|\s*$/.test(line) && lines[i + 1] && /^\s*\|?[\s:|-]+\|?\s*$/.test(lines[i + 1])) {
+          flushPara();
+          var tableLines = [line, lines[i + 1]];
+          var k = i + 2;
+          while (k < lines.length && /^\s*\|.*\|\s*$/.test(lines[k])) { tableLines.push(lines[k]); k++; }
+          container.appendChild(buildMarkdownTable(tableLines));
+          i = k; continue;
+        }
+
+        if (/^\s*([-*]|\d+\.)\s+/.test(line)) {
+          flushPara();
+          var ordered = /^\s*\d+\./.test(line);
+          var list = document.createElement(ordered ? 'ol' : 'ul');
+          while (i < lines.length) {
+            var m = lines[i].match(/^\s*(?:[-*]|\d+\.)\s+(.*)$/);
+            if (!m) { break; }
+            var li = document.createElement('li');
+            renderInline(li, m[1]);
+            list.appendChild(li);
+            i++;
+          }
+          container.appendChild(list);
+          continue;
+        }
+
+        paraBuf.push(line.trim());
+        i++;
+      }
+      flushPara();
+    }
+
     function renderContent(container, text) {
       var parts = String(text).split(/```(\w*)\n([\s\S]*?)```/g);
       for (var i = 0; i < parts.length; i += 3) {
         var plain = parts[i];
-        if (plain) {
-          plain.split(/\n{2,}/).forEach(function (para) {
-            if (!para.trim()) { return; }
-            var p = document.createElement('p');
-            p.textContent = para;
-            container.appendChild(p);
-          });
-        }
+        if (plain) { renderMarkdownBlock(container, plain); }
         var lang = parts[i + 1];
         var code = parts[i + 2];
         if (typeof code === 'string') {
@@ -665,6 +814,161 @@
       });
     }
 
+    /** وضع الكود: يبقى على نمط طلب/رد واحد (بلا بث) لأن الرد النهائي قد يمرّ بجولات جلب ملفات داخلية أولاً */
+    async function sendMessageNonStreaming(payload) {
+      appendTyping();
+      var data = await apiFetch(sendEndpoint, { method: 'POST', body: payload });
+      removeTyping();
+
+      if (!data.success) {
+        appendMessage('assistant', 'تعذّر الحصول على رد: ' + (data.error || 'خطأ غير معروف.'));
+        return;
+      }
+      if (!currentConversationId) {
+        addConvToRail(data.conversation_id, data.title || 'محادثة جديدة');
+        currentConversationId = data.conversation_id;
+      }
+      var replyMeta = null;
+      if (data.provider || data.reasoning || (data.files_read && data.files_read.length)) {
+        replyMeta = {};
+        if (data.provider) { replyMeta.provider = data.provider; }
+        if (data.reasoning) { replyMeta.reasoning = data.reasoning; }
+        if (data.files_read && data.files_read.length) { replyMeta.files_read = data.files_read; }
+      }
+      appendMessage('assistant', data.reply, replyMeta);
+    }
+
+    /** وضع الدردشة العادية: يقرأ استجابة SSE من api/messages.php ويعرض النص تدريجياً أولاً بأول */
+    async function sendMessageStreaming(payload) {
+      appendTyping();
+
+      var bubble = null;
+      var msgEl = null;
+      var contentSoFar = '';
+      var reasoningSoFar = '';
+      var gotAnyDelta = false;
+
+      function ensureBubble() {
+        if (bubble) { return; }
+        removeTyping();
+        if (chatWelcome && chatWelcome.parentNode === chatMessages) { chatMessages.innerHTML = ''; }
+        msgEl = document.createElement('div');
+        msgEl.className = 'msg msg-assistant';
+        var avatar = document.createElement('div');
+        avatar.className = 'msg-avatar';
+        avatar.innerHTML = '<i class="fa-solid fa-wand-magic-sparkles"></i>';
+        bubble = document.createElement('div');
+        bubble.className = 'msg-bubble';
+        msgEl.appendChild(avatar);
+        msgEl.appendChild(bubble);
+        chatMessages.appendChild(msgEl);
+        scrollToBottom();
+      }
+
+      function redraw() {
+        bubble.innerHTML = '';
+        if (reasoningSoFar) {
+          var details = document.createElement('details');
+          details.className = 'msg-reasoning';
+          details.open = true;
+          var summary = document.createElement('summary');
+          summary.innerHTML = '<i class="fa-solid fa-brain"></i> تفكير النموذج';
+          details.appendChild(summary);
+          var body = document.createElement('div');
+          body.className = 'msg-reasoning-body';
+          renderContent(body, reasoningSoFar);
+          details.appendChild(body);
+          bubble.appendChild(details);
+        }
+        if (contentSoFar) { renderContent(bubble, contentSoFar); }
+        scrollToBottom();
+      }
+
+      var finalEvent = null;
+      try {
+        var res = await fetch(sendEndpoint, {
+          method: 'POST',
+          headers: {
+            'X-Requested-With': 'XMLHttpRequest',
+            'X-CSRF-Token': csrfToken(),
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(payload),
+        });
+
+        if (!res.ok || !res.body) {
+          var errText = 'HTTP ' + res.status;
+          try { var errData = await res.json(); if (errData && errData.error) { errText = errData.error; } } catch (e) { /* تجاهل */ }
+          removeTyping();
+          appendMessage('assistant', 'تعذّر الحصول على رد: ' + errText);
+          return;
+        }
+
+        var reader = res.body.getReader();
+        var decoder = new TextDecoder('utf-8');
+        var buf = '';
+
+        while (true) {
+          var chunk = await reader.read();
+          if (chunk.done) { break; }
+          buf += decoder.decode(chunk.value, { stream: true });
+          var frames = buf.split('\n\n');
+          buf = frames.pop();
+          for (var f = 0; f < frames.length; f++) {
+            var lines = frames[f].split('\n');
+            for (var l = 0; l < lines.length; l++) {
+              if (lines[l].indexOf('data:') !== 0) { continue; }
+              var jsonText = lines[l].slice(5).trim();
+              if (!jsonText) { continue; }
+              var evt;
+              try { evt = JSON.parse(jsonText); } catch (e) { continue; }
+
+              if (evt.type === 'delta') {
+                ensureBubble();
+                gotAnyDelta = true;
+                if (evt.kind === 'reasoning') { reasoningSoFar += evt.text; } else { contentSoFar += evt.text; }
+                redraw();
+              } else if (evt.type === 'done' || evt.type === 'error') {
+                finalEvent = evt;
+              }
+            }
+          }
+        }
+      } catch (e) {
+        removeTyping();
+        if (!gotAnyDelta) {
+          appendMessage('assistant', 'تعذّر الحصول على رد: تعذّر الاتصال بالسيرفر أو انقطع أثناء الاستقبال.');
+        }
+        return;
+      }
+
+      removeTyping();
+
+      if (!finalEvent || finalEvent.type === 'error' || !finalEvent.success) {
+        var errMsg = 'تعذّر الحصول على رد: ' + ((finalEvent && finalEvent.error) || 'خطأ غير معروف.');
+        if (bubble) { contentSoFar = errMsg; reasoningSoFar = ''; redraw(); } else { appendMessage('assistant', errMsg); }
+        return;
+      }
+
+      if (!currentConversationId) {
+        addConvToRail(finalEvent.conversation_id, finalEvent.title || 'محادثة جديدة');
+        currentConversationId = finalEvent.conversation_id;
+      }
+
+      // إعادة رسم نهائية بالنص الكامل من السيرفر (احتياطاً لأي جزء ناقص أثناء البث) + وسم المزوّد
+      contentSoFar = finalEvent.reply || contentSoFar;
+      reasoningSoFar = finalEvent.reasoning || reasoningSoFar;
+      ensureBubble();
+      redraw();
+      if (finalEvent.provider) {
+        var tag = document.createElement('div');
+        tag.className = 'msg-provider-tag';
+        tag.innerHTML = '<i class="fa-solid fa-microchip"></i>';
+        tag.appendChild(document.createTextNode(' ' + finalEvent.provider));
+        bubble.appendChild(tag);
+      }
+    }
+
     async function sendMessage() {
       if (sending) { return; }
       var text = chatInput.value.trim();
@@ -683,7 +987,6 @@
 
       chatInput.value = '';
       autoGrow();
-      appendTyping();
 
       var payload = { project_id: projectId, conversation_id: currentConversationId, content: text };
       if (providerSelect && providerSelect.value) { payload.provider_id = providerSelect.value; }
@@ -695,27 +998,14 @@
       }
       clearAttachments();
 
-      var data = await apiFetch(sendEndpoint, { method: 'POST', body: payload });
-      removeTyping();
+      if (mode === 'code') {
+        await sendMessageNonStreaming(payload);
+      } else {
+        await sendMessageStreaming(payload);
+      }
+
       sending = false;
       btnSendChat.disabled = false;
-
-      if (!data.success) {
-        appendMessage('assistant', 'تعذّر الحصول على رد: ' + (data.error || 'خطأ غير معروف.'));
-        return;
-      }
-      if (!currentConversationId) {
-        addConvToRail(data.conversation_id, data.title || 'محادثة جديدة');
-        currentConversationId = data.conversation_id;
-      }
-      var replyMeta = null;
-      if (data.provider || data.reasoning || (data.files_read && data.files_read.length)) {
-        replyMeta = {};
-        if (data.provider) { replyMeta.provider = data.provider; }
-        if (data.reasoning) { replyMeta.reasoning = data.reasoning; }
-        if (data.files_read && data.files_read.length) { replyMeta.files_read = data.files_read; }
-      }
-      appendMessage('assistant', data.reply, replyMeta);
     }
 
     if (chatForm) {

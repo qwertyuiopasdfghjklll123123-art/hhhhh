@@ -111,6 +111,7 @@ $systemPrompt = code_chat_build_system_prompt(
     $treeRes['success'] ? $treeRes['truncated'] : false,
     $context['sql_schema'],
     $context['system_rules'],
+    $context['skill_content'],
     $preReadBlock
 );
 
@@ -138,12 +139,17 @@ $messages = array_merge(
 $finalReply = null;
 $finalReasoning = null;
 $roundsUsed = 0;
+$totalTokensUsed = 0;
 
 for ($round = 1; $round <= CODE_MAX_ROUNDS; $round++) {
     $result = $client->chat($messages);
     $roundsUsed = $round;
+    $totalTokensUsed += (int) ($result['usage']['total_tokens'] ?? 0);
 
     if (!$result['success']) {
+        if ($totalTokensUsed > 0) {
+            db()->prepare('UPDATE ai_providers SET tokens_used = tokens_used + ? WHERE id = ?')->execute([$totalTokensUsed, $provider['id']]);
+        }
         db()->prepare('INSERT INTO ai_messages (conversation_id, role, content) VALUES (?, ?, ?)')
             ->execute([$convId, 'assistant', "تعذّر الحصول على رد من «{$provider['label']}»: " . $result['error']]);
         json_response(['success' => false, 'error' => $result['error'], 'conversation_id' => $convId], 502);
@@ -198,6 +204,10 @@ if (!empty($filesRead)) {
 
 db()->prepare('INSERT INTO ai_messages (conversation_id, role, content, meta) VALUES (?, ?, ?, ?)')
     ->execute([$convId, 'assistant', $finalReply, json_encode($assistantMeta, JSON_UNESCAPED_UNICODE)]);
+
+if ($totalTokensUsed > 0) {
+    db()->prepare('UPDATE ai_providers SET tokens_used = tokens_used + ? WHERE id = ?')->execute([$totalTokensUsed, $provider['id']]);
+}
 
 db()->prepare('UPDATE ai_conversations SET updated_at = NOW() WHERE id = ?')->execute([$convId]);
 
@@ -258,6 +268,7 @@ function code_chat_build_system_prompt(
     bool $treeTruncated,
     ?string $sqlSchema,
     ?string $systemRules,
+    ?string $skillContent,
     string $preReadBlock
 ): string {
     $parts = [
@@ -285,6 +296,10 @@ function code_chat_build_system_prompt(
 
     if ($preReadBlock !== '') {
         $parts[] = "### ملف مرفَق مسبقاً من المستخدم\n{$preReadBlock}";
+    }
+
+    if ($skillContent !== null && trim($skillContent) !== '') {
+        $parts[] = "### سياق Skill دائم لهذا المشروع\n" . trim($skillContent);
     }
 
     if ($systemRules !== null && trim($systemRules) !== '') {

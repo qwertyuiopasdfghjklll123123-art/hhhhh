@@ -16,13 +16,14 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
             flash('error', 'اسم المشروع مطلوب.');
             redirect('projects.php');
         }
-        db()->prepare('INSERT INTO projects (name, description, created_by) VALUES (?, ?, ?)')
-            ->execute([$name, $description !== '' ? $description : null, $user['id']]);
+        $newSlug = generate_project_slug();
+        db()->prepare('INSERT INTO projects (public_slug, name, description, created_by) VALUES (?, ?, ?, ?)')
+            ->execute([$newSlug, $name, $description !== '' ? $description : null, $user['id']]);
         $projectId = (int) db()->lastInsertId();
         db()->prepare('INSERT INTO project_context (project_id) VALUES (?)')->execute([$projectId]);
         log_activity((int) $user['id'], 'project_create', "إنشاء مشروع: {$name}");
         flash('success', 'تم إنشاء المشروع بنجاح. أكمل بيانات السياق والتكامل الآن.');
-        redirect('project_context.php?id=' . $projectId . '&tab=settings');
+        redirect(project_url(['id' => $projectId, 'public_slug' => $newSlug], 'settings'));
     }
 
     if ($formAction === 'toggle_archive' || $formAction === 'delete_project') {
@@ -104,7 +105,7 @@ require __DIR__ . '/includes/layout_start.php';
         </div>
         <?php endif; ?>
       </div>
-      <a href="project_context.php?id=<?= (int) $p['id'] ?>" class="project-card-body">
+      <a href="<?= e(project_url($p, 'chat')) ?>" class="project-card-body">
         <h3><?= e($p['name']) ?></h3>
         <p><?= e($p['description'] !== null && $p['description'] !== '' ? truncate($p['description'], 110) : 'لا يوجد وصف لهذا المشروع.') ?></p>
       </a>

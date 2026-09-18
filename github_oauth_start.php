@@ -7,10 +7,19 @@ require_once __DIR__ . '/services/GithubOAuth.php';
 
 $user = require_login();
 
-/** يسمح فقط بمسار محلي بسيط (ملف .php واختيارياً استعلام) لمنع Open Redirect */
+/**
+ * يسمح فقط بمسار محلي بسيط لمنع Open Redirect: إمّا ملف .php (واختيارياً
+ * استعلام)، أو رابط مشروع نظيف بصيغة chat|code|settings/{معرّف عشوائي}.
+ */
 function safe_local_return(?string $path, string $default): string
 {
-    if ($path !== null && preg_match('/^[a-zA-Z0-9_\-]+\.php(\?[a-zA-Z0-9_=&%.\-]*)?$/', $path)) {
+    if ($path === null) {
+        return $default;
+    }
+    if (preg_match('/^[a-zA-Z0-9_\-]+\.php(\?[a-zA-Z0-9_=&%.\-]*)?$/', $path)) {
+        return $path;
+    }
+    if (preg_match('/^(?:chat|code|settings)\/[a-f0-9]{6,20}$/', $path)) {
         return $path;
     }
     return $default;

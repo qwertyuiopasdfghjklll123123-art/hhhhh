@@ -5,14 +5,20 @@ require_once __DIR__ . '/includes/bootstrap.php';
 
 $user = require_login();
 
-$projectId = (int) ($_GET['id'] ?? 0);
-$stmt = db()->prepare('SELECT p.*, u.name AS owner_name FROM projects p LEFT JOIN users u ON u.id = p.created_by WHERE p.id = ?');
-$stmt->execute([$projectId]);
+$slug = trim((string) ($_GET['slug'] ?? ''));
+if ($slug !== '') {
+    $stmt = db()->prepare('SELECT p.*, u.name AS owner_name FROM projects p LEFT JOIN users u ON u.id = p.created_by WHERE p.public_slug = ?');
+    $stmt->execute([$slug]);
+} else {
+    $stmt = db()->prepare('SELECT p.*, u.name AS owner_name FROM projects p LEFT JOIN users u ON u.id = p.created_by WHERE p.id = ?');
+    $stmt->execute([(int) ($_GET['id'] ?? 0)]);
+}
 $project = $stmt->fetch();
 if (!$project) {
     flash('error', 'المشروع غير موجود.');
     redirect('projects.php');
 }
+$projectId = (int) $project['id'];
 
 $ctxStmt = db()->prepare('SELECT * FROM project_context WHERE project_id = ?');
 $ctxStmt->execute([$projectId]);
@@ -38,21 +44,31 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
             log_activity((int) $user['id'], 'project_update', "تعديل بيانات المشروع: {$name}");
             flash('success', 'تم تحديث بيانات المشروع.');
         }
-        redirect('project_context.php?id=' . $projectId . '&tab=settings');
+        redirect(project_url($project, 'settings'));
     }
 
     if ($formAction === 'save_context') {
-        $sqlSchema    = (string) ($_POST['sql_schema'] ?? '');
-        $systemRules  = (string) ($_POST['system_rules'] ?? '');
-        $githubOwner  = trim((string) ($_POST['github_owner'] ?? ''));
-        $githubRepo   = trim((string) ($_POST['github_repo'] ?? ''));
-        $githubBranch = trim((string) ($_POST['github_branch'] ?? '')) ?: 'main';
+        $sqlSchema     = (string) ($_POST['sql_schema'] ?? '');
+        $systemRules   = (string) ($_POST['system_rules'] ?? '');
+        $skillFilename = trim((string) ($_POST['skill_filename'] ?? ''));
+        $skillContent  = (string) ($_POST['skill_content'] ?? '');
+        $githubOwner   = trim((string) ($_POST['github_owner'] ?? ''));
+        $githubRepo    = trim((string) ($_POST['github_repo'] ?? ''));
+        $githubBranch  = trim((string) ($_POST['github_branch'] ?? '')) ?: 'main';
+
+        if (mb_strlen($skillContent) > 100000) {
+            flash('error', 'محتوى Skill طويل جداً (الحد الأقصى 100000 حرف).');
+            redirect(project_url($project, 'settings'));
+        }
 
         db()->prepare(
-            'UPDATE project_context SET sql_schema = ?, system_rules = ?, github_owner = ?, github_repo = ?, github_branch = ? WHERE project_id = ?'
+            'UPDATE project_context SET sql_schema = ?, system_rules = ?, skill_filename = ?, skill_content = ?,
+             github_owner = ?, github_repo = ?, github_branch = ? WHERE project_id = ?'
         )->execute([
             $sqlSchema !== '' ? $sqlSchema : null,
             $systemRules !== '' ? $systemRules : null,
+            $skillContent !== '' ? ($skillFilename !== '' ? $skillFilename : null) : null,
+            $skillContent !== '' ? $skillContent : null,
             $githubOwner !== '' ? $githubOwner : null,
             $githubRepo !== '' ? $githubRepo : null,
             $githubBranch,
@@ -61,11 +77,11 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
 
         log_activity((int) $user['id'], 'context_save', "تحديث سياق المشروع: {$project['name']}");
         flash('success', 'تم حفظ إعدادات المشروع بنجاح.');
-        redirect('project_context.php?id=' . $projectId . '&tab=settings');
+        redirect(project_url($project, 'settings'));
     }
 
     flash('error', 'إجراء غير معروف.');
-    redirect('project_context.php?id=' . $projectId);
+    redirect(project_url($project, 'chat'));
 }
 
 $ctxStmt->execute([$projectId]);
@@ -94,13 +110,13 @@ require __DIR__ . '/includes/layout_start.php';
 ?>
 
 <div class="project-tabs">
-  <a href="project_context.php?id=<?= $projectId ?>&tab=chat" class="tab-btn <?= $activeTab === 'chat' ? 'active' : '' ?>">
+  <a href="<?= e(project_url($project, 'chat')) ?>" class="tab-btn <?= $activeTab === 'chat' ? 'active' : '' ?>">
     <i class="fa-solid fa-comments"></i> الدردشة العادية
   </a>
-  <a href="project_context.php?id=<?= $projectId ?>&tab=code" class="tab-btn <?= $activeTab === 'code' ? 'active' : '' ?>">
+  <a href="<?= e(project_url($project, 'code')) ?>" class="tab-btn <?= $activeTab === 'code' ? 'active' : '' ?>">
     <i class="fa-solid fa-code"></i> الكود
   </a>
-  <a href="project_context.php?id=<?= $projectId ?>&tab=settings" class="tab-btn <?= $activeTab === 'settings' ? 'active' : '' ?>">
+  <a href="<?= e(project_url($project, 'settings')) ?>" class="tab-btn <?= $activeTab === 'settings' ? 'active' : '' ?>">
     <i class="fa-solid fa-sliders"></i> السياق والإعدادات
   </a>
 </div>
@@ -111,7 +127,7 @@ require __DIR__ . '/includes/layout_start.php';
   <section class="card">
     <div class="card-header"><h2><i class="fa-solid fa-circle-info"></i> بيانات المشروع</h2></div>
     <div class="card-body">
-      <form method="post" action="project_context.php?id=<?= $projectId ?>" class="stack-form">
+      <form method="post" action="<?= e(project_url($project, 'settings')) ?>" class="stack-form">
         <?= csrf_field() ?>
         <input type="hidden" name="form_action" value="update_project_info">
         <div class="form-group">
@@ -127,7 +143,7 @@ require __DIR__ . '/includes/layout_start.php';
     </div>
   </section>
 
-  <form method="post" action="project_context.php?id=<?= $projectId ?>" class="stack-form">
+  <form method="post" action="<?= e(project_url($project, 'settings')) ?>" class="stack-form">
     <?= csrf_field() ?>
     <input type="hidden" name="form_action" value="save_context">
 
@@ -148,6 +164,24 @@ require __DIR__ . '/includes/layout_start.php';
     </section>
 
     <section class="card">
+      <div class="card-header">
+        <h2><i class="fa-solid fa-puzzle-piece"></i> Skill</h2>
+        <label class="btn btn-secondary btn-sm" for="skillFileInput"><i class="fa-solid fa-paperclip"></i> إرفاق ملف نصي</label>
+      </div>
+      <div class="card-body">
+        <p class="form-hint">سياق إضافي دائم يُحقن تلقائياً ضمن موجّه النظام في كل رسالة (دردشة عادية أو كود) لهذا المشروع — أرفق ملفاً نصياً (يُقرأ محتواه مباشرة في متصفحك، دون رفعه كملف منفصل) أو اكتب النص مباشرة.</p>
+        <input type="file" id="skillFileInput" accept=".txt,.md,.markdown,.json,.csv,.log,.yml,.yaml,text/plain" hidden>
+        <input type="hidden" name="skill_filename" id="skillFilename" value="<?= e($context['skill_filename'] ?? '') ?>">
+        <div class="attachment-chip" id="skillFileChip" style="<?= $context['skill_filename'] ? '' : 'display:none' ?>">
+          <i class="fa-solid fa-file-lines"></i>
+          <span id="skillFileChipName"><?= e($context['skill_filename'] ?? '') ?></span>
+          <button type="button" id="skillFileRemove"><i class="fa-solid fa-xmark"></i></button>
+        </div>
+        <textarea class="form-control code-textarea" name="skill_content" id="skillContent" rows="8" placeholder="مثال: دليل أسلوب الفريق، ملخص واجهة API خارجية يعتمدها المشروع، أو أي معرفة ثابتة تريد أن يعرفها المساعد دائماً..."><?= e($context['skill_content'] ?? '') ?></textarea>
+      </div>
+    </section>
+
+    <section class="card">
       <div class="card-header"><h2><i class="fa-brands fa-github"></i> بيانات الوصول السحابية (GitHub)</h2></div>
       <div class="card-body">
         <div class="github-connect-status">
@@ -156,7 +190,7 @@ require __DIR__ . '/includes/layout_start.php';
             <a href="profile.php" class="link-muted">إدارة الربط من صفحة حسابي</a>
           <?php else: ?>
             <span class="badge badge-disabled"><i class="fa-solid fa-circle-exclamation"></i> لم تربط حساب GitHub بعد</span>
-            <a href="github_oauth_start.php?<?= http_build_query(['return' => 'project_context.php?id=' . $projectId . '&tab=settings']) ?>" class="btn btn-secondary btn-sm"><i class="fa-brands fa-github"></i> ربط حساب GitHub</a>
+            <a href="github_oauth_start.php?<?= http_build_query(['return' => project_url($project, 'settings')]) ?>" class="btn btn-secondary btn-sm"><i class="fa-brands fa-github"></i> ربط حساب GitHub</a>
           <?php endif; ?>
         </div>
         <p class="form-hint" style="margin:12px 0 16px">حدّد المستودع والفرع الذي يعمل عليه هذا المشروع. تُستخدم صلاحيات حسابك المرتبط تلقائياً للقراءة والرفع (Commit) — لا حاجة لإدخال أي Personal Access Token يدوياً بعد الآن.</p>
@@ -200,9 +234,9 @@ require __DIR__ . '/includes/layout_start.php';
   <h3>فعّل قسم الكود</h3>
   <p>قسم الكود يعمل أشبه بـ Claude Code: يستكشف مستودع GitHub المرتبط بهذا المشروع تلقائياً ويحاول حل المشكلة أو تنفيذ الطلب اعتماداً على ملفاته الفعلية. يحتاج هذا حساب GitHub مرتبطاً ومستودعاً محدَّداً لهذا المشروع أولاً.</p>
   <?php if (!$hasGithubOauth): ?>
-    <a href="github_oauth_start.php?<?= http_build_query(['return' => 'project_context.php?id=' . $projectId . '&tab=code']) ?>" class="btn btn-primary"><i class="fa-brands fa-github"></i> ربط حساب GitHub</a>
+    <a href="github_oauth_start.php?<?= http_build_query(['return' => project_url($project, 'code')]) ?>" class="btn btn-primary"><i class="fa-brands fa-github"></i> ربط حساب GitHub</a>
   <?php else: ?>
-    <a href="project_context.php?id=<?= $projectId ?>&tab=settings" class="btn btn-primary"><i class="fa-solid fa-sliders"></i> حدّد المستودع من الإعدادات</a>
+    <a href="<?= e(project_url($project, 'settings')) ?>" class="btn btn-primary"><i class="fa-solid fa-sliders"></i> حدّد المستودع من الإعدادات</a>
   <?php endif; ?>
 </div>
 

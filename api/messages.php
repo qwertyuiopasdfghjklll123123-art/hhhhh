@@ -124,7 +124,7 @@ if ($attachPath !== '') {
     }
 }
 
-$systemPrompt = AiClient::buildSystemPrompt($context['sql_schema'], $context['system_rules'], $extraContext);
+$systemPrompt = AiClient::buildSystemPrompt($context['sql_schema'], $context['system_rules'], $context['skill_content'], $extraContext);
 
 $histStmt = db()->prepare('SELECT role, content FROM ai_messages WHERE conversation_id = ? ORDER BY id DESC LIMIT 16');
 $histStmt->execute([$convId]);
@@ -140,27 +140,59 @@ $userContentToStore = $content !== '' ? $content : '(صورة بدون نص مر
 db()->prepare('INSERT INTO ai_messages (conversation_id, role, content, meta) VALUES (?, ?, ?, ?)')
     ->execute([$convId, 'user', $userContentToStore, $userMessageMeta ? json_encode($userMessageMeta, JSON_UNESCAPED_UNICODE) : null]);
 
-/* ---------- استدعاء مزوّد الذكاء الاصطناعي المحدَّد ---------- */
+/* ---------- استدعاء مزوّد الذكاء الاصطناعي المحدَّد، مع بثّ الرد تدريجياً (SSE) ---------- */
 
 if ($hasImage) {
+    $messages = [['role' => 'system', 'content' => $systemPrompt]];
+    foreach ($priorMessages as $m) {
+        $messages[] = $m;
+    }
+    $messages[] = [
+        'role'    => 'user',
+        'content' => [
+            ['type' => 'text', 'text' => $content !== '' ? $content : 'صف هذه الصورة وحلّلها ضمن سياق المشروع.'],
+            ['type' => 'image_url', 'image_url' => ['url' => "data:{$imageMime};base64,{$imageBase64}"]],
+        ],
+    ];
     $client = new AiClient($providerApiKey, $provider['base_url'], $provider['vision_model']);
-    $result = $client->chatWithImage(
-        $systemPrompt,
-        $content !== '' ? $content : 'صف هذه الصورة وحلّلها ضمن سياق المشروع.',
-        $imageBase64,
-        $imageMime,
-        $priorMessages
-    );
 } else {
-    $client = new AiClient($providerApiKey, $provider['base_url'], $provider['text_model']);
     $messages = array_merge([['role' => 'system', 'content' => $systemPrompt]], $priorMessages, [['role' => 'user', 'content' => $content]]);
-    $result = $client->chat($messages);
+    $client = new AiClient($providerApiKey, $provider['base_url'], $provider['text_model']);
 }
+
+// قد يستغرق البث وقتاً على بعض المزوّدين/الاستضافات؛ نمدّد مهلة تنفيذ PHP قدر
+// الإمكان (قد تتجاوزها بعض الاستضافات عبر إعداد خادم منفصل لا يمكن التحكم به من هنا).
+set_time_limit(150);
+
+while (ob_get_level() > 0) {
+    ob_end_clean();
+}
+@ini_set('output_buffering', 'off');
+@ini_set('zlib.output_compression', '0');
+header('Content-Type: text/event-stream; charset=utf-8');
+header('Cache-Control: no-cache');
+header('Connection: keep-alive');
+header('X-Accel-Buffering: no');
+
+$sendEvent = static function (array $data): void {
+    echo 'data: ' . json_encode($data, JSON_UNESCAPED_UNICODE) . "\n\n";
+    if (ob_get_level() > 0) {
+        @ob_flush();
+    }
+    @flush();
+};
+
+$onDelta = static function (string $kind, string $text) use ($sendEvent): void {
+    $sendEvent(['type' => 'delta', 'kind' => $kind, 'text' => $text]);
+};
+
+$result = $client->chatStream($messages, $onDelta);
 
 if (!$result['success']) {
     db()->prepare('INSERT INTO ai_messages (conversation_id, role, content) VALUES (?, ?, ?)')
         ->execute([$convId, 'assistant', "تعذّر الحصول على رد من «{$provider['label']}»: " . $result['error']]);
-    json_response(['success' => false, 'error' => $result['error'], 'conversation_id' => $convId], 502);
+    $sendEvent(['type' => 'error', 'error' => $result['error'], 'conversation_id' => $convId]);
+    exit;
 }
 
 $assistantMeta = ['provider' => $provider['label']];
@@ -171,6 +203,11 @@ if (!empty($result['reasoning'])) {
 db()->prepare('INSERT INTO ai_messages (conversation_id, role, content, meta) VALUES (?, ?, ?, ?)')
     ->execute([$convId, 'assistant', $result['content'], json_encode($assistantMeta, JSON_UNESCAPED_UNICODE)]);
 
+$tokensUsed = (int) ($result['usage']['total_tokens'] ?? 0);
+if ($tokensUsed > 0) {
+    db()->prepare('UPDATE ai_providers SET tokens_used = tokens_used + ? WHERE id = ?')->execute([$tokensUsed, $provider['id']]);
+}
+
 db()->prepare('UPDATE ai_conversations SET updated_at = NOW() WHERE id = ?')->execute([$convId]);
 
 $titleStmt = db()->prepare('SELECT title FROM ai_conversations WHERE id = ?');
@@ -178,7 +215,8 @@ $titleStmt->execute([$convId]);
 
 log_activity((int) $user['id'], 'ai_chat', "استخدام المساعد الذكي ({$provider['label']}) في مشروع: {$project['name']}");
 
-json_response([
+$sendEvent([
+    'type'            => 'done',
     'success'         => true,
     'conversation_id' => $convId,
     'title'           => $titleStmt->fetchColumn(),

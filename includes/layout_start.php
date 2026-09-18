@@ -17,6 +17,10 @@ $appName       = app_config()['app']['name'] ?? 'لوحة إدارة المشا�
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title><?= e($pageTitle) ?> · <?= e($appName) ?></title>
+<!-- يضمن أن كل الروابط النسبية (القائمة الجانبية، CSS/JS، النماذج) تُحلّ من
+     جذر التطبيق دائماً، حتى عند فتح رابط نظيف معاد كتابته مثل chat/{معرّف}
+     حيث يختلف شريط عنوان المتصفح عن مسار السكربت الفعلي المُنفَّذ -->
+<base href="<?= e(rtrim(app_config()['app']['url'] ?? '', '/')) ?>/">
 <?= csrf_meta() ?>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>

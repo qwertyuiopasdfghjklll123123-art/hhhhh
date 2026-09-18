@@ -28,3 +28,16 @@ ServerSignature Off
     php_value upload_max_filesize 8M
     php_value post_max_size 10M
 </IfModule>
+
+# =====================================================================
+# روابط نظيفة لصفحة المشروع: /chat/{معرّف}، /code/{معرّف}، /settings/{معرّف}
+# بدل project_context.php?id=X&tab=Y — تبقى الروابط القديمة تعمل أيضاً
+# (project_context.php يقبل ?slug= أو ?id=) كخط رجوع إن كانت وحدة إعادة
+# الكتابة غير مفعّلة على استضافتك لأي سبب.
+# =====================================================================
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+    RewriteRule ^chat/([a-f0-9]{6,20})/?$ project_context.php?slug=$1&tab=chat [L,QSA]
+    RewriteRule ^code/([a-f0-9]{6,20})/?$ project_context.php?slug=$1&tab=code [L,QSA]
+    RewriteRule ^settings/([a-f0-9]{6,20})/?$ project_context.php?slug=$1&tab=settings [L,QSA]
+</IfModule>

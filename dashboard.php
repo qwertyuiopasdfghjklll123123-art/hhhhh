@@ -9,8 +9,10 @@ $projectCount       = (int) db()->query('SELECT COUNT(*) FROM projects')->fetchC
 $activeProjectCount  = (int) db()->query("SELECT COUNT(*) FROM projects WHERE status = 'active'")->fetchColumn();
 
 $userCount = null;
+$totalTokensUsed = null;
 if ($user['role'] === 'admin') {
     $userCount = (int) db()->query('SELECT COUNT(*) FROM users')->fetchColumn();
+    $totalTokensUsed = (int) db()->query('SELECT COALESCE(SUM(tokens_used), 0) FROM ai_providers')->fetchColumn();
 }
 
 $convStmt = db()->prepare('SELECT COUNT(*) FROM ai_conversations WHERE user_id = ?');
@@ -18,7 +20,7 @@ $convStmt->execute([$user['id']]);
 $myConversations = (int) $convStmt->fetchColumn();
 
 $recentProjects = db()->query(
-    'SELECT p.id, p.name, p.status, p.updated_at, u.name AS owner_name
+    'SELECT p.id, p.public_slug, p.name, p.status, p.updated_at, u.name AS owner_name
      FROM projects p LEFT JOIN users u ON u.id = p.created_by
      ORDER BY p.updated_at DESC LIMIT 6'
 )->fetchAll();
@@ -89,6 +91,15 @@ require __DIR__ . '/includes/layout_start.php';
       <div class="stat-label">محادثاتي مع المساعد الذكي</div>
     </div>
   </div>
+  <?php if ($totalTokensUsed !== null): ?>
+  <div class="stat-card">
+    <div class="stat-icon stat-icon-primary"><i class="fa-solid fa-gauge-high"></i></div>
+    <div>
+      <div class="stat-value"><?= number_format($totalTokensUsed) ?></div>
+      <div class="stat-label">توكنات مستهلكة (كل المزوّدين) · <a href="ai_providers.php" class="link-muted">تفاصيل</a></div>
+    </div>
+  </div>
+  <?php endif; ?>
 </section>
 
 <div class="content-grid-2">
@@ -108,7 +119,7 @@ require __DIR__ . '/includes/layout_start.php';
         <ul class="simple-list">
           <?php foreach ($recentProjects as $p): ?>
             <li>
-              <a href="project_context.php?id=<?= (int) $p['id'] ?>" class="simple-list-row">
+              <a href="<?= e(project_url($p, 'chat')) ?>" class="simple-list-row">
                 <span class="row-icon"><i class="fa-solid fa-diagram-project"></i></span>
                 <span class="row-main">
                   <span class="row-title"><?= e($p['name']) ?></span>

@@ -37,8 +37,12 @@ final class AiClient
      * يبني موجّه النظام (System Prompt) بحقن SQL Schema وقواعد المشروع تلقائياً،
      * ويُستدعى قبل أي طلب مراجعة أو تعديل كود كما هو مطلوب في مواصفات النظام.
      */
-    public static function buildSystemPrompt(?string $sqlSchema, ?string $systemRules, ?string $extraContext = null): string
-    {
+    public static function buildSystemPrompt(
+        ?string $sqlSchema,
+        ?string $systemRules,
+        ?string $skillContent = null,
+        ?string $extraContext = null
+    ): string {
         $parts = [
             'أنت مساعد برمجي خبير مدمج داخل لوحة إدارة مشاريع. مهمتك مراجعة الكود، ' .
             'اقتراح تعديلات دقيقة وقابلة للتطبيق مباشرة، والإجابة عن أسئلة تخص هذا المشروع تحديداً. ' .
@@ -52,6 +56,10 @@ final class AiClient
 
         if ($sqlSchema !== null && trim($sqlSchema) !== '') {
             $parts[] = "### هيكل قاعدة البيانات (SQL Schema)\n```sql\n" . trim($sqlSchema) . "\n```";
+        }
+
+        if ($skillContent !== null && trim($skillContent) !== '') {
+            $parts[] = "### سياق Skill دائم لهذا المشروع\n" . trim($skillContent);
         }
 
         if ($extraContext !== null && trim($extraContext) !== '') {
@@ -76,6 +84,112 @@ final class AiClient
         ], $options);
 
         return $this->send($payload);
+    }
+
+    /**
+     * محادثة نصية مع بث الرد تدريجياً (Streaming): يستدعي $onDelta('content'|'reasoning', $text)
+     * مع وصول كل جزء من الرد، بدل انتظار الرد كاملاً. يعيد نفس بنية chat() تماماً
+     * في النهاية (لتخزين الرد الكامل في قاعدة البيانات). عند فشل مبكر (خطأ HTTP قبل
+     * وصول أي محتوى) يُعاد تحليل الجسم الخام بنفس منطق parseResponse العادي.
+     */
+    public function chatStream(array $messages, callable $onDelta, array $options = []): array
+    {
+        if (trim($this->apiKey) === '') {
+            return ['success' => false, 'error' => 'لا يوجد مفتاح API صالح لهذا المزوّد.'];
+        }
+
+        $payload = array_merge([
+            'model'          => $this->model,
+            'messages'       => $messages,
+            'temperature'    => 0.4,
+            'top_p'          => 0.9,
+            'max_tokens'     => 4096,
+            'stream'         => true,
+            // امتداد قياسي في OpenAI API لإرفاق usage بآخر جزء من البث؛ مزوّدون
+            // متوافقون قد يتجاهلونه بأمان إن لم يدعموه (لا يكسر البث في الحالتين).
+            'stream_options' => ['include_usage' => true],
+        ], $options, ['stream' => true]);
+
+        $content   = '';
+        $reasoning = '';
+        $usage     = null;
+        $sseBuffer = '';
+        $rawResponse = '';
+
+        $ch = curl_init($this->baseUrl);
+        curl_setopt_array($ch, [
+            CURLOPT_POST           => true,
+            CURLOPT_HTTPHEADER     => [
+                'Authorization: Bearer ' . $this->apiKey,
+                'Content-Type: application/json',
+                'Accept: text/event-stream',
+                'Expect:',
+            ],
+            CURLOPT_POSTFIELDS     => json_encode($payload, JSON_UNESCAPED_UNICODE),
+            CURLOPT_TIMEOUT        => $this->timeout,
+            CURLOPT_CONNECTTIMEOUT => 15,
+            CURLOPT_SSL_VERIFYPEER => true,
+            CURLOPT_SSL_VERIFYHOST => 2,
+            CURLOPT_FOLLOWLOCATION => true,
+            CURLOPT_MAXREDIRS      => 3,
+            CURLOPT_HTTP_VERSION   => CURL_HTTP_VERSION_1_1,
+            CURLOPT_WRITEFUNCTION  => function ($handle, string $chunk) use (&$sseBuffer, &$rawResponse, &$content, &$reasoning, &$usage, $onDelta): int {
+                $rawResponse .= $chunk;
+                $sseBuffer .= $chunk;
+                while (($pos = strpos($sseBuffer, "\n")) !== false) {
+                    $line = rtrim(substr($sseBuffer, 0, $pos), "\r");
+                    $sseBuffer = substr($sseBuffer, $pos + 1);
+                    if (!str_starts_with($line, 'data:')) {
+                        continue;
+                    }
+                    $data = trim(substr($line, 5));
+                    if ($data === '' || $data === '[DONE]') {
+                        continue;
+                    }
+                    $json = json_decode($data, true);
+                    if (is_array($json) && isset($json['usage']) && is_array($json['usage'])) {
+                        $usage = $json['usage'];
+                    }
+                    $delta = $json['choices'][0]['delta'] ?? null;
+                    if (!is_array($delta)) {
+                        continue;
+                    }
+                    if (isset($delta['content']) && $delta['content'] !== '') {
+                        $content .= $delta['content'];
+                        $onDelta('content', $delta['content']);
+                    }
+                    if (isset($delta['reasoning_content']) && $delta['reasoning_content'] !== '') {
+                        $reasoning .= $delta['reasoning_content'];
+                        $onDelta('reasoning', $delta['reasoning_content']);
+                    }
+                }
+                return strlen($chunk);
+            },
+        ]);
+
+        $ok = curl_exec($ch);
+
+        if ($ok === false) {
+            $error = curl_error($ch);
+            curl_close($ch);
+            if ($content !== '' || $reasoning !== '') {
+                // انقطع الاتصال بعد أن بدأ البث فعلياً؛ نعيد ما وصل بدل إلغائه بالكامل
+                return ['success' => true, 'content' => $content, 'reasoning' => $reasoning !== '' ? $reasoning : null, 'usage' => $usage];
+            }
+            return ['success' => false, 'error' => 'تعذّر الاتصال بمزوّد الذكاء الاصطناعي (' . $this->baseUrl . '): ' . $error];
+        }
+
+        $status       = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        $effectiveUrl = (string) curl_getinfo($ch, CURLINFO_EFFECTIVE_URL);
+        curl_close($ch);
+
+        if ($content === '' && $reasoning === '') {
+            // لم يصل أي محتوى مُبثّ فعلياً؛ الجسم الخام على الأرجح رسالة خطأ JSON عادية
+            // (غير بصيغة SSE) من المزوّد — نستخدم نفس محلّل الأخطاء المعتاد.
+            return $this->parseResponse($rawResponse, $status, $effectiveUrl);
+        }
+
+        return ['success' => true, 'content' => $content, 'reasoning' => $reasoning !== '' ? $reasoning : null, 'usage' => $usage];
     }
 
     /**

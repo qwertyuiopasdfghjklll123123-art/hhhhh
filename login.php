@@ -76,7 +76,7 @@ $flashError   = flash('error');
       </button>
     </form>
 
-    <p class="auth-footnote">لا تمتلك حساباً؟ تواصل مع مسؤول النظام لإنشاء حساب لك.</p>
+    <p class="auth-footnote">لا تمتلك حساباً؟ <a href="register.php">أنشئ حساباً جديداً</a></p>
   </div>
 </div>
 <script src="assets/js/app.js"></script>
