@@ -30,6 +30,33 @@ final class GithubClient
         return $this->request('GET', "/repos/{$this->owner}/{$this->repo}");
     }
 
+    /**
+     * يسرد مستودعات المستخدم صاحب رمز الوصول (لا يحتاج owner/repo محدَّدين
+     * مسبقاً — يُستخدم لبناء قائمة اختيار المستودع بدل كتابة الاسم يدوياً).
+     */
+    public function listUserRepos(int $perPage = 100): array
+    {
+        $perPage = max(1, min(100, $perPage));
+        $res = $this->request('GET', "/user/repos?sort=updated&per_page={$perPage}&affiliation=owner,collaborator,organization_member", null, true);
+        if (!$res['success']) {
+            return $res;
+        }
+        $items = [];
+        foreach ((array) $res['data'] as $repo) {
+            if (!is_array($repo)) {
+                continue;
+            }
+            $items[] = [
+                'full_name'      => (string) ($repo['full_name'] ?? ''),
+                'owner'          => (string) ($repo['owner']['login'] ?? ''),
+                'name'           => (string) ($repo['name'] ?? ''),
+                'private'        => (bool) ($repo['private'] ?? false),
+                'default_branch' => (string) ($repo['default_branch'] ?? 'main'),
+            ];
+        }
+        return ['success' => true, 'repos' => $items];
+    }
+
     /** يجلب محتوى ملف نصي واحد. يعيد ['success','content','sha','path'] */
     public function getFile(string $path): array
     {
@@ -137,9 +164,9 @@ final class GithubClient
         return implode('/', array_map('rawurlencode', explode('/', $path)));
     }
 
-    private function request(string $method, string $endpoint, ?array $body = null): array
+    private function request(string $method, string $endpoint, ?array $body = null, bool $skipRepoCheck = false): array
     {
-        if (trim($this->token) === '' || $this->owner === '' || $this->repo === '') {
+        if (trim($this->token) === '' || (!$skipRepoCheck && ($this->owner === '' || $this->repo === ''))) {
             return ['success' => false, 'error' => 'إعدادات GitHub غير مكتملة لهذا المشروع (Owner / Repo / Token).'];
         }
 
@@ -201,6 +228,16 @@ final class GithubClient
                 if ($message === null) {
                     $bodySnippet = trim(mb_substr((string) $response, 0, 200));
                     $message = 'HTTP ' . $status . ' من ' . $effectiveUrl . ($bodySnippet !== '' ? ' — ' . $bodySnippet : ' (رد فارغ)');
+                }
+                // "Not Found" من GitHub وحدها لا تُفسَّر بسهولة؛ نضيف السبب الأرجح
+                // حسب رمز الحالة بدل ترك المستخدم بلا أي دليل لحل المشكلة.
+                if ($status === 404 && !$skipRepoCheck) {
+                    $message = "لم يُعثر على المستودع {$this->owner}/{$this->repo} (أو المسار المطلوب فيه) على الفرع «{$this->branch}». "
+                        . 'تحقق من صحة اسم المستودع/المالك والفرع، ومن أن حساب GitHub المرتبط يملك صلاحية الوصول إليه.';
+                } elseif ($status === 401) {
+                    $message = 'رمز الوصول إلى GitHub غير صالح أو منتهي. أعد ربط حساب GitHub من صفحة "حسابي".';
+                } elseif ($status === 403) {
+                    $message = 'GitHub رفض الطلب (403): إمّا صلاحيات حساب GitHub المرتبط لا تكفي للوصول لهذا المستودع، أو تم تجاوز حد الطلبات المسموح — حاول لاحقاً. التفاصيل: ' . $message;
                 }
                 return ['success' => false, 'error' => $message, 'status' => $status];
             }

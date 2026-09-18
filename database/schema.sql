@@ -69,16 +69,18 @@ CREATE TABLE IF NOT EXISTS `projects` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ---------------------------------------------------------------------
--- سياق المشروع: هيكل قاعدة البيانات، القواعد البرمجية، بيانات GitHub، Skill
+-- سياق المشروع: هيكل قاعدة البيانات، القواعد البرمجية، بيانات GitHub
 -- القيم الحساسة (github_token) تُخزَّن مشفّرة (AES-256-GCM) عبر Crypto::encrypt()
+-- ملاحظة: skill_filename/skill_content قديمان (نُقل محتواهما إلى project_skills
+-- عبر ترحيل تلقائي)، أُبقيا لأجل التوافق مع نسخ قديمة من قاعدة البيانات فقط.
 -- ---------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS `project_context` (
   `id` INT UNSIGNED NOT NULL AUTO_INCREMENT,
   `project_id` INT UNSIGNED NOT NULL,
   `sql_schema` LONGTEXT NULL,
   `system_rules` LONGTEXT NULL,
-  `skill_filename` VARCHAR(255) NULL COMMENT 'اسم الملف المرفَق للعرض فقط (المحتوى في skill_content)',
-  `skill_content` LONGTEXT NULL COMMENT 'سياق دائم يُحقن ضمن موجّه النظام في كل الأوضاع',
+  `skill_filename` VARCHAR(255) NULL COMMENT 'قديم - انظر project_skills',
+  `skill_content` LONGTEXT NULL COMMENT 'قديم - انظر project_skills',
   `github_owner` VARCHAR(190) NULL,
   `github_repo` VARCHAR(190) NULL,
   `github_branch` VARCHAR(100) NOT NULL DEFAULT 'main',
@@ -87,6 +89,23 @@ CREATE TABLE IF NOT EXISTS `project_context` (
   PRIMARY KEY (`id`),
   UNIQUE KEY `uniq_context_project` (`project_id`),
   CONSTRAINT `fk_context_project` FOREIGN KEY (`project_id`) REFERENCES `projects` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ---------------------------------------------------------------------
+-- Skill: مقتطفات سياق دائمة متعددة لكل مشروع، تُحقن كلها ضمن موجّه النظام
+-- في كل الأوضاع (دردشة/كود). يمكن للمستخدم إضافة أكثر من مقتطف وتسميته
+-- وتعديله لاحقاً — بديل عن عمود skill_content الوحيد القديم في project_context.
+-- ---------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS `project_skills` (
+  `id` INT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `project_id` INT UNSIGNED NOT NULL,
+  `title` VARCHAR(190) NOT NULL DEFAULT 'سياق بلا عنوان',
+  `content` LONGTEXT NOT NULL,
+  `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  KEY `idx_skill_project` (`project_id`),
+  CONSTRAINT `fk_skill_project` FOREIGN KEY (`project_id`) REFERENCES `projects` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ---------------------------------------------------------------------
@@ -124,13 +143,16 @@ CREATE TABLE IF NOT EXISTS `ai_conversations` (
   `user_id` INT UNSIGNED NOT NULL,
   `mode` ENUM('chat','code') NOT NULL DEFAULT 'chat' COMMENT 'chat = دردشة عادية، code = مساعد كود يستكشف مستودع GitHub',
   `title` VARCHAR(190) NOT NULL DEFAULT 'محادثة جديدة',
+  `provider_id` INT UNSIGNED NULL COMMENT 'آخر مزوّد ذكاء اصطناعي استُخدم في هذه المحادثة - يبقى مختاراً تلقائياً',
   `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   `updated_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`),
   KEY `idx_conv_project` (`project_id`),
   KEY `idx_conv_user` (`user_id`),
+  KEY `idx_conv_provider` (`provider_id`),
   CONSTRAINT `fk_conv_project` FOREIGN KEY (`project_id`) REFERENCES `projects` (`id`) ON DELETE CASCADE,
-  CONSTRAINT `fk_conv_user` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE
+  CONSTRAINT `fk_conv_user` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `fk_conv_provider` FOREIGN KEY (`provider_id`) REFERENCES `ai_providers` (`id`) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS `ai_messages` (

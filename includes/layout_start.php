@@ -69,10 +69,11 @@ $appName       = app_config()['app']['name'] ?? 'لوحة إدارة المشا�
           </span>
         </span>
       </div>
-      <form action="logout.php" method="post">
+      <form action="logout.php" method="post" style="width:100%">
         <?= csrf_field() ?>
-        <button type="submit" class="btn-icon-only" title="تسجيل الخروج">
+        <button type="submit" class="btn-logout" title="تسجيل الخروج">
           <i class="fa-solid fa-arrow-right-from-bracket"></i>
+          <span>تسجيل الخروج</span>
         </button>
       </form>
     </div>

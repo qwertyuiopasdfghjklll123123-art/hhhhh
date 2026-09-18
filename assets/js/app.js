@@ -211,15 +211,12 @@
   });
 
   /* ------------------------------------------------------------------ */
-  /* إرفاق ملف Skill (تعمل فقط داخل تبويب الإعدادات بصفحة project_context.php) */
+  /* إرفاق ملف نصي عند إضافة سياق Skill جديد (تبويب Skill بصفحة project_context.php) */
   /* ------------------------------------------------------------------ */
   var skillFileInput = document.getElementById('skillFileInput');
   if (skillFileInput) {
     var skillContent = document.getElementById('skillContent');
-    var skillFilename = document.getElementById('skillFilename');
-    var skillFileChip = document.getElementById('skillFileChip');
-    var skillFileChipName = document.getElementById('skillFileChipName');
-    var skillFileRemove = document.getElementById('skillFileRemove');
+    var skillTitleInput = document.getElementById('skillTitleInput');
 
     skillFileInput.addEventListener('change', function () {
       var file = skillFileInput.files && skillFileInput.files[0];
@@ -232,18 +229,87 @@
       var reader = new FileReader();
       reader.onload = function () {
         skillContent.value = String(reader.result || '');
-        skillFilename.value = file.name;
-        skillFileChipName.textContent = file.name;
-        skillFileChip.style.display = '';
+        if (skillTitleInput && !skillTitleInput.value.trim()) {
+          skillTitleInput.value = file.name;
+        }
       };
       reader.readAsText(file);
+      skillFileInput.value = '';
+    });
+  }
+
+  /* ------------------------------------------------------------------ */
+  /* اختيار مستودع GitHub من قائمة مستودعات المستخدم الفعلية بدل كتابة   */
+  /* Owner/Repo يدوياً (تبويب الإعدادات بصفحة project_context.php)        */
+  /* ------------------------------------------------------------------ */
+  var btnPickRepo = document.getElementById('btnPickRepo');
+  if (btnPickRepo) {
+    var repoPickerList = document.getElementById('repoPickerList');
+    var repoPickerSearch = document.getElementById('repoPickerSearch');
+    var githubOwnerInput = document.getElementById('githubOwnerInput');
+    var githubRepoInput = document.getElementById('githubRepoInput');
+    var githubBranchInput = document.getElementById('githubBranchInput');
+    var repoPickerLoaded = null;
+
+    var renderRepoList = function (repos, filterText) {
+      repoPickerList.innerHTML = '';
+      var filtered = repos;
+      if (filterText) {
+        var q = filterText.toLowerCase();
+        filtered = repos.filter(function (r) { return r.full_name.toLowerCase().indexOf(q) !== -1; });
+      }
+      if (!filtered.length) {
+        repoPickerList.innerHTML = '<div class="empty-state"><i class="fa-brands fa-github"></i><p>لا توجد نتائج مطابقة.</p></div>';
+        return;
+      }
+      filtered.forEach(function (r) {
+        var row = document.createElement('div');
+        row.className = 'repo-item';
+        var icon = document.createElement('i');
+        icon.className = r.private ? 'fa-solid fa-lock' : 'fa-brands fa-github';
+        row.appendChild(icon);
+        var name = document.createElement('span');
+        name.className = 'repo-item-name';
+        name.textContent = r.full_name;
+        row.appendChild(name);
+        if (r.private) {
+          var badge = document.createElement('span');
+          badge.className = 'badge badge-disabled';
+          badge.textContent = 'خاص';
+          row.appendChild(badge);
+        }
+        row.addEventListener('click', function () {
+          if (githubOwnerInput) { githubOwnerInput.value = r.owner; }
+          if (githubRepoInput) { githubRepoInput.value = r.name; }
+          if (githubBranchInput) { githubBranchInput.value = r.default_branch || 'main'; }
+          var backdrop = repoPickerList.closest('.modal-backdrop');
+          if (backdrop) { backdrop.classList.remove('open'); }
+        });
+        repoPickerList.appendChild(row);
+      });
+    };
+
+    btnPickRepo.addEventListener('click', async function () {
+      openModal('modalRepoPicker');
+      if (repoPickerLoaded) { renderRepoList(repoPickerLoaded, repoPickerSearch ? repoPickerSearch.value.trim() : ''); return; }
+      repoPickerList.innerHTML = '<div class="empty-state"><i class="fa-solid fa-spinner fa-spin"></i><p>يتم التحميل...</p></div>';
+      var data = await apiFetch('api/github_repos.php');
+      if (!data.success) {
+        repoPickerList.innerHTML = '';
+        var err = document.createElement('div');
+        err.className = 'empty-state';
+        err.innerHTML = '<i class="fa-solid fa-triangle-exclamation"></i><p></p>';
+        err.querySelector('p').textContent = data.error || 'تعذّر جلب المستودعات.';
+        repoPickerList.appendChild(err);
+        return;
+      }
+      repoPickerLoaded = data.repos || [];
+      renderRepoList(repoPickerLoaded, '');
     });
 
-    if (skillFileRemove) {
-      skillFileRemove.addEventListener('click', function () {
-        skillFilename.value = '';
-        skillFileChip.style.display = 'none';
-        skillFileInput.value = '';
+    if (repoPickerSearch) {
+      repoPickerSearch.addEventListener('input', function () {
+        if (repoPickerLoaded) { renderRepoList(repoPickerLoaded, repoPickerSearch.value.trim()); }
       });
     }
   }
@@ -261,6 +327,10 @@
     var hasGithub = root.getAttribute('data-has-github') === '1';
     var mode = root.getAttribute('data-mode') === 'code' ? 'code' : 'chat';
     var sendEndpoint = mode === 'code' ? 'api/code_chat.php' : 'api/messages.php';
+    var codeConvId = parseInt(root.getAttribute('data-code-conv-id'), 10) || 0;
+    var providersData = [];
+    try { providersData = JSON.parse(root.getAttribute('data-providers') || '[]'); } catch (e) { providersData = []; }
+    var providerStorageKey = 'pmdash_provider_' + projectId + '_' + mode;
 
     var chatMessages = document.getElementById('chatMessages');
     var chatWelcome = document.getElementById('chatWelcome');
@@ -273,6 +343,7 @@
     var chatImageInput = document.getElementById('chatImageInput');
     var btnAttachGithub = document.getElementById('btnAttachGithub');
     var providerSelect = document.getElementById('providerSelect');
+    var providerInfoCard = document.getElementById('providerInfoCard');
 
     var modalGithubBrowse = document.getElementById('modalGithubBrowse');
     var githubPathBar = document.getElementById('githubPathBar');
@@ -284,10 +355,80 @@
     var commitStatus = document.getElementById('commitStatus');
     var btnConfirmCommit = document.getElementById('btnConfirmCommit');
 
+    var btnPickRepo = document.getElementById('btnPickRepo');
+    var repoPickerList = document.getElementById('repoPickerList');
+    var repoPickerSearch = document.getElementById('repoPickerSearch');
+    var repoPickerLoaded = null;
+
     var currentConversationId = null;
     var pendingAttachment = null;
     var pendingImage = null;
     var sending = false;
+
+    /* -------------------------------------------------------------- */
+    /* تذكّر آخر مزوّد ذكاء اصطناعي مُختار لهذا المشروع/الوضع، حتى قبل    */
+    /* إنشاء أي محادثة فعلية - يبقى المزوّد نفسه عند إرسال رسالة تالية   */
+    /* أو حتى بعد إغلاق المشروع وإعادة فتحه.                             */
+    /* -------------------------------------------------------------- */
+    function findProvider(id) {
+      var idStr = String(id);
+      for (var i = 0; i < providersData.length; i++) {
+        if (String(providersData[i].id) === idStr) { return providersData[i]; }
+      }
+      return null;
+    }
+
+    function updateProviderInfoCard() {
+      if (!providerInfoCard || !providerSelect) { return; }
+      var p = findProvider(providerSelect.value);
+      if (!p) { providerInfoCard.style.display = 'none'; return; }
+      providerInfoCard.innerHTML = '';
+      var icon = document.createElement('i');
+      icon.className = 'fa-solid fa-microchip';
+      providerInfoCard.appendChild(icon);
+      var text = document.createElement('span');
+      var strong = document.createElement('strong');
+      strong.textContent = p.label;
+      text.appendChild(strong);
+      text.appendChild(document.createTextNode(' · '));
+      var modelSpan = document.createElement('span');
+      modelSpan.className = 'provider-info-model';
+      modelSpan.textContent = p.text_model || '';
+      text.appendChild(modelSpan);
+      if (p.vision_model) {
+        text.appendChild(document.createTextNode(' '));
+        var visionTag = document.createElement('i');
+        visionTag.className = 'fa-regular fa-image';
+        visionTag.title = 'يدعم الصور مباشرة';
+        text.appendChild(visionTag);
+      }
+      providerInfoCard.appendChild(text);
+      providerInfoCard.style.display = 'flex';
+    }
+
+    function rememberProviderChoice() {
+      if (!providerSelect || !providerSelect.value) { return; }
+      try { window.localStorage.setItem(providerStorageKey, providerSelect.value); } catch (e) { /* تجاهل (وضع تصفح خاص مثلاً) */ }
+    }
+
+    function setProviderSelectValue(id) {
+      if (!providerSelect || !id) { return; }
+      if (findProvider(id)) {
+        providerSelect.value = String(id);
+        updateProviderInfoCard();
+      }
+    }
+
+    if (providerSelect) {
+      var storedProvider = null;
+      try { storedProvider = window.localStorage.getItem(providerStorageKey); } catch (e) { storedProvider = null; }
+      if (storedProvider) { setProviderSelectValue(storedProvider); }
+      updateProviderInfoCard();
+      providerSelect.addEventListener('change', function () {
+        updateProviderInfoCard();
+        rememberProviderChoice();
+      });
+    }
 
     function scrollToBottom() { chatMessages.scrollTop = chatMessages.scrollHeight; }
     function clearMessages() { chatMessages.innerHTML = ''; }
@@ -323,7 +464,7 @@
       });
       actions.appendChild(copyBtn);
 
-      if (hasGithub) {
+      if (hasGithub && mode !== 'code') {
         var commitBtn = document.createElement('button');
         commitBtn.type = 'button';
         commitBtn.innerHTML = '<i class="fa-solid fa-code-commit"></i> رفع إلى GitHub';
@@ -510,8 +651,13 @@
           var m = typeof meta === 'string' ? JSON.parse(meta) : meta;
           if (m && m.path) { appendAttachmentNote(bubble, 'fa-brands fa-github', m.path); }
           if (m && m.image) { appendAttachmentNote(bubble, 'fa-regular fa-image', m.image); }
+          if (m && m.vision_relay) { appendAttachmentNote(bubble, 'fa-solid fa-eye', 'حُلِّلت الصورة تلقائياً بواسطة ' + m.vision_relay); }
           if (m && m.files_read && m.files_read.length) {
             appendAttachmentNote(bubble, 'fa-solid fa-folder-open', 'اطّلع على: ' + m.files_read.join('، '));
+          }
+          if (m && m.files_written && m.files_written.length) {
+            var writtenNames = m.files_written.map(function (w) { return w.path; }).join('، ');
+            appendAttachmentNote(bubble, 'fa-solid fa-code-commit', 'رُفع تلقائياً إلى GitHub: ' + writtenNames);
           }
           if (m && m.provider) { providerLabel = m.provider; }
           if (m && m.reasoning) { reasoningText = m.reasoning; }
@@ -570,6 +716,7 @@
     }
 
     function addConvToRail(id, title) {
+      if (!chatRailList) { return; }
       var empty = chatRailList.querySelector('.chat-rail-empty');
       if (empty) { empty.remove(); }
       var item = document.createElement('div');
@@ -615,6 +762,9 @@
       if (!data.success) {
         appendMessage('assistant', 'تعذّر تحميل المحادثة: ' + (data.error || ''));
         return;
+      }
+      if (data.conversation && data.conversation.provider_id) {
+        setProviderSelectValue(data.conversation.provider_id);
       }
       if (!data.messages || !data.messages.length) { showWelcome(); return; }
       data.messages.forEach(function (m) { appendMessage(m.role, m.content, m.meta); });
@@ -989,7 +1139,10 @@
       autoGrow();
 
       var payload = { project_id: projectId, conversation_id: currentConversationId, content: text };
-      if (providerSelect && providerSelect.value) { payload.provider_id = providerSelect.value; }
+      if (providerSelect && providerSelect.value) {
+        payload.provider_id = providerSelect.value;
+        rememberProviderChoice();
+      }
       if (pendingAttachment) { payload.attach_path = pendingAttachment.path; }
       if (pendingImage) {
         payload.image_base64 = pendingImage.base64;
@@ -1042,6 +1195,12 @@
         commitStatus.textContent = 'تم رفع التعديل بنجاح إلى GitHub.';
         setTimeout(function () { closeModal(btnConfirmCommit); }, 1200);
       });
+    }
+
+    // وضع الكود: محادثة واحدة مستمرة فقط - إن كانت موجودة مسبقاً لهذا المستخدم
+    // بهذا المشروع، تُحمَّل تلقائياً عند فتح الصفحة (بلا رواق/زر محادثة جديدة).
+    if (mode === 'code' && codeConvId > 0) {
+      loadConversation(codeConvId);
     }
   }
 })();

@@ -54,6 +54,12 @@ function needs_schema_migration(): bool
         if (!db_has_column('projects', 'public_slug')) {
             return true;
         }
+        if (!db_has_table('project_skills')) {
+            return true;
+        }
+        if (!db_has_column('ai_conversations', 'provider_id')) {
+            return true;
+        }
     } catch (Throwable $e) {
         // تعذّر حتى فحص المخطط (اتصال DB معطوب مثلاً) — نترك الخطأ الفعلي يظهر
         // لاحقاً بمعالج الأخطاء العام بدل التستّر عليه هنا.
@@ -150,6 +156,52 @@ function run_pending_migrations(): array
         }
         $pdo->exec('ALTER TABLE `projects` ADD UNIQUE KEY `uniq_projects_slug` (`public_slug`)');
         $log[] = 'أُضيف عمود projects.public_slug (معرّف عشوائي لكل مشروع يُستخدم بالرابط بدل الرقم التسلسلي).';
+    }
+
+    if (!db_has_table('project_skills')) {
+        $pdo->exec(
+            'CREATE TABLE `project_skills` (' .
+            '`id` INT UNSIGNED NOT NULL AUTO_INCREMENT,' .
+            '`project_id` INT UNSIGNED NOT NULL,' .
+            "`title` VARCHAR(190) NOT NULL DEFAULT 'سياق بلا عنوان'," .
+            '`content` LONGTEXT NOT NULL,' .
+            '`created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,' .
+            '`updated_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,' .
+            'PRIMARY KEY (`id`),' .
+            'KEY `idx_skill_project` (`project_id`),' .
+            'CONSTRAINT `fk_skill_project` FOREIGN KEY (`project_id`) REFERENCES `projects` (`id`) ON DELETE CASCADE' .
+            ') ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci'
+        );
+        $log[] = 'أُنشئ جدول project_skills (يدعم أكثر من مقتطف Skill لكل مشروع).';
+
+        // ترحيل أي محتوى Skill قديم (عمود وحيد) إلى أول صف بالجدول الجديد
+        // حفاظاً على استمرارية السياق الذي كان يعمل عليه AI سابقاً.
+        if (db_has_column('project_context', 'skill_content')) {
+            $rows = $pdo->query(
+                "SELECT project_id, skill_filename, skill_content FROM `project_context` WHERE skill_content IS NOT NULL AND TRIM(skill_content) <> ''"
+            )->fetchAll(PDO::FETCH_ASSOC);
+            $migrated = 0;
+            foreach ($rows as $row) {
+                $title = trim((string) ($row['skill_filename'] ?? '')) !== ''
+                    ? (string) $row['skill_filename']
+                    : 'سياق مستورَد';
+                $pdo->prepare('INSERT INTO `project_skills` (project_id, title, content) VALUES (?, ?, ?)')
+                    ->execute([$row['project_id'], $title, $row['skill_content']]);
+                $migrated++;
+            }
+            if ($migrated > 0) {
+                $log[] = "رُحِّل محتوى Skill القديم لـ {$migrated} مشروع(اً) إلى النظام الجديد متعدد المقتطفات.";
+            }
+        }
+    }
+
+    if (!db_has_column('ai_conversations', 'provider_id')) {
+        $pdo->exec('ALTER TABLE `ai_conversations` ADD COLUMN `provider_id` INT UNSIGNED NULL AFTER `title`');
+        $pdo->exec(
+            'ALTER TABLE `ai_conversations` ADD KEY `idx_conv_provider` (`provider_id`), ' .
+            'ADD CONSTRAINT `fk_conv_provider` FOREIGN KEY (`provider_id`) REFERENCES `ai_providers` (`id`) ON DELETE SET NULL'
+        );
+        $log[] = 'أُضيف عمود ai_conversations.provider_id (يحفظ آخر مزوّد AI استُخدم بكل محادثة).';
     }
 
     if (empty($log)) {

@@ -40,4 +40,5 @@ ServerSignature Off
     RewriteRule ^chat/([a-f0-9]{6,20})/?$ project_context.php?slug=$1&tab=chat [L,QSA]
     RewriteRule ^code/([a-f0-9]{6,20})/?$ project_context.php?slug=$1&tab=code [L,QSA]
     RewriteRule ^settings/([a-f0-9]{6,20})/?$ project_context.php?slug=$1&tab=settings [L,QSA]
+    RewriteRule ^skill/([a-f0-9]{6,20})/?$ project_context.php?slug=$1&tab=skill [L,QSA]
 </IfModule>

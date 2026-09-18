@@ -328,7 +328,7 @@ function generate_project_slug(): string
  */
 function project_url(array $project, string $tab = 'chat'): string
 {
-    $tab = in_array($tab, ['chat', 'code', 'settings'], true) ? $tab : 'chat';
+    $tab = in_array($tab, ['chat', 'code', 'settings', 'skill'], true) ? $tab : 'chat';
     if (!empty($project['public_slug'])) {
         return $tab . '/' . $project['public_slug'];
     }
@@ -347,4 +347,41 @@ function resolve_github_token(array $context, array $user): ?string
         return Crypto::decrypt($context['github_token']);
     }
     return null;
+}
+
+/**
+ * يتحقق أن المستخدم الحالي يملك صلاحية الوصول لهذا المشروع (منشئه أو أدمن -
+ * الأدمن يرى كل شيء)، ويعيد صف المشروع كاملاً. عزل كامل لمشاريع كل مستخدم عن
+ * غيره؛ تُستخدم من كل نقاط api/*.php التي تستقبل project_id مباشرة من العميل.
+ */
+function require_project_access(int $projectId, array $user): array
+{
+    $stmt = db()->prepare('SELECT * FROM projects WHERE id = ?');
+    $stmt->execute([$projectId]);
+    $project = $stmt->fetch();
+    if (!$project) {
+        json_response(['success' => false, 'error' => 'المشروع غير موجود'], 404);
+    }
+    $isOwner = (int) ($project['created_by'] ?? 0) === (int) $user['id'];
+    if (($user['role'] ?? '') !== 'admin' && !$isOwner) {
+        json_response(['success' => false, 'error' => 'ليست لديك صلاحية الوصول لهذا المشروع'], 403);
+    }
+    return $project;
+}
+
+/** يجمع كل مقتطفات Skill المتعددة لمشروع في نص واحد يُحقن ضمن موجّه النظام */
+function project_skills_combined(int $projectId): ?string
+{
+    $stmt = db()->prepare('SELECT title, content FROM project_skills WHERE project_id = ? ORDER BY id ASC');
+    $stmt->execute([$projectId]);
+    $rows = $stmt->fetchAll();
+    if (empty($rows)) {
+        return null;
+    }
+    $out = '';
+    foreach ($rows as $r) {
+        $out .= '#### ' . $r['title'] . "\n" . trim((string) $r['content']) . "\n\n";
+    }
+    $out = trim($out);
+    return $out !== '' ? $out : null;
 }

@@ -161,13 +161,31 @@ code, pre, textarea.code-textarea { font-family: var(--font-mono); direction: lt
 
 .sidebar-footer {
   display: flex;
-  align-items: center;
-  gap: 8px;
+  flex-direction: column;
+  gap: 10px;
   padding: 14px 12px;
   border-top: 1px solid var(--border);
 }
 
 .user-chip { display: flex; align-items: center; gap: 10px; flex: 1; min-width: 0; }
+
+.btn-logout {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+  padding: 9px 12px;
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  border: 1px solid var(--border-strong);
+  color: var(--text-muted);
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+.btn-logout:hover { background: var(--danger-soft); color: #f87171; border-color: rgba(239, 68, 68, 0.3); }
 
 .user-avatar {
   width: 34px;
@@ -371,6 +389,23 @@ code, pre, textarea.code-textarea { font-family: var(--font-mono); direction: lt
 
 .btn-chip:hover { background: var(--surface-hover); color: var(--text); }
 .btn-chip:disabled { opacity: 0.45; cursor: not-allowed; }
+
+.btn-outline-danger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 7px 14px;
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  border: 1px solid var(--border-strong);
+  color: var(--text-muted);
+  font-size: 0.78rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+.btn-outline-danger:hover { background: var(--danger-soft); color: #f87171; border-color: rgba(239, 68, 68, 0.3); }
 
 .link-more { font-size: 0.78rem; color: var(--accent); font-weight: 600; display: inline-flex; align-items: center; gap: 6px; }
 .link-more:hover { text-decoration: underline; }
@@ -653,26 +688,35 @@ textarea.form-control { resize: vertical; min-height: 42px; }
 }
 .project-card-footer span { display: inline-flex; align-items: center; gap: 5px; }
 
+/* منيو جانبي لتبويبات المشروع (دردشة/كود/Skill/إعدادات) بدل شريط أفقي علوي */
+.project-view {
+  display: grid;
+  grid-template-columns: 188px 1fr;
+  gap: 26px;
+  align-items: start;
+}
 .project-tabs {
   display: flex;
-  gap: 4px;
-  border-bottom: 1px solid var(--border);
-  margin-bottom: 20px;
+  flex-direction: column;
+  gap: 2px;
+  position: sticky;
+  top: 0;
 }
+.project-tabs-content { min-width: 0; }
 .tab-btn {
-  display: inline-flex; align-items: center; gap: 8px;
-  padding: 11px 6px;
-  margin-bottom: -1px;
-  border-bottom: 2px solid transparent;
+  display: flex; align-items: center; gap: 10px;
+  padding: 10px 13px;
+  border-radius: var(--radius-sm);
+  border-inline-start: 2px solid transparent;
   color: var(--text-muted);
-  font-size: 0.86rem;
+  font-size: 0.85rem;
   font-weight: 600;
 }
-.tab-btn + .tab-btn { margin-inline-start: 22px; }
-.tab-btn:hover { color: var(--text); }
-.tab-btn.active { color: var(--accent); border-bottom-color: var(--accent); }
+.tab-btn:hover { color: var(--text); background: var(--surface); }
+.tab-btn.active { color: var(--accent); background: var(--accent-soft); border-inline-start-color: var(--accent); }
 
 .settings-stack { max-width: 880px; }
+.skill-card-actions { display: flex; align-items: center; gap: 10px; margin-top: 4px; }
 
 /* حالة ربط GitHub عبر OAuth (زر الربط أو شارة "متصل") */
 .github-connect-status { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
@@ -762,6 +806,40 @@ textarea.form-control { resize: vertical; min-height: 42px; }
 .provider-select-wrap select:focus { outline: none; }
 .provider-select-wrap select option { background: var(--surface-2); color: var(--text); }
 
+/* بطاقة صغيرة تعرض تفاصيل مزوّد الذكاء الاصطناعي المختار حالياً (نموذج نصي/رؤية) */
+.provider-info-card {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 8px 12px;
+  margin: 0 18px 10px;
+  font-size: 0.74rem;
+  color: var(--text-muted);
+}
+.provider-info-card i.fa-microchip { color: var(--accent); }
+.provider-info-card strong { color: var(--text); font-weight: 700; }
+.provider-info-card .provider-info-model { font-family: var(--font-mono); direction: ltr; }
+.provider-info-card i.fa-image { color: var(--info); font-size: 0.78rem; }
+
+/* اختيار مستودع GitHub من قائمة فعلية بدل كتابة Owner/Repo يدوياً */
+.repo-picker-search { margin-bottom: 10px; }
+.repo-picker-list { border: 1px solid var(--border); border-radius: var(--radius-sm); max-height: 400px; overflow-y: auto; }
+.repo-item {
+  display: flex; align-items: center; gap: 10px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border);
+  cursor: pointer;
+  font-size: 0.82rem;
+  transition: background 0.12s;
+}
+.repo-item:last-child { border-bottom: none; }
+.repo-item:hover { background: var(--surface-2); }
+.repo-item i { color: var(--text-faint); flex-shrink: 0; }
+.repo-item-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--font-mono); direction: ltr; text-align: left; }
+
 /* =====================================================================
    النوافذ المنبثقة (Modals)
    ===================================================================== */
@@ -823,6 +901,8 @@ textarea.form-control { resize: vertical; min-height: 42px; }
   height: calc(100vh - 190px);
   min-height: 480px;
 }
+/* وضع الكود: محادثة واحدة مستمرة بلا رواق محادثات متعددة */
+.chat-layout.no-rail { grid-template-columns: 1fr; }
 
 .chat-rail {
   background: var(--surface);
@@ -1159,6 +1239,19 @@ textarea.form-control { resize: vertical; min-height: 42px; }
   .chat-pane { height: 70vh; }
   .msg { max-width: 96%; }
   .project-grid { grid-template-columns: 1fr; }
+
+  /* منيو التبويبات الجانبي يتحول لشريط أفقي قابل للتمرير على الهواتف بدل عمود رأسي يزاحم المحتوى */
+  .project-view { grid-template-columns: 1fr; gap: 14px; }
+  .project-tabs {
+    flex-direction: row;
+    overflow-x: auto;
+    position: static;
+    border-bottom: 1px solid var(--border);
+    padding-bottom: 8px;
+    gap: 4px;
+  }
+  .tab-btn { border-inline-start: none; border-bottom: 2px solid transparent; flex-shrink: 0; white-space: nowrap; }
+  .tab-btn.active { background: none; border-bottom-color: var(--accent); }
 }
 
 @media (max-width: 560px) {

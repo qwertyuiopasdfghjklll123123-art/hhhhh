@@ -35,12 +35,7 @@ if (mb_strlen($content) > 12000) {
     json_response(['success' => false, 'error' => 'الرسالة طويلة جداً (الحد الأقصى 12000 حرف).'], 422);
 }
 
-$pStmt = db()->prepare('SELECT id, name FROM projects WHERE id = ?');
-$pStmt->execute([$projectId]);
-$project = $pStmt->fetch();
-if (!$project) {
-    json_response(['success' => false, 'error' => 'المشروع غير موجود'], 404);
-}
+$project = require_project_access($projectId, $user);
 
 $cStmt = db()->prepare('SELECT * FROM project_context WHERE project_id = ?');
 $cStmt->execute([$projectId]);
@@ -84,8 +79,8 @@ if ($convId > 0) {
     }
 } else {
     $title = truncate($content, 60);
-    db()->prepare("INSERT INTO ai_conversations (project_id, user_id, mode, title) VALUES (?, ?, 'code', ?)")
-        ->execute([$projectId, $user['id'], $title !== '' ? $title : 'محادثة كود جديدة']);
+    db()->prepare("INSERT INTO ai_conversations (project_id, user_id, mode, title, provider_id) VALUES (?, ?, 'code', ?, ?)")
+        ->execute([$projectId, $user['id'], $title !== '' ? $title : 'محادثة كود جديدة', $provider['id']]);
     $convId = (int) db()->lastInsertId();
 }
 
@@ -111,7 +106,7 @@ $systemPrompt = code_chat_build_system_prompt(
     $treeRes['success'] ? $treeRes['truncated'] : false,
     $context['sql_schema'],
     $context['system_rules'],
-    $context['skill_content'],
+    project_skills_combined($projectId),
     $preReadBlock
 );
 
@@ -194,12 +189,38 @@ for ($round = 1; $round <= CODE_MAX_ROUNDS; $round++) {
     $messages[] = ['role' => 'user', 'content' => "محتوى الملفات المطلوبة:\n\n" . $fetchedBlock . $instruction];
 }
 
+/* ---------- تطبيق طلبات الكتابة التلقائية (WRITE_FILE) - رفع مباشر إلى GitHub ---------- */
+
+$filesWritten = [];
+$writeRequests = code_chat_parse_write_requests((string) $finalReply);
+foreach ($writeRequests as $w) {
+    $existing = $gh->getFile($w['path']);
+    $sha = $existing['success'] ? $existing['sha'] : null;
+    $commitMsg = 'تحديث تلقائي عبر مساعد الكود: ' . truncate($content, 80);
+    $writeRes = $gh->createOrUpdateFile($w['path'], $w['content'], $commitMsg, $sha);
+
+    $confirmLine = $writeRes['success']
+        ? '✅ تم رفع **' . $w['path'] . '** إلى GitHub' . (!empty($writeRes['data']['commit']['html_url']) ? ' ([عرض الـ Commit](' . $writeRes['data']['commit']['html_url'] . '))' : '') . '.'
+        : '❌ تعذّر رفع **' . $w['path'] . '** إلى GitHub: ' . $writeRes['error'];
+    $finalReply = str_replace($w['raw'], $confirmLine, (string) $finalReply);
+
+    $filesWritten[] = [
+        'path'       => $w['path'],
+        'success'    => $writeRes['success'],
+        'commit_url' => $writeRes['data']['commit']['html_url'] ?? null,
+        'error'      => $writeRes['success'] ? null : $writeRes['error'],
+    ];
+}
+
 $assistantMeta = ['provider' => $provider['label'], 'rounds' => $roundsUsed];
 if ($finalReasoning) {
     $assistantMeta['reasoning'] = $finalReasoning;
 }
 if (!empty($filesRead)) {
     $assistantMeta['files_read'] = array_values(array_unique($filesRead));
+}
+if (!empty($filesWritten)) {
+    $assistantMeta['files_written'] = $filesWritten;
 }
 
 db()->prepare('INSERT INTO ai_messages (conversation_id, role, content, meta) VALUES (?, ?, ?, ?)')
@@ -209,7 +230,7 @@ if ($totalTokensUsed > 0) {
     db()->prepare('UPDATE ai_providers SET tokens_used = tokens_used + ? WHERE id = ?')->execute([$totalTokensUsed, $provider['id']]);
 }
 
-db()->prepare('UPDATE ai_conversations SET updated_at = NOW() WHERE id = ?')->execute([$convId]);
+db()->prepare('UPDATE ai_conversations SET updated_at = NOW(), provider_id = ? WHERE id = ?')->execute([$provider['id'], $convId]);
 
 $titleStmt = db()->prepare('SELECT title FROM ai_conversations WHERE id = ?');
 $titleStmt->execute([$convId]);
@@ -224,6 +245,7 @@ json_response([
     'reasoning'       => $finalReasoning,
     'provider'        => $provider['label'],
     'files_read'      => array_values(array_unique($filesRead)),
+    'files_written'   => $filesWritten,
     'rounds_used'     => $roundsUsed,
 ]);
 
@@ -260,6 +282,30 @@ function code_chat_parse_read_requests(string $assistantText, int $maxPerRound):
     return $paths;
 }
 
+/**
+ * يبني قائمة طلبات كتابة ملفات (WRITE_FILE) ضمن الرد النهائي: كل عنصر
+ * ['path'=>..,'content'=>..,'raw'=>النص الكامل المطابق] ليُستبدل لاحقاً بسطر
+ * تأكيد مختصر بدل عرض صيغة الماركر الخام للمستخدم. حد أقصى 5 ملفات بالرد الواحد.
+ */
+function code_chat_parse_write_requests(string $assistantText): array
+{
+    if (!preg_match_all('/WRITE_FILE:\s*`?([^\s`\n]+)`?\s*\n<<<CONTENT\r?\n(.*?)\r?\nCONTENT>>>/s', $assistantText, $matches, PREG_SET_ORDER)) {
+        return [];
+    }
+    $writes = [];
+    foreach ($matches as $m) {
+        $path = ltrim(trim($m[1], " \t\n\r\0\x0B.,;"), '/');
+        if ($path === '' || mb_strlen($path) > 400) {
+            continue;
+        }
+        $writes[] = ['path' => $path, 'content' => $m[2], 'raw' => $m[0]];
+        if (count($writes) >= 5) {
+            break;
+        }
+    }
+    return $writes;
+}
+
 function code_chat_build_system_prompt(
     string $owner,
     string $repo,
@@ -279,7 +325,14 @@ function code_chat_build_system_prompt(
         . "READ_FILE: المسار/الكامل/للملف.امتداد\n\n"
         . 'سيصلك محتوى هذه الملفات في رسالة تالية لتتابع تحليلك (حتى ' . CODE_MAX_ROUNDS . ' جولات استكشاف إجمالاً). '
         . 'لا تطلب ملفاً لا علاقة له بالطلب، ولا ملفاً عُرض عليك محتواه مسبقاً في هذه المحادثة. بمجرد أن تملك سياقاً كافياً، '
-        . 'أجب بحل نهائي واضح وقابل للتطبيق مباشرة، وضع أي كود مقترح داخل كتلة ```لغة البرمجة ... ``` كاملة وقابلة للنسخ.',
+        . 'أجب بحل نهائي واضح وقابل للتطبيق مباشرة.'
+        . "\n\nهذا المستودع مساحة عمل تعمل عليها مباشرة (تماماً مثل Claude Code): عندما يطلب المستخدم تنفيذ تعديل أو ميزة فعلية "
+        . "(وليس مجرد شرح أو مثال توضيحي)، لا تكتفِ بعرض الكود على المستخدم لينسخه يدوياً — ارفعه مباشرة كـ Commit فعلي على "
+        . "المستودع بكتابة، لكل ملف تريد إنشاءه أو تعديله، الصيغة التالية بالضبط (حتى 5 ملفات بالرد الواحد، والمحتوى كاملاً "
+        . "وليس Diff أو مقتطفاً جزئياً):\n"
+        . "WRITE_FILE: المسار/الكامل/للملف.امتداد\n<<<CONTENT\n(محتوى الملف الكامل هنا)\nCONTENT>>>\n\n"
+        . 'استخدم WRITE_FILE فقط عندما يريد المستخدم تطبيق تغيير فعلي على المستودع، وليس لعرض كود توضيحي داخل الشرح '
+        . '(الكود التوضيحي العادي داخل كتلة ```لغة البرمجة ... ``` كما هو معتاد لا يُرفع تلقائياً).',
     ];
 
     if ($treeFiles === null) {

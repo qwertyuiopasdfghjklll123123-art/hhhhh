@@ -5,12 +5,23 @@ require_once __DIR__ . '/includes/bootstrap.php';
 
 $user = require_login();
 
-$projectCount       = (int) db()->query('SELECT COUNT(*) FROM projects')->fetchColumn();
-$activeProjectCount  = (int) db()->query("SELECT COUNT(*) FROM projects WHERE status = 'active'")->fetchColumn();
+// عزل المشاريع: كل مستخدم يرى إحصاءاته الخاصة فقط، والأدمن وحده يرى إحصاءات النظام كله.
+$isAdminUser = $user['role'] === 'admin';
+if ($isAdminUser) {
+    $projectCount       = (int) db()->query('SELECT COUNT(*) FROM projects')->fetchColumn();
+    $activeProjectCount = (int) db()->query("SELECT COUNT(*) FROM projects WHERE status = 'active'")->fetchColumn();
+} else {
+    $pcStmt = db()->prepare('SELECT COUNT(*) FROM projects WHERE created_by = ?');
+    $pcStmt->execute([$user['id']]);
+    $projectCount = (int) $pcStmt->fetchColumn();
+    $acStmt = db()->prepare("SELECT COUNT(*) FROM projects WHERE created_by = ? AND status = 'active'");
+    $acStmt->execute([$user['id']]);
+    $activeProjectCount = (int) $acStmt->fetchColumn();
+}
 
 $userCount = null;
 $totalTokensUsed = null;
-if ($user['role'] === 'admin') {
+if ($isAdminUser) {
     $userCount = (int) db()->query('SELECT COUNT(*) FROM users')->fetchColumn();
     $totalTokensUsed = (int) db()->query('SELECT COALESCE(SUM(tokens_used), 0) FROM ai_providers')->fetchColumn();
 }
@@ -19,11 +30,22 @@ $convStmt = db()->prepare('SELECT COUNT(*) FROM ai_conversations WHERE user_id =
 $convStmt->execute([$user['id']]);
 $myConversations = (int) $convStmt->fetchColumn();
 
-$recentProjects = db()->query(
-    'SELECT p.id, p.public_slug, p.name, p.status, p.updated_at, u.name AS owner_name
-     FROM projects p LEFT JOIN users u ON u.id = p.created_by
-     ORDER BY p.updated_at DESC LIMIT 6'
-)->fetchAll();
+if ($isAdminUser) {
+    $recentProjects = db()->query(
+        'SELECT p.id, p.public_slug, p.name, p.status, p.updated_at, u.name AS owner_name
+         FROM projects p LEFT JOIN users u ON u.id = p.created_by
+         ORDER BY p.updated_at DESC LIMIT 6'
+    )->fetchAll();
+} else {
+    $rpStmt = db()->prepare(
+        'SELECT p.id, p.public_slug, p.name, p.status, p.updated_at, u.name AS owner_name
+         FROM projects p LEFT JOIN users u ON u.id = p.created_by
+         WHERE p.created_by = ?
+         ORDER BY p.updated_at DESC LIMIT 6'
+    );
+    $rpStmt->execute([$user['id']]);
+    $recentProjects = $rpStmt->fetchAll();
+}
 
 if ($user['role'] === 'admin') {
     $recentActivity = db()->query(

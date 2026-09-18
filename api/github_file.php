@@ -10,6 +10,7 @@ $path      = (string) ($_GET['path'] ?? '');
 if ($projectId <= 0) {
     json_response(['success' => false, 'error' => 'project_id مطلوب'], 422);
 }
+require_project_access($projectId, $user);
 
 $stmt = db()->prepare('SELECT * FROM project_context WHERE project_id = ?');
 $stmt->execute([$projectId]);

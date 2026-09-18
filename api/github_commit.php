@@ -22,6 +22,7 @@ if ($projectId <= 0 || $path === '') {
 if (strlen($content) > 2000000) {
     json_response(['success' => false, 'error' => 'حجم المحتوى كبير جداً.'], 422);
 }
+require_project_access($projectId, $user);
 
 $stmt = db()->prepare('SELECT * FROM project_context WHERE project_id = ?');
 $stmt->execute([$projectId]);

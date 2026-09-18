@@ -58,13 +58,27 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
     redirect('projects.php');
 }
 
-$allProjects = db()->query(
-    "SELECT p.*, u.name AS owner_name,
-        (SELECT COUNT(*) FROM ai_conversations c WHERE c.project_id = p.id) AS conv_count
-     FROM projects p
-     LEFT JOIN users u ON u.id = p.created_by
-     ORDER BY CASE WHEN p.status = 'active' THEN 0 ELSE 1 END, p.updated_at DESC"
-)->fetchAll();
+// عزل المشاريع: كل مستخدم يرى مشاريعه فقط، والأدمن وحده يرى الجميع.
+if ($user['role'] === 'admin') {
+    $allProjects = db()->query(
+        "SELECT p.*, u.name AS owner_name,
+            (SELECT COUNT(*) FROM ai_conversations c WHERE c.project_id = p.id) AS conv_count
+         FROM projects p
+         LEFT JOIN users u ON u.id = p.created_by
+         ORDER BY CASE WHEN p.status = 'active' THEN 0 ELSE 1 END, p.updated_at DESC"
+    )->fetchAll();
+} else {
+    $stmt = db()->prepare(
+        "SELECT p.*, u.name AS owner_name,
+            (SELECT COUNT(*) FROM ai_conversations c WHERE c.project_id = p.id) AS conv_count
+         FROM projects p
+         LEFT JOIN users u ON u.id = p.created_by
+         WHERE p.created_by = ?
+         ORDER BY CASE WHEN p.status = 'active' THEN 0 ELSE 1 END, p.updated_at DESC"
+    );
+    $stmt->execute([$user['id']]);
+    $allProjects = $stmt->fetchAll();
+}
 
 $pageTitle     = 'المشاريع';
 $activeNav     = 'projects';
