@@ -131,6 +131,7 @@ $isCode = $activeTab === 'code';
 // تماماً مثل صفحة دردشة واحدة مع مساعد كود. الدردشة العادية تبقى تدعم عدة محادثات.
 $codeConvId = 0;
 $conversationList = [];
+$initialConvId = 0;
 if ($activeTab === 'chat' || $activeTab === 'code') {
     if ($isCode) {
         $codeConvStmt = db()->prepare("SELECT id FROM ai_conversations WHERE project_id = ? AND user_id = ? AND mode = 'code' ORDER BY id ASC LIMIT 1");
@@ -140,6 +141,18 @@ if ($activeTab === 'chat' || $activeTab === 'code') {
         $convStmt = db()->prepare('SELECT id, title, updated_at FROM ai_conversations WHERE project_id = ? AND user_id = ? AND mode = ? ORDER BY updated_at DESC');
         $convStmt->execute([$projectId, $user['id'], 'chat']);
         $conversationList = $convStmt->fetchAll();
+
+        // يسمح بفتح محادثة دردشة محددة مباشرةً (مثلاً من صفحة "آخر المحادثات")
+        // عبر ?conv=ID، بعد التحقق من ملكيتها لهذا المستخدم/المشروع/الوضع.
+        $requestedConvId = (int) ($_GET['conv'] ?? 0);
+        if ($requestedConvId > 0) {
+            foreach ($conversationList as $c) {
+                if ((int) $c['id'] === $requestedConvId) {
+                    $initialConvId = $requestedConvId;
+                    break;
+                }
+            }
+        }
     }
 }
 
@@ -155,6 +168,8 @@ $providersForJs = array_map(static fn (array $p): array => [
     'label'        => $p['label'],
     'text_model'   => $p['text_model'],
     'vision_model' => $p['vision_model'],
+    'specialty'    => $p['specialty'] ?? null,
+    'is_default'   => (bool) $p['is_default'],
 ], $providers);
 
 $pageTitle     = $project['name'];
@@ -336,6 +351,7 @@ require __DIR__ . '/includes/layout_start.php';
      data-has-github="<?= $hasGithubToken ? '1' : '0' ?>"
      data-has-provider="<?= empty($providers) ? '0' : '1' ?>"
      data-code-conv-id="<?= $codeConvId ?>"
+     data-initial-conv-id="<?= $initialConvId ?>"
      data-providers="<?= e(json_encode($providersForJs, JSON_UNESCAPED_UNICODE)) ?>">
   <?php if (!$isCode): ?>
   <aside class="chat-rail">
@@ -389,18 +405,17 @@ require __DIR__ . '/includes/layout_start.php';
     </div>
 
     <div class="chat-attachments" id="chatAttachments"></div>
-    <div class="provider-info-card" id="providerInfoCard" style="display:none"></div>
 
     <form class="chat-input-bar" id="chatForm">
       <div class="chat-toolbar">
         <?php if (!empty($providers)): ?>
-        <div class="provider-select-wrap">
-          <i class="fa-solid fa-microchip"></i>
-          <select id="providerSelect" title="مزوّد الذكاء الاصطناعي المستخدَم لهذه الرسالة">
-            <?php foreach ($providers as $p): ?>
-              <option value="<?= (int) $p['id'] ?>" <?= $p['is_default'] ? 'selected' : '' ?>><?= e($p['label']) ?></option>
-            <?php endforeach; ?>
-          </select>
+        <div class="provider-picker" id="providerPicker">
+          <button type="button" class="provider-picker-btn" id="providerPickerBtn" aria-haspopup="listbox" aria-expanded="false" title="اختيار مزوّد الذكاء الاصطناعي">
+            <i class="fa-solid fa-microchip"></i>
+            <span class="provider-picker-label" id="providerPickerLabel">اختر مزوّداً</span>
+            <i class="fa-solid fa-chevron-down provider-picker-caret"></i>
+          </button>
+          <div class="provider-picker-popup" id="providerPickerPopup" role="listbox" hidden></div>
         </div>
         <?php endif; ?>
         <?php if (!$isCode): ?>

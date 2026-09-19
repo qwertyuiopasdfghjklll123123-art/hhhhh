@@ -341,13 +341,39 @@ function generate_project_slug(): string
  * public_slug للمشروع، وإلا الصيغة القديمة (project_context.php?id=...)
  * كخط رجوع يبقى يعمل دائماً حتى لو تعذّرت إعادة الكتابة على استضافة ما.
  */
-function project_url(array $project, string $tab = 'chat'): string
+function project_url(array $project, string $tab = 'chat', ?int $convId = null): string
 {
     $tab = in_array($tab, ['chat', 'code', 'settings', 'skill'], true) ? $tab : 'chat';
-    if (!empty($project['public_slug'])) {
-        return $tab . '/' . $project['public_slug'];
+    $url = !empty($project['public_slug'])
+        ? $tab . '/' . $project['public_slug']
+        : 'project_context.php?id=' . (int) $project['id'] . '&tab=' . $tab;
+    if ($convId !== null && $convId > 0 && $tab === 'chat') {
+        $url .= (str_contains($url, '?') ? '&' : '?') . 'conv=' . $convId;
     }
-    return 'project_context.php?id=' . (int) $project['id'] . '&tab=' . $tab;
+    return $url;
+}
+
+/**
+ * أحدث محادثات المستخدم (بوضع دردشة أو كود) عبر كل مشاريعه، لعرضها في صفحة
+ * "آخر المحادثات" أعلى منيو Chat/Code الجانبي — مطابقةً لتجربة منيو كلود.
+ */
+function recent_conversations_for_user(array $user, string $mode, int $limit = 30): array
+{
+    $mode = $mode === 'code' ? 'code' : 'chat';
+    try {
+        $stmt = db()->prepare(
+            'SELECT c.id, c.title, c.updated_at, c.project_id, p.name AS project_name, p.public_slug AS project_public_slug
+             FROM ai_conversations c
+             INNER JOIN projects p ON p.id = c.project_id
+             WHERE c.user_id = ? AND c.mode = ?
+             ORDER BY c.updated_at DESC
+             LIMIT ' . max(1, min(100, $limit))
+        );
+        $stmt->execute([(int) $user['id'], $mode]);
+        return $stmt->fetchAll();
+    } catch (Throwable $e) {
+        return [];
+    }
 }
 
 function resolve_github_token(array $context, array $user): ?string

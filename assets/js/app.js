@@ -163,6 +163,7 @@
       setValue('providerBaseUrl', editProviderBtn.getAttribute('data-base-url'));
       setValue('providerTextModel', editProviderBtn.getAttribute('data-text-model'));
       setValue('providerVisionModel', editProviderBtn.getAttribute('data-vision-model'));
+      setValue('providerSpecialty', editProviderBtn.getAttribute('data-specialty'));
       setValue('providerTokenBudget', editProviderBtn.getAttribute('data-token-budget'));
       var titleEl = document.getElementById('providerModalTitle');
       if (titleEl) { titleEl.innerHTML = '<i class="fa-solid fa-microchip"></i> تعديل مزوّد ذكاء اصطناعي'; }
@@ -342,6 +343,7 @@
     var mode = root.getAttribute('data-mode') === 'code' ? 'code' : 'chat';
     var sendEndpoint = mode === 'code' ? 'api/code_chat.php' : 'api/messages.php';
     var codeConvId = parseInt(root.getAttribute('data-code-conv-id'), 10) || 0;
+    var initialConvId = parseInt(root.getAttribute('data-initial-conv-id'), 10) || 0;
     var providersData = [];
     try { providersData = JSON.parse(root.getAttribute('data-providers') || '[]'); } catch (e) { providersData = []; }
     var providerStorageKey = 'pmdash_provider_' + projectId + '_' + mode;
@@ -355,8 +357,9 @@
     var btnNewChat = document.getElementById('btnNewChat');
     var btnSendChat = document.getElementById('btnSendChat');
     var chatImageInput = document.getElementById('chatImageInput');
-    var providerSelect = document.getElementById('providerSelect');
-    var providerInfoCard = document.getElementById('providerInfoCard');
+    var providerPickerBtn = document.getElementById('providerPickerBtn');
+    var providerPickerLabel = document.getElementById('providerPickerLabel');
+    var providerPickerPopup = document.getElementById('providerPickerPopup');
 
     var commitPath = document.getElementById('commitPath');
     var commitContent = document.getElementById('commitContent');
@@ -369,11 +372,14 @@
     var sending = false;
 
     /* -------------------------------------------------------------- */
-    /* تذكّر آخر مزوّد ذكاء اصطناعي مُختار لهذا المشروع/الوضع، حتى قبل    */
-    /* إنشاء أي محادثة فعلية - يبقى المزوّد نفسه عند إرسال رسالة تالية   */
-    /* أو حتى بعد إغلاق المشروع وإعادة فتحه.                             */
+    /* منتقي مزوّد الذكاء الاصطناعي: بطاقة صغيرة لمّاعة منبثقة تعرض كل     */
+    /* مزوّد كبطاقة (النموذج + التخصص + دعم الصور)، وتتذكّر آخر اختيار    */
+    /* لهذا المشروع/الوضع حتى قبل إنشاء أي محادثة فعلية.                 */
     /* -------------------------------------------------------------- */
+    var selectedProviderId = null;
+
     function findProvider(id) {
+      if (id === null || id === undefined || id === '') { return null; }
       var idStr = String(id);
       for (var i = 0; i < providersData.length; i++) {
         if (String(providersData[i].id) === idStr) { return providersData[i]; }
@@ -381,55 +387,148 @@
       return null;
     }
 
+    function renderProviderPopup() {
+      if (!providerPickerPopup) { return; }
+      providerPickerPopup.innerHTML = '';
+      providersData.forEach(function (p) {
+        var isActive = String(p.id) === String(selectedProviderId);
+        var opt = document.createElement('button');
+        opt.type = 'button';
+        opt.className = 'provider-card-option' + (isActive ? ' active' : '');
+        opt.setAttribute('role', 'option');
+        opt.setAttribute('aria-selected', isActive ? 'true' : 'false');
+
+        var icon = document.createElement('span');
+        icon.className = 'provider-card-icon';
+        icon.innerHTML = '<i class="fa-solid fa-microchip"></i>';
+        opt.appendChild(icon);
+
+        var body = document.createElement('span');
+        body.className = 'provider-card-body';
+
+        var title = document.createElement('span');
+        title.className = 'provider-card-title';
+        title.appendChild(document.createTextNode(p.label));
+        if (p.is_default) {
+          var tag = document.createElement('span');
+          tag.className = 'provider-card-tag';
+          tag.textContent = 'افتراضي';
+          title.appendChild(tag);
+        }
+        body.appendChild(title);
+
+        var meta = document.createElement('span');
+        meta.className = 'provider-card-meta';
+        var modelSpan = document.createElement('span');
+        modelSpan.className = 'provider-card-model';
+        modelSpan.textContent = p.text_model || '';
+        meta.appendChild(modelSpan);
+        if (p.specialty) {
+          var specSpan = document.createElement('span');
+          specSpan.className = 'provider-card-specialty';
+          specSpan.innerHTML = '<i class="fa-solid fa-star"></i>';
+          specSpan.appendChild(document.createTextNode(' ' + p.specialty));
+          meta.appendChild(specSpan);
+        }
+        body.appendChild(meta);
+        opt.appendChild(body);
+
+        if (p.vision_model) {
+          var visionTag = document.createElement('i');
+          visionTag.className = 'fa-regular fa-image provider-card-vision';
+          visionTag.title = 'يدعم الصور مباشرة';
+          opt.appendChild(visionTag);
+        }
+        if (isActive) {
+          var check = document.createElement('i');
+          check.className = 'fa-solid fa-check provider-card-check';
+          opt.appendChild(check);
+        }
+
+        opt.addEventListener('click', function () {
+          selectedProviderId = String(p.id);
+          updateProviderInfoCard();
+          rememberProviderChoice();
+          closeProviderPopup();
+        });
+
+        providerPickerPopup.appendChild(opt);
+      });
+    }
+
     function updateProviderInfoCard() {
-      if (!providerInfoCard || !providerSelect) { return; }
-      var p = findProvider(providerSelect.value);
-      if (!p) { providerInfoCard.style.display = 'none'; return; }
-      providerInfoCard.innerHTML = '';
-      var icon = document.createElement('i');
-      icon.className = 'fa-solid fa-microchip';
-      providerInfoCard.appendChild(icon);
-      var text = document.createElement('span');
-      var strong = document.createElement('strong');
-      strong.textContent = p.label;
-      text.appendChild(strong);
-      text.appendChild(document.createTextNode(' · '));
-      var modelSpan = document.createElement('span');
-      modelSpan.className = 'provider-info-model';
-      modelSpan.textContent = p.text_model || '';
-      text.appendChild(modelSpan);
-      if (p.vision_model) {
-        text.appendChild(document.createTextNode(' '));
-        var visionTag = document.createElement('i');
-        visionTag.className = 'fa-regular fa-image';
-        visionTag.title = 'يدعم الصور مباشرة';
-        text.appendChild(visionTag);
-      }
-      providerInfoCard.appendChild(text);
-      providerInfoCard.style.display = 'flex';
+      var p = findProvider(selectedProviderId);
+      if (providerPickerLabel) { providerPickerLabel.textContent = p ? p.label : 'اختر مزوّداً'; }
+      if (providerPickerBtn) { providerPickerBtn.title = p ? (p.label + ' · ' + (p.text_model || '')) : 'اختيار مزوّد الذكاء الاصطناعي'; }
+      renderProviderPopup();
     }
 
     function rememberProviderChoice() {
-      if (!providerSelect || !providerSelect.value) { return; }
-      try { window.localStorage.setItem(providerStorageKey, providerSelect.value); } catch (e) { /* تجاهل (وضع تصفح خاص مثلاً) */ }
+      if (!selectedProviderId) { return; }
+      try { window.localStorage.setItem(providerStorageKey, selectedProviderId); } catch (e) { /* تجاهل (وضع تصفح خاص مثلاً) */ }
     }
 
     function setProviderSelectValue(id) {
-      if (!providerSelect || !id) { return; }
-      if (findProvider(id)) {
-        providerSelect.value = String(id);
-        updateProviderInfoCard();
+      if (!findProvider(id)) { return; }
+      selectedProviderId = String(id);
+      updateProviderInfoCard();
+    }
+
+    function positionProviderPopup() {
+      if (!providerPickerBtn || !providerPickerPopup) { return; }
+      var rect = providerPickerBtn.getBoundingClientRect();
+      var maxW = Math.min(320, window.innerWidth - 16);
+      providerPickerPopup.style.width = maxW + 'px';
+      var left = rect.right - maxW;
+      if (left < 8) { left = 8; }
+      var maxLeft = window.innerWidth - 8 - maxW;
+      if (left > maxLeft) { left = maxLeft; }
+      providerPickerPopup.style.left = left + 'px';
+      providerPickerPopup.style.bottom = (window.innerHeight - rect.top + 8) + 'px';
+      providerPickerPopup.style.maxHeight = Math.max(160, Math.min(360, rect.top - 20)) + 'px';
+    }
+
+    function onProviderPopupOutsideEvent(e) {
+      if (e.type === 'keydown') {
+        if (e.key === 'Escape') { closeProviderPopup(); }
+        return;
+      }
+      if (providerPickerPopup && !providerPickerPopup.contains(e.target) && e.target !== providerPickerBtn && !providerPickerBtn.contains(e.target)) {
+        closeProviderPopup();
       }
     }
 
-    if (providerSelect) {
+    function openProviderPopup() {
+      if (!providerPickerPopup || !providerPickerBtn) { return; }
+      positionProviderPopup();
+      providerPickerPopup.hidden = false;
+      providerPickerBtn.setAttribute('aria-expanded', 'true');
+      providerPickerBtn.classList.add('active');
+      document.addEventListener('click', onProviderPopupOutsideEvent);
+      document.addEventListener('keydown', onProviderPopupOutsideEvent);
+      window.addEventListener('resize', positionProviderPopup);
+    }
+
+    function closeProviderPopup() {
+      if (!providerPickerPopup || !providerPickerBtn) { return; }
+      providerPickerPopup.hidden = true;
+      providerPickerBtn.setAttribute('aria-expanded', 'false');
+      providerPickerBtn.classList.remove('active');
+      document.removeEventListener('click', onProviderPopupOutsideEvent);
+      document.removeEventListener('keydown', onProviderPopupOutsideEvent);
+      window.removeEventListener('resize', positionProviderPopup);
+    }
+
+    if (providerPickerBtn) {
       var storedProvider = null;
       try { storedProvider = window.localStorage.getItem(providerStorageKey); } catch (e) { storedProvider = null; }
-      if (storedProvider) { setProviderSelectValue(storedProvider); }
-      updateProviderInfoCard();
-      providerSelect.addEventListener('change', function () {
-        updateProviderInfoCard();
-        rememberProviderChoice();
+      var defaultProvider = providersData.filter(function (p) { return p.is_default; })[0] || providersData[0] || null;
+      var initialProvider = (storedProvider && findProvider(storedProvider)) ? storedProvider : (defaultProvider ? defaultProvider.id : null);
+      if (initialProvider) { setProviderSelectValue(initialProvider); } else { updateProviderInfoCard(); }
+
+      providerPickerBtn.addEventListener('click', function (e) {
+        e.stopPropagation();
+        if (providerPickerPopup.hidden) { openProviderPopup(); } else { closeProviderPopup(); }
       });
     }
 
@@ -1009,8 +1108,18 @@
       removeTyping();
 
       if (!finalEvent || finalEvent.type === 'error' || !finalEvent.success) {
-        var errMsg = 'تعذّر الحصول على رد: ' + ((finalEvent && finalEvent.error) || 'خطأ غير معروف.');
-        if (bubble) { contentSoFar = errMsg; reasoningSoFar = ''; redraw(); } else { appendMessage('assistant', errMsg); }
+        var rawErr = (finalEvent && finalEvent.error) || 'خطأ غير معروف.';
+        if (bubble && gotAnyDelta) {
+          // جزء من الرد وصل فعلياً وظهر للمستخدم بالفعل - نُبقيه بدل محوه بالكامل،
+          // مع تنبيه أن البقية لم تكتمل (بدل أن "يختفي" الرد الذي كان يُكتب أمامه).
+          contentSoFar = (contentSoFar ? contentSoFar + '\n\n' : '') + '⚠️ انقطع الاتصال قبل اكتمال الرد: ' + rawErr;
+          redraw();
+        } else if (bubble) {
+          contentSoFar = 'تعذّر الحصول على رد: ' + rawErr;
+          redraw();
+        } else {
+          appendMessage('assistant', 'تعذّر الحصول على رد: ' + rawErr);
+        }
         return;
       }
 
@@ -1051,8 +1160,8 @@
       autoGrow();
 
       var payload = { project_id: projectId, conversation_id: currentConversationId, content: text };
-      if (providerSelect && providerSelect.value) {
-        payload.provider_id = providerSelect.value;
+      if (selectedProviderId) {
+        payload.provider_id = selectedProviderId;
         rememberProviderChoice();
       }
       if (pendingImage) {
@@ -1112,6 +1221,11 @@
     // بهذا المشروع، تُحمَّل تلقائياً عند فتح الصفحة (بلا رواق/زر محادثة جديدة).
     if (mode === 'code' && codeConvId > 0) {
       loadConversation(codeConvId);
+    }
+    // الدردشة العادية: فتح محادثة محددة مباشرةً إن وصل معرّفها عبر ?conv=
+    // (مثلاً من صفحة "آخر المحادثات" بمنيو Chat الجانبي).
+    if (mode === 'chat' && initialConvId > 0) {
+      loadConversation(initialConvId);
     }
   }
 })();

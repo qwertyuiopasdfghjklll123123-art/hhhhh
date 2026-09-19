@@ -123,6 +123,7 @@ CREATE TABLE IF NOT EXISTS `ai_providers` (
   `api_key` TEXT NOT NULL COMMENT 'مشفّر',
   `text_model` VARCHAR(150) NOT NULL DEFAULT 'openai/gpt-oss-20b',
   `vision_model` VARCHAR(150) NULL,
+  `specialty` VARCHAR(150) NULL COMMENT 'وصف مختصر يضبطه الأدمن لوظيفة هذا المزوّد (مثلاً: متخصص بالصور، تفكير عميق، عام) يظهر للمستخدم عند الاختيار',
   `is_default` TINYINT(1) NOT NULL DEFAULT 0,
   `tokens_used` BIGINT UNSIGNED NOT NULL DEFAULT 0 COMMENT 'إجمالي التوكنات المستهلكة (تراكمي، من usage.total_tokens بكل رد)',
   `token_budget` BIGINT UNSIGNED NULL COMMENT 'حد أقصى اختياري يضبطه الأدمن يدوياً لعرض "المتبقي" (لا يوجد API قياسي لجلبه من المزوّد)',

@@ -60,6 +60,9 @@ function needs_schema_migration(): bool
         if (!db_has_column('ai_conversations', 'provider_id')) {
             return true;
         }
+        if (!db_has_column('ai_providers', 'specialty')) {
+            return true;
+        }
     } catch (Throwable $e) {
         // تعذّر حتى فحص المخطط (اتصال DB معطوب مثلاً) — نترك الخطأ الفعلي يظهر
         // لاحقاً بمعالج الأخطاء العام بدل التستّر عليه هنا.
@@ -202,6 +205,11 @@ function run_pending_migrations(): array
             'ADD CONSTRAINT `fk_conv_provider` FOREIGN KEY (`provider_id`) REFERENCES `ai_providers` (`id`) ON DELETE SET NULL'
         );
         $log[] = 'أُضيف عمود ai_conversations.provider_id (يحفظ آخر مزوّد AI استُخدم بكل محادثة).';
+    }
+
+    if (!db_has_column('ai_providers', 'specialty')) {
+        $pdo->exec("ALTER TABLE `ai_providers` ADD COLUMN `specialty` VARCHAR(150) NULL AFTER `vision_model`");
+        $log[] = 'أُضيف عمود ai_providers.specialty (تخصّص المزوّد الذي يضبطه الأدمن، مثل: متخصص بالصور، تفكير عميق).';
     }
 
     if (empty($log)) {

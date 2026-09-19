@@ -4,7 +4,7 @@
  * يتطلب أن تكون المتغيرات التالية معرَّفة قبل تضمين هذا الملف:
  *   $user        مصفوفة المستخدم الحالي (من require_login() أو require_admin())
  *   $pageTitle   عنوان الصفحة
- *   $activeNav   المعرّف النشط في القائمة الجانبية: dashboard|projects|users|profile
+ *   $activeNav   المعرّف النشط في القائمة الجانبية: dashboard|projects|hub_chat|hub_code|users|ai_providers|admin_settings|profile
  *   $topbarActions (اختياري) HTML جاهز لأزرار أعلى الصفحة
  *   $currentProjectNav (اختياري، من project_context.php فقط) = ['project' => صف المشروع, 'tab' => التبويب النشط]
  *     يعرض تبويبات المشروع الحالي (دردشة/كود/Skill/إعدادات) داخل القائمة
@@ -56,6 +56,12 @@ $sidebarProjects = sidebar_projects_for_user($user);
       </a>
       <a href="projects.php" class="nav-item <?= $activeNav === 'projects' && !$currentProjectNav ? 'active' : '' ?>">
         <i class="fa-solid fa-folder-tree nav-icon"></i><span>المشاريع</span>
+      </a>
+      <a href="conversations.php?mode=chat" class="nav-item <?= $activeNav === 'hub_chat' ? 'active' : '' ?>">
+        <i class="fa-solid fa-comments nav-icon"></i><span>الدردشة</span>
+      </a>
+      <a href="conversations.php?mode=code" class="nav-item <?= $activeNav === 'hub_code' ? 'active' : '' ?>">
+        <i class="fa-solid fa-code nav-icon"></i><span>الكود</span>
       </a>
 
       <?php if ($currentProjectNav): ?>

@@ -20,6 +20,7 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
         $baseUrl     = trim((string) ($_POST['base_url'] ?? '')) ?: AiClient::DEFAULT_ENDPOINT;
         $textModel   = trim((string) ($_POST['text_model'] ?? '')) ?: 'openai/gpt-oss-20b';
         $visionModel = trim((string) ($_POST['vision_model'] ?? ''));
+        $specialty   = trim((string) ($_POST['specialty'] ?? ''));
         $apiKeyInput = trim((string) ($_POST['api_key'] ?? ''));
         $makeDefault = isset($_POST['is_default']);
         $budgetInput = trim((string) ($_POST['token_budget'] ?? ''));
@@ -39,10 +40,11 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
                 db()->exec('UPDATE ai_providers SET is_default = 0');
             }
             db()->prepare(
-                'INSERT INTO ai_providers (label, base_url, api_key, text_model, vision_model, is_default, token_budget, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
+                'INSERT INTO ai_providers (label, base_url, api_key, text_model, vision_model, specialty, is_default, token_budget, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
             )->execute([
                 $label, $baseUrl, Crypto::encrypt($apiKeyInput), $textModel,
-                $visionModel !== '' ? $visionModel : null, $makeDefault ? 1 : 0, $tokenBudget, $user['id'],
+                $visionModel !== '' ? $visionModel : null, $specialty !== '' ? $specialty : null,
+                $makeDefault ? 1 : 0, $tokenBudget, $user['id'],
             ]);
             // أول مزوّد يُضاف على مستوى النظام كله يُصبح افتراضياً تلقائياً حتى لو لم يُحدَّد صراحة
             if ((int) db()->query('SELECT COUNT(*) FROM ai_providers')->fetchColumn() === 1) {
@@ -65,10 +67,10 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
                 db()->exec('UPDATE ai_providers SET is_default = 0');
             }
             db()->prepare(
-                'UPDATE ai_providers SET label = ?, base_url = ?, api_key = ?, text_model = ?, vision_model = ?, is_default = ?, token_budget = ? WHERE id = ?'
+                'UPDATE ai_providers SET label = ?, base_url = ?, api_key = ?, text_model = ?, vision_model = ?, specialty = ?, is_default = ?, token_budget = ? WHERE id = ?'
             )->execute([
                 $label, $baseUrl, $apiKeyEncrypted, $textModel, $visionModel !== '' ? $visionModel : null,
-                $makeDefault ? 1 : 0, $tokenBudget, $providerId,
+                $specialty !== '' ? $specialty : null, $makeDefault ? 1 : 0, $tokenBudget, $providerId,
             ]);
             log_activity((int) $user['id'], 'provider_update', "تعديل مزوّد ذكاء اصطناعي: {$label}");
             flash('success', 'تم حفظ تعديلات المزوّد.');
@@ -156,6 +158,7 @@ require __DIR__ . '/includes/layout_start.php';
               <div class="provider-name">
                 <?= e($p['label']) ?>
                 <?php if ($p['is_default']): ?><span class="badge badge-active">افتراضي</span><?php endif; ?>
+                <?php if (!empty($p['specialty'])): ?><span class="badge badge-specialty"><i class="fa-solid fa-star"></i> <?= e($p['specialty']) ?></span><?php endif; ?>
               </div>
               <div class="provider-meta">
                 <span class="provider-url"><?= e((string) (parse_url($p['base_url'], PHP_URL_HOST) ?: $p['base_url'])) ?></span>
@@ -193,6 +196,7 @@ require __DIR__ . '/includes/layout_start.php';
                 data-base-url="<?= e($p['base_url']) ?>"
                 data-text-model="<?= e($p['text_model']) ?>"
                 data-vision-model="<?= e($p['vision_model'] ?? '') ?>"
+                data-specialty="<?= e($p['specialty'] ?? '') ?>"
                 data-token-budget="<?= e((string) ($p['token_budget'] ?? '')) ?>">
                 <i class="fa-solid fa-pen"></i>
               </button>
@@ -281,6 +285,18 @@ require __DIR__ . '/includes/layout_start.php';
               <option value="microsoft/phi-3.5-vision-instruct">
             </datalist>
           </div>
+        </div>
+        <div class="form-group">
+          <label class="form-label">التخصص (اختياري)</label>
+          <input class="form-control" type="text" name="specialty" id="providerSpecialty" list="specialtyPresets" placeholder="مثال: متخصص بالصور">
+          <datalist id="specialtyPresets">
+            <option value="عام">
+            <option value="متخصص بالصور">
+            <option value="تفكير عميق (Reasoning)">
+            <option value="أكواد">
+            <option value="تلخيص">
+          </datalist>
+          <p class="form-hint">وصف قصير يظهر للمستخدم عند اختيار هذا المزوّد ليعرف وظيفته (مثال: "متخصص بالصور"، "تفكير عميق").</p>
         </div>
         <div class="form-group">
           <label class="form-label">حد التوكنات الشهري (اختياري)</label>
