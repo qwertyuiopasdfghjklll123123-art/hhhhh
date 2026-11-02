@@ -53,6 +53,14 @@ require_once __DIR__ . '/includes/layout.php';
 $companies = db_list_companies_admin($pdo);
 $products = db_list_products_admin($pdo);
 
+// تصفّح صفحات (15 منتجاً بالصفحة) بدل عرض كل المنتجات بقائمة واحدة طويلة - تقسيم على مستوى
+// PHP لا قاعدة البيانات، فلا حاجة لتعديل db_list_products_admin() نفسها
+$perPage = 15;
+$totalProducts = count($products);
+$totalPages = max(1, (int)ceil($totalProducts / $perPage));
+$currentPage = max(1, min($totalPages, (int)($_GET['page'] ?? 1)));
+$pagedProducts = array_slice($products, ($currentPage - 1) * $perPage, $perPage);
+
 $editId = $_GET['edit'] ?? null;
 $editRow = null;
 if ($editId) {
@@ -135,7 +143,7 @@ admin_header('المنتجات', 'products', 'كل المنتجات عبر جم�
         <table>
             <thead><tr><th>الصورة</th><th>الاسم</th><th>الشركة / الفئة</th><th>السعر</th><th>التوفر</th><th>الحالة</th><th>الإجراءات</th></tr></thead>
             <tbody>
-            <?php foreach ($products as $p): $hidden = $p['deleted_card'] === 'ok'; ?>
+            <?php foreach ($pagedProducts as $p): $hidden = $p['deleted_card'] === 'ok'; ?>
                 <tr>
                     <td><img class="cell-img" src="<?php echo $p['img'] ? '../index.php?image=product&id=' . urlencode($p['id']) : ($p['image_url'] ?: 'https://iili.io/CKP5shF.jpg'); ?>" alt=""></td>
                     <td><?php echo e($p['name']); ?><?php if ($p['code']): ?><br><small style="color:var(--muted)"><?php echo e($p['code']); ?></small><?php endif; ?></td>
@@ -178,6 +186,21 @@ admin_header('المنتجات', 'products', 'كل المنتجات عبر جم�
             </tbody>
         </table>
     </div>
+    <?php if ($totalPages > 1): ?>
+    <div style="display:flex; gap:6px; flex-wrap:wrap; align-items:center; justify-content:center; margin-top:18px;">
+        <a class="btn btn-sm btn-outline" href="products?page=<?php echo max(1, $currentPage - 1); ?>"
+           style="<?php echo $currentPage <= 1 ? 'opacity:0.4; pointer-events:none;' : ''; ?>"><i class="fas fa-chevron-right"></i> السابق</a>
+        <?php for ($i = 1; $i <= $totalPages; $i++): ?>
+            <a class="btn btn-sm <?php echo $i === $currentPage ? 'btn-primary' : 'btn-outline'; ?>"
+               href="products?page=<?php echo $i; ?>"><?php echo $i; ?></a>
+        <?php endfor; ?>
+        <a class="btn btn-sm btn-outline" href="products?page=<?php echo min($totalPages, $currentPage + 1); ?>"
+           style="<?php echo $currentPage >= $totalPages ? 'opacity:0.4; pointer-events:none;' : ''; ?>">التالي <i class="fas fa-chevron-left"></i></a>
+    </div>
+    <p class="field-hint" style="text-align:center; margin-top:8px;">
+        صفحة <?php echo $currentPage; ?> من <?php echo $totalPages; ?> - (15 منتجاً في كل صفحة، <?php echo $totalProducts; ?> منتجاً إجمالاً)
+    </p>
+    <?php endif; ?>
     <?php endif; ?>
 </div>
 
