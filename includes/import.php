@@ -71,13 +71,6 @@ function import_raw_sql_dump(PDO $pdo, string $filePath): array {
     // بلا معاملة (transaction) واحدة تلف الملف كله: جمل CREATE/DROP TABLE في MySQL تُنهي أي
     // معاملة تلقائياً (commit ضمني) بصرف النظر عن استدعاء beginTransaction، فالمعاملة هنا لن
     // تحمي فعلياً عبر حدود الجداول المختلفة؛ تُنفَّذ الجمل بالترتيب وتتوقف عند أول خطأ فقط
-
-    // تعطيل فحص المفاتيح الأجنبية أثناء الاستيراد فقط: ترتيب الجداول داخل ملف SQL (مثل categories
-    // قبل companies) لا يضمن أن DROP TABLE لجدول تشير إليه مفاتيح أجنبية من جدول آخر لا يزال
-    // موجوداً بنسخته القديمة سينجح (خطأ 3730 "Cannot drop table ... referenced by a foreign key
-    // constraint")؛ هذا بالضبط ما يفعله تصدير phpMyAdmin/mysqldump نفسه بوضع
-    // SET FOREIGN_KEY_CHECKS=0 في بداية كل ملف تصدير لنفس السبب
-    $pdo->exec('SET FOREIGN_KEY_CHECKS=0');
     try {
         foreach ($statements as $stmt) {
             $pdo->exec($stmt);
@@ -86,8 +79,6 @@ function import_raw_sql_dump(PDO $pdo, string $filePath): array {
     } catch (Throwable $e) {
         $summary['error'] = 'فشل الاستيراد عند الجملة رقم ' . ($summary['statements'] + 1) . ' من أصل ' . count($statements) . ': ' . $e->getMessage()
             . ' - الجداول التي نُفِّذت جملها بنجاح قبل هذا الخطأ تم تطبيقها فعلياً ولن تتراجع تلقائياً.';
-    } finally {
-        $pdo->exec('SET FOREIGN_KEY_CHECKS=1');
     }
 
     $summary['tables'] = array_values(array_unique($summary['tables']));
