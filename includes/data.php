@@ -1008,7 +1008,17 @@ function imageColumnToBase64(?string $name, ?string $data, ?string $mime) {
     return null; // لا يوجد محتوى فعلي بعد (اسم بلا بيانات مُزامَنة)
 }
 
-function db_export_full_json(PDO $pdo): array {
+function db_export_full_json(PDO $pdo, bool $includeImages = true): array {
+    // نسخة خفيفة (بلا صور) تتفادى القيود الشائعة على استضافات مشتركة (max_allowed_packet على
+    // خادم MySQL، أو حد ذاكرة/وقت تنفيذ PHP) عند تصدير صور مخزَّنة كبيانات BLOB كبيرة؛ تبقى كل
+    // البيانات النصية (الفئات/الشركات/المنتجات/الخدمات/المستخدمين/الإعدادات/الإحصائيات) كاملة
+    $imgField = function (?string $name, ?string $data, ?string $mime) use ($includeImages) {
+        if (!$includeImages) {
+            return (!empty($name) && (strpos($name, 'http://') === 0 || strpos($name, 'https://') === 0)) ? $name : null;
+        }
+        return imageColumnToBase64($name, $data, $mime);
+    };
+
     $users = array_map(function ($u) {
         return [
             'id' => (int)$u['id'],
@@ -1040,7 +1050,7 @@ function db_export_full_json(PDO $pdo): array {
                     'code' => $p['code'],
                     'color' => $p['color'],
                     'price' => $p['price'],
-                    'img' => imageColumnToBase64($p['img'], $p['img_data'], $p['img_mime']),
+                    'img' => $imgField($p['img'], $p['img_data'], $p['img_mime']),
                     'image_url' => $p['image_url'],
                     'available' => (bool)$p['available'],
                     'deletedCard' => $p['deleted_card'],
@@ -1049,7 +1059,7 @@ function db_export_full_json(PDO $pdo): array {
             $companies[] = [
                 'id' => $comp['id'],
                 'name' => $comp['name'],
-                'logo' => imageColumnToBase64($comp['logo'], $comp['logo_data'], $comp['logo_mime']),
+                'logo' => $imgField($comp['logo'], $comp['logo_data'], $comp['logo_mime']),
                 'deletedCard' => $comp['deleted_card'],
                 'products' => $products,
             ];
@@ -1063,7 +1073,7 @@ function db_export_full_json(PDO $pdo): array {
                 'name' => $s['name'],
                 'color' => $s['color'],
                 'notes' => $s['notes'],
-                'img' => imageColumnToBase64($s['img'], $s['img_data'], $s['img_mime']),
+                'img' => $imgField($s['img'], $s['img_data'], $s['img_mime']),
                 'available' => (bool)$s['available'],
                 'deletedCard' => $s['deleted_card'],
             ];
@@ -1072,7 +1082,7 @@ function db_export_full_json(PDO $pdo): array {
         $categories[] = [
             'id' => $cat['id'],
             'name' => $cat['name'],
-            'image' => imageColumnToBase64($cat['image'], $cat['image_data'], $cat['image_mime']),
+            'image' => $imgField($cat['image'], $cat['image_data'], $cat['image_mime']),
             'deletedCard' => $cat['deleted_card'],
             'companies' => $companies,
             'services' => $services,
@@ -1084,7 +1094,7 @@ function db_export_full_json(PDO $pdo): array {
     $welcomeCard = !empty($settingsRow['welcome_card']) ? json_decode($settingsRow['welcome_card'], true) : null;
     $settings = [
         'appName' => $settingsRow['app_name'],
-        'appLogo' => imageColumnToBase64($settingsRow['app_logo'], $settingsRow['app_logo_data'], $settingsRow['app_logo_mime']),
+        'appLogo' => $imgField($settingsRow['app_logo'], $settingsRow['app_logo_data'], $settingsRow['app_logo_mime']),
         'whatsappNumber' => $settingsRow['whatsapp_number'],
         'officialWebsite' => $settingsRow['official_website'],
         'hideMostRequested' => (bool)$settingsRow['hide_most_requested'],
