@@ -100,6 +100,8 @@ CREATE TABLE IF NOT EXISTS settings (
     official_website VARCHAR(191) NULL DEFAULT NULL,
     hide_most_requested TINYINT(1) NOT NULL DEFAULT 0,
     welcome_card TEXT NULL,
+    telegram_bot_token VARCHAR(255) NULL DEFAULT NULL,
+    telegram_chat_id VARCHAR(100) NULL DEFAULT NULL,
     PRIMARY KEY (id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 

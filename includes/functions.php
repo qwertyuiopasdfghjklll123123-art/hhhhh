@@ -137,3 +137,47 @@ function productNameFromFilename($filename) {
 function newEntityId($prefix) {
     return $prefix . '_' . uniqid() . '_' . random_int(100, 999);
 }
+
+// يرسل ملفاً إلى محادثة تيليجرام عبر واجهة bot API (sendDocument). يُعيد ['success'=>bool,
+// 'message'=>string] - رسالة الفشل تنقل نص خطأ تيليجرام الفعلي (رمز بوت خاطئ، محادثة غير
+// موجودة، ...) حتى يمكن تشخيصه من لوحة التحكم مباشرة بلا حاجة لفحص السجلات
+function telegram_send_document(string $botToken, string $chatId, string $filePath, string $filename, string $caption = ''): array {
+    if (!function_exists('curl_init')) {
+        return ['success' => false, 'message' => 'إضافة PHP cURL غير مفعّلة على السيرفر، لا يمكن الإرسال عبر تيليجرام.'];
+    }
+    if (!file_exists($filePath)) {
+        return ['success' => false, 'message' => 'الملف المراد إرساله غير موجود.'];
+    }
+
+    $url = 'https://api.telegram.org/bot' . rawurlencode($botToken) . '/sendDocument';
+    $post = [
+        'chat_id' => $chatId,
+        'document' => new CURLFile($filePath, 'application/json', $filename),
+    ];
+    if ($caption !== '') $post['caption'] = $caption;
+
+    $ch = curl_init($url);
+    curl_setopt_array($ch, [
+        CURLOPT_POST => true,
+        CURLOPT_POSTFIELDS => $post,
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_TIMEOUT => 120,
+        CURLOPT_SSL_VERIFYPEER => true,
+    ]);
+    $response = curl_exec($ch);
+    $curlError = curl_error($ch);
+    curl_close($ch);
+
+    if ($response === false) {
+        return ['success' => false, 'message' => 'تعذّر الاتصال بتيليجرام: ' . $curlError];
+    }
+
+    $decoded = json_decode($response, true);
+    if (!is_array($decoded)) {
+        return ['success' => false, 'message' => 'استجابة غير متوقعة من تيليجرام.'];
+    }
+    if (empty($decoded['ok'])) {
+        return ['success' => false, 'message' => 'رفض تيليجرام الطلب: ' . ($decoded['description'] ?? 'خطأ غير معروف')];
+    }
+    return ['success' => true, 'message' => 'تم الإرسال بنجاح.'];
+}

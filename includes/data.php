@@ -137,6 +137,18 @@ function db_get_settings(PDO $pdo): array {
     ];
 }
 
+// رمز بوت تيليجرام ومعرّف المحادثة إعدادات حساسة (تتيح إرسال رسائل/ملفات باسم البوت) ولا يجب
+// أن تظهر أبداً في db_get_settings() العامة التي تصل إليها واجهة الموقع العادية (حتى الزوار غير
+// المسجَّلين عبر نقطة load_settings للقراءة فقط) - دالة منفصلة خاصة بلوحة التحكم فقط
+function db_get_telegram_settings(PDO $pdo): array {
+    db_ensure_settings_row($pdo);
+    $row = $pdo->query('SELECT telegram_bot_token, telegram_chat_id FROM settings WHERE id = 1')->fetch();
+    return [
+        'botToken' => $row['telegram_bot_token'] ?? null,
+        'chatId' => $row['telegram_chat_id'] ?? null,
+    ];
+}
+
 function db_save_settings(PDO $pdo, array $input): void {
     db_ensure_settings_row($pdo);
     $sets = [];
@@ -168,6 +180,8 @@ function db_save_settings(PDO $pdo, array $input): void {
         'appName' => 'app_name',
         'whatsappNumber' => 'whatsapp_number',
         'officialWebsite' => 'official_website',
+        'telegramBotToken' => 'telegram_bot_token',
+        'telegramChatId' => 'telegram_chat_id',
     ];
     foreach ($map as $key => $col) {
         if (isset($input[$key])) {

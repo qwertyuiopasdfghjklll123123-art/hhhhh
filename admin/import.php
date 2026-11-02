@@ -28,6 +28,25 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 }
             }
         }
+    } elseif ($action === 'export_telegram') {
+        $telegramSettings = db_get_telegram_settings($pdo);
+        $botToken = $telegramSettings['botToken'] ?? '';
+        $chatId = $telegramSettings['chatId'] ?? '';
+        if ($botToken === '' || $chatId === '') {
+            admin_flash('error', 'يرجى تعبئة رمز البوت ومعرّف المحادثة في صفحة الإعدادات أولاً.');
+        } else {
+            ini_set('memory_limit', '512M');
+            set_time_limit(120);
+            // نسخة خفيفة بلا صور: تتفادى حد حجم ملفات تيليجرام (50 ميجابايت) وحد حجم استعلام
+            // MySQL على استضافات مشتركة عند وجود صور كثيرة/كبيرة
+            $data = db_export_full_json($pdo, false);
+            $tmpFile = tempnam(sys_get_temp_dir(), 'almulla_export_');
+            file_put_contents($tmpFile, json_encode($data, JSON_UNESCAPED_UNICODE));
+            $filename = 'almulla_export_' . date('Y-m-d_His') . '_no_images.json';
+            $result = telegram_send_document($botToken, $chatId, $tmpFile, $filename, 'نسخة احتياطية من ' . ($data['settings']['appName'] ?? 'Almulla'));
+            @unlink($tmpFile);
+            admin_flash($result['success'] ? 'success' : 'error', $result['message']);
+        }
     }
 
     header('Location: import');
@@ -35,6 +54,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 }
 
 require_once __DIR__ . '/includes/layout.php';
+$telegramSettings = db_get_telegram_settings($pdo);
+$telegramConfigured = !empty($telegramSettings['botToken']) && !empty($telegramSettings['chatId']);
 
 admin_header('الاستيراد والتصدير', 'import', 'سحب نسخة احتياطية كاملة أو استعادتها');
 ?>
@@ -54,6 +75,18 @@ admin_header('الاستيراد والتصدير', 'import', 'سحب نسخة �
         المنتجات، الخدمات، المستخدمين، الإعدادات) بحجم صغير جداً مضمون التحميل، فقط بدون محتوى
         الصور نفسها.
     </p>
+    <?php if ($telegramConfigured): ?>
+    <form method="post" style="display:inline; margin-right:8px;">
+        <?php echo admin_csrf_field(); ?>
+        <input type="hidden" name="form_action" value="export_telegram">
+        <button type="submit" class="btn btn-outline"><i class="fab fa-telegram"></i> إرسال عبر تيليجرام</button>
+    </form>
+    <?php else: ?>
+    <p class="field-hint" style="margin-top:10px;">
+        لإرسال النسخة الاحتياطية مباشرة كملف إلى تيليجرام بدل التحميل من المتصفح، أدخل رمز البوت
+        ومعرّف المحادثة في <a href="settings">صفحة الإعدادات</a> أولاً.
+    </p>
+    <?php endif; ?>
 </div>
 
 <div class="card">

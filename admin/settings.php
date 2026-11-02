@@ -9,6 +9,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         'appName' => trim($_POST['appName'] ?? ''),
         'whatsappNumber' => trim($_POST['whatsappNumber'] ?? ''),
         'officialWebsite' => trim($_POST['officialWebsite'] ?? ''),
+        'telegramBotToken' => trim($_POST['telegramBotToken'] ?? ''),
+        'telegramChatId' => trim($_POST['telegramChatId'] ?? ''),
         'hideMostRequested' => isset($_POST['hideMostRequested']),
         'welcomeCard' => [
             'enabled' => isset($_POST['welcomeEnabled']),
@@ -35,6 +37,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
 require_once __DIR__ . '/includes/layout.php';
 $settings = db_get_settings($pdo);
+$telegramSettings = db_get_telegram_settings($pdo);
 $welcome = $settings['welcomeCard'] ?? [];
 
 admin_header('الإعدادات', 'settings', 'إعدادات التطبيق العامة والبطاقة الترحيبية');
@@ -72,6 +75,28 @@ admin_header('الإعدادات', 'settings', 'إعدادات التطبيق ا
     <div class="checkbox-row">
         <input type="checkbox" id="hideMostRequested" name="hideMostRequested" <?php echo !empty($settings['hideMostRequested']) ? 'checked' : ''; ?>>
         <label for="hideMostRequested">إخفاء بطاقة "الأكثر طلباً" من الصفحة الرئيسية</label>
+    </div>
+</div>
+
+<div class="card">
+    <h2><i class="fab fa-telegram"></i> إرسال نسخة احتياطية عبر تيليجرام</h2>
+    <p class="field-hint" style="margin-bottom:14px;">
+        بعد ملء الحقلين التاليين وحفظهما، يظهر في صفحة "الاستيراد والتصدير" زر يرسل نسخة احتياطية
+        مباشرة كملف إلى محادثتك على تيليجرام، بدل تحميلها من المتصفح. لإنشاء بوت: تحدّث مع
+        <code>@BotFather</code> في تيليجرام وأرسل <code>/newbot</code>، ثم انسخ الرمز (Token) الذي
+        يرسله لك. لمعرفة معرّف محادثتك (Chat ID): أرسل أي رسالة لبوتك الجديد، ثم افتح الرابط
+        <code>https://api.telegram.org/bot&lt;الرمز&gt;/getUpdates</code> في المتصفح وابحث عن رقم
+        <code>"id"</code> داخل <code>"chat"</code>.
+    </p>
+    <div class="form-row">
+        <div>
+            <label>رمز البوت (Bot Token)</label>
+            <input type="text" name="telegramBotToken" value="<?php echo e($telegramSettings['botToken'] ?? ''); ?>" placeholder="123456789:ABCdef...">
+        </div>
+        <div>
+            <label>معرّف المحادثة (Chat ID)</label>
+            <input type="text" name="telegramChatId" value="<?php echo e($telegramSettings['chatId'] ?? ''); ?>" placeholder="123456789">
+        </div>
     </div>
 </div>
 
