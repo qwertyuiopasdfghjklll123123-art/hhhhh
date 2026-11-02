@@ -134,3 +134,17 @@ CREATE TABLE IF NOT EXISTS push_subscriptions (
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     PRIMARY KEY (id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- صف واحد يتتبّع تقدّم آخر عملية استيراد نسخة احتياطية (JSON) لعرض شريط تقدّم حي في لوحة
+-- التحكم؛ تُستهلك قيمه عبر صفحة admin/import_progress.php التي يستطلعها المتصفح أثناء الاستيراد
+CREATE TABLE IF NOT EXISTS import_progress (
+    id TINYINT UNSIGNED NOT NULL DEFAULT 1,
+    current_step INT UNSIGNED NOT NULL DEFAULT 0,
+    total_steps INT UNSIGNED NOT NULL DEFAULT 0,
+    label VARCHAR(255) DEFAULT NULL,
+    status ENUM('idle','running','done','error') NOT NULL DEFAULT 'idle',
+    message TEXT DEFAULT NULL,
+    started_at DATETIME DEFAULT NULL,
+    updated_at DATETIME DEFAULT NULL,
+    PRIMARY KEY (id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

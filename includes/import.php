@@ -4,10 +4,15 @@
 // ومن admin/import.php (لاستيراد بيانات إضافية لاحقاً بعد التنصيب).
 // ================================================================
 
-// استيراد ملف database.json بصيغة تطبيق Almulla القديم (users/catalog/settings/stats)
+// استيراد ملف database.json بصيغة تطبيق Almulla القديم (users/catalog/settings/stats).
+// يُحدِّث صف import_progress عند كل مرحلة ليستطلعه admin/import_progress.php ويعرض شريط
+// تقدّم حياً في لوحة التحكم أثناء التنفيذ (خمس مراحل حقيقية، وليست نسبة مزيّفة)
 function import_legacy_json(PDO $pdo, array $json): array {
     $summary = ['users' => 0, 'categories' => 0];
+    $totalPhases = 5;
+    db_import_progress_start($pdo, $totalPhases);
 
+    db_import_progress_step($pdo, 1, 'استيراد المستخدمين...');
     if (!empty($json['users']) && is_array($json['users'])) {
         foreach ($json['users'] as $u) {
             if (empty($u['email']) || empty($u['password'])) continue;
@@ -28,15 +33,18 @@ function import_legacy_json(PDO $pdo, array $json): array {
         $pdo->exec('ALTER TABLE users AUTO_INCREMENT = ' . ($max + 1));
     }
 
+    db_import_progress_step($pdo, 2, 'استيراد الكتالوج (الفئات والشركات والمنتجات والخدمات)...');
     if (!empty($json['catalog']) && is_array($json['catalog'])) {
         db_sync_catalog($pdo, $json['catalog']);
         $summary['categories'] = count($json['catalog']['categories'] ?? []);
     }
 
+    db_import_progress_step($pdo, 3, 'استيراد الإعدادات...');
     if (!empty($json['settings']) && is_array($json['settings'])) {
         db_save_settings($pdo, $json['settings']);
     }
 
+    db_import_progress_step($pdo, 4, 'استيراد الإحصائيات...');
     db_ensure_stats_row($pdo);
     if (!empty($json['stats']) && is_array($json['stats'])) {
         $s = $json['stats'];
@@ -58,6 +66,7 @@ function import_legacy_json(PDO $pdo, array $json): array {
         }
     }
 
+    db_import_progress_step($pdo, 5, 'استيراد اشتراكات الإشعارات...');
     if (!empty($json['push_subscriptions']) && is_array($json['push_subscriptions'])) {
         foreach ($json['push_subscriptions'] as $sub) {
             $pdo->prepare('INSERT INTO push_subscriptions (subscription, created_at) VALUES (?, ?)')
@@ -65,6 +74,7 @@ function import_legacy_json(PDO $pdo, array $json): array {
         }
     }
 
+    db_import_progress_finish($pdo, true, "تم الاستيراد: {$summary['users']} مستخدم، {$summary['categories']} فئة.");
     return $summary;
 }
 

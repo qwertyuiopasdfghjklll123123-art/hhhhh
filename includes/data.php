@@ -194,6 +194,33 @@ function db_ensure_stats_row(PDO $pdo): void {
     $pdo->exec('INSERT IGNORE INTO stats (id, total_visitors, total_favorites, total_orders) VALUES (1, 0, 0, 0)');
 }
 
+// تتبّع تقدّم استيراد نسخة احتياطية (JSON) لعرض شريط تقدّم حي في لوحة التحكم أثناء التنفيذ.
+// صف واحد فقط (يُستبدَل عند كل عملية استيراد جديدة) - لا حاجة لسجل تاريخي هنا.
+function db_import_progress_start(PDO $pdo, int $totalSteps): void {
+    $stmt = $pdo->prepare(
+        'INSERT INTO import_progress (id, current_step, total_steps, label, status, message, started_at, updated_at)
+         VALUES (1, 0, ?, NULL, "running", NULL, NOW(), NOW())
+         ON DUPLICATE KEY UPDATE current_step = 0, total_steps = VALUES(total_steps), label = NULL,
+             status = "running", message = NULL, started_at = NOW(), updated_at = NOW()'
+    );
+    $stmt->execute([$totalSteps]);
+}
+
+function db_import_progress_step(PDO $pdo, int $currentStep, string $label): void {
+    $pdo->prepare('UPDATE import_progress SET current_step = ?, label = ?, updated_at = NOW() WHERE id = 1')
+        ->execute([$currentStep, $label]);
+}
+
+function db_import_progress_finish(PDO $pdo, bool $success, string $message = ''): void {
+    $pdo->prepare('UPDATE import_progress SET status = ?, message = ?, updated_at = NOW() WHERE id = 1')
+        ->execute([$success ? 'done' : 'error', $message]);
+}
+
+function db_import_progress_get(PDO $pdo): ?array {
+    $row = $pdo->query('SELECT current_step, total_steps, label, status, message FROM import_progress WHERE id = 1')->fetch();
+    return $row ?: null;
+}
+
 function db_track_visit(PDO $pdo): void {
     db_ensure_stats_row($pdo);
     $pdo->exec('UPDATE stats SET total_visitors = total_visitors + 1 WHERE id = 1');

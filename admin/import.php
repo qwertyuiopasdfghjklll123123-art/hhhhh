@@ -9,6 +9,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     if ($action === 'import_json') {
         $file = $_FILES['json_file'] ?? null;
+        ini_set('memory_limit', '512M');
+        set_time_limit(300);
         if (empty($file) || $file['error'] !== UPLOAD_ERR_OK) {
             admin_flash('error', 'يرجى اختيار ملف database.json صالح.');
         } else {
@@ -17,8 +19,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             if (!is_array($json)) {
                 admin_flash('error', 'الملف ليس بصيغة JSON صالحة.');
             } else {
-                $summary = import_legacy_json($pdo, $json);
-                admin_flash('success', "تم الاستيراد: {$summary['users']} مستخدم، {$summary['categories']} فئة.");
+                try {
+                    $summary = import_legacy_json($pdo, $json);
+                    admin_flash('success', "تم الاستيراد: {$summary['users']} مستخدم، {$summary['categories']} فئة.");
+                } catch (Throwable $e) {
+                    db_import_progress_finish($pdo, false, 'فشل الاستيراد: ' . $e->getMessage());
+                    admin_flash('error', 'فشل الاستيراد: ' . $e->getMessage());
+                }
             }
         }
     }
@@ -56,13 +63,19 @@ admin_header('الاستيراد والتصدير', 'import', 'سحب نسخة �
         إن وُجدت) من ملف JSON. يقبل نفس الملف الذي تحمّله من قسم "تصدير نسخة احتياطية" أعلاه
         لاستعادته لاحقاً هنا أو في موقع آخر.
     </p>
-    <form method="post" enctype="multipart/form-data">
+    <form method="post" enctype="multipart/form-data" id="importJsonForm" data-progress-url="import_progress">
         <?php echo admin_csrf_field(); ?>
         <input type="hidden" name="form_action" value="import_json">
         <label>ملف النسخة الاحتياطية (JSON)</label>
         <input type="file" name="json_file" accept="application/json,.json" required>
         <button type="submit" class="btn btn-primary" style="margin-top:16px;"><i class="fas fa-file-import"></i> استيراد</button>
     </form>
+    <div id="importProgressBox" style="display:none; margin-top:16px;">
+        <div style="background:var(--bg2); border-radius:10px; height:22px; overflow:hidden;">
+            <div id="importProgressBar" style="background:var(--accent); height:100%; width:0%; transition:width 0.3s;"></div>
+        </div>
+        <p id="importProgressLabel" class="field-hint" style="margin-top:8px;"></p>
+    </div>
 </div>
 
 <?php admin_footer(); ?>
