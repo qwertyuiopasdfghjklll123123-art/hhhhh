@@ -21,6 +21,23 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 admin_flash('success', "تم الاستيراد: {$summary['users']} مستخدم، {$summary['categories']} فئة.");
             }
         }
+    } elseif ($action === 'import_sql_dump') {
+        $file = $_FILES['sql_file'] ?? null;
+        ini_set('memory_limit', '512M');
+        set_time_limit(300);
+        if (empty($file) || $file['error'] !== UPLOAD_ERR_OK) {
+            admin_flash('error', 'يرجى اختيار ملف SQL صالح.');
+        } else {
+            $summary = import_raw_sql_dump($pdo, $file['tmp_name']);
+            if ($summary['error']) {
+                admin_flash('error', $summary['error']);
+            } else {
+                $tablesList = implode('، ', $summary['tables']);
+                $msg = "تم تنفيذ {$summary['statements']} جملة SQL بنجاح.";
+                if ($tablesList !== '') $msg .= " الجداول التي استُبدلت بالكامل بمحتوى الملف: $tablesList.";
+                admin_flash('success', $msg);
+            }
+        }
     }
 
     header('Location: import');
@@ -61,6 +78,28 @@ admin_header('الاستيراد والتصدير', 'import', 'سحب نسخة �
         <input type="hidden" name="form_action" value="import_json">
         <label>ملف النسخة الاحتياطية (JSON)</label>
         <input type="file" name="json_file" accept="application/json,.json" required>
+        <button type="submit" class="btn btn-primary" style="margin-top:16px;"><i class="fas fa-file-import"></i> استيراد</button>
+    </form>
+</div>
+
+<div class="card">
+    <h2><i class="fas fa-database"></i> استيراد ملف SQL خام (نسخة phpMyAdmin / mysqldump)</h2>
+    <p class="field-hint" style="margin-bottom:14px;">
+        لاستيراد ملف <code>.sql</code> مُصدَّر مباشرة من phpMyAdmin أو <code>mysqldump</code> - بدل
+        ملف JSON. يُعالَج الملف تلقائياً حتى لا تظهر رسالة "الجدول موجود مسبقاً" مهما كانت حالة
+        قاعدة بياناتك الحالية.
+    </p>
+    <p class="field-hint" style="margin-bottom:14px; color:var(--rd,#e74c3c);">
+        ⚠️ <strong>تنبيه:</strong> أي جدول مذكور داخل هذا الملف (مثل <code>products</code> أو
+        <code>categories</code>) <strong>يُستبدَل بالكامل</strong> بمحتوى الملف - بياناته الحالية في
+        هذا الجدول تُحذف ويحل محلها ما في الملف. الجداول غير المذكورة في الملف لا تتأثر إطلاقاً.
+        استخدمه فقط إن كنت متأكداً أن هذا الملف يحتوي كل ما تحتاجه.
+    </p>
+    <form method="post" enctype="multipart/form-data">
+        <?php echo admin_csrf_field(); ?>
+        <input type="hidden" name="form_action" value="import_sql_dump">
+        <label>ملف SQL</label>
+        <input type="file" name="sql_file" accept=".sql" required>
         <button type="submit" class="btn btn-primary" style="margin-top:16px;"><i class="fas fa-file-import"></i> استيراد</button>
     </form>
 </div>
