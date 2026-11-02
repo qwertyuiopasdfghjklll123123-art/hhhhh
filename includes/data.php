@@ -142,7 +142,16 @@ function db_get_settings(PDO $pdo): array {
 // المسجَّلين عبر نقطة load_settings للقراءة فقط) - دالة منفصلة خاصة بلوحة التحكم فقط
 function db_get_telegram_settings(PDO $pdo): array {
     db_ensure_settings_row($pdo);
-    $row = $pdo->query('SELECT telegram_bot_token, telegram_chat_id FROM settings WHERE id = 1')->fetch();
+    $empty = ['botToken' => null, 'chatId' => null];
+    // رجوع آمن بدل فشل الصفحة بالكامل (شاشة بيضاء) إن كان الموقع منصَّباً من نسخة سابقة لم
+    // تُنفَّذ عليها بعد install/upgrade_add_telegram_settings.sql فتُفتقد الأعمدة في قاعدة
+    // بياناته الفعلية - الميزة تبقى غير مفعَّلة ببساطة حتى تنفيذ الترقية، بلا أي خطأ ظاهر
+    try {
+        $row = $pdo->query('SELECT telegram_bot_token, telegram_chat_id FROM settings WHERE id = 1')->fetch();
+    } catch (PDOException $e) {
+        return $empty;
+    }
+    if (!$row) return $empty;
     return [
         'botToken' => $row['telegram_bot_token'] ?? null,
         'chatId' => $row['telegram_chat_id'] ?? null,
@@ -198,7 +207,22 @@ function db_save_settings(PDO $pdo, array $input): void {
         $params[] = json_encode($input['welcomeCard'], JSON_UNESCAPED_UNICODE);
     }
     if (empty($sets)) return;
-    $pdo->prepare('UPDATE settings SET ' . implode(', ', $sets) . ' WHERE id = 1')->execute($params);
+    try {
+        $pdo->prepare('UPDATE settings SET ' . implode(', ', $sets) . ' WHERE id = 1')->execute($params);
+    } catch (PDOException $e) {
+        // رجوع آمن إن كانت أعمدة telegram_bot_token/telegram_chat_id غير موجودة بعد (نسخة سابقة
+        // لم تُنفَّذ عليها install/upgrade_add_telegram_settings.sql): أعد المحاولة بدونهما تحديداً
+        // حتى لا يفشل حفظ بقية الإعدادات العادية بسبب هذا وحده؛ أي خطأ آخر غير متعلق بهما يُرفع كما هو
+        $filteredSets = [];
+        $filteredParams = [];
+        foreach ($sets as $i => $set) {
+            if (strpos($set, 'telegram_bot_token') === 0 || strpos($set, 'telegram_chat_id') === 0) continue;
+            $filteredSets[] = $set;
+            $filteredParams[] = $params[$i];
+        }
+        if (count($filteredSets) === count($sets) || empty($filteredSets)) throw $e;
+        $pdo->prepare('UPDATE settings SET ' . implode(', ', $filteredSets) . ' WHERE id = 1')->execute($filteredParams);
+    }
 }
 
 // ---------------------------------------------------------------
@@ -210,29 +234,46 @@ function db_ensure_stats_row(PDO $pdo): void {
 
 // تتبّع تقدّم استيراد نسخة احتياطية (JSON) لعرض شريط تقدّم حي في لوحة التحكم أثناء التنفيذ.
 // صف واحد فقط (يُستبدَل عند كل عملية استيراد جديدة) - لا حاجة لسجل تاريخي هنا.
+// كل دالة هنا تبتلع PDOException بصمت (رجوع آمن): إن كان الموقع منصَّباً من نسخة سابقة لم
+// تُنفَّذ عليها بعد install/upgrade_add_import_progress.sql فجدول import_progress غير موجود
+// بعد - يستمر الاستيراد نفسه يعمل بشكل طبيعي تماماً، فقط بلا شريط تقدّم مرئي حتى تنفيذ الترقية
 function db_import_progress_start(PDO $pdo, int $totalSteps): void {
-    $stmt = $pdo->prepare(
-        'INSERT INTO import_progress (id, current_step, total_steps, label, status, message, started_at, updated_at)
-         VALUES (1, 0, ?, NULL, "running", NULL, NOW(), NOW())
-         ON DUPLICATE KEY UPDATE current_step = 0, total_steps = VALUES(total_steps), label = NULL,
-             status = "running", message = NULL, started_at = NOW(), updated_at = NOW()'
-    );
-    $stmt->execute([$totalSteps]);
+    try {
+        $stmt = $pdo->prepare(
+            'INSERT INTO import_progress (id, current_step, total_steps, label, status, message, started_at, updated_at)
+             VALUES (1, 0, ?, NULL, "running", NULL, NOW(), NOW())
+             ON DUPLICATE KEY UPDATE current_step = 0, total_steps = VALUES(total_steps), label = NULL,
+                 status = "running", message = NULL, started_at = NOW(), updated_at = NOW()'
+        );
+        $stmt->execute([$totalSteps]);
+    } catch (PDOException $e) {
+        // جدول import_progress غير موجود بعد - تجاهل بصمت، الاستيراد نفسه يتابع طبيعياً
+    }
 }
 
 function db_import_progress_step(PDO $pdo, int $currentStep, string $label): void {
-    $pdo->prepare('UPDATE import_progress SET current_step = ?, label = ?, updated_at = NOW() WHERE id = 1')
-        ->execute([$currentStep, $label]);
+    try {
+        $pdo->prepare('UPDATE import_progress SET current_step = ?, label = ?, updated_at = NOW() WHERE id = 1')
+            ->execute([$currentStep, $label]);
+    } catch (PDOException $e) {
+    }
 }
 
 function db_import_progress_finish(PDO $pdo, bool $success, string $message = ''): void {
-    $pdo->prepare('UPDATE import_progress SET status = ?, message = ?, updated_at = NOW() WHERE id = 1')
-        ->execute([$success ? 'done' : 'error', $message]);
+    try {
+        $pdo->prepare('UPDATE import_progress SET status = ?, message = ?, updated_at = NOW() WHERE id = 1')
+            ->execute([$success ? 'done' : 'error', $message]);
+    } catch (PDOException $e) {
+    }
 }
 
 function db_import_progress_get(PDO $pdo): ?array {
-    $row = $pdo->query('SELECT current_step, total_steps, label, status, message FROM import_progress WHERE id = 1')->fetch();
-    return $row ?: null;
+    try {
+        $row = $pdo->query('SELECT current_step, total_steps, label, status, message FROM import_progress WHERE id = 1')->fetch();
+        return $row ?: null;
+    } catch (PDOException $e) {
+        return null;
+    }
 }
 
 function db_track_visit(PDO $pdo): void {
