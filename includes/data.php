@@ -1225,6 +1225,133 @@ function db_stream_export_full_json(PDO $pdo, bool $includeImages = true): void 
     $flushOut();
 }
 
+// ملف صور فقط: بنية مسطَّحة (معرّف العنصر + صورته) بدل شجرة الكتالوج الكاملة، يُستخدم مع
+// "نسخة خفيفة بلا صور" كبديل للملف الواحد الكبير - يُرفعان على خطوتين منفصلتين بدل ملف ضخم
+// واحد يجمع كل شيء، لتفادي أي حد حجم رفع متبقٍّ حتى بعد رفع admin/.user.ini. تُستثنى العناصر
+// التي لا تملك صورة مخزَّنة فعلياً أصلاً (لا فائدة من تضمينها)
+function db_stream_export_images_only(PDO $pdo): void {
+    @ini_set('zlib.output_compression', 'Off');
+    if (ob_get_level() === 0) @ob_start();
+    $flushOut = function () {
+        if (ob_get_level() > 0) @ob_flush();
+        @flush();
+    };
+
+    echo '{"categories":[';
+    $first = true;
+    $stmt = $pdo->query("SELECT id, image, image_data, image_mime FROM categories WHERE image_data IS NOT NULL");
+    while ($row = $stmt->fetch()) {
+        echo ($first ? '' : ',') . json_encode([
+            'id' => $row['id'],
+            'image' => imageColumnToBase64($row['image'], $row['image_data'], $row['image_mime']),
+        ], JSON_UNESCAPED_UNICODE);
+        $first = false;
+    }
+    echo '],';
+    $flushOut();
+
+    echo '"companies":[';
+    $first = true;
+    $stmt = $pdo->query("SELECT id, logo, logo_data, logo_mime FROM companies WHERE logo_data IS NOT NULL");
+    while ($row = $stmt->fetch()) {
+        echo ($first ? '' : ',') . json_encode([
+            'id' => $row['id'],
+            'logo' => imageColumnToBase64($row['logo'], $row['logo_data'], $row['logo_mime']),
+        ], JSON_UNESCAPED_UNICODE);
+        $first = false;
+    }
+    echo '],';
+    $flushOut();
+
+    echo '"products":[';
+    $first = true;
+    $stmt = $pdo->query("SELECT id, img, img_data, img_mime FROM products WHERE img_data IS NOT NULL");
+    while ($row = $stmt->fetch()) {
+        echo ($first ? '' : ',') . json_encode([
+            'id' => $row['id'],
+            'img' => imageColumnToBase64($row['img'], $row['img_data'], $row['img_mime']),
+        ], JSON_UNESCAPED_UNICODE);
+        $first = false;
+        $flushOut();
+    }
+    echo '],';
+    $flushOut();
+
+    echo '"services":[';
+    $first = true;
+    $stmt = $pdo->query("SELECT id, img, img_data, img_mime FROM services WHERE img_data IS NOT NULL");
+    while ($row = $stmt->fetch()) {
+        echo ($first ? '' : ',') . json_encode([
+            'id' => $row['id'],
+            'img' => imageColumnToBase64($row['img'], $row['img_data'], $row['img_mime']),
+        ], JSON_UNESCAPED_UNICODE);
+        $first = false;
+    }
+    echo '],';
+    $flushOut();
+
+    $settingsRow = $pdo->query("SELECT app_logo, app_logo_data, app_logo_mime FROM settings WHERE id = 1")->fetch();
+    $appLogo = $settingsRow ? imageColumnToBase64($settingsRow['app_logo'], $settingsRow['app_logo_data'], $settingsRow['app_logo_mime']) : null;
+    echo '"settings":' . json_encode(['appLogo' => $appLogo], JSON_UNESCAPED_UNICODE);
+    echo '}';
+    $flushOut();
+}
+
+// يستورد ملف "صور فقط" (أنتجه db_stream_export_images_only) - لكل عنصر مذكور بمعرّفه، يُحدَّث
+// عمود صورته فقط إن كان موجوداً فعلاً بقاعدة البيانات؛ لا يُنشئ أي عنصر جديد ولا يحذف شيئاً
+// ولا يمسّ أي حقل آخر غير الصورة - آمن للاستخدام بعد استيراد ملف بيانات بلا صور لإكمالها لاحقاً
+function import_images_only_json(PDO $pdo, array $json): array {
+    $summary = ['categories' => 0, 'companies' => 0, 'products' => 0, 'services' => 0, 'settings' => 0];
+
+    foreach (($json['categories'] ?? []) as $row) {
+        if (empty($row['id']) || empty($row['image'])) continue;
+        $decoded = decodeImageBase64($row['image']);
+        if (!$decoded) continue;
+        $stmt = $pdo->prepare('UPDATE categories SET image = ?, image_data = ?, image_mime = ? WHERE id = ?');
+        $stmt->execute([newImageFilename('cat', $decoded['mime']), $decoded['data'], $decoded['mime'], $row['id']]);
+        if ($stmt->rowCount() > 0) $summary['categories']++;
+    }
+
+    foreach (($json['companies'] ?? []) as $row) {
+        if (empty($row['id']) || empty($row['logo'])) continue;
+        $decoded = decodeImageBase64($row['logo']);
+        if (!$decoded) continue;
+        $stmt = $pdo->prepare('UPDATE companies SET logo = ?, logo_data = ?, logo_mime = ? WHERE id = ?');
+        $stmt->execute([newImageFilename('logo', $decoded['mime']), $decoded['data'], $decoded['mime'], $row['id']]);
+        if ($stmt->rowCount() > 0) $summary['companies']++;
+    }
+
+    foreach (($json['products'] ?? []) as $row) {
+        if (empty($row['id']) || empty($row['img'])) continue;
+        $decoded = decodeImageBase64($row['img']);
+        if (!$decoded) continue;
+        $stmt = $pdo->prepare('UPDATE products SET img = ?, img_data = ?, img_mime = ? WHERE id = ?');
+        $stmt->execute([newImageFilename('prod', $decoded['mime']), $decoded['data'], $decoded['mime'], $row['id']]);
+        if ($stmt->rowCount() > 0) $summary['products']++;
+    }
+
+    foreach (($json['services'] ?? []) as $row) {
+        if (empty($row['id']) || empty($row['img'])) continue;
+        $decoded = decodeImageBase64($row['img']);
+        if (!$decoded) continue;
+        $stmt = $pdo->prepare('UPDATE services SET img = ?, img_data = ?, img_mime = ? WHERE id = ?');
+        $stmt->execute([newImageFilename('service', $decoded['mime']), $decoded['data'], $decoded['mime'], $row['id']]);
+        if ($stmt->rowCount() > 0) $summary['services']++;
+    }
+
+    if (!empty($json['settings']['appLogo'])) {
+        $decoded = decodeImageBase64($json['settings']['appLogo']);
+        if ($decoded) {
+            db_ensure_settings_row($pdo);
+            $pdo->prepare('UPDATE settings SET app_logo = ?, app_logo_data = ?, app_logo_mime = ? WHERE id = 1')
+                ->execute([newImageFilename('logo', $decoded['mime']), $decoded['data'], $decoded['mime']]);
+            $summary['settings'] = 1;
+        }
+    }
+
+    return $summary;
+}
+
 function db_export_full_json(PDO $pdo, bool $includeImages = true): array {
     // نسخة خفيفة (بلا صور) تتفادى القيود الشائعة على استضافات مشتركة (max_allowed_packet على
     // خادم MySQL، أو حد ذاكرة/وقت تنفيذ PHP) عند تصدير صور مخزَّنة كبيانات BLOB كبيرة؛ تبقى كل

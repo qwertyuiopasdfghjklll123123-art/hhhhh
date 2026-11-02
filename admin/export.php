@@ -16,7 +16,16 @@ ini_set('memory_limit', '1024M');
 set_time_limit(0);
 header('X-Accel-Buffering: no'); // يمنع nginx (إن استُخدم كـ reverse proxy) من تخزين الاستجابة مؤقتاً قبل إرسالها
 
+$imagesOnly = ($_GET['images_only'] ?? '0') === '1';
 $includeImages = ($_GET['images'] ?? '1') !== '0';
+
+if ($imagesOnly) {
+    $filename = 'almulla_images_' . date('Y-m-d_His') . '.json';
+    header('Content-Type: application/json; charset=utf-8');
+    header('Content-Disposition: attachment; filename="' . $filename . '"');
+    db_stream_export_images_only($pdo);
+    exit;
+}
 
 $suffix = $includeImages ? '' : '_no_images';
 $filename = 'almulla_export_' . date('Y-m-d_His') . $suffix . '.json';

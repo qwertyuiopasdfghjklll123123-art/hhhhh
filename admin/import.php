@@ -38,6 +38,30 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 }
             }
         }
+    } elseif ($action === 'import_images_only') {
+        $file = $_FILES['images_file'] ?? null;
+        ini_set('memory_limit', '1024M');
+        set_time_limit(600);
+        if (empty($file) || $file['error'] !== UPLOAD_ERR_OK) {
+            admin_flash('error', 'يرجى اختيار ملف الصور الناتج من "ملف الصور فقط" عند التصدير.');
+        } else {
+            $raw = file_get_contents($file['tmp_name']);
+            $json = json_decode($raw, true);
+            if (!is_array($json)) {
+                admin_flash('error', 'الملف ليس بصيغة JSON صالحة.');
+            } else {
+                try {
+                    $summary = import_images_only_json($pdo, $json);
+                    $total = array_sum($summary);
+                    $msg = "تم تحديث $total صورة: {$summary['categories']} فئة، {$summary['companies']} شركة، "
+                        . "{$summary['products']} منتج، {$summary['services']} خدمة"
+                        . ($summary['settings'] ? '، وشعار التطبيق' : '') . '.';
+                    admin_flash('success', $msg);
+                } catch (Throwable $e) {
+                    admin_flash('error', 'فشل استيراد الصور: ' . $e->getMessage());
+                }
+            }
+        }
     } elseif ($action === 'export_telegram') {
         $telegramSettings = db_get_telegram_settings($pdo);
         $botToken = $telegramSettings['botToken'] ?? '';
@@ -102,11 +126,14 @@ admin_header('الاستيراد والتصدير', 'import', 'سحب نسخة �
     </p>
     <a href="export" class="btn btn-primary"><i class="fas fa-download"></i> تحميل نسخة احتياطية الآن</a>
     <a href="export?images=0" class="btn btn-outline" style="margin-right:8px;"><i class="fas fa-download"></i> نسخة خفيفة بلا صور</a>
+    <a href="export?images_only=1" class="btn btn-outline" style="margin-right:8px;"><i class="fas fa-images"></i> ملف الصور فقط</a>
     <p class="field-hint" style="margin-top:10px;">
         إن توقف تحميل النسخة الكاملة أو ظهر خطأ أثناءه (شائع على بعض الاستضافات المشتركة عند وجود
-        صور كثيرة/كبيرة)، جرّب "نسخة خفيفة بلا صور" - تحفظ كل بياناتك النصية (الأقسام، الشركات،
-        المنتجات، الخدمات، المستخدمين، الإعدادات) بحجم صغير جداً مضمون التحميل، فقط بدون محتوى
-        الصور نفسها.
+        صور كثيرة/كبيرة)، نزّل الملفين التاليين بدلاً منها بدل ملف واحد ضخم، وارفعهما بالترتيب في
+        قسم الاستيراد أدناه (أولاً "نسخة خفيفة بلا صور"، ثم "ملف الصور فقط"):
+        <strong>"نسخة خفيفة بلا صور"</strong> تحفظ كل بياناتك النصية (الأقسام، الشركات، المنتجات،
+        الخدمات، المستخدمين، الإعدادات) بحجم صغير جداً مضمون التحميل، و<strong>"ملف الصور
+        فقط"</strong> يحتوي محتوى الصور وحدها بلا شيء آخر.
     </p>
     <?php if ($telegramConfigured): ?>
     <form method="post" style="display:inline; margin-right:8px;">
@@ -142,6 +169,23 @@ admin_header('الاستيراد والتصدير', 'import', 'سحب نسخة �
         </div>
         <p id="importProgressLabel" class="field-hint" style="margin-top:8px;"></p>
     </div>
+</div>
+
+<div class="card">
+    <h2><i class="fas fa-images"></i> استيراد ملف الصور فقط</h2>
+    <p class="field-hint" style="margin-bottom:14px;">
+        الخطوة الثانية عند استخدام الملفين المنفصلين بدل ملف واحد ضخم: بعد استيراد "نسخة خفيفة بلا
+        صور" أعلاه بنجاح، ارفع هنا ملف "ملف الصور فقط" الذي نزَّلته من قسم التصدير - يُطابَق كل
+        صورة بمعرّف العنصر (الفئة/الشركة/المنتج/الخدمة) ويُحدَّث عمود صورته فقط، دون المساس بأي
+        بيانات أو عنصر آخر.
+    </p>
+    <form method="post" enctype="multipart/form-data">
+        <?php echo admin_csrf_field(); ?>
+        <input type="hidden" name="form_action" value="import_images_only">
+        <label>ملف الصور (JSON)</label>
+        <input type="file" name="images_file" accept="application/json,.json" required>
+        <button type="submit" class="btn btn-primary" style="margin-top:16px;"><i class="fas fa-file-import"></i> استيراد الصور</button>
+    </form>
 </div>
 
 <?php admin_footer(); ?>
