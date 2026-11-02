@@ -286,6 +286,34 @@ $page = isset($_GET['page']) ? $_GET['page'] : '';
         </div>
         <div id="searchResults" class="search-results"></div>
         <div id="contentArea"></div>
+
+        <!-- ========== السلة والمفضلات ==========
+             داخل .main-wrapper نفسه (وليستا بعد إغلاق #appScreen) ليظهر رأسهما (وزر ✕
+             الإغلاق) مباشرة أسفل الشريط العلوي، بدل أن يُدفَعا لأسفل بمقدار حشو/هامش
+             appScreen و.main-wrapper المحجوز لشريط التنقل السفلي الثابت (فراغ فارغ كبير
+             كان يجعل الزر يظهر في منتصف الشاشة تقريباً بدل أعلاها). -->
+        <div id="cartSidebar" class="cart-sidebar">
+            <div class="cart-header" style="padding:15px; border-bottom:1px solid var(--cardBd); display:flex; justify-content:space-between; align-items:center;">
+                <h3>🛒 السلة</h3>
+                <button onclick="switchPage('home')" style="background:none; border:none; font-size:1.3rem; color:var(--t3); cursor:pointer; line-height:1;">✕</button>
+            </div>
+            <div class="cart-items" id="cartItems" style="flex:1; overflow-y:auto; padding:10px;"></div>
+            <div class="cart-footer" id="cartFooter" style="display:none; padding:15px; border-top:1px solid var(--cardBd);">
+                <button onclick="checkout()" style="width:100%; padding:12px; border-radius:50px; background:#25D366; color:white; border:none; font-weight:700; cursor:pointer; margin-bottom:8px;"><i class="fab fa-whatsapp"></i> إرسال الطلب</button>
+                <button onclick="clearCart()" style="width:100%; padding:12px; border-radius:50px; background:transparent; border:1px solid var(--rd); color:var(--rd); font-weight:700; cursor:pointer;">🗑️ تفريغ السلة</button>
+            </div>
+        </div>
+
+        <div id="favoritesSidebar" class="favorites-sidebar">
+            <div class="favorites-header" style="padding:15px; border-bottom:1px solid var(--cardBd); display:flex; justify-content:space-between; align-items:center;">
+                <h3><i class="fas fa-heart" style="color:#ff4757;"></i> المفضلات</h3>
+                <button onclick="switchPage('home')" style="background:none; border:none; font-size:1.3rem; color:var(--t3); cursor:pointer; line-height:1;">✕</button>
+            </div>
+            <div class="favorites-items" id="favoritesItems" style="flex:1; overflow-y:auto; padding:10px;"></div>
+            <div class="favorites-footer" style="padding:15px; border-top:1px solid var(--cardBd);">
+                <button onclick="clearFavorites()" style="width:100%; padding:12px; border-radius:50px; background:transparent; border:1px solid var(--rd); color:var(--rd); font-weight:700; cursor:pointer;"><i class="fas fa-trash"></i> مسح الكل</button>
+            </div>
+        </div>
     </div>
 
     <!-- صفحة الملف الشخصي -->
@@ -375,6 +403,10 @@ $page = isset($_GET['page']) ? $_GET['page'] : '';
                         <i class="fas fa-headset menu-icon"></i>
                         <span class="menu-text">اتصل بنا</span>
                     </div>
+                    <div class="menu-item" id="installAppMenuItem" style="display:none;" onclick="showInstallAppModal()">
+                        <i class="fas fa-download menu-icon"></i>
+                        <span class="menu-text">تثبيت التطبيق</span>
+                    </div>
                     <div class="menu-item" onclick="showLogoutConfirm()" style="border: 2px solid var(--rd); background: rgba(239, 68, 68, 0.1);">
                         <i class="fas fa-sign-out-alt menu-icon" style="color: var(--rd);"></i>
                         <span class="menu-text" style="color: var(--rd); font-weight: 700;">تسجيل خروج</span>
@@ -443,30 +475,6 @@ $page = isset($_GET['page']) ? $_GET['page'] : '';
         </div>
     </div>
 </div>
-
-    <!-- ========== السلة والمفضلات ========== -->
-    <div id="cartSidebar" class="cart-sidebar">
-        <div class="cart-header" style="padding:15px; border-bottom:1px solid var(--cardBd); display:flex; justify-content:space-between; align-items:center;">
-            <h3>🛒 السلة</h3>
-            <button onclick="switchPage('home')" style="background:none; border:none; font-size:1.3rem; color:var(--t3); cursor:pointer; line-height:1;">✕</button>
-        </div>
-        <div class="cart-items" id="cartItems" style="flex:1; overflow-y:auto; padding:10px;"></div>
-        <div class="cart-footer" id="cartFooter" style="display:none; padding:15px; border-top:1px solid var(--cardBd);">
-            <button onclick="checkout()" style="width:100%; padding:12px; border-radius:50px; background:#25D366; color:white; border:none; font-weight:700; cursor:pointer; margin-bottom:8px;"><i class="fab fa-whatsapp"></i> إرسال الطلب</button>
-            <button onclick="clearCart()" style="width:100%; padding:12px; border-radius:50px; background:transparent; border:1px solid var(--rd); color:var(--rd); font-weight:700; cursor:pointer;">🗑️ تفريغ السلة</button>
-        </div>
-    </div>
-
-    <div id="favoritesSidebar" class="favorites-sidebar">
-        <div class="favorites-header" style="padding:15px; border-bottom:1px solid var(--cardBd); display:flex; justify-content:space-between; align-items:center;">
-            <h3><i class="fas fa-heart" style="color:#ff4757;"></i> المفضلات</h3>
-            <button onclick="switchPage('home')" style="background:none; border:none; font-size:1.3rem; color:var(--t3); cursor:pointer; line-height:1;">✕</button>
-        </div>
-        <div class="favorites-items" id="favoritesItems" style="flex:1; overflow-y:auto; padding:10px;"></div>
-        <div class="favorites-footer" style="padding:15px; border-top:1px solid var(--cardBd);">
-            <button onclick="clearFavorites()" style="width:100%; padding:12px; border-radius:50px; background:transparent; border:1px solid var(--rd); color:var(--rd); font-weight:700; cursor:pointer;"><i class="fas fa-trash"></i> مسح الكل</button>
-        </div>
-    </div>
 
     <!-- ========== نافذة معلومات الاتصال ========== -->
     <div id="contactUsModal" class="modal-overlay" onclick="if(event.target===this) closeContactUsModal()">

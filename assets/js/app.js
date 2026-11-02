@@ -103,6 +103,7 @@
         // ========== المتغيرات العامة ==========
         let currentUser = null;
         let isGuestMode = false;
+        let deferredPrompt = null;
         let favorites = [];
         let cart = [];
         let catalogData = { categories: [] };
@@ -188,6 +189,17 @@
         }
         function closeInstallAppModal() {
             document.getElementById('installAppModal').classList.remove('show');
+        }
+        async function installPwaConfirmed() {
+            closeInstallAppModal();
+            if (!deferredPrompt) return;
+            deferredPrompt.prompt();
+            const choice = await deferredPrompt.userChoice;
+            if (choice.outcome === 'accepted') {
+                const menuItem = document.getElementById('installAppMenuItem');
+                if (menuItem) menuItem.style.display = 'none';
+            }
+            deferredPrompt = null;
         }
 
         // ========== دوال نافذة التأكيد ==========
@@ -3157,8 +3169,9 @@
             generateCaptcha();
         }
         
-        let deferredPrompt = null;
         window.addEventListener('beforeinstallprompt', (e) => {
             e.preventDefault();
             deferredPrompt = e;
+            const menuItem = document.getElementById('installAppMenuItem');
+            if (menuItem) menuItem.style.display = '';
         });

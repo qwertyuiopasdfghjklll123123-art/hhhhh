@@ -1297,6 +1297,68 @@ function db_stream_export_images_only(PDO $pdo): void {
     $flushOut();
 }
 
+// نفس بيانات db_stream_export_images_only لكن مقسَّمة إلى عدة ملفات مؤقتة لا يتجاوز حجم أي منها
+// $maxBytes - ضروري لإرسالها عبر بوت تيليجرام الذي يرفض أي ملف أكبر من 50 ميجابايت، خلافاً لتحميل
+// المتصفح المباشر (زر "ملف الصور فقط") الذي لا يصطدم بهذا الحد فيبقى يستخدم النسخة غير المجزَّأة.
+// كل ملف ناتج صالح بذاته ويُستورَد عبر import_images_only_json() تماماً كالملف الكامل غير المجزَّأ
+// (لا يلزم وجود كل المفاتيح الأربعة في كل ملف - المفقود منها يُعامَل كمصفوفة فارغة عند الاستيراد).
+function db_export_images_only_chunks(PDO $pdo, int $maxBytes = 45000000): array {
+    $files = [];
+    $chunk = ['categories' => [], 'companies' => [], 'products' => [], 'services' => []];
+    $chunkSize = 0;
+    $hasContent = false;
+
+    $flushChunk = function () use (&$chunk, &$chunkSize, &$hasContent, &$files) {
+        if (!$hasContent) return;
+        $path = tempnam(sys_get_temp_dir(), 'almulla_images_chunk_');
+        file_put_contents($path, json_encode($chunk, JSON_UNESCAPED_UNICODE));
+        $files[] = $path;
+        $chunk = ['categories' => [], 'companies' => [], 'products' => [], 'services' => []];
+        $chunkSize = 0;
+        $hasContent = false;
+    };
+
+    $addItem = function (string $table, array $item) use (&$chunk, &$chunkSize, &$hasContent, $maxBytes, $flushChunk) {
+        $itemSize = strlen(json_encode($item, JSON_UNESCAPED_UNICODE));
+        if ($hasContent && $chunkSize + $itemSize > $maxBytes) {
+            $flushChunk();
+        }
+        $chunk[$table][] = $item;
+        $chunkSize += $itemSize;
+        $hasContent = true;
+    };
+
+    $stmt = $pdo->query("SELECT id, image, image_data, image_mime FROM categories WHERE image_data IS NOT NULL");
+    while ($row = $stmt->fetch()) {
+        $addItem('categories', ['id' => $row['id'], 'image' => imageColumnToBase64($row['image'], $row['image_data'], $row['image_mime'])]);
+    }
+
+    $stmt = $pdo->query("SELECT id, logo, logo_data, logo_mime FROM companies WHERE logo_data IS NOT NULL");
+    while ($row = $stmt->fetch()) {
+        $addItem('companies', ['id' => $row['id'], 'logo' => imageColumnToBase64($row['logo'], $row['logo_data'], $row['logo_mime'])]);
+    }
+
+    $stmt = $pdo->query("SELECT id, img, img_data, img_mime FROM products WHERE img_data IS NOT NULL");
+    while ($row = $stmt->fetch()) {
+        $addItem('products', ['id' => $row['id'], 'img' => imageColumnToBase64($row['img'], $row['img_data'], $row['img_mime'])]);
+    }
+
+    $stmt = $pdo->query("SELECT id, img, img_data, img_mime FROM services WHERE img_data IS NOT NULL");
+    while ($row = $stmt->fetch()) {
+        $addItem('services', ['id' => $row['id'], 'img' => imageColumnToBase64($row['img'], $row['img_data'], $row['img_mime'])]);
+    }
+
+    $settingsRow = $pdo->query("SELECT app_logo, app_logo_data, app_logo_mime FROM settings WHERE id = 1")->fetch();
+    $appLogo = $settingsRow ? imageColumnToBase64($settingsRow['app_logo'], $settingsRow['app_logo_data'], $settingsRow['app_logo_mime']) : null;
+    if ($appLogo !== null) {
+        $chunk['settings'] = ['appLogo' => $appLogo];
+        $hasContent = true;
+    }
+
+    $flushChunk();
+    return $files;
+}
+
 // يستورد ملف "صور فقط" (أنتجه db_stream_export_images_only) - لكل عنصر مذكور بمعرّفه، يُحدَّث
 // عمود صورته فقط إن كان موجوداً فعلاً بقاعدة البيانات؛ لا يُنشئ أي عنصر جديد ولا يحذف شيئاً
 // ولا يمسّ أي حقل آخر غير الصورة - آمن للاستخدام بعد استيراد ملف بيانات بلا صور لإكمالها لاحقاً

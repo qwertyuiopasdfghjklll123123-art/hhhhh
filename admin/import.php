@@ -69,17 +69,52 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if ($botToken === '' || $chatId === '') {
             admin_flash('error', 'يرجى تعبئة رمز البوت ومعرّف المحادثة في صفحة الإعدادات أولاً.');
         } else {
-            ini_set('memory_limit', '512M');
-            set_time_limit(120);
-            // نسخة خفيفة بلا صور: تتفادى حد حجم ملفات تيليجرام (50 ميجابايت) وحد حجم استعلام
-            // MySQL على استضافات مشتركة عند وجود صور كثيرة/كبيرة
+            ini_set('memory_limit', '1024M');
+            set_time_limit(300);
+
+            // الملف الأول: نسخة خفيفة بلا صور (كل البيانات النصية) - حجم صغير مضمون الإرسال
             $data = db_export_full_json($pdo, false);
             $tmpFile = tempnam(sys_get_temp_dir(), 'almulla_export_');
             file_put_contents($tmpFile, json_encode($data, JSON_UNESCAPED_UNICODE));
             $filename = 'almulla_export_' . date('Y-m-d_His') . '_no_images.json';
-            $result = telegram_send_document($botToken, $chatId, $tmpFile, $filename, 'نسخة احتياطية من ' . ($data['settings']['appName'] ?? 'Almulla'));
+            $appName = $data['settings']['appName'] ?? 'Almulla';
+            $lightResult = telegram_send_document($botToken, $chatId, $tmpFile, $filename, "نسخة احتياطية من $appName (1/2: البيانات بلا صور)");
             @unlink($tmpFile);
-            admin_flash($result['success'] ? 'success' : 'error', $result['message']);
+
+            // الملف الثاني (أو عدة ملفات): الصور فقط، مجزَّأة بحد أقصى ~45 ميجابايت لكل جزء -
+            // بوت تيليجرام يرفض أي ملف أكبر من 50 ميجابايت، وقد يتجاوز حجم كل الصور هذا الحد
+            // بكثير في كتالوج حقيقي كبير
+            $chunkFiles = db_export_images_only_chunks($pdo);
+            $imagesOk = 0;
+            $imagesFail = 0;
+            $lastError = '';
+            $total = count($chunkFiles);
+            foreach ($chunkFiles as $i => $chunkFile) {
+                $partLabel = $total > 1 ? ($i + 1) . '/' . $total : '1/1';
+                $chunkFilename = 'almulla_images_' . date('Y-m-d_His') . '_part' . ($i + 1) . '.json';
+                $chunkResult = telegram_send_document($botToken, $chatId, $chunkFile, $chunkFilename, "نسخة احتياطية من $appName (2/2: الصور - جزء $partLabel)");
+                if ($chunkResult['success']) {
+                    $imagesOk++;
+                } else {
+                    $imagesFail++;
+                    $lastError = $chunkResult['message'];
+                }
+                @unlink($chunkFile);
+            }
+
+            if ($total === 0) {
+                $msg = $lightResult['success']
+                    ? 'تم إرسال نسخة البيانات بلا صور. لا توجد صور مخزَّنة حالياً لإرسالها.'
+                    : 'فشل إرسال نسخة البيانات: ' . $lightResult['message'];
+                admin_flash($lightResult['success'] ? 'success' : 'error', $msg);
+            } elseif ($lightResult['success'] && $imagesFail === 0) {
+                admin_flash('success', "تم إرسال الملفين بنجاح: نسخة البيانات بلا صور، و$imagesOk من $total جزء من ملف الصور.");
+            } else {
+                $msg = 'حدثت مشاكل أثناء الإرسال: ';
+                $msg .= $lightResult['success'] ? 'نسخة البيانات أُرسلت بنجاح. ' : ('فشل إرسال نسخة البيانات: ' . $lightResult['message'] . ' ');
+                $msg .= "أجزاء الصور: $imagesOk من $total نجحت" . ($imagesFail > 0 ? ('، آخر خطأ: ' . $lastError) : '.');
+                admin_flash('error', $msg);
+            }
         }
     }
 
@@ -141,9 +176,15 @@ admin_header('الاستيراد والتصدير', 'import', 'سحب نسخة �
         <input type="hidden" name="form_action" value="export_telegram">
         <button type="submit" class="btn btn-outline"><i class="fab fa-telegram"></i> إرسال عبر تيليجرام</button>
     </form>
+    <p class="field-hint" style="margin-top:10px;">
+        يرسل نسختين إلى محادثتك: أولاً "نسخة بلا صور" (كل البيانات النصية)، ثم ملف "الصور فقط" -
+        مقسَّماً تلقائياً لعدة أجزاء بحد أقصى ~45 ميجابايت لكل جزء إن لزم (حد تيليجرام للملفات 50
+        ميجابايت). لاستعادتها: ارفع واستورد كل جزء وصلك بالترتيب في قسمي الاستيراد أدناه، كما لو
+        نزّلتها من أزرار التصدير أعلاه مباشرة.
+    </p>
     <?php else: ?>
     <p class="field-hint" style="margin-top:10px;">
-        لإرسال النسخة الاحتياطية مباشرة كملف إلى تيليجرام بدل التحميل من المتصفح، أدخل رمز البوت
+        لإرسال النسخة الاحتياطية مباشرة كملفات إلى تيليجرام بدل التحميل من المتصفح، أدخل رمز البوت
         ومعرّف المحادثة في <a href="settings">صفحة الإعدادات</a> أولاً.
     </p>
     <?php endif; ?>
