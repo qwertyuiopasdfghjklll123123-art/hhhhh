@@ -1090,6 +1090,141 @@ function imageColumnToBase64(?string $name, ?string $data, ?string $mime) {
     return null; // لا يوجد محتوى فعلي بعد (اسم بلا بيانات مُزامَنة)
 }
 
+// نسخة تبثّ ناتج JSON تدريجياً (echo + flush) بدل بنائه بالكامل كمصفوفة PHP ثم تحويله لنص
+// JSON واحد ضخم دفعة واحدة - تتفادى مضاعفة استهلاك الذاكرة (مصفوفة + النص المُرمَّز لها معاً
+// في نفس اللحظة) على كتالوجات كبيرة بمئات الصور الحقيقية المخزَّنة كـ BLOB، وتُبقي البيانات
+// تتدفق للمتصفح بدل انتظار صامت طويل قد يصطدم بمهلة خادم وسيط (proxy) على بعض الاستضافات.
+// بنية الناتج مطابقة تماماً لـ db_export_full_json() أعلاه - فقط طريقة الكتابة تختلف.
+function db_stream_export_full_json(PDO $pdo, bool $includeImages = true): void {
+    @ini_set('zlib.output_compression', 'Off');
+    if (ob_get_level() === 0) @ob_start();
+    $flushOut = function () {
+        if (ob_get_level() > 0) @ob_flush();
+        @flush();
+    };
+
+    $imgField = function (?string $name, ?string $data, ?string $mime) use ($includeImages) {
+        if (!$includeImages) {
+            return (!empty($name) && (strpos($name, 'http://') === 0 || strpos($name, 'https://') === 0)) ? $name : null;
+        }
+        return imageColumnToBase64($name, $data, $mime);
+    };
+
+    echo '{"users":[';
+    $stmt = $pdo->query('SELECT * FROM users ORDER BY id ASC');
+    $first = true;
+    while ($u = $stmt->fetch()) {
+        echo ($first ? '' : ',') . json_encode([
+            'id' => (int)$u['id'], 'fullname' => $u['fullname'], 'email' => $u['email'],
+            'password' => $u['password'], 'isAdmin' => (bool)$u['is_admin'],
+            'created_at' => $u['created_at'], 'last_login' => $u['last_login'],
+        ], JSON_UNESCAPED_UNICODE);
+        $first = false;
+    }
+    echo '],';
+    $flushOut();
+
+    echo '"catalog":{"categories":[';
+    $catStmt = $pdo->query('SELECT * FROM categories ORDER BY sort_order ASC, created_at ASC');
+    $compStmt = $pdo->prepare('SELECT * FROM companies WHERE category_id = ? ORDER BY sort_order ASC, created_at ASC');
+    $prodStmt = $pdo->prepare('SELECT * FROM products WHERE company_id = ? ORDER BY sort_order ASC, created_at ASC');
+    $svcStmt = $pdo->prepare('SELECT * FROM services WHERE category_id = ? ORDER BY sort_order ASC, created_at ASC');
+
+    $firstCat = true;
+    while ($cat = $catStmt->fetch()) {
+        echo $firstCat ? '' : ',';
+        $firstCat = false;
+
+        echo '{"id":' . json_encode($cat['id'], JSON_UNESCAPED_UNICODE)
+            . ',"name":' . json_encode($cat['name'], JSON_UNESCAPED_UNICODE)
+            . ',"image":' . json_encode($imgField($cat['image'], $cat['image_data'], $cat['image_mime']), JSON_UNESCAPED_UNICODE)
+            . ',"deletedCard":' . json_encode($cat['deleted_card'], JSON_UNESCAPED_UNICODE)
+            . ',"companies":[';
+
+        $compStmt->execute([$cat['id']]);
+        $firstComp = true;
+        while ($comp = $compStmt->fetch()) {
+            echo $firstComp ? '' : ',';
+            $firstComp = false;
+
+            echo '{"id":' . json_encode($comp['id'], JSON_UNESCAPED_UNICODE)
+                . ',"name":' . json_encode($comp['name'], JSON_UNESCAPED_UNICODE)
+                . ',"logo":' . json_encode($imgField($comp['logo'], $comp['logo_data'], $comp['logo_mime']), JSON_UNESCAPED_UNICODE)
+                . ',"deletedCard":' . json_encode($comp['deleted_card'], JSON_UNESCAPED_UNICODE)
+                . ',"products":[';
+
+            $prodStmt->execute([$comp['id']]);
+            $firstProd = true;
+            while ($p = $prodStmt->fetch()) {
+                echo ($firstProd ? '' : ',') . json_encode([
+                    'id' => $p['id'], 'name' => $p['name'], 'code' => $p['code'], 'color' => $p['color'],
+                    'price' => $p['price'], 'img' => $imgField($p['img'], $p['img_data'], $p['img_mime']),
+                    'image_url' => $p['image_url'], 'available' => (bool)$p['available'], 'deletedCard' => $p['deleted_card'],
+                ], JSON_UNESCAPED_UNICODE);
+                $firstProd = false;
+            }
+            echo ']}';
+            $flushOut();
+        }
+        echo '],"services":[';
+
+        $svcStmt->execute([$cat['id']]);
+        $firstSvc = true;
+        while ($s = $svcStmt->fetch()) {
+            echo ($firstSvc ? '' : ',') . json_encode([
+                'id' => $s['id'], 'name' => $s['name'], 'color' => $s['color'], 'notes' => $s['notes'],
+                'img' => $imgField($s['img'], $s['img_data'], $s['img_mime']),
+                'available' => (bool)$s['available'], 'deletedCard' => $s['deleted_card'],
+            ], JSON_UNESCAPED_UNICODE);
+            $firstSvc = false;
+        }
+        echo ']}';
+        $flushOut();
+    }
+    echo ']},';
+
+    db_ensure_settings_row($pdo);
+    $settingsRow = $pdo->query('SELECT * FROM settings WHERE id = 1')->fetch();
+    $welcomeCard = !empty($settingsRow['welcome_card']) ? json_decode($settingsRow['welcome_card'], true) : null;
+    echo '"settings":' . json_encode([
+        'appName' => $settingsRow['app_name'],
+        'appLogo' => $imgField($settingsRow['app_logo'], $settingsRow['app_logo_data'], $settingsRow['app_logo_mime']),
+        'whatsappNumber' => $settingsRow['whatsapp_number'],
+        'officialWebsite' => $settingsRow['official_website'],
+        'hideMostRequested' => (bool)$settingsRow['hide_most_requested'],
+        'welcomeCard' => $welcomeCard,
+    ], JSON_UNESCAPED_UNICODE) . ',';
+    $flushOut();
+
+    db_ensure_stats_row($pdo);
+    $statsRow = $pdo->query('SELECT total_visitors, total_favorites, total_orders FROM stats WHERE id = 1')->fetch();
+    $dailyVisits = [];
+    foreach ($pdo->query('SELECT visit_date, count FROM daily_visits') as $row) {
+        $dailyVisits[$row['visit_date']] = (int)$row['count'];
+    }
+    $mostRequested = [];
+    foreach ($pdo->query('SELECT name, category, type, count FROM most_requested_items') as $r) {
+        $mostRequested[] = ['name' => $r['name'], 'category' => $r['category'], 'type' => $r['type'], 'count' => (int)$r['count']];
+    }
+    echo '"stats":' . json_encode([
+        'total_visitors' => (int)$statsRow['total_visitors'],
+        'total_favorites' => (int)$statsRow['total_favorites'],
+        'total_orders' => (int)$statsRow['total_orders'],
+        'daily_visits' => $dailyVisits,
+        'most_requested_items' => $mostRequested,
+    ], JSON_UNESCAPED_UNICODE) . ',';
+
+    echo '"push_subscriptions":[';
+    $first = true;
+    foreach ($pdo->query('SELECT subscription FROM push_subscriptions') as $r) {
+        $decoded = json_decode($r['subscription'], true);
+        echo ($first ? '' : ',') . json_encode($decoded !== null ? $decoded : $r['subscription'], JSON_UNESCAPED_UNICODE);
+        $first = false;
+    }
+    echo ']}';
+    $flushOut();
+}
+
 function db_export_full_json(PDO $pdo, bool $includeImages = true): array {
     // نسخة خفيفة (بلا صور) تتفادى القيود الشائعة على استضافات مشتركة (max_allowed_packet على
     // خادم MySQL، أو حد ذاكرة/وقت تنفيذ PHP) عند تصدير صور مخزَّنة كبيانات BLOB كبيرة؛ تبقى كل

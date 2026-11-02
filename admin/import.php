@@ -9,8 +9,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     if ($action === 'import_json') {
         $file = $_FILES['json_file'] ?? null;
-        ini_set('memory_limit', '512M');
-        set_time_limit(300);
+        // رفع كبير يحتوي مئات الصور الحقيقية يحتاج ذاكرة أكبر بكثير من حجم الملف نفسه عند
+        // json_decode (تأكَّد تجريبياً أن ملفاً بحجم ~290 ميجابايت يحتاج ~600 ميجابايت ذاكرة
+        // فعلياً) - راجع أيضاً admin/.user.ini لرفع حد حجم الرفع upload_max_filesize نفسه،
+        // وهو إعداد لا يمكن لـ ini_set() هنا تغييره لأن الرفع يُعالَج قبل بدء تنفيذ السكربت
+        ini_set('memory_limit', '1024M');
+        set_time_limit(600);
         if (empty($file) || $file['error'] !== UPLOAD_ERR_OK) {
             admin_flash('error', 'يرجى اختيار ملف database.json صالح.');
         } else {
