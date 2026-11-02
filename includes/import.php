@@ -14,12 +14,25 @@ function import_legacy_json(PDO $pdo, array $json): array {
 
     db_import_progress_step($pdo, 1, 'استيراد المستخدمين...');
     if (!empty($json['users']) && is_array($json['users'])) {
+        $existingIdStmt = $pdo->prepare('SELECT 1 FROM users WHERE id = ?');
         foreach ($json['users'] as $u) {
             if (empty($u['email']) || empty($u['password'])) continue;
-            if (db_get_user_by_email($pdo, $u['email'])) continue;
+            if (db_get_user_by_email($pdo, $u['email'])) continue; // نفس الشخص موجود مسبقاً (بالبريد)، تجاهل
+
+            $importId = !empty($u['id']) ? (int)$u['id'] : null;
+            // إن كان هذا المعرّف الرقمي مستخدَماً بالفعل لحساب آخر مختلف (بريد مختلف) في القاعدة
+            // الحالية، لا يمكن فرضه على المستخدم الجديد (تعارض مفتاح أساسي) - دع MySQL يُخصّص
+            // معرّفاً جديداً تلقائياً بدلاً من ذلك بدل فشل الاستيراد بالكامل
+            if ($importId !== null) {
+                $existingIdStmt->execute([$importId]);
+                if ($existingIdStmt->fetch()) {
+                    $importId = null;
+                }
+            }
+
             $stmt = $pdo->prepare('INSERT INTO users (id, fullname, email, password, is_admin, created_at, last_login) VALUES (?,?,?,?,?,?,?)');
             $stmt->execute([
-                !empty($u['id']) ? (int)$u['id'] : null,
+                $importId,
                 $u['fullname'] ?? '',
                 $u['email'],
                 $u['password'],
