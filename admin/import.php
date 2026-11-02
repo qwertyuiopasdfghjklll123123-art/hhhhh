@@ -21,7 +21,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             } else {
                 try {
                     $summary = import_legacy_json($pdo, $json);
-                    admin_flash('success', "تم الاستيراد: {$summary['users']} مستخدم، {$summary['categories']} فئة.");
+                    $msg = "تم الاستيراد: {$summary['users']} مستخدم، {$summary['categories']} فئة.";
+                    $cov = db_count_stored_images($pdo);
+                    if ($cov['total'] > 0) {
+                        $msg .= " الصور: {$cov['stored']} من أصل {$cov['total']} مخزَّنة فعلياً"
+                            . ($cov['missing'] > 0 ? "، {$cov['missing']} ناقصة (الملف المستورَد لا يحتوي محتواها الفعلي)." : ' (اكتملت كلها).');
+                    }
+                    admin_flash('success', $msg);
                 } catch (Throwable $e) {
                     db_import_progress_finish($pdo, false, 'فشل الاستيراد: ' . $e->getMessage());
                     admin_flash('error', 'فشل الاستيراد: ' . $e->getMessage());
@@ -56,9 +62,32 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 require_once __DIR__ . '/includes/layout.php';
 $telegramSettings = db_get_telegram_settings($pdo);
 $telegramConfigured = !empty($telegramSettings['botToken']) && !empty($telegramSettings['chatId']);
+$imageCoverage = db_count_stored_images($pdo);
 
 admin_header('الاستيراد والتصدير', 'import', 'سحب نسخة احتياطية كاملة أو استعادتها');
 ?>
+
+<div class="card">
+    <h2><i class="fas fa-images"></i> حالة الصور في قاعدة البيانات</h2>
+    <?php if ($imageCoverage['total'] === 0): ?>
+        <p class="field-hint">لا توجد عناصر (فئات/شركات/منتجات/خدمات) تشير لأي صورة حالياً.</p>
+    <?php else: ?>
+        <p class="field-hint">
+            <?php echo $imageCoverage['stored']; ?> من أصل <?php echo $imageCoverage['total']; ?>
+            صورة مخزَّنة فعلياً داخل قاعدة البيانات (وستُضمَّن عند التصدير الكامل).
+            <?php if ($imageCoverage['missing'] > 0): ?>
+                <strong style="color:var(--danger);">
+                    <?php echo $imageCoverage['missing']; ?> صورة لا تزال ناقصة</strong> - أي عنصر
+                يشير لاسم ملف صورة لكن بلا محتوى فعلي مخزَّن سيُصدَّر بلا صورة (وبالتالي يُستورَد
+                لاحقاً بلا صورة أيضاً، وليس خللاً في الاستيراد نفسه). لإكمالها: ضع مجلد الصور
+                الأصلي (أو ملف ZIP يحتويه) داخل <code>logs/legacy-imports/</code> على استضافتك
+                مباشرة، وستتم مزامنته تلقائياً مع أول دخول للوحة التحكم.
+            <?php else: ?>
+                <span style="color:var(--accent2);">كل الصور المرجَّعة مكتملة.</span>
+            <?php endif; ?>
+        </p>
+    <?php endif; ?>
+</div>
 
 <div class="card">
     <h2><i class="fas fa-file-export"></i> تصدير نسخة احتياطية</h2>
