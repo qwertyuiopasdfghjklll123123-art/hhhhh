@@ -477,15 +477,21 @@ function catalogImageUrl($storedValue, string $type, string $id): ?string {
 }
 
 // ---------------------------------------------------------------
-// قراءة شجرة الكتالوج الكاملة (تُستخدم في load_catalog)
+// قراءة شجرة الكتالوج الكاملة (تُستخدم في load_catalog - نقطة تُستدعى في كل زيارة للموقع)
 // ---------------------------------------------------------------
+// تُستبعد أعمدة *_data/*_mime (BLOB الصورة الفعلية) عمداً من كل استعلامات هذه الدالة: عنوان
+// الصورة المُعاد (catalogImageUrl) هو رابط خفيف لنقطة عرض منفصلة (?image=...&id=...) تسحب
+// بيانات الصورة فقط عند طلب المتصفح لها فعلياً، فلا حاجة إطلاقاً لسحبها هنا. سحبها كانت تجعل كل
+// زيارة للموقع تسحب كل صور الكتالوج (مئات الميجابايت على كتالوج حقيقي كبير) من MySQL دون أي
+// استخدام فعلي لها - أبطأ التصفح بشدة، وقد يستنفد حد ذاكرة PHP على استضافات مشتركة فتظهر الصفحة
+// فارغة من المنتجات (فشل صامت في نقطة load_catalog نفسها).
 function db_get_catalog_tree(PDO $pdo): array {
     $categories = [];
-    $catRows = $pdo->query('SELECT * FROM categories ORDER BY sort_order ASC, created_at ASC')->fetchAll();
+    $catRows = $pdo->query('SELECT id, name, image, deleted_card FROM categories ORDER BY sort_order ASC, created_at ASC')->fetchAll();
 
-    $compStmt = $pdo->prepare('SELECT * FROM companies WHERE category_id = ? ORDER BY sort_order ASC, created_at ASC');
-    $prodStmt = $pdo->prepare('SELECT * FROM products WHERE company_id = ? ORDER BY sort_order ASC, created_at ASC');
-    $svcStmt = $pdo->prepare('SELECT * FROM services WHERE category_id = ? ORDER BY sort_order ASC, created_at ASC');
+    $compStmt = $pdo->prepare('SELECT id, name, logo, deleted_card FROM companies WHERE category_id = ? ORDER BY sort_order ASC, created_at ASC');
+    $prodStmt = $pdo->prepare('SELECT id, name, code, color, price, img, image_url, available, deleted_card FROM products WHERE company_id = ? ORDER BY sort_order ASC, created_at ASC');
+    $svcStmt = $pdo->prepare('SELECT id, name, color, notes, img, available, deleted_card FROM services WHERE category_id = ? ORDER BY sort_order ASC, created_at ASC');
 
     foreach ($catRows as $cat) {
         $companies = [];
@@ -948,8 +954,12 @@ function db_next_sort_order(PDO $pdo, string $table, ?string $whereCol = null, $
     return (int)$stmt->fetch()['m'] + 1;
 }
 
+// تُستبعد أعمدة image_data/image_mime عمداً (عناوين الصور فقط) - هذه القوائم لا تعرض الصورة
+// الفعلية مباشرة بل عبر index.php?image=...&id=... (انظر admin/categories.php)، فسحب بيانات
+// BLOB هنا (قد تصل مئات الميجابايت على كتالوج حقيقي بصور كثيرة) كان يُبطئ كل تنقل بلوحة
+// التحكم بلا أي فائدة - البيانات تُسحب فعلياً فقط عند طلب الصورة نفسها
 function db_list_categories_admin(PDO $pdo): array {
-    return $pdo->query('SELECT * FROM categories ORDER BY sort_order ASC, created_at ASC')->fetchAll();
+    return $pdo->query('SELECT id, name, image, deleted_card, sort_order, created_at FROM categories ORDER BY sort_order ASC, created_at ASC')->fetchAll();
 }
 
 // $imageBlob: ['data' => binary, 'mime' => string] أو null إن لم تُرفع صورة
@@ -974,7 +984,8 @@ function db_update_category_fields(PDO $pdo, string $id, string $name, ?array $n
 
 function db_list_companies_admin(PDO $pdo): array {
     return $pdo->query('
-        SELECT co.*, ca.name AS category_name
+        SELECT co.id, co.category_id, co.name, co.logo, co.deleted_card, co.sort_order, co.created_at,
+               ca.name AS category_name
         FROM companies co JOIN categories ca ON co.category_id = ca.id
         ORDER BY ca.sort_order ASC, co.sort_order ASC, co.created_at ASC
     ')->fetchAll();
@@ -1001,7 +1012,9 @@ function db_update_company_fields(PDO $pdo, string $id, string $categoryId, stri
 
 function db_list_products_admin(PDO $pdo): array {
     return $pdo->query('
-        SELECT p.*, co.name AS company_name, ca.id AS category_id, ca.name AS category_name
+        SELECT p.id, p.company_id, p.name, p.code, p.color, p.price, p.img, p.image_url,
+               p.available, p.deleted_card, p.sort_order, p.created_at,
+               co.name AS company_name, ca.id AS category_id, ca.name AS category_name
         FROM products p
         JOIN companies co ON p.company_id = co.id
         JOIN categories ca ON co.category_id = ca.id
@@ -1041,7 +1054,8 @@ function db_update_product_fields(PDO $pdo, string $id, string $companyId, array
 
 function db_list_services_admin(PDO $pdo): array {
     return $pdo->query('
-        SELECT s.*, ca.name AS category_name
+        SELECT s.id, s.category_id, s.name, s.color, s.notes, s.img, s.available,
+               s.deleted_card, s.sort_order, s.created_at, ca.name AS category_name
         FROM services s JOIN categories ca ON s.category_id = ca.id
         ORDER BY ca.sort_order ASC, s.sort_order ASC, s.created_at ASC
     ')->fetchAll();
