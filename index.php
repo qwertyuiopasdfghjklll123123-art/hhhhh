@@ -167,6 +167,12 @@ self.addEventListener("activate",e=>{
     exit;
 }
 
+// نفس منع ذاكرة التخزين المؤقت الوسيطة المُطبَّق على includes/api.php (انظر التعليق هناك) -
+// صفحة التطبيق نفسها يجب ألا تُخزَّن مؤقتاً أيضاً، فهي تحمل رمز CSRF الخاص بجلسة كل زائر
+header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0');
+header('Pragma: no-cache');
+header('X-LiteSpeed-Cache-Control: no-cache');
+
 $page = isset($_GET['page']) ? $_GET['page'] : '';
 ?>
 <!DOCTYPE html>

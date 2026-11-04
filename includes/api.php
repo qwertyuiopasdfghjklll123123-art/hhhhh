@@ -8,6 +8,14 @@
 // ================================================================
 
 header('Content-Type: application/json');
+// منع أي ذاكرة تخزين مؤقت وسيطة (على مستوى الاستضافة نفسها، مثل LiteSpeed Cache الشائع على
+// استضافات cPanel، أو أي reverse proxy) من تخزين نسخة قديمة من بيانات الكتالوج/الإعدادات وإعادة
+// تقديمها لاحقاً حتى بعد رفع كود جديد - لوحظ عملياً أن تحديثاً قسرياً من المتصفح (Ctrl+Shift+R)
+// لا يكفي لتجاوز ذاكرة كهذه لأنها تعمل على السيرفر نفسه قبل وصول الطلب لكود PHP، فلا تتأثر
+// برؤوس الطلب القادمة من المتصفح ما لم تُصرَّح الاستجابة نفسها صراحةً بعدم التخزين
+header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0');
+header('Pragma: no-cache');
+header('X-LiteSpeed-Cache-Control: no-cache');
 
 $action = isset($_GET['action']) ? $_GET['action'] : '';
 
