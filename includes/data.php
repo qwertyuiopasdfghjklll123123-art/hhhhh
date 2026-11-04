@@ -400,6 +400,37 @@ function db_count_stored_images(PDO $pdo): array {
     return ['total' => $total, 'stored' => $stored, 'missing' => $total - $stored];
 }
 
+// نفس فكرة db_count_stored_images لكن بتفصيل منفصل لكل نوع عنصر (فئات/شركات/منتجات/خدمات) بدل
+// رقم إجمالي واحد - ضروري لتشخيص مشكلة "صور نوع معيّن فقط ناقصة" (مثل شعارات الشركات تحديداً)
+// بدل تخمين السبب من رقم مجمّع لا يكشف أي نوع العناصر المتأثر فعلياً
+function db_count_stored_images_by_type(PDO $pdo): array {
+    $result = [];
+
+    $catNames = array_column($pdo->query("SELECT image AS n FROM categories WHERE image IS NOT NULL AND image <> '' AND image NOT LIKE 'http%'")->fetchAll(), 'n');
+    $result['categories'] = db_count_stored_for_names($pdo, 'categories', 'image', 'image_data', $catNames);
+
+    $compNames = array_column($pdo->query("SELECT logo AS n FROM companies WHERE logo IS NOT NULL AND logo <> '' AND logo NOT LIKE 'http%'")->fetchAll(), 'n');
+    $result['companies'] = db_count_stored_for_names($pdo, 'companies', 'logo', 'logo_data', $compNames);
+
+    $prodNames = array_column($pdo->query("SELECT img AS n FROM products WHERE img IS NOT NULL AND img <> '' AND img NOT LIKE 'http%'")->fetchAll(), 'n');
+    $result['products'] = db_count_stored_for_names($pdo, 'products', 'img', 'img_data', $prodNames);
+
+    $svcNames = array_column($pdo->query("SELECT img AS n FROM services WHERE img IS NOT NULL AND img <> '' AND img NOT LIKE 'http%'")->fetchAll(), 'n');
+    $result['services'] = db_count_stored_for_names($pdo, 'services', 'img', 'img_data', $svcNames);
+
+    return $result;
+}
+
+function db_count_stored_for_names(PDO $pdo, string $table, string $nameCol, string $dataCol, array $names): array {
+    $total = count($names);
+    if ($total === 0) return ['total' => 0, 'stored' => 0, 'missing' => 0];
+    $ph = implode(',', array_fill(0, $total, '?'));
+    $stmt = $pdo->prepare("SELECT COUNT(*) c FROM $table WHERE $nameCol IN ($ph) AND $dataCol IS NOT NULL");
+    $stmt->execute($names);
+    $stored = (int)$stmt->fetch()['c'];
+    return ['total' => $total, 'stored' => $stored, 'missing' => $total - $stored];
+}
+
 // يجلب بيانات صورة واحدة (ثنائية + نوعها) لعرضها عبر نقطة index.php?image=... . يُستخدم
 // من نقطة العرض فقط، لذلك $type يأتي من قائمة ثابتة داخل index.php وليس من مُدخل حر.
 function db_get_image_blob(PDO $pdo, string $type, string $id): ?array {

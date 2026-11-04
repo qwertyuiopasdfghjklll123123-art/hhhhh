@@ -126,6 +126,7 @@ require_once __DIR__ . '/includes/layout.php';
 $telegramSettings = db_get_telegram_settings($pdo);
 $telegramConfigured = !empty($telegramSettings['botToken']) && !empty($telegramSettings['chatId']);
 $imageCoverage = db_count_stored_images($pdo);
+$imageCoverageByType = db_count_stored_images_by_type($pdo);
 
 admin_header('الاستيراد والتصدير', 'import', 'سحب نسخة احتياطية كاملة أو استعادتها');
 ?>
@@ -149,6 +150,28 @@ admin_header('الاستيراد والتصدير', 'import', 'سحب نسخة �
                 <span style="color:var(--accent2);">كل الصور المرجَّعة مكتملة.</span>
             <?php endif; ?>
         </p>
+        <table style="width:100%; margin-top:10px; font-size:0.85rem; border-collapse:collapse;">
+            <thead>
+                <tr style="text-align:right; border-bottom:1px solid var(--cardBd);">
+                    <th style="padding:6px;">النوع</th>
+                    <th style="padding:6px;">يشير لصورة</th>
+                    <th style="padding:6px;">مخزَّنة فعلياً</th>
+                    <th style="padding:6px;">ناقصة</th>
+                </tr>
+            </thead>
+            <tbody>
+                <?php $typeLabels = ['categories' => 'الفئات', 'companies' => 'الشركات', 'products' => 'المنتجات', 'services' => 'الخدمات']; ?>
+                <?php foreach ($typeLabels as $typeKey => $typeLabel): ?>
+                    <?php $t = $imageCoverageByType[$typeKey]; ?>
+                    <tr style="border-bottom:1px solid var(--cardBd);">
+                        <td style="padding:6px;"><?php echo $typeLabel; ?></td>
+                        <td style="padding:6px;"><?php echo $t['total']; ?></td>
+                        <td style="padding:6px;"><?php echo $t['stored']; ?></td>
+                        <td style="padding:6px; <?php echo $t['missing'] > 0 ? 'color:var(--danger); font-weight:700;' : ''; ?>"><?php echo $t['missing']; ?></td>
+                    </tr>
+                <?php endforeach; ?>
+            </tbody>
+        </table>
     <?php endif; ?>
 </div>
 
