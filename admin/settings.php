@@ -65,7 +65,7 @@ admin_header('الإعدادات', 'settings', 'إعدادات التطبيق ا
     <div class="form-row">
         <div>
             <label>رابط شعار التطبيق (اختياري)</label>
-            <input type="text" name="appLogoUrl" value="<?php echo (strpos($settings['appLogo'] ?? '', 'index.php?image=') === 0) ? '' : e($settings['appLogo'] ?? ''); ?>" placeholder="https://...">
+            <input type="text" name="appLogoUrl" value="<?php echo (strpos($settings['appLogo'] ?? '', 'index.php?image=') !== false) ? '' : e($settings['appLogo'] ?? ''); ?>" placeholder="https://...">
         </div>
         <div>
             <label>أو ارفع ملف شعار جديد</label>

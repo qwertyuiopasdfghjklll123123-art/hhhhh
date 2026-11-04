@@ -88,7 +88,7 @@ admin_header('الفئات', 'categories', 'إدارة أقسام الكتالو
             <tbody>
             <?php foreach ($categories as $c): $hidden = $c['deleted_card'] === 'ok'; ?>
                 <tr>
-                    <td><img class="cell-img" src="<?php echo $c['image'] ? '../index.php?image=category&id=' . urlencode($c['id']) : 'https://iili.io/CKP5shF.jpg'; ?>" alt=""></td>
+                    <td><img class="cell-img" src="<?php echo $c['image'] ? '/index.php?image=category&id=' . urlencode($c['id']) : 'https://iili.io/CKP5shF.jpg'; ?>" alt=""></td>
                     <td><?php echo e($c['name']); ?></td>
                     <td><span class="badge <?php echo $hidden ? 'badge-off' : 'badge-ok'; ?>"><?php echo $hidden ? 'مخفية' : 'ظاهرة'; ?></span></td>
                     <td class="actions-cell">

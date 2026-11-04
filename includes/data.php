@@ -125,7 +125,7 @@ function db_get_settings(PDO $pdo): array {
     }
     $appLogo = $row['app_logo'];
     if (!empty($appLogo) && strpos($appLogo, 'http') !== 0) {
-        $appLogo = !empty($row['app_logo_data']) ? 'index.php?image=logo' : null;
+        $appLogo = !empty($row['app_logo_data']) ? '/index.php?image=logo' : null;
     }
     return [
         'appName' => $row['app_name'],
@@ -484,7 +484,8 @@ function resolveImageBlobField($newValue, array $existing, string $prefix): arra
         }
         return $existing; // فشل فك الصورة الجديدة: أبقِ كل شيء كما هو
     }
-    $isOwnDisplayUrl = is_string($newValue) && strpos($newValue, 'index.php?image=') === 0;
+    // يطابق سواء وُلِّد الرابط بمسار نسبي أو مطلق (/index.php?image=...) عبر النسخ المختلفة
+    $isOwnDisplayUrl = is_string($newValue) && strpos($newValue, 'index.php?image=') !== false;
     if ($newValue === null || $newValue === '' || $newValue === ($existing['name'] ?? null) || $isOwnDisplayUrl) {
         return $existing; // لا تغيير فعلي
     }
@@ -499,12 +500,16 @@ function normalizeDeletedCard($value): string {
 // يحوّل قيمة عمود صورة مخزَّنة (اسم مجرّد أو رابط خارجي) إلى رابط جاهز للعرض مباشرة في
 // الواجهة: رابط خارجي يبقى كما هو، أي قيمة أخرى (اسم ملف) تتحول لرابط نقطة عرض BLOB حسب
 // النوع والمعرّف. القيمة الفارغة تبقى فارغة (تُستخدم في الواجهة كمؤشر "لا توجد صورة")
+// الرابط يبدأ بـ "/" (مطلق من جذر الموقع) عمداً، وليس نسبياً - رابط نسبي كـ"index.php?image=..."
+// ينكسر فعلياً حسب المسار الذي يُحمَّل منه التطبيق في المتصفح (مثلاً /app/ بشرطة مائلة ختامية
+// تجعل المتصفح يبحث عن الصورة تحت /app/index.php بدل /index.php فيفشل التحميل بصمت) - هذا كان
+// يُسبب عدم ظهور أي صور عند تصفح الموقع رغم أن الرابط المباشر يعمل بنجاح عند فتحه منفرداً.
 function catalogImageUrl($storedValue, string $type, string $id): ?string {
     if (empty($storedValue)) return null;
     if (strpos($storedValue, 'http://') === 0 || strpos($storedValue, 'https://') === 0) {
         return $storedValue;
     }
-    return 'index.php?image=' . $type . '&id=' . urlencode($id);
+    return '/index.php?image=' . $type . '&id=' . urlencode($id);
 }
 
 // ---------------------------------------------------------------

@@ -145,7 +145,7 @@ admin_header('المنتجات', 'products', 'كل المنتجات عبر جم�
             <tbody>
             <?php foreach ($pagedProducts as $p): $hidden = $p['deleted_card'] === 'ok'; ?>
                 <tr>
-                    <td><img class="cell-img" src="<?php echo $p['img'] ? '../index.php?image=product&id=' . urlencode($p['id']) : ($p['image_url'] ?: 'https://iili.io/CKP5shF.jpg'); ?>" alt=""></td>
+                    <td><img class="cell-img" src="<?php echo $p['img'] ? '/index.php?image=product&id=' . urlencode($p['id']) : ($p['image_url'] ?: 'https://iili.io/CKP5shF.jpg'); ?>" alt=""></td>
                     <td><?php echo e($p['name']); ?><?php if ($p['code']): ?><br><small style="color:var(--muted)"><?php echo e($p['code']); ?></small><?php endif; ?></td>
                     <td><?php echo e($p['company_name'] . ' / ' . $p['category_name']); ?></td>
                     <td><?php echo e($p['price'] ?: '—'); ?></td>
