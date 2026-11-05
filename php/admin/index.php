@@ -10,10 +10,40 @@ $stats = db()->query(
         (SELECT COALESCE(SUM(site_charge),0) FROM orders) AS revenue,
         (SELECT COUNT(*) FROM orders WHERE status NOT IN ('Completed','Canceled','Partial')) AS active_orders,
         (SELECT COUNT(*) FROM recharge_requests WHERE status='pending') AS pending_recharges,
-        (SELECT COUNT(*) FROM tickets WHERE status != 'closed') AS open_tickets"
+        (SELECT COUNT(*) FROM tickets WHERE status != 'closed') AS open_tickets,
+        (SELECT COUNT(*) FROM reviews WHERE approved=0) AS pending_reviews"
 )->fetch();
 
 $recentOrders = db()->query('SELECT o.*, u.email FROM orders o JOIN users u ON u.id=o.user_id ORDER BY o.id DESC LIMIT 15')->fetchAll();
+
+// كل قسم = اسم + رابط (path) ثابت، معروض بوضوح تحت كل بطاقة — هذا هو الدليل/الفهرس الكامل لكل أقسام لوحة الإدارة
+$sections = [
+    'المستخدمون والطلبات' => [
+        ['name' => '👥 المستخدمون', 'path' => 'users.php'],
+        ['name' => '📦 الطلبات', 'path' => 'orders.php'],
+    ],
+    'المزوّدون والخدمات' => [
+        ['name' => '🔌 مزودو SMM', 'path' => 'providers.php'],
+        ['name' => '🧩 فلاتر الخدمات', 'path' => 'filters.php'],
+    ],
+    'المحفظة والمدفوعات' => [
+        ['name' => '💳 طرق الدفع', 'path' => 'payment_methods.php'],
+        ['name' => '💵 طلبات الشحن', 'path' => 'recharges.php'],
+        ['name' => '🎟️ الكوبونات', 'path' => 'coupons.php'],
+        ['name' => '📊 الأرباح', 'path' => 'profits.php'],
+    ],
+    'التفاعل والمحتوى' => [
+        ['name' => '⭐ التقييمات', 'path' => 'reviews.php'],
+        ['name' => '📢 الإعلانات', 'path' => 'announcements.php'],
+        ['name' => '🔗 برنامج الإحالة', 'path' => 'referrals.php'],
+        ['name' => '🎫 التذاكر', 'path' => 'tickets.php'],
+    ],
+    'النظام والإعدادات' => [
+        ['name' => '🏆 المستويات', 'path' => 'levels.php'],
+        ['name' => '🤖 المساعد الذكي', 'path' => 'ai_settings.php'],
+        ['name' => '⚙️ إعدادات الموقع', 'path' => 'settings.php'],
+    ],
+];
 ?>
 <!doctype html>
 <html lang="ar" dir="rtl">
@@ -31,32 +61,30 @@ $recentOrders = db()->query('SELECT o.*, u.email FROM orders o JOIN users u ON u
 
   <div class="card">
     <h3>إحصائيات سريعة</h3>
-    <div class="row">
+    <div class="row" style="flex-wrap:wrap">
       <div>👥 المستخدمون: <strong><?= (int)$stats['users_count'] ?></strong></div>
       <div>📦 الطلبات: <strong><?= (int)$stats['orders_count'] ?></strong></div>
       <div>⏳ نشطة: <strong><?= (int)$stats['active_orders'] ?></strong></div>
       <div>💰 الإيراد: <strong>$<?= number_format((float)$stats['revenue'], 2) ?></strong></div>
-      <div>💳 شحن بانتظار الموافقة: <strong><?= (int)$stats['pending_recharges'] ?></strong></div>
+      <div>💳 شحن بانتظار: <strong><?= (int)$stats['pending_recharges'] ?></strong></div>
       <div>🎫 تذاكر مفتوحة: <strong><?= (int)$stats['open_tickets'] ?></strong></div>
+      <div>⭐ تقييمات بانتظار: <strong><?= (int)$stats['pending_reviews'] ?></strong></div>
     </div>
   </div>
 
+  <?php foreach ($sections as $groupTitle => $items): ?>
   <div class="card">
-    <h3>الإدارة</h3>
-    <div class="row" style="flex-wrap:wrap; justify-content:flex-start; gap:10px">
-      <a class="btn secondary" href="users.php">👥 المستخدمون</a>
-      <a class="btn secondary" href="orders.php">📦 الطلبات</a>
-      <a class="btn secondary" href="providers.php">🔌 مزودو SMM</a>
-      <a class="btn secondary" href="filters.php">🧩 فلاتر الخدمات</a>
-      <a class="btn secondary" href="payment_methods.php">💳 طرق الدفع</a>
-      <a class="btn secondary" href="recharges.php">💵 طلبات الشحن</a>
-      <a class="btn secondary" href="coupons.php">🎟️ الكوبونات</a>
-      <a class="btn secondary" href="levels.php">🏆 المستويات</a>
-      <a class="btn secondary" href="tickets.php">🎫 التذاكر</a>
-      <a class="btn secondary" href="ai_settings.php">🤖 المساعد الذكي</a>
-      <a class="btn secondary" href="settings.php">⚙️ إعدادات الموقع</a>
+    <p class="admin-group-title"><?= htmlspecialchars($groupTitle) ?></p>
+    <div class="admin-nav-grid">
+      <?php foreach ($items as $it): ?>
+        <a class="admin-nav-item" href="<?= htmlspecialchars($it['path']) ?>">
+          <span class="name"><?= htmlspecialchars($it['name']) ?></span>
+          <span class="path">/admin/<?= htmlspecialchars($it['path']) ?></span>
+        </a>
+      <?php endforeach; ?>
     </div>
   </div>
+  <?php endforeach; ?>
 
   <div class="card">
     <h3>آخر الطلبات</h3>

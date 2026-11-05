@@ -35,8 +35,10 @@ php/
   wallet.php, tickets.php, ai.php, favorites.php, referral.php, reviews.php
   api/   order, services, ai_chat(+conversations/messages), recharge_submit,
          recharge_binance_verify, coupon_redeem, daily_bonus_claim
-  admin/ index, users, orders, providers, filters, payment_methods,
-         recharges, coupons, levels, tickets, ai_settings, settings
+  admin/ index (فهرس منظّم بأقسام، كل قسم يعرض اسمه ورابطه الثابت),
+         users, orders, providers, filters, payment_methods, recharges,
+         coupons, levels, tickets, ai_settings, settings, reviews,
+         announcements, profits, referrals
 ```
 
 ## الميزات الجاهزة والمُختبرة فعلياً (ليس افتراضاً)
@@ -54,6 +56,24 @@ php/
 طلبات (تغيير حالة + استرجاع)، مزودين (CRUD كامل)، فلاتر خدمات (إخفاء/
 نسبة ربح)، طرق الدفع، طلبات الشحن، كوبونات، مستويات، تذاكر، وإعدادات
 الموقع — مع منع غير الأدمن من كل صفحات الإدارة (403 مؤكّد).
+
+### لوحة الإدارة — فهرس كامل (15 قسم، كل قسم باسمه ورابطه)
+
+صفحة `admin/index.php` الآن مُنظَّمة بـ 5 مجموعات، كل قسم فيها بطاقة
+واضحة تعرض الاسم والرابط الثابت تحته مباشرة:
+
+| المجموعة | الأقسام والروابط |
+|---|---|
+| المستخدمون والطلبات | 👥 `/admin/users.php` — 📦 `/admin/orders.php` |
+| المزوّدون والخدمات | 🔌 `/admin/providers.php` — 🧩 `/admin/filters.php` |
+| المحفظة والمدفوعات | 💳 `/admin/payment_methods.php` — 💵 `/admin/recharges.php` — 🎟️ `/admin/coupons.php` — 📊 `/admin/profits.php` |
+| التفاعل والمحتوى | ⭐ `/admin/reviews.php` — 📢 `/admin/announcements.php` — 🔗 `/admin/referrals.php` — 🎫 `/admin/tickets.php` |
+| النظام والإعدادات | 🏆 `/admin/levels.php` — 🤖 `/admin/ai_settings.php` — ⚙️ `/admin/settings.php` |
+
+كل الـ 15 قسم جُرِّبوا فعلياً (200 OK + تحقق من المنطق) قبل التسليم، بما
+فيها إضافات هذه الجولة: موافقة/إخفاء/حذف التقييمات (تظهر فوراً بالصفحة
+العامة بعد الموافقة)، إنشاء/حذف الإعلانات (تظهر كبانر بلوحة كل مستخدم)،
+صفحة الأرباح، وصفحة نظرة عامة على برنامج الإحالة.
 
 ## غير مُكتمل بعد (جولات قادمة)
 

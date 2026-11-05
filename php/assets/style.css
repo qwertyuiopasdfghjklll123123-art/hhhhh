@@ -50,3 +50,13 @@ table th, table td { padding: 8px; border-bottom: 1px solid #334155; text-align:
 .badge { padding: 3px 8px; border-radius: 6px; font-size: 12px; background: #334155; }
 .cat-block { margin-bottom: 18px; }
 .svc-item { display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid #334155; font-size: 14px; }
+
+.admin-group-title { font-size: 13px; color: #94a3b8; margin: 0 0 10px; font-weight: bold; }
+.admin-nav-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 10px; }
+.admin-nav-item {
+  display: flex; flex-direction: column; gap: 3px; padding: 12px; border-radius: 10px;
+  background: #0f172a; text-decoration: none; color: #e2e8f0; border: 1px solid #334155;
+}
+.admin-nav-item:hover { border-color: #3b82f6; }
+.admin-nav-item .name { font-size: 14px; font-weight: bold; }
+.admin-nav-item .path { font-size: 11px; color: #64748b; direction: ltr; text-align: right; font-family: monospace; }

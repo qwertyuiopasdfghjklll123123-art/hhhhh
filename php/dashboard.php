@@ -23,6 +23,8 @@ $lastBonus = (float)($user['last_daily_bonus'] ?? 0);
 $canClaimBonus = $dailyBonusEnabled && (time() - $lastBonus >= 86400);
 
 $level = get_user_level($user['id']);
+$announcements = db()->query('SELECT * FROM announcements ORDER BY created_at DESC LIMIT 5')->fetchAll();
+$annTypeLabels = ['info' => 'ℹ️', 'offer' => '🎉', 'warning' => '⚠️', 'update' => '🆕'];
 ?>
 <!doctype html>
 <html lang="ar" dir="rtl">
@@ -54,6 +56,12 @@ $level = get_user_level($user['id']);
   </div>
 
   <?php if ($flash): ?><div class="card <?= $flash['ok'] ? 'ok' : 'error' ?>"><?= htmlspecialchars($flash['msg']) ?></div><?php endif; ?>
+
+  <?php foreach ($announcements as $a): ?>
+    <div class="card" style="background:#1e3a5f">
+      <?= htmlspecialchars($annTypeLabels[$a['type']] ?? '📢') ?> <?= htmlspecialchars($a['text']) ?>
+    </div>
+  <?php endforeach; ?>
 
   <?php if ($dailyBonusEnabled): ?>
   <div class="card row">
