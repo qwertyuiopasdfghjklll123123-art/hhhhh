@@ -112,7 +112,7 @@ function initSchema(PDO $pdo, $dbName) {
         "CREATE TABLE IF NOT EXISTS vps_plans (
             id INT AUTO_INCREMENT PRIMARY KEY,
             name VARCHAR(255) NOT NULL,
-            icon VARCHAR(20) NOT NULL DEFAULT '🚀',
+            icon VARCHAR(20) NOT NULL DEFAULT '',
             cpu VARCHAR(100) NOT NULL,
             ram VARCHAR(100) NOT NULL,
             storage VARCHAR(100) NOT NULL,
