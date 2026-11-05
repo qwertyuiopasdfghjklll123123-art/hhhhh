@@ -72,11 +72,19 @@ function connectDb(array $config) {
     $port = $config['db_port'] ?? '3306';
     $name = $config['db_name'] ?? '';
     $dsn = "mysql:host={$host};port={$port};dbname={$name};charset=utf8mb4";
-    return new PDO($dsn, $config['db_user'] ?? '', $config['db_pass'] ?? '', [
+    $pdo = new PDO($dsn, $config['db_user'] ?? '', $config['db_pass'] ?? '', [
         PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
         PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
         PDO::ATTR_EMULATE_PREPARES => false,
     ]);
+    // "charset=utf8mb4" في الـ DSN يضبط محارف الاتصال، لكن تجميعه (collation) يبقى
+    // افتراضي السيرفر (يختلف حسب إصدار MySQL) وليس بالضرورة utf8mb4_unicode_ci -
+    // وهو تجميع أعمدة قاعدة البيانات الفعلي. هذا التعارض يسبب خطأ MySQL 8:
+    // "Conversion from collation ... into utf8mb4_unicode_ci impossible for
+    // parameter" عند ربط القيم (كما حدث أثناء استعادة نسخة احتياطية). نفرضه هنا
+    // صراحة ليطابق تجميع الأعمدة دائماً.
+    $pdo->exec('SET NAMES utf8mb4 COLLATE utf8mb4_unicode_ci');
+    return $pdo;
 }
 
 // ينشئ جداول قاعدة البيانات إن لم تكن موجودة، ويضيف أي أعمدة/فهارس ناقصة من
