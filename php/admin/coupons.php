@@ -22,7 +22,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $active = (int)($stmt->fetch()['active'] ?? 0);
         db()->prepare('UPDATE coupons SET active=? WHERE id=?')->execute([$active ? 0 : 1, $_POST['id']]);
     }
-    header('Location: coupons.php');
+    header('Location: coupons');
     exit;
 }
 
@@ -31,15 +31,13 @@ $coupons = db()->query('SELECT * FROM coupons ORDER BY created_at DESC')->fetchA
 <!doctype html>
 <html lang="ar" dir="rtl">
 <head>
-<meta charset="utf-8">
-<title>الكوبونات — الإدارة</title>
-<link rel="stylesheet" href="../assets/style.css">
+<?php $pageTitle = 'الكوبونات — الإدارة'; $assetBase = '../'; include __DIR__ . '/../includes/head.php'; ?>
 </head>
 <body>
 <div class="wrap">
   <div class="card row">
     <h2>الكوبونات</h2>
-    <a class="btn secondary" href="index.php">رجوع</a>
+    <a class="btn secondary" href="index">رجوع</a>
   </div>
   <div class="card">
     <h3>إنشاء كوبون جديد</h3>

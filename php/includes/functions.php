@@ -1,4 +1,5 @@
 <?php
+require_once __DIR__ . '/error_handler.php';
 require_once __DIR__ . '/db.php';
 
 if (session_status() === PHP_SESSION_NONE) {

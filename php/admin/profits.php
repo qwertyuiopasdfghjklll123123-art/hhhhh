@@ -16,15 +16,13 @@ $avgProfit = $totalOrders > 0 ? round($profit / $totalOrders, 2) : 0;
 <!doctype html>
 <html lang="ar" dir="rtl">
 <head>
-<meta charset="utf-8">
-<title>الأرباح — الإدارة</title>
-<link rel="stylesheet" href="../assets/style.css">
+<?php $pageTitle = 'الأرباح — الإدارة'; $assetBase = '../'; include __DIR__ . '/../includes/head.php'; ?>
 </head>
 <body>
 <div class="wrap">
   <div class="card row">
     <h2>الأرباح</h2>
-    <a class="btn secondary" href="index.php">رجوع</a>
+    <a class="btn secondary" href="index">رجوع</a>
   </div>
   <div class="card">
     <p>عدد الطلبات: <strong><?= $totalOrders ?></strong></p>

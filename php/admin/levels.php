@@ -9,7 +9,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         db()->prepare('UPDATE levels SET min_spent=?, discount=?, active=? WHERE id=?')
             ->execute([(float)($_POST['min_spent'] ?? 0), (float)($_POST['discount'] ?? 0), isset($_POST['active']) ? 1 : 0, $id]);
     }
-    header('Location: levels.php');
+    header('Location: levels');
     exit;
 }
 
@@ -18,15 +18,13 @@ $levels = db()->query('SELECT * FROM levels ORDER BY sort_order ASC')->fetchAll(
 <!doctype html>
 <html lang="ar" dir="rtl">
 <head>
-<meta charset="utf-8">
-<title>المستويات — الإدارة</title>
-<link rel="stylesheet" href="../assets/style.css">
+<?php $pageTitle = 'المستويات — الإدارة'; $assetBase = '../'; include __DIR__ . '/../includes/head.php'; ?>
 </head>
 <body>
 <div class="wrap">
   <div class="card row">
     <h2>مستويات الخصم</h2>
-    <a class="btn secondary" href="index.php">رجوع</a>
+    <a class="btn secondary" href="index">رجوع</a>
   </div>
   <?php foreach ($levels as $lv): ?>
     <form method="post" class="card row">

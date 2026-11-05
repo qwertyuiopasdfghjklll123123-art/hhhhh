@@ -16,15 +16,13 @@ $top = db()->query(
 <!doctype html>
 <html lang="ar" dir="rtl">
 <head>
-<meta charset="utf-8">
-<title>برنامج الإحالة — الإدارة</title>
-<link rel="stylesheet" href="../assets/style.css">
+<?php $pageTitle = 'برنامج الإحالة — الإدارة'; $assetBase = '../'; include __DIR__ . '/../includes/head.php'; ?>
 </head>
 <body>
 <div class="wrap">
   <div class="card row">
     <h2>برنامج الإحالة</h2>
-    <a class="btn secondary" href="index.php">رجوع</a>
+    <a class="btn secondary" href="index">رجوع</a>
   </div>
   <div class="card">
     <p>نسبة العمولة: <strong><?= REFERRAL_COMMISSION ?>%</strong> — الحد الأدنى للسحب: <strong>$<?= REFERRAL_MIN_WITHDRAW ?></strong></p>

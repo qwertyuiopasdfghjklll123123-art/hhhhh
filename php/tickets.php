@@ -14,12 +14,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $tid = (int)db()->lastInsertId();
             db()->prepare('INSERT INTO ticket_messages (ticket_id, sender, text, created_at) VALUES (?,?,?,?)')
                 ->execute([$tid, 'user', $desc, time()]);
-            push_user_notif($user['id'], 'system', "تم إنشاء تذكرة #TK-$tid", "$subject — سيتم الرد عليك قريباً", 'ticket', "tickets.php?id=$tid");
+            push_user_notif($user['id'], 'system', "تم إنشاء تذكرة #TK-$tid", "$subject — سيتم الرد عليك قريباً", 'ticket', "tickets?id=$tid");
             $admins = db()->query('SELECT id FROM users WHERE is_admin=1')->fetchAll();
             foreach ($admins as $a) {
-                push_user_notif($a['id'], 'admin', "تذكرة جديدة #TK-$tid", "من {$user['name']} — $subject", 'ticket', "tickets.php?id=$tid");
+                push_user_notif($a['id'], 'admin', "تذكرة جديدة #TK-$tid", "من {$user['name']} — $subject", 'ticket', "tickets?id=$tid");
             }
-            header("Location: tickets.php?id=$tid");
+            header("Location: tickets?id=$tid");
             exit;
         }
     } elseif (isset($_POST['reply'])) {
@@ -33,10 +33,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             db()->prepare("UPDATE tickets SET status='waiting' WHERE id=?")->execute([$tid]);
             $admins = db()->query('SELECT id FROM users WHERE is_admin=1')->fetchAll();
             foreach ($admins as $a) {
-                push_user_notif($a['id'], 'admin', "رد جديد على تذكرة #TK-$tid", "من {$user['name']}", 'message', "tickets.php?id=$tid");
+                push_user_notif($a['id'], 'admin', "رد جديد على تذكرة #TK-$tid", "من {$user['name']}", 'message', "tickets?id=$tid");
             }
         }
-        header("Location: tickets.php?id=$tid");
+        header("Location: tickets?id=$tid");
         exit;
     }
 }
@@ -62,15 +62,13 @@ if ($ticketId) {
 <!doctype html>
 <html lang="ar" dir="rtl">
 <head>
-<meta charset="utf-8">
-<title>الدعم الفني — fastcrand</title>
-<link rel="stylesheet" href="assets/style.css">
+<?php $pageTitle = 'الدعم الفني — fastcrand'; $assetBase = ''; include __DIR__ . '/includes/head.php'; ?>
 </head>
 <body>
 <div class="wrap">
   <div class="card row">
     <h2>الدعم الفني</h2>
-    <a class="btn secondary" href="dashboard.php">رجوع</a>
+    <a class="btn secondary" href="dashboard">رجوع</a>
   </div>
 
   <?php if ($ticketId && !empty($ticket)): ?>
@@ -131,7 +129,7 @@ if ($ticketId) {
               <td>TK-<?= $t['id'] ?></td>
               <td><?= htmlspecialchars($t['subject']) ?></td>
               <td><span class="badge"><?= htmlspecialchars($statusLabels[$t['status']] ?? $t['status']) ?></span></td>
-              <td><a href="tickets.php?id=<?= $t['id'] ?>">فتح</a></td>
+              <td><a href="tickets?id=<?= $t['id'] ?>">فتح</a></td>
             </tr>
           <?php endforeach; ?>
         </table>

@@ -22,7 +22,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             );
             $ins->execute([$name, $email, hash_pw($password), time()]);
             $_SESSION['user_id'] = (int)db()->lastInsertId();
-            header('Location: /php/dashboard.php');
+            header('Location: /php/dashboard');
             exit;
         }
     }
@@ -31,9 +31,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 <!doctype html>
 <html lang="ar" dir="rtl">
 <head>
-<meta charset="utf-8">
-<title>إنشاء حساب — fastcrand</title>
-<link rel="stylesheet" href="assets/style.css">
+<?php $pageTitle = 'إنشاء حساب — fastcrand'; $assetBase = ''; include __DIR__ . '/includes/head.php'; ?>
 </head>
 <body>
 <div class="wrap">
@@ -49,7 +47,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       <?php if ($error): ?><div class="error"><?= htmlspecialchars($error) ?></div><?php endif; ?>
       <button type="submit">إنشاء الحساب</button>
     </form>
-    <p class="muted">عندك حساب؟ <a href="login.php">سجّل دخول</a></p>
+    <p class="muted">عندك حساب؟ <a href="login">سجّل دخول</a></p>
   </div>
 </div>
 </body>

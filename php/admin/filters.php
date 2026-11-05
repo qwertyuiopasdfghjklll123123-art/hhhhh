@@ -28,7 +28,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
         invalidate_services_cache();
     }
-    header('Location: filters.php');
+    header('Location: filters');
     exit;
 }
 
@@ -38,15 +38,13 @@ $defaultProfit = get_setting('default_profit_pct', '20');
 <!doctype html>
 <html lang="ar" dir="rtl">
 <head>
-<meta charset="utf-8">
-<title>فلاتر الخدمات — الإدارة</title>
-<link rel="stylesheet" href="../assets/style.css">
+<?php $pageTitle = 'فلاتر الخدمات — الإدارة'; $assetBase = '../'; include __DIR__ . '/../includes/head.php'; ?>
 </head>
 <body>
 <div class="wrap">
   <div class="card row">
     <h2>فلاتر الخدمات</h2>
-    <a class="btn secondary" href="index.php">رجوع</a>
+    <a class="btn secondary" href="index">رجوع</a>
   </div>
   <div class="card">
     <p class="muted">نسبة الربح الافتراضية الحالية لأي خدمة بدون نسبة مخصّصة: <strong><?= htmlspecialchars($defaultProfit) ?>%</strong> (عدّلها من إعدادات الموقع)</p>

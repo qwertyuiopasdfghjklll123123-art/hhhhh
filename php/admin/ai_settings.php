@@ -7,7 +7,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     set_setting('nvidia_api_key', trim($_POST['api_key'] ?? ''));
     set_setting('nvidia_model', trim($_POST['model'] ?? '') ?: 'openai/gpt-oss-20b');
     $_SESSION['flash'] = ['ok' => true, 'msg' => 'تم الحفظ'];
-    header('Location: ai_settings.php');
+    header('Location: ai_settings');
     exit;
 }
 
@@ -19,15 +19,13 @@ $model = get_setting('nvidia_model', 'openai/gpt-oss-20b');
 <!doctype html>
 <html lang="ar" dir="rtl">
 <head>
-<meta charset="utf-8">
-<title>إعدادات المساعد الذكي — الإدارة</title>
-<link rel="stylesheet" href="../assets/style.css">
+<?php $pageTitle = 'إعدادات المساعد الذكي — الإدارة'; $assetBase = '../'; include __DIR__ . '/../includes/head.php'; ?>
 </head>
 <body>
 <div class="wrap">
   <div class="card row">
     <h2>إعدادات المساعد الذكي</h2>
-    <a class="btn secondary" href="index.php">رجوع</a>
+    <a class="btn secondary" href="index">رجوع</a>
   </div>
   <?php if ($flash): ?><div class="card ok"><?= htmlspecialchars($flash['msg']) ?></div><?php endif; ?>
   <div class="card">

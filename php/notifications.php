@@ -5,7 +5,7 @@ $user = current_user();
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['mark_read'])) {
     db()->prepare('UPDATE notifications SET is_read=1 WHERE user_id=?')->execute([$user['id']]);
-    header('Location: notifications.php');
+    header('Location: notifications');
     exit;
 }
 
@@ -16,15 +16,13 @@ $notifs = $stmt->fetchAll();
 <!doctype html>
 <html lang="ar" dir="rtl">
 <head>
-<meta charset="utf-8">
-<title>الإشعارات — fastcrand</title>
-<link rel="stylesheet" href="assets/style.css">
+<?php $pageTitle = 'الإشعارات — fastcrand'; $assetBase = ''; include __DIR__ . '/includes/head.php'; ?>
 </head>
 <body>
 <div class="wrap">
   <div class="card row">
     <h2>الإشعارات</h2>
-    <a class="btn secondary" href="dashboard.php">رجوع</a>
+    <a class="btn secondary" href="dashboard">رجوع</a>
   </div>
   <?php if ($notifs): ?>
   <form method="post" class="card">

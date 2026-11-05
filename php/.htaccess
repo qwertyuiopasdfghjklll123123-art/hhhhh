@@ -1,0 +1,16 @@
+# روابط نظيفة بدون .php — مثلاً /php/dashboard تعمل كـ /php/dashboard.php
+# يحتاج Apache مع mod_rewrite مفعّل (متوفر بأغلب الاستضافات المشتركة).
+
+RewriteEngine On
+
+# امنع الوصول المباشر لمجلد السجلات والشيما عبر المتصفح
+RewriteRule ^(logs|sql)/ - [F,L]
+
+# إذا الطلب ملف/مجلد فعلي موجود (صور، CSS، JS...) قدّمه كما هو
+RewriteCond %{REQUEST_FILENAME} -f [OR]
+RewriteCond %{REQUEST_FILENAME} -d
+RewriteRule ^ - [L]
+
+# إذا أضفنا .php للمسار ولقينا ملف فعلي، وجّه الطلب داخلياً له (بدون تغيير الرابط بالمتصفح)
+RewriteCond %{REQUEST_FILENAME}.php -f
+RewriteRule ^(.*)$ $1.php [L]

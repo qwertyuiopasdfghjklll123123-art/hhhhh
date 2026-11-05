@@ -37,7 +37,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $isAdmin = (int)($stmt->fetch()['is_admin'] ?? 0);
         db()->prepare('UPDATE users SET is_admin=? WHERE id=?')->execute([$isAdmin ? 0 : 1, $uid]);
     }
-    header('Location: users.php');
+    header('Location: users');
     exit;
 }
 
@@ -54,15 +54,13 @@ $users = $stmt->fetchAll();
 <!doctype html>
 <html lang="ar" dir="rtl">
 <head>
-<meta charset="utf-8">
-<title>المستخدمون — الإدارة</title>
-<link rel="stylesheet" href="../assets/style.css">
+<?php $pageTitle = 'المستخدمون — الإدارة'; $assetBase = '../'; include __DIR__ . '/../includes/head.php'; ?>
 </head>
 <body>
 <div class="wrap wide">
   <div class="card row">
     <h2>المستخدمون</h2>
-    <a class="btn secondary" href="index.php">رجوع</a>
+    <a class="btn secondary" href="index">رجوع</a>
   </div>
   <div class="card">
     <form method="get">

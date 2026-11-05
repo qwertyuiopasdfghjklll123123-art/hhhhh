@@ -25,7 +25,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['toggle'])) {
             } catch (PDOException $e) { /* موجودة مسبقاً */ }
         }
     }
-    header('Location: favorites.php');
+    header('Location: favorites');
     exit;
 }
 
@@ -36,15 +36,13 @@ $favorites = $stmt->fetchAll();
 <!doctype html>
 <html lang="ar" dir="rtl">
 <head>
-<meta charset="utf-8">
-<title>المفضّلة — fastcrand</title>
-<link rel="stylesheet" href="assets/style.css">
+<?php $pageTitle = 'المفضّلة — fastcrand'; $assetBase = ''; include __DIR__ . '/includes/head.php'; ?>
 </head>
 <body>
 <div class="wrap">
   <div class="card row">
     <h2>⭐ المفضّلة</h2>
-    <a class="btn secondary" href="dashboard.php">رجوع</a>
+    <a class="btn secondary" href="dashboard">رجوع</a>
   </div>
   <div class="card">
     <h3>إضافة خدمة للمفضّلة</h3>

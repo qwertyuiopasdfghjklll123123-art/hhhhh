@@ -11,7 +11,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             ->execute([$user['id'], $user['name'], $stars, $text, time()]);
         $_SESSION['flash'] = ['ok' => true, 'msg' => 'تم إرسال تقييمك، سيظهر بعد مراجعة الإدارة'];
     }
-    header('Location: reviews.php');
+    header('Location: reviews');
     exit;
 }
 
@@ -23,15 +23,13 @@ unset($_SESSION['flash']);
 <!doctype html>
 <html lang="ar" dir="rtl">
 <head>
-<meta charset="utf-8">
-<title>التقييمات — fastcrand</title>
-<link rel="stylesheet" href="assets/style.css">
+<?php $pageTitle = 'التقييمات — fastcrand'; $assetBase = ''; include __DIR__ . '/includes/head.php'; ?>
 </head>
 <body>
 <div class="wrap">
   <div class="card row">
     <h2>التقييمات</h2>
-    <a class="btn secondary" href="dashboard.php">رجوع</a>
+    <a class="btn secondary" href="dashboard">رجوع</a>
   </div>
   <?php if ($flash): ?><div class="card ok"><?= htmlspecialchars($flash['msg']) ?></div><?php endif; ?>
   <div class="card">

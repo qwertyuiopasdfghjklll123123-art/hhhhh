@@ -16,13 +16,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if ($action === 'approve') {
             db()->prepare("UPDATE recharge_requests SET status='approved' WHERE id=?")->execute([$rid]);
             db()->prepare('UPDATE users SET balance = balance + ? WHERE id = ?')->execute([$req['amount'], $req['user_id']]);
-            push_user_notif($req['user_id'], 'recharge', sprintf('تم شحن $%.2f', $req['amount']), 'تمت الموافقة على طلب الشحن وإضافة الرصيد', 'check', 'wallet.php');
+            push_user_notif($req['user_id'], 'recharge', sprintf('تم شحن $%.2f', $req['amount']), 'تمت الموافقة على طلب الشحن وإضافة الرصيد', 'check', 'wallet');
         } else {
             db()->prepare("UPDATE recharge_requests SET status='rejected' WHERE id=?")->execute([$rid]);
-            push_user_notif($req['user_id'], 'recharge', 'تم رفض طلب الشحن', sprintf('طلب شحن $%.2f عبر %s تم رفضه', $req['amount'], $req['method']), 'xmark', 'wallet.php');
+            push_user_notif($req['user_id'], 'recharge', 'تم رفض طلب الشحن', sprintf('طلب شحن $%.2f عبر %s تم رفضه', $req['amount'], $req['method']), 'xmark', 'wallet');
         }
     }
-    header('Location: recharges.php');
+    header('Location: recharges');
     exit;
 }
 
@@ -35,15 +35,13 @@ $statusLabels = ['pending' => 'قيد المراجعة', 'approved' => 'مقبو
 <!doctype html>
 <html lang="ar" dir="rtl">
 <head>
-<meta charset="utf-8">
-<title>طلبات الشحن — الإدارة</title>
-<link rel="stylesheet" href="../assets/style.css">
+<?php $pageTitle = 'طلبات الشحن — الإدارة'; $assetBase = '../'; include __DIR__ . '/../includes/head.php'; ?>
 </head>
 <body>
 <div class="wrap wide">
   <div class="card row">
     <h2>طلبات الشحن</h2>
-    <a class="btn secondary" href="index.php">رجوع للوحة الإدارة</a>
+    <a class="btn secondary" href="index">رجوع للوحة الإدارة</a>
   </div>
   <div class="card">
     <table>

@@ -26,15 +26,13 @@ $statusLabels = ['pending' => 'قيد المراجعة', 'approved' => 'مقبو
 <!doctype html>
 <html lang="ar" dir="rtl">
 <head>
-<meta charset="utf-8">
-<title>المحفظة — fastcrand</title>
-<link rel="stylesheet" href="assets/style.css">
+<?php $pageTitle = 'المحفظة — fastcrand'; $assetBase = ''; include __DIR__ . '/includes/head.php'; ?>
 </head>
 <body>
 <div class="wrap wide">
   <div class="card row">
     <h2>المحفظة</h2>
-    <a class="btn secondary" href="dashboard.php">رجوع</a>
+    <a class="btn secondary" href="dashboard">رجوع</a>
   </div>
   <div class="card">الرصيد الحالي: <strong>$<?= number_format((float)$user['balance'], 2) ?></strong></div>
 
@@ -44,7 +42,7 @@ $statusLabels = ['pending' => 'قيد المراجعة', 'approved' => 'مقبو
   <div class="card">
     <h3>💳 Binance Pay (تحقق فوري)</h3>
     <p class="muted">حوّل المبلغ بالدولار إلى Binance Pay ID: <strong><?= htmlspecialchars($binance['number']) ?></strong>، ثم أدخل رقم العملية (Order ID) أدناه ليُضاف رصيدك تلقائياً.</p>
-    <form method="post" action="api/recharge_binance_verify.php">
+    <form method="post" action="api/recharge_binance_verify">
       <label>المبلغ (USD)</label>
       <input type="number" step="0.01" name="amount" required min="0.01">
       <label>رقم عملية Binance (Order ID)</label>
@@ -57,7 +55,7 @@ $statusLabels = ['pending' => 'قيد المراجعة', 'approved' => 'مقبو
   <?php if ($manualMethods): ?>
   <div class="card">
     <h3>💵 شحن يدوي</h3>
-    <form method="post" action="api/recharge_submit.php" enctype="multipart/form-data">
+    <form method="post" action="api/recharge_submit" enctype="multipart/form-data">
       <label>طريقة الدفع</label>
       <select name="method" required>
         <?php foreach ($manualMethods as $m): ?>
@@ -81,7 +79,7 @@ $statusLabels = ['pending' => 'قيد المراجعة', 'approved' => 'مقبو
 
   <div class="card">
     <h3>🎟️ كوبون هدية</h3>
-    <form method="post" action="api/coupon_redeem.php">
+    <form method="post" action="api/coupon_redeem">
       <label>كود الكوبون</label>
       <input type="text" name="code" required>
       <button type="submit">استبدال</button>

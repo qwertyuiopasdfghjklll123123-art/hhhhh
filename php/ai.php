@@ -6,19 +6,17 @@ $user = current_user();
 <!doctype html>
 <html lang="ar" dir="rtl">
 <head>
-<meta charset="utf-8">
-<title>المساعد الذكي — fastcrand</title>
-<link rel="stylesheet" href="assets/style.css">
+<?php $pageTitle = 'المساعد الذكي — fastcrand'; $assetBase = ''; include __DIR__ . '/includes/head.php'; ?>
 <style>
   .chat-wrap { display: flex; gap: 12px; height: 70vh; }
   .chat-list { width: 220px; overflow-y: auto; }
   .chat-list .item { padding: 8px; border-radius: 8px; cursor: pointer; margin-bottom: 4px; font-size: 13px; }
-  .chat-list .item:hover { background: #334155; }
+  .chat-list .item:hover { background: var(--primary-bg); }
   .chat-main { flex: 1; display: flex; flex-direction: column; }
-  .chat-msgs { flex: 1; overflow-y: auto; padding: 10px; background: #0f172a; border-radius: 10px; }
+  .chat-msgs { flex: 1; overflow-y: auto; padding: 10px; background: var(--bg2); border-radius: 10px; }
   .msg { max-width: 80%; margin: 6px 0; padding: 8px 12px; border-radius: 10px; font-size: 14px; white-space: pre-wrap; }
-  .msg.user { background: #3b82f6; margin-right: auto; margin-left: 0; text-align: right; }
-  .msg.assistant { background: #334155; margin-left: auto; margin-right: 0; }
+  .msg.user { background: var(--primary); color: #fff; margin-right: auto; margin-left: 0; text-align: right; }
+  .msg.assistant { background: var(--card); border: 1px solid var(--card-border); margin-left: auto; margin-right: 0; }
   .chat-input { display: flex; gap: 8px; margin-top: 10px; }
   .chat-input textarea { flex: 1; min-height: 44px; resize: none; }
   @media (max-width: 700px) { .chat-list { display: none; } }
@@ -28,7 +26,7 @@ $user = current_user();
 <div class="wrap wide">
   <div class="card row">
     <h2>🤖 المساعد الذكي</h2>
-    <a class="btn secondary" href="dashboard.php">رجوع</a>
+    <a class="btn secondary" href="dashboard">رجوع</a>
   </div>
   <div class="card">
     <div class="chat-wrap">
@@ -56,7 +54,7 @@ function addMsg(role, content) {
 }
 
 async function loadConversations() {
-  const r = await fetch('api/ai_conversations.php');
+  const r = await fetch('api/ai_conversations');
   const d = await r.json();
   const list = document.getElementById('convList');
   list.innerHTML = '<div class="item" onclick="newChat()" style="font-weight:bold">+ محادثة جديدة</div>';
@@ -71,7 +69,7 @@ async function loadConversations() {
 
 async function loadConversation(id) {
   currentConvId = id;
-  const r = await fetch('api/ai_messages.php?conversation_id=' + id);
+  const r = await fetch('api/ai_messages?conversation_id=' + id);
   const d = await r.json();
   document.getElementById('chatMsgs').innerHTML = '';
   (d.messages || []).forEach(m => addMsg(m.role, m.content));
@@ -88,7 +86,7 @@ async function sendMsg() {
   if (!text) return;
   input.value = '';
   addMsg('user', text);
-  const r = await fetch('api/ai_chat.php', {
+  const r = await fetch('api/ai_chat', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ message: text, conversation_id: currentConvId })

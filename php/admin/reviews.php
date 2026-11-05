@@ -14,7 +14,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             db()->prepare('DELETE FROM reviews WHERE id=?')->execute([$id]);
         }
     }
-    header('Location: reviews.php');
+    header('Location: reviews');
     exit;
 }
 
@@ -23,15 +23,13 @@ $reviews = db()->query('SELECT * FROM reviews ORDER BY id DESC')->fetchAll();
 <!doctype html>
 <html lang="ar" dir="rtl">
 <head>
-<meta charset="utf-8">
-<title>التقييمات — الإدارة</title>
-<link rel="stylesheet" href="../assets/style.css">
+<?php $pageTitle = 'التقييمات — الإدارة'; $assetBase = '../'; include __DIR__ . '/../includes/head.php'; ?>
 </head>
 <body>
 <div class="wrap">
   <div class="card row">
     <h2>التقييمات</h2>
-    <a class="btn secondary" href="index.php">رجوع</a>
+    <a class="btn secondary" href="index">رجوع</a>
   </div>
   <?php foreach ($reviews as $r): ?>
     <div class="card">

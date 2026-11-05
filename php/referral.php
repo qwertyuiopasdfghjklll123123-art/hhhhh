@@ -36,7 +36,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $_SESSION['flash'] = ['ok' => true, 'msg' => sprintf('تم سحب $%.2f لرصيدك', $pending)];
         }
     }
-    header('Location: referral.php');
+    header('Location: referral');
     exit;
 }
 
@@ -50,15 +50,13 @@ unset($_SESSION['flash']);
 <!doctype html>
 <html lang="ar" dir="rtl">
 <head>
-<meta charset="utf-8">
-<title>برنامج الإحالة — fastcrand</title>
-<link rel="stylesheet" href="assets/style.css">
+<?php $pageTitle = 'برنامج الإحالة — fastcrand'; $assetBase = ''; include __DIR__ . '/includes/head.php'; ?>
 </head>
 <body>
 <div class="wrap">
   <div class="card row">
     <h2>برنامج الإحالة</h2>
-    <a class="btn secondary" href="dashboard.php">رجوع</a>
+    <a class="btn secondary" href="dashboard">رجوع</a>
   </div>
   <?php if ($flash): ?><div class="card <?= $flash['ok'] ? 'ok' : 'error' ?>"><?= htmlspecialchars($flash['msg']) ?></div><?php endif; ?>
 

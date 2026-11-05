@@ -5,7 +5,7 @@ $user = current_user();
 
 function back($ok, $msg) {
     $_SESSION['flash'] = ['ok' => $ok, 'msg' => $msg];
-    header('Location: ../wallet.php');
+    header('Location: ../wallet');
     exit;
 }
 

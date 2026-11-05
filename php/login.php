@@ -17,7 +17,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     } else {
         $_SESSION['user_id'] = (int)$user['id'];
         db()->prepare('UPDATE users SET last_seen = ? WHERE id = ?')->execute([time(), $user['id']]);
-        header('Location: /php/dashboard.php');
+        header('Location: /php/dashboard');
         exit;
     }
 }
@@ -25,9 +25,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 <!doctype html>
 <html lang="ar" dir="rtl">
 <head>
-<meta charset="utf-8">
-<title>تسجيل الدخول — fastcrand</title>
-<link rel="stylesheet" href="assets/style.css">
+<?php $pageTitle = 'تسجيل الدخول — fastcrand'; $assetBase = ''; include __DIR__ . '/includes/head.php'; ?>
 </head>
 <body>
 <div class="wrap">
@@ -41,7 +39,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       <?php if ($error): ?><div class="error"><?= htmlspecialchars($error) ?></div><?php endif; ?>
       <button type="submit">دخول</button>
     </form>
-    <p class="muted">ما عندك حساب؟ <a href="register.php">سجّل حساب جديد</a></p>
+    <p class="muted">ما عندك حساب؟ <a href="register">سجّل حساب جديد</a></p>
   </div>
 </div>
 </body>

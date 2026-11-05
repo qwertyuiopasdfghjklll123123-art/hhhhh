@@ -5,7 +5,7 @@ require_login();
 
 function back_with_flash($ok, $msg) {
     $_SESSION['flash'] = ['ok' => $ok, 'msg' => $msg];
-    header('Location: ../dashboard.php');
+    header('Location: ../dashboard');
     exit;
 }
 

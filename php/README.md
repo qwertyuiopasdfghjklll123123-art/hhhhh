@@ -14,6 +14,9 @@
    موجودة، ويستورد كل الجداول (25 جدول) + بيانات أولية. يمكن إعادة تشغيله
    بأمان دون تكرار البيانات.
 3. بعد نجاح التثبيت **احذف `install.php` من السيرفر** لأسباب أمنية.
+   تأكد أن Apache يقرأ `.htaccess` (`AllowOverride All`) ومفعّل فيه
+   `mod_rewrite` — بدونه الروابط تعمل لكن بـ `.php` بآخرها (راجع قسم
+   "الروابط النظيفة" تحت لتفاصيل Nginx أو تفعيل mod_rewrite).
 4. عدّل مفتاح/رابط مزوّد SMM الحقيقي من `admin/providers.php` بدل القيمة
    الوهمية المزروعة بالبذور.
 5. سجّل دخول كأدمن: `admin@admin.com` / `2sebvWFr6BYwVBrV` — **غيّر كلمة
@@ -25,12 +28,15 @@
 
 ```
 php/
-  config.php, install.php, sql/schema.sql
+  config.php, install.php, sql/schema.sql, .htaccess (روابط نظيفة)
   includes/
+    error_handler.php          يمسك كل الأخطاء/الاستثناءات ويسجّلها
+    head.php                   رأس HTML مشترك (خطوط + Font Awesome + CSS)
     db.php, functions.php      اتصال PDO، جلسات، إعدادات، صلاحيات
     smm.php                    تعدد مزوّدي SMM، كتالوج، كاش ملفي
     ai.php                     عميل NVIDIA + سياق المحادثة
     binance.php                تحقق Binance Pay (HMAC signed API)
+  logs/app_errors.log          سجل الأخطاء (محجوب من الوصول المباشر)
   index / login / register / logout / dashboard / notifications
   wallet.php, tickets.php, ai.php, favorites.php, referral.php, reviews.php
   api/   order, services, ai_chat(+conversations/messages), recharge_submit,
@@ -38,7 +44,7 @@ php/
   admin/ index (فهرس منظّم بأقسام، كل قسم يعرض اسمه ورابطه الثابت),
          users, orders, providers, filters, payment_methods, recharges,
          coupons, levels, tickets, ai_settings, settings, reviews,
-         announcements, profits, referrals
+         announcements, profits, referrals, errors (سجل الأخطاء)
 ```
 
 ## الميزات الجاهزة والمُختبرة فعلياً (ليس افتراضاً)
@@ -57,23 +63,70 @@ php/
 نسبة ربح)، طرق الدفع، طلبات الشحن، كوبونات، مستويات، تذاكر، وإعدادات
 الموقع — مع منع غير الأدمن من كل صفحات الإدارة (403 مؤكّد).
 
-### لوحة الإدارة — فهرس كامل (15 قسم، كل قسم باسمه ورابطه)
+### لوحة الإدارة — فهرس كامل (16 قسم، كل قسم باسمه ورابطه)
 
-صفحة `admin/index.php` الآن مُنظَّمة بـ 5 مجموعات، كل قسم فيها بطاقة
-واضحة تعرض الاسم والرابط الثابت تحته مباشرة:
+صفحة `admin/index.php` مُنظَّمة بـ 5 مجموعات، كل قسم فيها بطاقة واضحة
+تعرض الاسم والرابط النظيف (بدون .php) تحته مباشرة:
 
 | المجموعة | الأقسام والروابط |
 |---|---|
-| المستخدمون والطلبات | 👥 `/admin/users.php` — 📦 `/admin/orders.php` |
-| المزوّدون والخدمات | 🔌 `/admin/providers.php` — 🧩 `/admin/filters.php` |
-| المحفظة والمدفوعات | 💳 `/admin/payment_methods.php` — 💵 `/admin/recharges.php` — 🎟️ `/admin/coupons.php` — 📊 `/admin/profits.php` |
-| التفاعل والمحتوى | ⭐ `/admin/reviews.php` — 📢 `/admin/announcements.php` — 🔗 `/admin/referrals.php` — 🎫 `/admin/tickets.php` |
-| النظام والإعدادات | 🏆 `/admin/levels.php` — 🤖 `/admin/ai_settings.php` — ⚙️ `/admin/settings.php` |
+| المستخدمون والطلبات | 👥 `/admin/users` — 📦 `/admin/orders` |
+| المزوّدون والخدمات | 🔌 `/admin/providers` — 🧩 `/admin/filters` |
+| المحفظة والمدفوعات | 💳 `/admin/payment_methods` — 💵 `/admin/recharges` — 🎟️ `/admin/coupons` — 📊 `/admin/profits` |
+| التفاعل والمحتوى | ⭐ `/admin/reviews` — 📢 `/admin/announcements` — 🔗 `/admin/referrals` — 🎫 `/admin/tickets` |
+| النظام والإعدادات | 🏆 `/admin/levels` — 🤖 `/admin/ai_settings` — ⚙️ `/admin/settings` — 🐞 `/admin/errors` |
 
-كل الـ 15 قسم جُرِّبوا فعلياً (200 OK + تحقق من المنطق) قبل التسليم، بما
-فيها إضافات هذه الجولة: موافقة/إخفاء/حذف التقييمات (تظهر فوراً بالصفحة
-العامة بعد الموافقة)، إنشاء/حذف الإعلانات (تظهر كبانر بلوحة كل مستخدم)،
-صفحة الأرباح، وصفحة نظرة عامة على برنامج الإحالة.
+كل الـ 16 قسم جُرِّبوا فعلياً (200 OK + تحقق من المنطق) قبل التسليم.
+
+## الروابط النظيفة (بدون .php)
+
+كل روابط التطبيق (الصفحات ونماذج الإرسال وطلبات JS) تعمل الآن بدون
+`.php` — مثلاً `/php/dashboard` بدل `/php/dashboard.php`، و
+`/php/admin/settings` بدل `/php/admin/settings.php`.
+
+- **على Apache** (الأغلبية الساحقة من الاستضافات المشتركة): ملف
+  `.htaccess` بجذر `php/` يسوّي هذا تلقائياً، بشرط تفعيل `mod_rewrite`
+  و `AllowOverride All` (أو `FileInfo` على الأقل) — هذا الوضع الافتراضي
+  بأغلب الاستضافات. **تم اختبار هذا فعلياً** عبر تثبيت Apache حقيقي محلياً
+  والتحقق من أن كل رابط (تسجيل دخول، تسجيل حساب، لوحة الإدارة بكل أقسامها،
+  الملفات الثابتة CSS) يعمل بالشكل النظيف.
+- **على Nginx** أضف هذا داخل `location /php/` بملف إعداد السيرفر:
+  ```nginx
+  location /php/ {
+      try_files $uri $uri/ $uri.php?$query_string;
+  }
+  location ~ /php/(logs|sql)/ {
+      deny all;
+  }
+  ```
+- الروابط القديمة بامتداد `.php` تبقى تعمل أيضاً (لم تُحذف أي ملفات) —
+  فقط الروابط الداخلية بالتطبيق أصبحت تُنشئ بدون الامتداد.
+
+## نظام تتبّع الأخطاء
+
+كل خطأ PHP (تحذير Warning، إشعار Notice، استثناء غير مُعالَج Exception،
+أو خطأ قاتل Fatal يوقف الصفحة) يُمسَك تلقائياً ويُسجَّل بملف
+`logs/app_errors.log` (JSON Lines: الوقت، المستوى، الرسالة، الملف
+والسطر، الطلب، ولـ Exceptions الـ stack trace الكامل). يُقلَّم الملف
+تلقائياً عند بلوغه 5MB (يحتفظ بالنصف الأحدث). المجلد محجوب من الوصول
+المباشر بالمتصفح عبر `.htaccess`.
+
+لوحة الإدارة `admin/errors` تعرض آخر 200 خطأ (الأحدث أولاً) مع تصنيف
+بالألوان حسب الخطورة، وزر لمسح السجل. **تم اختبار هذا فعلياً**: أثرت
+تحذيراً حقيقياً (undefined variable) واستثناءً حقيقياً (uncaught
+Exception) والتأكد أن كلاهما سُجِّل بالتفصيل الصحيح وظهر بالصفحة.
+
+## التصميم
+
+ألوان وخطوط الواجهة الآن مأخوذة فعلياً من نسخة Python الأصلية (نفس
+متغيرات CSS الموجودة بـ `DASH_HTML`/`LANDING_HTML` داخل `app.py`):
+نفس خط IBM Plex Sans Arabic / Tajawal، نفس درجات الأزرق الأساسية
+(`#2563eb` فاتح / `#3b82f6` غامق)، نفس نظام البطاقات بخلفية فاتحة
+كريمية بالوضع العادي وخلفية سوداء دافئة بالوضع الداكن (`[data-theme]`
++ `prefers-color-scheme`)، ونفس أيقونات Font Awesome. هذا يطابق لوحة
+الألوان والخطوط، وليس تطابقاً حرفياً 100% لكل عنصر تفاعلي معقّد
+بالنسخة الأصلية (كـ stepper الصفحة الرئيسية التفاعلي أو bottom sheets) —
+تلك عناصر JS/CSS مخصّصة لكل ميزة تُضاف تدريجياً مع كل ميزة تُنقل.
 
 ## غير مُكتمل بعد (جولات قادمة)
 

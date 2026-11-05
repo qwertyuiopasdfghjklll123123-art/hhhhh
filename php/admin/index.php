@@ -19,44 +19,43 @@ $recentOrders = db()->query('SELECT o.*, u.email FROM orders o JOIN users u ON u
 // كل قسم = اسم + رابط (path) ثابت، معروض بوضوح تحت كل بطاقة — هذا هو الدليل/الفهرس الكامل لكل أقسام لوحة الإدارة
 $sections = [
     'المستخدمون والطلبات' => [
-        ['name' => '👥 المستخدمون', 'path' => 'users.php'],
-        ['name' => '📦 الطلبات', 'path' => 'orders.php'],
+        ['name' => '👥 المستخدمون', 'path' => 'users'],
+        ['name' => '📦 الطلبات', 'path' => 'orders'],
     ],
     'المزوّدون والخدمات' => [
-        ['name' => '🔌 مزودو SMM', 'path' => 'providers.php'],
-        ['name' => '🧩 فلاتر الخدمات', 'path' => 'filters.php'],
+        ['name' => '🔌 مزودو SMM', 'path' => 'providers'],
+        ['name' => '🧩 فلاتر الخدمات', 'path' => 'filters'],
     ],
     'المحفظة والمدفوعات' => [
-        ['name' => '💳 طرق الدفع', 'path' => 'payment_methods.php'],
-        ['name' => '💵 طلبات الشحن', 'path' => 'recharges.php'],
-        ['name' => '🎟️ الكوبونات', 'path' => 'coupons.php'],
-        ['name' => '📊 الأرباح', 'path' => 'profits.php'],
+        ['name' => '💳 طرق الدفع', 'path' => 'payment_methods'],
+        ['name' => '💵 طلبات الشحن', 'path' => 'recharges'],
+        ['name' => '🎟️ الكوبونات', 'path' => 'coupons'],
+        ['name' => '📊 الأرباح', 'path' => 'profits'],
     ],
     'التفاعل والمحتوى' => [
-        ['name' => '⭐ التقييمات', 'path' => 'reviews.php'],
-        ['name' => '📢 الإعلانات', 'path' => 'announcements.php'],
-        ['name' => '🔗 برنامج الإحالة', 'path' => 'referrals.php'],
-        ['name' => '🎫 التذاكر', 'path' => 'tickets.php'],
+        ['name' => '⭐ التقييمات', 'path' => 'reviews'],
+        ['name' => '📢 الإعلانات', 'path' => 'announcements'],
+        ['name' => '🔗 برنامج الإحالة', 'path' => 'referrals'],
+        ['name' => '🎫 التذاكر', 'path' => 'tickets'],
     ],
     'النظام والإعدادات' => [
-        ['name' => '🏆 المستويات', 'path' => 'levels.php'],
-        ['name' => '🤖 المساعد الذكي', 'path' => 'ai_settings.php'],
-        ['name' => '⚙️ إعدادات الموقع', 'path' => 'settings.php'],
+        ['name' => '🏆 المستويات', 'path' => 'levels'],
+        ['name' => '🤖 المساعد الذكي', 'path' => 'ai_settings'],
+        ['name' => '⚙️ إعدادات الموقع', 'path' => 'settings'],
+        ['name' => '🐞 سجل الأخطاء', 'path' => 'errors'],
     ],
 ];
 ?>
 <!doctype html>
 <html lang="ar" dir="rtl">
 <head>
-<meta charset="utf-8">
-<title>لوحة الإدارة — fastcrand</title>
-<link rel="stylesheet" href="../assets/style.css">
+<?php $pageTitle = 'لوحة الإدارة — fastcrand'; $assetBase = '../'; include __DIR__ . '/../includes/head.php'; ?>
 </head>
 <body>
 <div class="wrap wide">
   <div class="card row">
     <h2>لوحة الإدارة</h2>
-    <a class="btn secondary" href="../dashboard.php">رجوع للوحتي</a>
+    <a class="btn secondary" href="../dashboard">رجوع للوحتي</a>
   </div>
 
   <div class="card">

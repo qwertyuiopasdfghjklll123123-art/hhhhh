@@ -20,14 +20,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             if ($refundAmount > 0 && !$row['refunded']) {
                 db()->prepare('UPDATE users SET balance = balance + ? WHERE id = ?')->execute([$refundAmount, $row['user_id']]);
                 db()->prepare('UPDATE orders SET refunded=1 WHERE id=?')->execute([$oid]);
-                push_user_notif($row['user_id'], 'system', sprintf('استرجاع $%.2f', $refundAmount), "طلب #$displayRef — تم إرجاع المبلغ إلى رصيدك", 'wallet', 'wallet.php');
+                push_user_notif($row['user_id'], 'system', sprintf('استرجاع $%.2f', $refundAmount), "طلب #$displayRef — تم إرجاع المبلغ إلى رصيدك", 'wallet', 'wallet');
             }
             if ($newStatus === 'Completed' && $oldStatus !== 'Completed') {
-                push_user_notif($row['user_id'], 'order', "طلب #$displayRef اكتمل", $row['service_name'], 'done', "dashboard.php");
+                push_user_notif($row['user_id'], 'order', "طلب #$displayRef اكتمل", $row['service_name'], 'done', "dashboard");
             }
         }
     }
-    header('Location: orders.php' . (!empty($_GET['status']) ? '?status=' . urlencode($_GET['status']) : ''));
+    header('Location: orders' . (!empty($_GET['status']) ? '?status=' . urlencode($_GET['status']) : ''));
     exit;
 }
 
@@ -43,15 +43,13 @@ $orders = $stmt->fetchAll();
 <!doctype html>
 <html lang="ar" dir="rtl">
 <head>
-<meta charset="utf-8">
-<title>الطلبات — الإدارة</title>
-<link rel="stylesheet" href="../assets/style.css">
+<?php $pageTitle = 'الطلبات — الإدارة'; $assetBase = '../'; include __DIR__ . '/../includes/head.php'; ?>
 </head>
 <body>
 <div class="wrap wide">
   <div class="card row">
     <h2>الطلبات</h2>
-    <a class="btn secondary" href="index.php">رجوع</a>
+    <a class="btn secondary" href="index">رجوع</a>
   </div>
   <div class="card">
     <form method="get">

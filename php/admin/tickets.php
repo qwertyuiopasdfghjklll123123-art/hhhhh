@@ -16,12 +16,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             db()->prepare('INSERT INTO ticket_messages (ticket_id, sender, text, created_at) VALUES (?,?,?,?)')
                 ->execute([$tid, 'admin', $msg, time()]);
             db()->prepare("UPDATE tickets SET status='open' WHERE id=?")->execute([$tid]);
-            push_user_notif($t['user_id'], 'system', "رد جديد على تذكرة #TK-$tid", mb_substr($msg, 0, 100), 'ticket', "tickets.php?id=$tid");
+            push_user_notif($t['user_id'], 'system', "رد جديد على تذكرة #TK-$tid", mb_substr($msg, 0, 100), 'ticket', "tickets?id=$tid");
         }
     } elseif (isset($_POST['close'])) {
         db()->prepare("UPDATE tickets SET status='closed' WHERE id=?")->execute([$tid]);
     }
-    header("Location: tickets.php?id=$tid");
+    header("Location: tickets?id=$tid");
     exit;
 }
 
@@ -44,15 +44,13 @@ if ($ticketId) {
 <!doctype html>
 <html lang="ar" dir="rtl">
 <head>
-<meta charset="utf-8">
-<title>التذاكر — الإدارة</title>
-<link rel="stylesheet" href="../assets/style.css">
+<?php $pageTitle = 'التذاكر — الإدارة'; $assetBase = '../'; include __DIR__ . '/../includes/head.php'; ?>
 </head>
 <body>
 <div class="wrap">
   <div class="card row">
     <h2>التذاكر</h2>
-    <a class="btn secondary" href="index.php">رجوع</a>
+    <a class="btn secondary" href="index">رجوع</a>
   </div>
 
   <?php if ($ticketId && !empty($ticket)): ?>
@@ -91,7 +89,7 @@ if ($ticketId) {
             <td><?= htmlspecialchars($t['user_name']) ?></td>
             <td><?= htmlspecialchars($t['subject']) ?></td>
             <td><span class="badge"><?= htmlspecialchars($statusLabels[$t['status']] ?? $t['status']) ?></span></td>
-            <td><a href="tickets.php?id=<?= $t['id'] ?>">فتح</a></td>
+            <td><a href="tickets?id=<?= $t['id'] ?>">فتح</a></td>
           </tr>
         <?php endforeach; ?>
       </table>

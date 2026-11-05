@@ -59,7 +59,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
     }
     $_SESSION['flash'] = ['ok' => true, 'msg' => 'تم الحفظ'];
-    header('Location: payment_methods.php');
+    header('Location: payment_methods');
     exit;
 }
 
@@ -78,15 +78,13 @@ $tgExtras = $tgStars ? (json_decode($tgStars['method_extras'] ?: '{}', true) ?: 
 <!doctype html>
 <html lang="ar" dir="rtl">
 <head>
-<meta charset="utf-8">
-<title>طرق الدفع — الإدارة</title>
-<link rel="stylesheet" href="../assets/style.css">
+<?php $pageTitle = 'طرق الدفع — الإدارة'; $assetBase = '../'; include __DIR__ . '/../includes/head.php'; ?>
 </head>
 <body>
 <div class="wrap">
   <div class="card row">
     <h2>طرق الدفع</h2>
-    <a class="btn secondary" href="index.php">رجوع</a>
+    <a class="btn secondary" href="index">رجوع</a>
   </div>
   <?php if ($flash): ?><div class="card ok"><?= htmlspecialchars($flash['msg']) ?></div><?php endif; ?>
 

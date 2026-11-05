@@ -12,7 +12,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     set_setting('daily_bonus_enabled', isset($_POST['daily_bonus_enabled']) ? '1' : '0');
     set_setting('auto_import_enabled', isset($_POST['auto_import_enabled']) ? '1' : '0');
     $_SESSION['flash'] = ['ok' => true, 'msg' => 'تم الحفظ'];
-    header('Location: settings.php');
+    header('Location: settings');
     exit;
 }
 
@@ -24,15 +24,13 @@ foreach ($allowed as $k) $vals[$k] = get_setting($k, '');
 <!doctype html>
 <html lang="ar" dir="rtl">
 <head>
-<meta charset="utf-8">
-<title>إعدادات الموقع — الإدارة</title>
-<link rel="stylesheet" href="../assets/style.css">
+<?php $pageTitle = 'إعدادات الموقع — الإدارة'; $assetBase = '../'; include __DIR__ . '/../includes/head.php'; ?>
 </head>
 <body>
 <div class="wrap">
   <div class="card row">
     <h2>إعدادات الموقع</h2>
-    <a class="btn secondary" href="index.php">رجوع</a>
+    <a class="btn secondary" href="index">رجوع</a>
   </div>
   <?php if ($flash): ?><div class="card ok"><?= htmlspecialchars($flash['msg']) ?></div><?php endif; ?>
   <div class="card">

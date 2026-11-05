@@ -15,7 +15,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     } elseif (isset($_POST['delete'])) {
         db()->prepare('DELETE FROM announcements WHERE id=?')->execute([$_POST['id']]);
     }
-    header('Location: announcements.php');
+    header('Location: announcements');
     exit;
 }
 
@@ -25,15 +25,13 @@ $typeLabels = ['info' => 'ℹ️ معلومة', 'offer' => '🎉 عرض', 'warni
 <!doctype html>
 <html lang="ar" dir="rtl">
 <head>
-<meta charset="utf-8">
-<title>الإعلانات — الإدارة</title>
-<link rel="stylesheet" href="../assets/style.css">
+<?php $pageTitle = 'الإعلانات — الإدارة'; $assetBase = '../'; include __DIR__ . '/../includes/head.php'; ?>
 </head>
 <body>
 <div class="wrap">
   <div class="card row">
     <h2>الإعلانات</h2>
-    <a class="btn secondary" href="index.php">رجوع</a>
+    <a class="btn secondary" href="index">رجوع</a>
   </div>
   <div class="card">
     <h3>إعلان جديد</h3>

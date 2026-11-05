@@ -29,9 +29,7 @@ $annTypeLabels = ['info' => 'ℹ️', 'offer' => '🎉', 'warning' => '⚠️', 
 <!doctype html>
 <html lang="ar" dir="rtl">
 <head>
-<meta charset="utf-8">
-<title>لوحتي — fastcrand</title>
-<link rel="stylesheet" href="assets/style.css">
+<?php $pageTitle = 'لوحتي — fastcrand'; $assetBase = ''; include __DIR__ . '/includes/head.php'; ?>
 </head>
 <body>
 <div class="wrap wide">
@@ -43,15 +41,15 @@ $annTypeLabels = ['info' => 'ℹ️', 'offer' => '🎉', 'warning' => '⚠️', 
       </div>
     </div>
     <div>
-      <a class="btn secondary" href="notifications.php">🔔 الإشعارات<?= $unread ? " ($unread)" : '' ?></a>
-      <a class="btn secondary" href="wallet.php">💳 المحفظة</a>
-      <a class="btn secondary" href="tickets.php">🎫 الدعم</a>
-      <a class="btn secondary" href="ai.php">🤖 المساعد الذكي</a>
-      <a class="btn secondary" href="favorites.php">⭐ المفضّلة</a>
-      <a class="btn secondary" href="referral.php">🔗 الإحالة</a>
-      <a class="btn secondary" href="reviews.php">⭐ التقييمات</a>
-      <?php if ($user['is_admin']): ?><a class="btn secondary" href="admin/index.php">لوحة الإدارة</a><?php endif; ?>
-      <a class="btn secondary" href="logout.php">خروج</a>
+      <a class="btn secondary" href="notifications">🔔 الإشعارات<?= $unread ? " ($unread)" : '' ?></a>
+      <a class="btn secondary" href="wallet">💳 المحفظة</a>
+      <a class="btn secondary" href="tickets">🎫 الدعم</a>
+      <a class="btn secondary" href="ai">🤖 المساعد الذكي</a>
+      <a class="btn secondary" href="favorites">⭐ المفضّلة</a>
+      <a class="btn secondary" href="referral">🔗 الإحالة</a>
+      <a class="btn secondary" href="reviews">⭐ التقييمات</a>
+      <?php if ($user['is_admin']): ?><a class="btn secondary" href="admin/index">لوحة الإدارة</a><?php endif; ?>
+      <a class="btn secondary" href="logout">خروج</a>
     </div>
   </div>
 
@@ -67,7 +65,7 @@ $annTypeLabels = ['info' => 'ℹ️', 'offer' => '🎉', 'warning' => '⚠️', 
   <div class="card row">
     <div>🎁 المكافأة اليومية: $<?= number_format($dailyBonusAmount, 2) ?></div>
     <?php if ($canClaimBonus): ?>
-      <form method="post" action="api/daily_bonus_claim.php"><button type="submit">استلم الآن</button></form>
+      <form method="post" action="api/daily_bonus_claim"><button type="submit">استلم الآن</button></form>
     <?php else: ?>
       <span class="muted">استلمتها اليوم، عد بعد 24 ساعة</span>
     <?php endif; ?>
@@ -79,7 +77,7 @@ $annTypeLabels = ['info' => 'ℹ️', 'offer' => '🎉', 'warning' => '⚠️', 
     <?php if (empty($catalog)): ?>
       <p class="muted">تعذّر جلب الخدمات من المزوّد حالياً (أو لا توجد خدمات). حاول تحديث الصفحة بعد قليل.</p>
     <?php else: ?>
-      <form method="post" action="api/order.php">
+      <form method="post" action="api/order">
         <label>الخدمة</label>
         <select name="service" required>
           <?php foreach ($catalog as $category => $items): ?>

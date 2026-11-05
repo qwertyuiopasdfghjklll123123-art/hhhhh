@@ -5,7 +5,7 @@ require_login();
 
 function back($ok, $msg) {
     $_SESSION['flash'] = ['ok' => $ok, 'msg' => $msg];
-    header('Location: ../wallet.php');
+    header('Location: ../wallet');
     exit;
 }
 
@@ -39,7 +39,7 @@ try {
 }
 db()->prepare('UPDATE users SET balance = balance + ? WHERE id = ?')->execute([$amount, $user['id']]);
 
-push_user_notif($user['id'], 'recharge', sprintf('تم شحن $%.2f', $amount), 'تم التحقق من عملية Binance Pay تلقائياً وإضافة الرصيد', 'check', 'wallet.php');
+push_user_notif($user['id'], 'recharge', sprintf('تم شحن $%.2f', $amount), 'تم التحقق من عملية Binance Pay تلقائياً وإضافة الرصيد', 'check', 'wallet');
 
 $admins = db()->query('SELECT id FROM users WHERE is_admin=1')->fetchAll();
 foreach ($admins as $a) {

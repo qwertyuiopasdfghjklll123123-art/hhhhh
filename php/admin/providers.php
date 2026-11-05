@@ -40,7 +40,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $_SESSION['flash'] = ['ok' => false, 'msg' => 'لا يمكن حذف المزوّد الوحيد'];
         }
     }
-    header('Location: providers.php');
+    header('Location: providers');
     exit;
 }
 
@@ -62,15 +62,13 @@ unset($p);
 <!doctype html>
 <html lang="ar" dir="rtl">
 <head>
-<meta charset="utf-8">
-<title>مزودو SMM — الإدارة</title>
-<link rel="stylesheet" href="../assets/style.css">
+<?php $pageTitle = 'مزودو SMM — الإدارة'; $assetBase = '../'; include __DIR__ . '/../includes/head.php'; ?>
 </head>
 <body>
 <div class="wrap">
   <div class="card row">
     <h2>مزودو SMM</h2>
-    <a class="btn secondary" href="index.php">رجوع</a>
+    <a class="btn secondary" href="index">رجوع</a>
   </div>
   <?php if ($flash): ?><div class="card error"><?= htmlspecialchars($flash['msg']) ?></div><?php endif; ?>
 
