@@ -22,12 +22,12 @@ if ($serviceId === '' || $link === '' || $quantity <= 0) {
     back_with_flash(false, 'جميع الحقول مطلوبة');
 }
 
-$provider = get_default_provider();
+$provider = find_service_provider($serviceId);
 if (!$provider) {
     back_with_flash(false, 'لا يوجد مزوّد SMM فعّال حالياً');
 }
 
-$service = find_service($provider, $serviceId);
+$service = find_service($serviceId);
 if (!$service) {
     back_with_flash(false, 'الخدمة غير موجودة لدى المزوّد حالياً');
 }
@@ -43,6 +43,11 @@ $filterRow = $filterStmt->fetch();
 $profitPct = ($filterRow && $filterRow['profit_pct'] !== null) ? (float)$filterRow['profit_pct'] : (float)get_setting('default_profit_pct', '20');
 $rate = (float)($service['rate'] ?? 0);
 $sitePrice = round(($rate * (1 + $profitPct / 100)) * $quantity / 1000, 4);
+
+$lvDiscount = get_user_level_discount($user['id']);
+if ($lvDiscount > 0 && $sitePrice > 0) {
+    $sitePrice = round($sitePrice * (1 - $lvDiscount / 100), 4);
+}
 
 $balRow = db()->prepare('SELECT balance FROM users WHERE id = ?');
 $balRow->execute([$user['id']]);
@@ -94,5 +99,8 @@ db()->prepare(
     $displayId,
     time(),
 ]);
+
+push_user_notif($user['id'], 'order', "تم إرسال طلب #$displayId", ($service['name'] ?? '') . " — الكمية: $quantity — $" . number_format($sitePrice, 2), 'order', "order:$displayId");
+add_referral_commission($user['id'], (string)$result['order'], (float)($result['charge'] ?? 0));
 
 back_with_flash(true, "تم إرسال طلبك بنجاح — رقم الطلب #$displayId");

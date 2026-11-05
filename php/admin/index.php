@@ -3,27 +3,15 @@ require_once __DIR__ . '/../includes/functions.php';
 require_login();
 require_admin();
 
-$flash = $_SESSION['flash'] ?? null;
-unset($_SESSION['flash']);
-
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['save_provider'])) {
-    $apiUrl = trim($_POST['api_url'] ?? '');
-    $apiKey = trim($_POST['api_key'] ?? '');
-    db()->prepare('UPDATE providers SET api_url = ?, api_key = ? WHERE is_default = 1')->execute([$apiUrl, $apiKey]);
-    $_SESSION['flash'] = ['ok' => true, 'msg' => 'تم حفظ إعدادات المزوّد'];
-    header('Location: index.php');
-    exit;
-}
-
 $stats = db()->query(
     "SELECT
         (SELECT COUNT(*) FROM users) AS users_count,
         (SELECT COUNT(*) FROM orders) AS orders_count,
         (SELECT COALESCE(SUM(site_charge),0) FROM orders) AS revenue,
-        (SELECT COUNT(*) FROM orders WHERE status NOT IN ('Completed','Canceled','Partial')) AS active_orders"
+        (SELECT COUNT(*) FROM orders WHERE status NOT IN ('Completed','Canceled','Partial')) AS active_orders,
+        (SELECT COUNT(*) FROM recharge_requests WHERE status='pending') AS pending_recharges,
+        (SELECT COUNT(*) FROM tickets WHERE status != 'closed') AS open_tickets"
 )->fetch();
-
-$provider = db()->query('SELECT * FROM providers WHERE is_default=1 LIMIT 1')->fetch();
 
 $recentOrders = db()->query('SELECT o.*, u.email FROM orders o JOIN users u ON u.id=o.user_id ORDER BY o.id DESC LIMIT 15')->fetchAll();
 ?>
@@ -41,8 +29,6 @@ $recentOrders = db()->query('SELECT o.*, u.email FROM orders o JOIN users u ON u
     <a class="btn secondary" href="../dashboard.php">رجوع للوحتي</a>
   </div>
 
-  <?php if ($flash): ?><div class="card ok"><?= htmlspecialchars($flash['msg']) ?></div><?php endif; ?>
-
   <div class="card">
     <h3>إحصائيات سريعة</h3>
     <div class="row">
@@ -50,18 +36,26 @@ $recentOrders = db()->query('SELECT o.*, u.email FROM orders o JOIN users u ON u
       <div>📦 الطلبات: <strong><?= (int)$stats['orders_count'] ?></strong></div>
       <div>⏳ نشطة: <strong><?= (int)$stats['active_orders'] ?></strong></div>
       <div>💰 الإيراد: <strong>$<?= number_format((float)$stats['revenue'], 2) ?></strong></div>
+      <div>💳 شحن بانتظار الموافقة: <strong><?= (int)$stats['pending_recharges'] ?></strong></div>
+      <div>🎫 تذاكر مفتوحة: <strong><?= (int)$stats['open_tickets'] ?></strong></div>
     </div>
   </div>
 
   <div class="card">
-    <h3>إعدادات مزوّد SMM الافتراضي</h3>
-    <form method="post">
-      <label>رابط API</label>
-      <input type="text" name="api_url" value="<?= htmlspecialchars($provider['api_url'] ?? '') ?>">
-      <label>مفتاح API</label>
-      <input type="text" name="api_key" value="<?= htmlspecialchars($provider['api_key'] ?? '') ?>">
-      <button type="submit" name="save_provider" value="1">حفظ</button>
-    </form>
+    <h3>الإدارة</h3>
+    <div class="row" style="flex-wrap:wrap; justify-content:flex-start; gap:10px">
+      <a class="btn secondary" href="users.php">👥 المستخدمون</a>
+      <a class="btn secondary" href="orders.php">📦 الطلبات</a>
+      <a class="btn secondary" href="providers.php">🔌 مزودو SMM</a>
+      <a class="btn secondary" href="filters.php">🧩 فلاتر الخدمات</a>
+      <a class="btn secondary" href="payment_methods.php">💳 طرق الدفع</a>
+      <a class="btn secondary" href="recharges.php">💵 طلبات الشحن</a>
+      <a class="btn secondary" href="coupons.php">🎟️ الكوبونات</a>
+      <a class="btn secondary" href="levels.php">🏆 المستويات</a>
+      <a class="btn secondary" href="tickets.php">🎫 التذاكر</a>
+      <a class="btn secondary" href="ai_settings.php">🤖 المساعد الذكي</a>
+      <a class="btn secondary" href="settings.php">⚙️ إعدادات الموقع</a>
+    </div>
   </div>
 
   <div class="card">

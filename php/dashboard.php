@@ -4,8 +4,7 @@ require_once __DIR__ . '/includes/smm.php';
 require_login();
 
 $user = current_user();
-$provider = get_default_provider();
-$catalog = $provider ? build_services_catalog($provider) : [];
+$catalog = build_services_catalog();
 
 $orders = db()->prepare('SELECT * FROM orders WHERE user_id = ? ORDER BY id DESC LIMIT 10');
 $orders->execute([$user['id']]);
@@ -13,6 +12,17 @@ $myOrders = $orders->fetchAll();
 
 $flash = $_SESSION['flash'] ?? null;
 unset($_SESSION['flash']);
+
+$unreadCount = db()->prepare('SELECT COUNT(*) AS c FROM notifications WHERE user_id=? AND is_read=0');
+$unreadCount->execute([$user['id']]);
+$unread = (int)$unreadCount->fetch()['c'];
+
+$dailyBonusEnabled = get_setting('daily_bonus_enabled', '0') === '1';
+$dailyBonusAmount = (float)(get_setting('daily_bonus_amount', '0.5') ?: 0.5);
+$lastBonus = (float)($user['last_daily_bonus'] ?? 0);
+$canClaimBonus = $dailyBonusEnabled && (time() - $lastBonus >= 86400);
+
+$level = get_user_level($user['id']);
 ?>
 <!doctype html>
 <html lang="ar" dir="rtl">
@@ -26,9 +36,18 @@ unset($_SESSION['flash']);
   <div class="card row">
     <div>
       <h2>أهلاً، <?= htmlspecialchars($user['name']) ?></h2>
-      <div class="muted">الرصيد: <strong><?= number_format((float)$user['balance'], 2) ?>$</strong></div>
+      <div class="muted">الرصيد: <strong><?= number_format((float)$user['balance'], 2) ?>$</strong>
+        <?php if ($level): ?> — المستوى: <strong style="color:<?= htmlspecialchars($level['color']) ?>"><?= htmlspecialchars($level['name']) ?></strong> (خصم <?= (float)$level['discount'] ?>%)<?php endif; ?>
+      </div>
     </div>
     <div>
+      <a class="btn secondary" href="notifications.php">🔔 الإشعارات<?= $unread ? " ($unread)" : '' ?></a>
+      <a class="btn secondary" href="wallet.php">💳 المحفظة</a>
+      <a class="btn secondary" href="tickets.php">🎫 الدعم</a>
+      <a class="btn secondary" href="ai.php">🤖 المساعد الذكي</a>
+      <a class="btn secondary" href="favorites.php">⭐ المفضّلة</a>
+      <a class="btn secondary" href="referral.php">🔗 الإحالة</a>
+      <a class="btn secondary" href="reviews.php">⭐ التقييمات</a>
       <?php if ($user['is_admin']): ?><a class="btn secondary" href="admin/index.php">لوحة الإدارة</a><?php endif; ?>
       <a class="btn secondary" href="logout.php">خروج</a>
     </div>
@@ -36,11 +55,20 @@ unset($_SESSION['flash']);
 
   <?php if ($flash): ?><div class="card <?= $flash['ok'] ? 'ok' : 'error' ?>"><?= htmlspecialchars($flash['msg']) ?></div><?php endif; ?>
 
+  <?php if ($dailyBonusEnabled): ?>
+  <div class="card row">
+    <div>🎁 المكافأة اليومية: $<?= number_format($dailyBonusAmount, 2) ?></div>
+    <?php if ($canClaimBonus): ?>
+      <form method="post" action="api/daily_bonus_claim.php"><button type="submit">استلم الآن</button></form>
+    <?php else: ?>
+      <span class="muted">استلمتها اليوم، عد بعد 24 ساعة</span>
+    <?php endif; ?>
+  </div>
+  <?php endif; ?>
+
   <div class="card">
     <h3>طلب خدمة جديدة</h3>
-    <?php if (!$provider): ?>
-      <p class="error">لا يوجد مزوّد SMM فعّال حالياً — فعّله من لوحة الإدارة.</p>
-    <?php elseif (empty($catalog)): ?>
+    <?php if (empty($catalog)): ?>
       <p class="muted">تعذّر جلب الخدمات من المزوّد حالياً (أو لا توجد خدمات). حاول تحديث الصفحة بعد قليل.</p>
     <?php else: ?>
       <form method="post" action="api/order.php">
