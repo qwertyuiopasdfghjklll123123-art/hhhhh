@@ -1,4 +1,4 @@
-app/config.php
+core/config.php
 data/*
 !data/.htaccess
 !data/.gitkeep

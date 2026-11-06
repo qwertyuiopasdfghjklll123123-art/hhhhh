@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """
-يستخرج حرفياً قوالب الواجهة (HTML/JS/Base64) من app.py الأصلي إلى php/app/templates/
+يستخرج حرفياً قوالب الواجهة (HTML/JS/Base64) من app.py الأصلي إلى php/core/templates/
 بحيث تُخدَّم الواجهة بايتاً ببايت كما كانت — لا يتغيّر فيها أي حرف.
 
-الاستعمال:  python3 extract_from_python.py /path/to/app.py ../app/templates
+الاستعمال:  python3 extract_from_python.py /path/to/app.py ../core/templates
 
 يمكن إعادة تشغيله عند أي تحديث مستقبلي لواجهة نسخة بايثون لتحديث نسخة PHP تلقائياً.
 """
@@ -62,7 +62,7 @@ def main(src_path, out_dir):
             parts.append('__FC_%s__' % expr.upper())
     write('banned.html', ''.join(parts))
 
-    # 4) جداول البيانات: PLATFORM_MAP (كشف المنصات) → app/lib/platform_data.php
+    # 4) جداول البيانات: PLATFORM_MAP (كشف المنصات) → core/lib/platform_data.php
     pm = None
     for node in tree.body:
         if isinstance(node, ast.Assign) and any(isinstance(t, ast.Name) and t.id == 'PLATFORM_MAP' for t in node.targets):

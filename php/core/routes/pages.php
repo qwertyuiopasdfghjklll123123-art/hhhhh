@@ -1,7 +1,7 @@
 <?php
 /**
  * صفحات الواجهة + PWA — منقولة من app.py (الأسطر المذكورة بجانب كل مسار).
- * القوالب (landing/dash/order_page/api_docs/banned/sw.js) تُخدَّم حرفياً من app/templates.
+ * القوالب (landing/dash/order_page/api_docs/banned/sw.js) تُخدَّم حرفياً من core/templates.
  */
 
 /* '/'  (app.py:7232) */

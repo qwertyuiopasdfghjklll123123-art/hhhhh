@@ -9,7 +9,7 @@ define('ROOT_DIR', dirname(__DIR__));
 // FC_CONFIG: مسار بديل لملف الإعدادات (لأدوات سطر الأوامر والاختبارات)
 $__fc_config = getenv('FC_CONFIG') ?: APP_DIR . '/config.php';
 if (!is_file($__fc_config)) {
-    if (PHP_SAPI === 'cli') { fwrite(STDERR, "config.php غير موجود — شغّل install.php من المتصفح أو انسخ app/config.sample.php إلى app/config.php\n"); exit(1); }
+    if (PHP_SAPI === 'cli') { fwrite(STDERR, "config.php غير موجود — شغّل install.php من المتصفح أو انسخ core/config.sample.php إلى core/config.php\n"); exit(1); }
     header('Location: /install.php');
     exit;
 }

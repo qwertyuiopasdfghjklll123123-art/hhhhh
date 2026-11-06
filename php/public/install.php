@@ -1,15 +1,15 @@
 <?php
 /**
  * مثبّت الموقع (مرة واحدة): يفحص المتطلبات، يتصل بـ MySQL، ينشئ الجداول والبيانات الافتراضية،
- * ويكتب app/config.php. يرفض العمل إذا كان app/config.php موجوداً (لحماية موقع قيد التشغيل).
- * لإعادة التثبيت: احذف app/config.php أولاً.
+ * ويكتب core/config.php. يرفض العمل إذا كان core/config.php موجوداً (لحماية موقع قيد التشغيل).
+ * لإعادة التثبيت: احذف core/config.php أولاً.
  */
 declare(strict_types=1);
 header('Content-Type: text/html; charset=utf-8');
 header('X-Robots-Tag: noindex');
 
-$APP = dirname(__DIR__) . '/app';
-$CONFIG = $APP . '/config.php';
+$CORE = dirname(__DIR__) . '/core';
+$CONFIG = $CORE . '/config.php';
 $ROOT = dirname(__DIR__);
 
 function h($s): string { return htmlspecialchars((string)$s, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8'); }
@@ -32,8 +32,8 @@ code,pre{background:#0f1220;padding:2px 6px;border-radius:6px;direction:ltr;disp
 }
 
 if (is_file($CONFIG)) {
-    page('<h1>الموقع مثبّت مسبقاً</h1><p>الملف <code>app/config.php</code> موجود، لذلك تم تعطيل المثبّت لحماية الموقع.</p>'
-        . '<p class="note">لإعادة التثبيت احذف <code>app/config.php</code> ثم أعد فتح هذه الصفحة.</p>', 403);
+    page('<h1>الموقع مثبّت مسبقاً</h1><p>الملف <code>core/config.php</code> موجود، لذلك تم تعطيل المثبّت لحماية الموقع.</p>'
+        . '<p class="note">لإعادة التثبيت احذف <code>core/config.php</code> ثم أعد فتح هذه الصفحة.</p>', 403);
 }
 
 /* ------------------------- فحص المتطلبات ------------------------- */
@@ -44,7 +44,7 @@ foreach (['pdo_mysql', 'curl', 'mbstring', 'openssl', 'zip', 'gd', 'json', 'file
 }
 $gdOk = extension_loaded('gd') && function_exists('imagecreatefromstring') && function_exists('imagepng');
 $checks[] = ['GD يدعم PNG', $gdOk && (gd_info()['PNG Support'] ?? false), ''];
-$checks[] = ['مجلد app قابل للكتابة (لكتابة config.php)', is_writable($APP), $APP];
+$checks[] = ['مجلد core قابل للكتابة (لكتابة config.php)', is_writable($CORE), $CORE];
 $dataDir = $ROOT . '/data';
 if (!is_dir($dataDir)) @mkdir($dataDir, 0775, true);
 $checks[] = ['مجلد data قابل للكتابة', is_dir($dataDir) && is_writable($dataDir), $dataDir];
@@ -120,11 +120,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !$hardFail) {
             . "define('SMTP_USER', 'noreply@' . DOMAIN);\n"
             . "define('SMTP_PASS', 'YOUR_EMAIL_PASSWORD');\n\n"
             . "define('GOOGLE_CLIENT_ID', 'YOUR_GOOGLE_CLIENT_ID.apps.googleusercontent.com');\n";
-        if (@file_put_contents($CONFIG, $cfg, LOCK_EX) === false) throw new RuntimeException('تعذّرت كتابة app/config.php — امنح PHP صلاحية الكتابة على مجلد app أو انسخ المحتوى يدوياً.');
+        if (@file_put_contents($CONFIG, $cfg, LOCK_EX) === false) throw new RuntimeException('تعذّرت كتابة core/config.php — امنح PHP صلاحية الكتابة على مجلد core أو انسخ المحتوى يدوياً.');
         @chmod($CONFIG, 0640);
 
         // 6) الجداول + البيانات الافتراضية
-        require $APP . '/bootstrap.php';
+        require $CORE . '/bootstrap.php';
         init_db();
         $note = '';
         if ($v['admin_email'] !== '' || $v['admin_pass'] !== '') {
@@ -146,7 +146,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !$hardFail) {
             ? '<p>سجّل الدخول بحساب الأدمن الذي أدخلته.</p>'
             : '<p class="warn">⚠ حساب الأدمن الافتراضي: <code>admin@admin.com</code> / <code>2sebvWFr6BYwVBrV</code> — <b>غيّر كلمة المرور فوراً</b> من الموقع.</p>';
         $cron = 'php ' . $ROOT . '/cron.php';
-        page('<h1 class="ok">✔ تم التثبيت بنجاح</h1><ul>' . $note . '<li>الجداول والبيانات الافتراضية جاهزة.</li><li>تم إنشاء <code>app/config.php</code>.</li></ul>' . $adminLine
+        page('<h1 class="ok">✔ تم التثبيت بنجاح</h1><ul>' . $note . '<li>الجداول والبيانات الافتراضية جاهزة.</li><li>تم إنشاء <code>core/config.php</code>.</li></ul>' . $adminLine
             . '<h2>الخطوات التالية</h2><ol>'
             . '<li>فعّل المهام الدورية (الطلبات المعلّقة، النسخ الاحتياطي، المزامنة...) بإضافة هذا السطر إلى crontab:<pre>* * * * * ' . h($cron) . ' &gt;/dev/null 2&gt;&amp;1</pre></li>'
             . '<li>لنقل بيانات موقع بايثون القديم: <pre>php ' . h($ROOT) . '/tools/migrate_from_sqlite.php --sqlite=/root/fastcrand.db --files=/root</pre></li>'

@@ -8,6 +8,6 @@ if (PHP_SAPI === 'cli-server') {   // php -S: قدّم الملفات الثاب
     $f = __DIR__ . rawurldecode((string)$p);
     if ($p !== '/' && is_file($f) && substr($f, -10) !== '/index.php') return false;
 }
-require __DIR__ . '/../app/bootstrap.php';
+require __DIR__ . '/../core/bootstrap.php';
 fc_session_load();
 dispatch();

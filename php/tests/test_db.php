@@ -7,8 +7,8 @@ define('DB_USER', getenv('FC_DB_USER') ?: 'fc');
 define('DB_PASS', getenv('FC_DB_PASS') ?: 'fcpass');
 // تحذير: هذا الاختبار يحذف بيانات جداول users/orders/notifications... — لا يعمل إلا على قاعدة اسمها يحتوي "test"
 if (stripos(DB_NAME, 'test') === false) { fwrite(STDERR, "رفض التشغيل: القاعدة '" . DB_NAME . "' ليست قاعدة اختبار (سيُفرَّغ محتواها). استعمل FC_DB_NAME=fc_test\n"); exit(2); }
-require __DIR__ . '/../app/lib/py.php';
-require __DIR__ . '/../app/lib/db.php';
+require __DIR__ . '/../core/lib/py.php';
+require __DIR__ . '/../core/lib/db.php';
 
 $fails = 0; $n = 0;
 function ok($cond, string $name, $extra = ''): void {

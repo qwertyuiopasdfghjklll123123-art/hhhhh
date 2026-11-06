@@ -15,7 +15,7 @@
  * شغّله بعد install.php (أو tools/init_db.php) وقبل تحويل الدومين إلى نسخة PHP.
  */
 if (PHP_SAPI !== 'cli') { http_response_code(403); exit("CLI only\n"); }
-require __DIR__ . '/../app/bootstrap.php';
+require __DIR__ . '/../core/bootstrap.php';
 @set_time_limit(0);
 
 $o = getopt('', ['sqlite::', 'files::', 'truncate', 'no-files', 'dry-run', 'help']);

@@ -11,7 +11,7 @@
  * كل مهمة تعمل بعملية مستقلة (proc_open) مع قفل خاص بها، فلا تعطّل مهمة بطيئة غيرها (مثل threads بايثون).
  */
 if (PHP_SAPI !== 'cli') { http_response_code(403); exit("CLI only\n"); }
-require __DIR__ . '/app/bootstrap.php';
+require __DIR__ . '/core/bootstrap.php';
 @set_time_limit(0);
 
 $opts = getopt('', ['daemon', 'list', 'once', 'job:', 'help']);

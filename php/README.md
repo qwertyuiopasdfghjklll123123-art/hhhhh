@@ -5,9 +5,10 @@
 وكل مسارات الموقع والـ API (182 قاعدة Flask / 174 عنواناً) لها نفس العناوين ونفس شكل الطلب ونفس الـ JSON.
 
 ```
-php/
-├─ public/            ← جذر الويب (DocumentRoot) — index.php + install.php + .htaccess
-├─ app/
+(جذر الموقع: public_html أو مجلد الدومين — الملفات تظهر هنا مباشرة عند فك الأرشيف)
+├─ .htaccess          ← يوجّه الطلبات إلى public/ ويحجب المجلدات الخاصة (يلزم فقط حين يكون جذر الموقع هو مجلد الأرشيف نفسه)
+├─ public/            ← نقطة الدخول: index.php + install.php + .htaccess
+├─ core/
 │  ├─ bootstrap.php   ← تهيئة، config.php (يُنشأ بالتثبيت)، تحميل المكتبات والمسارات
 │  ├─ lib/            ← قاعدة البيانات، الجلسات، الاستجابات، SMTP، Web Push، النسخ الاحتياطي، المهام...
 │  ├─ routes/         ← كل مسارات الموقع (مقابل @app.route بـ app.py)
@@ -17,6 +18,8 @@ php/
 ├─ tools/             ← init_db.php، migrate_from_sqlite.php، أدوات التحقق
 └─ data/              ← يكتب فيه الموقع (صور/صوتيات/نسخ احتياطية/كاش/سجلات) — لا يُخدَم من الويب
 ```
+
+> مجلد الشيفرة اسمه `core` (وليس `app`) عمداً: `/app` هو رابط لوحة المستخدم في الموقع، ومجلد بنفس الاسم كان سيتعارض معه على Apache.
 
 ## المتطلبات
 
@@ -28,19 +31,25 @@ php/
 
 ## التثبيت
 
-### الطريقة أ — المثبّت من المتصفح (الأسهل)
-1. ارفع المجلد، واجعل جذر الموقع `php/public`، وأعطِ PHP صلاحية الكتابة على `php/app` و`php/data`.
-2. أنشئ قاعدة MySQL فارغة (أو دع المثبّت ينشئها إن كان للمستخدم الصلاحية).
+### الطريقة أ — فك الأرشيف مباشرة داخل جذر الموقع + المثبّت (الأسهل، استضافة cPanel وما شابهها)
+1. ارفع `fastcrand_php.zip` إلى `public_html` (أو مجلد الدومين) ثم **Extract هناك مباشرة** — لا يوجد مجلد علوي، فتظهر
+   `public/ core/ sql/ data/ tools/ cron.php .htaccess` داخل `public_html` نفسه. (تأكد أن الملف المخفي `.htaccess` ظهر/نُسخ — فعّل «إظهار الملفات المخفية».)
+2. أنشئ قاعدة MySQL ومستخدماً لها من لوحة الاستضافة (أو دع المثبّت ينشئها إن كان للمستخدم صلاحية CREATE DATABASE). وأعطِ PHP صلاحية الكتابة على `core` و`data` (عادةً 755 تكفي في cPanel).
 3. افتح `https://موقعك/install.php` واملأ بيانات القاعدة (والاختياري: بريد/كلمة مرور الأدمن الجديدين).
-   سيكتب المثبّت `app/config.php` وينشئ الجداول والبيانات الافتراضية، ثم يعطّل نفسه (يرفض العمل ما دام `config.php` موجوداً).
-4. احذف `public/install.php` بعد التثبيت (اختياري لكن أفضل).
+   سيكتب المثبّت `core/config.php` وينشئ الجداول والبيانات الافتراضية، ثم يعطّل نفسه (يرفض العمل ما دام `config.php` موجوداً).
+4. أضف مهمة Cron من لوحة الاستضافة (إلزامي، انظر «المهام الدورية»): `* * * * * php /مسار/public_html/cron.php`.
+5. احذف `public/install.php` بعد التثبيت (اختياري لكن أفضل).
+
+### الطريقة أ-2 — VPS / جذر الويب = `public`
+إن كان بإمكانك جعل DocumentRoot هو مجلد `public` نفسه (الأفضل أمنياً): افتح الأرشيف في مجلد خارج الجذر (مثلاً `/var/www/fastcrand`)، واجعل الجذر `/var/www/fastcrand/public`
+(انظر Nginx/Apache أدناه). عندها ملف `.htaccess` الذي بجانب `core/` غير مستعمل ولا يضر. باقي الخطوات كما في الطريقة أ.
 
 ### الطريقة ب — استيراد SQL يدوياً (phpMyAdmin) + ملف إعدادات
 1. استورد `sql/schema.sql` ثم `sql/seed.sql` في قاعدتك.
-2. انسخ `app/config.sample.php` إلى `app/config.php` وعدّل بيانات MySQL (`DB_HOST/DB_PORT/DB_NAME/DB_USER/DB_PASS`) والدومين والمفتاح السري.
+2. انسخ `core/config.sample.php` إلى `core/config.php` وعدّل بيانات MySQL (`DB_HOST/DB_PORT/DB_NAME/DB_USER/DB_PASS`) والدومين والمفتاح السري.
 
 ### الطريقة ج — سطر الأوامر
-انسخ `app/config.sample.php` إلى `app/config.php` وعدّله، ثم: `php tools/init_db.php` (آمن عند التكرار).
+انسخ `core/config.sample.php` إلى `core/config.php` وعدّله، ثم: `php tools/init_db.php` (آمن عند التكرار).
 
 > الحسابان الافتراضيان (كما بالأصل): `admin@admin.com / 2sebvWFr6BYwVBrV` و`test@test.com / 123456`.
 > **غيّر كلمة مرور الأدمن فوراً** (أو أدخل بيانات جديدة في المثبّت). بخلاف نسخة بايثون، هذه الحسابات تُزرع **عند التثبيت فقط**
@@ -57,16 +66,16 @@ php tools/migrate_from_sqlite.php --sqlite=/root/fastcrand.db --files=/root     
 * يطبع تقريراً بعدد الصفوف لكل جدول (SQLite مقابل MySQL) ويفشل إن لم يتطابقا. `--truncate` يفرّغ جداول الهدف أولاً.
 * ينسخ `fc_voices fc_ticket_images fc_avatars fc_pm_images fc_pwa_icon fc_logo` و`fc_vapid.json fc_push_subs.json fc_services_cache.json` إلى `data/`.
 * أي عمود موجود بقاعدتك القديمة وغير موجود بالمخطط الجديد (مثل `users.role` بمخططات أقدم) **يُضاف تلقائياً** ولا تضيع بياناته.
-* **للإبقاء على تسجيل دخول المستخدمين:** ضع في `app/config.php` نفس `SECRET_KEY` المستعمل بموقع بايثون.
+* **للإبقاء على تسجيل دخول المستخدمين:** ضع في `core/config.php` نفس `SECRET_KEY` المستعمل بموقع بايثون.
   كوكي الجلسة متوافق مع Flask في الاتجاهين. (المفتاح الافتراضي القديم معروف علناً — يُفضَّل تغييره بعد استقرار النقل؛ سيُطلب من المستخدمين الدخول مرة واحدة.)
-* **التحويل:** أوقف خدمة بايثون، شغّل أداة النقل (آخر مرة)، ثم وجّه الدومين لـ `php/public`. للتراجع أعد التوجيه لبايثون.
+* **التحويل:** أوقف خدمة بايثون، شغّل أداة النقل (آخر مرة)، ثم وجّه الدومين لهذا الموقع (جذر الويب أو `public/`). للتراجع أعد التوجيه لبايثون.
 
 ## المهام الدورية (إلزامي)
 في بايثون كانت threads داخل العملية؛ هنا يشغّلها `cron.php`: الطلبات المعلّقة (كل 30ث)، فحص حالات الطلبات (5د)، مزامنة الأسعار (3د)،
 مزامنة/استيراد الخدمات، التعويض التلقائي (24س)، نسخ احتياطي محلي (ساعة) وإلى تلغرام (6س)، تنظيف الصور (ساعة)، رسائل المساعد للخاملين (6س).
 
 ```cron
-* * * * * php /path/to/php/cron.php >/dev/null 2>&1
+* * * * * php /path/to/cron.php >/dev/null 2>&1
 ```
 أو كخدمة دائمة بدل الكرون: `php cron.php --daemon` (مثال systemd أدناه). أوامر مفيدة: `--list` (الجدول وآخر تشغيل)، `--job=queued` (تشغيل مهمة الآن)، `--once`.
 كل مهمة تعمل بعملية منفصلة وبقفل خاص بها، فلا تعطّل مهمة بطيئة غيرها. السجل: `data/logs/cron.log`.
@@ -74,7 +83,7 @@ php tools/migrate_from_sqlite.php --sqlite=/root/fastcrand.db --files=/root     
 ```ini
 # /etc/systemd/system/fastcrand-cron.service
 [Service]
-ExecStart=/usr/bin/php /path/to/php/cron.php --daemon
+ExecStart=/usr/bin/php /path/to/cron.php --daemon
 Restart=always
 User=www-data
 [Install]
@@ -83,27 +92,27 @@ WantedBy=multi-user.target
 
 ## إعداد الخادم
 
-**Apache:** `public/.htaccess` جاهز (إعادة التوجيه لـ index.php، رفع حتى 64MB، وتحويل http→https بـ 301 كما كانت نسخة بايثون). فعّل `mod_rewrite` و`AllowOverride All`.
+**Apache:** `.htaccess` (بجانب `core/`) و`public/.htaccess` جاهزان: الأول يوجّه كل شيء إلى `public/` ويحجب `core/ data/ sql/ tools/ tests/` و`cron.php`، والثاني يوجّه لـ index.php ويرفع حد الرفع إلى 64MB ويحوّل http→https بـ 301 كما كانت نسخة بايثون. فعّل `mod_rewrite` و`AllowOverride All`.
 
 **Nginx + PHP-FPM:**
 ```nginx
 server { listen 80; server_name example.com; return 301 https://$host$uri; }   # الأصل يُسقط الـ query أيضاً
 server {
   listen 443 ssl http2; server_name example.com;
-  root /var/www/fastcrand/php/public; index index.php;
+  root /var/www/fastcrand/public; index index.php;
   client_max_body_size 64m;
   location / { try_files $uri /index.php?$query_string; }
   location ~ \.php$ { include snippets/fastcgi-php.conf; fastcgi_pass unix:/run/php/php8.3-fpm.sock; }
   location ~ /\.(?!well-known) { deny all; }
 }
 ```
-`public/.user.ini` يرفع حدود الرفع لـ PHP-FPM. مجلدات `app/ data/ sql/ tools/ tests/` خارج الجذر أو محمية بـ `.htaccess` (Apache) — في Nginx تأكد أن الجذر هو `public` فقط.
+`public/.user.ini` يرفع حدود الرفع لـ PHP-FPM. مجلدات `core/ data/ sql/ tools/ tests/` خارج الجذر أو محمية بـ `.htaccess` (Apache) — في Nginx تأكد أن الجذر هو `public` فقط.
 
 ## التشخيص
 * أخطاء التطبيق: `data/logs/app_errors.log` (JSON lines)، أو للأدمن: `GET /api/admin/errors?limit=50&level=EXCEPTION` (و`DELETE` للتفريغ).
 * البريد: `data/logs/mail.log` — النسخ الاحتياطي: `data/logs/backup.log` — المهام: `data/logs/cron.log`.
 * النسخ الاحتياطي صار ملف SQL كامل (`data/fc_backups/backup_<label>_<وقت>/fastcrand.sql`) قابل للاستيراد بـ phpMyAdmin أو `mysql < file`
-  (و`restore_backup()` بـ `app/lib/backup.php`)؛ نسخة تلغرام = zip فيه ملف SQL + مفاتيح VAPID/الاشتراكات/كاش الخدمات.
+  (و`restore_backup()` بـ `core/lib/backup.php`)؛ نسخة تلغرام = zip فيه ملف SQL + مفاتيح VAPID/الاشتراكات/كاش الخدمات.
 
 ## ما الذي تغيّر عن نسخة بايثون؟ (النقل الأمين لا يعني نسخ الأخطاء)
 **مقصود ومُحسَّن (لا يمس الشكل أو الاستجابات):**
@@ -116,7 +125,7 @@ server {
 **مُحافَظ عليه كما هو (قرارك أن لا يتغير شيء):**
 * `/api/admin/daily-gift` (GET/POST) يستعلم عن عمود `users.role` غير الموجود بالمخطط، فيرجع 500 بالنسختين (قسم "الهدية اليومية" بلوحة الأدمن). يعمل تلقائياً إن كان عمود `role` موجوداً بقاعدتك القديمة (تنقله أداة النقل).
 * **ثغرة سعر الطلب:** `/api/order` يأخذ `price` من المتصفح بلا تحقق، فيستطيع أي مستخدم إرسال `price=0` وشراء الخدمات مجاناً (والمزوّد يخصم من رصيدك). تركناها كما بالأصل،
-  لكن أضفنا مفتاحاً اختيارياً: ضع `define('STRICT_PRICING', true);` بـ `app/config.php` ليتحقق الخادم من السعر مقابل الكتالوج (الأدمن مستثنى). الافتراضي `false` = سلوك الأصل بالضبط.
+  لكن أضفنا مفتاحاً اختيارياً: ضع `define('STRICT_PRICING', true);` بـ `core/config.php` ليتحقق الخادم من السعر مقابل الكتالوج (الأدمن مستثنى). الافتراضي `false` = سلوك الأصل بالضبط.
   (وبالأصل أيضاً يُطبَّق خصم المستوى مرتين: مرة بالواجهة ومرة بالخادم — مُحافَظ عليه.)
 * قوالب تُدرج قيماً بلا تهريب HTML، ومفتاح الجلسة الافتراضي المعروف، وإنشاء حساب أدمن افتراضي — كلها كما بالأصل (انظر ملاحظات الأمان في ملخص التسليم).
 * نصوص أخطاء الشبكة (`requests`/`smtplib`) مُحاكاة بصيغتها؛ تفاصيل داخلية مثل رقم سطر `_ssl.c` أو عناوين الذاكرة تختلف حتماً.
@@ -124,4 +133,4 @@ server {
 ## الاختبار
 كل مسار قورن **جنباً إلى جنب مع تطبيق بايثون الأصلي** (نفس الطلب → مقارنة الحالة والترويسات والجسم حرفياً، وما يرسله كل تطبيق لمزوّد SMM/Binance/آسياسيل/تلغرام/SMTP،
 وفك تشفير Web Push والتحقق من توقيع VAPID)، إضافة لاختبار النقل صفاً بصف، والنسخ الاحتياطي (استيراد وفحص checksum)، والمهام الدورية، والمثبّت.
-`python3 tools/check_literals.py app.py` يقارن كل نص غير-ASCII في PHP بنصه في الأصل (يلتقط ضياع الإيموجي/الرموز غير المرئية).
+`python3 tools/check_literals.py /path/to/app.py core/…/*.php` يقارن كل نص غير-ASCII في PHP بنصه في الأصل (يلتقط ضياع الإيموجي/الرموز غير المرئية).

@@ -1,0 +1,31 @@
+# ============================================================================
+# يعمل عند فك الأرشيف مباشرةً داخل جذر الموقع (public_html أو مجلد الدومين):
+#  - يوجّه كل الطلبات إلى public/ (نقطة الدخول)
+#  - يمنع الوصول من الويب إلى core/ data/ sql/ tools/ tests/ و cron.php و README
+# (إذا كان بإمكانك جعل DocumentRoot = مجلد public مباشرة فهذا الملف غير مطلوب)
+# ============================================================================
+Options -Indexes -MultiViews
+DirectoryIndex index.php
+
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+
+    # نسخة بايثون الأصلية كانت تحوّل http إلى https بـ 301 (وتُسقط الـ query) — نفس السلوك.
+    # لا تحويل على localhost/IP ولا خلف بروكسي/CDN ينهي TLS (X-Forwarded-Proto: https).
+    RewriteCond %{HTTPS} off
+    RewriteCond %{HTTP:X-Forwarded-Proto} !https
+    RewriteCond %{HTTP_HOST} !^(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$
+    RewriteRule ^ https://%{HTTP_HOST}%{REQUEST_URI} [L,R=301,QSD]
+
+    # بعد التوجيه الداخلي إلى public/ لا تُعد المعالجة (يتولّاها public/.htaccess)
+    RewriteRule ^public/ - [L]
+
+    # المجلدات الخاصة (ما بداخلها فقط: core/ data/ ...) ممنوعة. (ملاحظة: مجلد الشيفرة اسمه core وليس app كي لا يتعارض مع رابط الموقع /app — لوحة المستخدم).
+    RewriteRule ^(core|data|sql|tools|tests|\.git)/ - [F,L,NC]
+    RewriteRule ^(cron\.php|README\.md|\.gitignore|\.htaccess)$ - [F,L,NC]
+
+    # ملف موجود فعلاً داخل public/ (مثل install.php) يُخدَّم مباشرة، وغيره يذهب لنقطة الدخول الموحدة
+    RewriteCond %{DOCUMENT_ROOT}/public%{REQUEST_URI} -f
+    RewriteRule ^(.*)$ public/$1 [L]
+    RewriteRule ^ public/index.php [L]
+</IfModule>
