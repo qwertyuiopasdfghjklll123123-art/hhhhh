@@ -20,9 +20,9 @@ DirectoryIndex index.php
     RewriteCond %{HTTPS} off
     RewriteCond %{HTTP:X-Forwarded-Proto} !https
     RewriteCond %{HTTP_HOST} !^(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$
-    RewriteCond %{REQUEST_URI} !^/(install\.php$|\.well-known/)
+    RewriteCond %{REQUEST_URI} !^/\.well-known/
     RewriteRule ^ https://%{HTTP_HOST}%{REQUEST_URI} [L,R=301,QSD]
-    # (مستثنى من التحويل: المثبّت install.php وتحقق الشهادات .well-known كي لا تُقفل نفسك قبل تفعيل SSL.
+    # (مستثنى من التحويل: مسار تحقق الشهادات /.well-known/ كي لا تُقفل نفسك قبل تفعيل SSL.
     #  إن لم تكن لدومينك شهادة SSL بعد فعلّق الأسطر الخمسة أعلاه مؤقتاً.)
 
     # بعد التوجيه الداخلي إلى public/ لا تُعد المعالجة (يتولّاها public/.htaccess)
@@ -34,7 +34,7 @@ DirectoryIndex index.php
     RewriteRule ^(core|data|sql|tools|tests|\.git)/ - [F,L,NC]
     RewriteRule ^(cron\.php|README\.md|\.gitignore|\.htaccess)$ - [F,L,NC]
 
-    # ملف موجود فعلاً داخل public/ (مثل install.php) يُخدَّم مباشرة، وغيره يذهب لنقطة الدخول الموحدة
+    # ملف موجود فعلاً داخل public/ (ملفات ثابتة إن أضفت) يُخدَّم مباشرة، وغيره يذهب لنقطة الدخول الموحدة
     RewriteCond %{DOCUMENT_ROOT}/public%{REQUEST_URI} -f
     RewriteRule ^(.*)$ public/$1 [L]
     RewriteRule ^ public/index.php [L]

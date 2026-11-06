@@ -1,0 +1,7 @@
+# ملفات التطوير لا تدخل أرشيف النشر (git archive)
+tests export-ignore
+tools/*.py export-ignore
+tools/build_zip.sh export-ignore
+core/config.sample.php export-ignore
+.gitignore export-ignore
+.gitattributes export-ignore

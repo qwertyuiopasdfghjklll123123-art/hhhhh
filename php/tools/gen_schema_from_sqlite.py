@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """
-يولّد php/sql/schema.sql (MySQL) من قاعدة SQLite التي ينشئها init_db() الأصلي في app.py.
+يولّد قسم الجداول (MySQL) الموجود في php/sql/database.sql من قاعدة SQLite التي ينشئها init_db() الأصلي في app.py.
 
 الاستعمال:
-    python3 gen_schema_from_sqlite.py /path/to/fastcrand.db > ../sql/schema.sql
+    python3 gen_schema_from_sqlite.py /path/to/fastcrand.db > /tmp/schema_part.sql   # ثم ادمجه يدوياً في sql/database.sql
 
 قواعد التحويل (لتطابق سلوك SQLite بأقصى ما يمكن):
   INTEGER -> INT (أو BIGINT للكميات)     REAL -> DOUBLE  (وليس DECIMAL حتى يرجع PDO أرقاماً لا نصوصاً)
@@ -191,7 +191,7 @@ def main(db):
     uniq_cols = {}  # (table, col) -> True للأعمدة UNIQUE المعلنة بالعمود
     fallbacks = []
     out = ['-- ملف مولَّد تلقائياً بواسطة tools/gen_schema_from_sqlite.py من مخطط app.py الأصلي (init_db).',
-           '-- يُنفَّذ بواسطة install.php تلقائياً؛ يمكن أيضاً استيراده يدوياً من phpMyAdmin.',
+           '-- (قسم الجداول من sql/database.sql — الملف الذي يُستورد من phpMyAdmin).',
            '-- المتطلبات: MySQL >= 8.0.13  أو  MariaDB >= 10.2.1',
            '']
     for t in ORDER:

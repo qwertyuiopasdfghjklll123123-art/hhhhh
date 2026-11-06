@@ -168,6 +168,8 @@ function dispatch(): void {
         $resp = $e->response;
     } catch (Throwable $e) {
         log_app_error('EXCEPTION', get_class($e) . ': ' . $e->getMessage(), $e->getFile(), $e->getLine(), $e->getTraceAsString());
+        $hint = fc_db_setup_hint($e);       // مشكلة إعداد قاعدة البيانات (كلمة مرور/قاعدة/جداول): رسالة عربية واضحة
+        if ($hint !== null) { Conn::shutdown(); fc_setup_problem($hint[0], $hint[1]); }
         $resp = http_error_page(500);
     }
     Conn::shutdown();

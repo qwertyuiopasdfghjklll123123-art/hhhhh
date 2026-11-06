@@ -1,21 +1,25 @@
 <?php
 /**
- * إنشاء الجداول + البيانات الافتراضية (يقابل init_db() في app.py:881-1287 وما بعده 1292-1438).
- * يُستدعى من install.php ومن tools/init_db.php؛ آمن عند التكرار (IF NOT EXISTS + فحص العدّ).
+ * إنشاء الجداول + البيانات الافتراضية من ملف واحد: sql/database.sql
+ * (يقابل init_db() في app.py:881-1287 وما بعده 1292-1438).
+ *
+ * الطريقة المعتادة: تستورد الملف يدوياً من phpMyAdmin (Import) ثم تكتب بيانات القاعدة في core/config.php.
+ * هذه الدوال تنفّذ الملف نفسه من PHP (سطر الأوامر: php tools/init_db.php) وهي آمنة عند التكرار
+ * (CREATE TABLE IF NOT EXISTS + INSERT IGNORE).
+ *
+ * حساب الأدمن: لا يوجد مستخدم داخل الملف. أول زيارة للموقع تنشئه من ADMIN_EMAIL / ADMIN_PASSWORD في config.php
+ * إن لم يكن هناك أي أدمن (انظر ensure_bootstrap_admin).
  */
 
+function database_sql_path(): string { return dirname(__DIR__, 2) . '/sql/database.sql'; }
+
 function schema_statements(): array {
-    $sql = (string)file_get_contents(dirname(__DIR__, 2) . '/sql/schema.sql');
-    $sql = preg_replace('/^\s*--.*$/m', '', $sql);          // أسطر التعليق
     $stmts = [];
-    foreach (preg_split('/;\s*(?:\r?\n|$)/', $sql) as $s) {
-        $s = trim($s);
-        if ($s !== '') $stmts[] = $s;
-    }
+    SqlSplitter::eachStatement(database_sql_path(), function ($s) use (&$stmts) { $stmts[] = $s; });
     return $stmts;
 }
 
-/** ينشئ الجداول الناقصة فقط */
+/** ينفّذ كل جمل database.sql (ينشئ الجداول الناقصة ويزرع البيانات الافتراضية مرة واحدة) */
 function create_schema(PDO $pdo): int {
     $n = 0;
     foreach (schema_statements() as $st) { $pdo->exec($st); $n++; }
@@ -25,69 +29,89 @@ function create_schema(PDO $pdo): int {
 function init_db(): void {
     $conn = get_db();
     create_schema($conn->pdo);
-
-    // المستويات الافتراضية
-    $lv = $conn->execute('SELECT COUNT(*) as c FROM levels')->fetchone()['c'];
-    if ($lv == 0) {
-        $levels = [
-            ['برونزي', 'BRONZE', 0, 0, '#78716c', 'fa-solid fa-seedling', 'بداية الرحلة', 1, 0],
-            ['فضي', 'SILVER', 50, 3, '#94a3b8', 'fa-solid fa-shield-halved', "أولوية بالدعم الفني\nخصم 3%", 1, 1],
-            ['ذهبي', 'GOLD', 200, 5, '#f59e0b', 'fa-solid fa-crown', "خصم 5%\nعروض حصرية\nدعم سريع", 1, 2],
-            ['VIP', 'VIP', 1000, 8, '#6366f1', 'fa-solid fa-gem', "خصم 8%\nمدير حساب خاص\nأولوية قصوى\nإشعارات أولاً", 1, 3],
-            ['ملكي', 'ROYAL', 5000, 12, '#ec4899', 'fa-solid fa-chess-king', "خصم 12%\nدعم 24/7\nخدمات مجانية شهرية", 1, 4],
-            ['أسطوري', 'LEGEND', 25000, 15, '#ef4444', 'fa-solid fa-dragon', "خصم 15%\nكل المزايا\nتسعيرة خاصة\nAPI مخصص", 1, 5],
-        ];
-        foreach ($levels as $l) {
-            $conn->execute('INSERT INTO levels(name,name_en,min_spent,discount,color,icon,benefits,active,sort_order) VALUES(?,?,?,?,?,?,?,?,?)', $l);
-        }
-        $conn->commit();
-    }
-
-    // طرق الدفع الثابتة: Binance وآسياسيل ونجوم تليجرام (معطّلة افتراضياً)
-    if ($conn->execute("SELECT COUNT(*) FROM payment_methods WHERE method_type='binance'")->fetchone()[0] == 0) {
-        $conn->execute('INSERT INTO payment_methods(name,icon,currency,active,sort_order,method_type,method_extras) VALUES(?,?,?,?,?,?,?)',
-            ['Binance Pay', 'fa-brands fa-bitcoin', 'USD', 0, 1, 'binance', py_json_dumps(['api_key' => '', 'api_secret' => ''])]);
-    }
-    if ($conn->execute("SELECT COUNT(*) FROM payment_methods WHERE method_type='asiacell'")->fetchone()[0] == 0) {
-        $conn->execute('INSERT INTO payment_methods(name,icon,currency,note,active,sort_order,method_type,method_extras) VALUES(?,?,?,?,?,?,?,?)',
-            ['آسياسيل', 'fa-solid fa-mobile-screen', 'IQD', 'تحويل رصيد آسياسيل مباشر وتلقائي', 0, 2, 'asiacell', py_json_dumps(['max_transfer' => 10000])]);
-    }
-    if ($conn->execute("SELECT COUNT(*) FROM payment_methods WHERE method_type='telegram_stars'")->fetchone()[0] == 0) {
-        $conn->execute('INSERT INTO payment_methods(name,icon,currency,note,active,sort_order,method_type,method_extras) VALUES(?,?,?,?,?,?,?,?)',
-            ['نجوم تليجرام', 'fa-brands fa-telegram', 'USD', 'دفع تلقائي عبر بوت تليجرام بنجوم Telegram Stars', 0, 3, 'telegram_stars',
-             py_json_dumps(['bot_token' => '', 'bot_username' => '', 'admin_chat_id' => '', 'rate_usd_per_100' => 1.5])]);
-    }
-    $conn->commit();
-
-    // المزوّد الافتراضي
-    $pc = $conn->execute('SELECT COUNT(*) as c FROM providers')->fetchone()['c'];
-    if ($pc == 0) {
-        $oldUrl = ''; $oldKey = '';
-        try {
-            $r1 = $conn->execute("SELECT value FROM site_settings WHERE key='provider_api_url'")->fetchone();
-            $r2 = $conn->execute("SELECT value FROM site_settings WHERE key='provider_api_key'")->fetchone();
-            if ($r1) $oldUrl = $r1['value'];
-            if ($r2) $oldKey = $r2['value'];
-        } catch (Throwable $e) {}
-        if (!py_truthy($oldUrl)) $oldUrl = SMM_API_URL;
-        if (!py_truthy($oldKey)) $oldKey = SMM_API_KEY;
-        $conn->execute('INSERT INTO providers(name,api_url,api_key,active,is_default) VALUES(?,?,?,1,1)', ['المزود الرئيسي', $oldUrl, $oldKey]);
-        $conn->commit();
-    }
     // المزود الرئيسي يعرض خدماته تلقائياً
     try { $conn->execute('UPDATE providers SET show_in_store=1 WHERE is_default=1 AND show_in_store=0'); } catch (Throwable $e) {}
     $conn->commit();
-
-    // المستخدمان الافتراضيان (يُتجاهل الخطأ إن وُجدا)
-    try {
-        $conn->execute('INSERT INTO users(name,email,password,verified) VALUES(?,?,?,1)', ['حمزة', 'test@test.com', hash_pw('123456')]);
-        $conn->commit();
-    } catch (Throwable $e) { $conn->rollback(); }
-    try {
-        $conn->execute('INSERT INTO users(name,email,password,verified,is_admin) VALUES(?,?,?,1,1)', ['الأدمن', 'admin@admin.com', hash_pw('2sebvWFr6BYwVBrV')]);
-        $conn->commit();
-    } catch (Throwable $e) { $conn->rollback(); }
-
     _backfill_display_ids();
     _backfill_public_ids();
+    $msg = bootstrap_admin_from_config();
+    if ($msg !== null) echo $msg . "\n";
+}
+
+/* ------------------------------ حساب الأدمن الأول من config.php ------------------------------ */
+
+function admin_bootstrap_flag(): string { return DATA_DIR . '/cache/admin_bootstrap.done'; }
+
+/** هل القيم المكتوبة في config.php صالحة لإنشاء أدمن؟ يرجع [email, password, name] أو null */
+function admin_config_values(): ?array {
+    if (!defined('ADMIN_EMAIL') || !defined('ADMIN_PASSWORD')) return null;
+    $email = mb_strtolower(trim((string)ADMIN_EMAIL), 'UTF-8');
+    $pw = (string)ADMIN_PASSWORD;
+    if ($email === '' || $pw === '') return null;
+    $name = defined('ADMIN_NAME') && trim((string)ADMIN_NAME) !== '' ? trim((string)ADMIN_NAME) : 'الأدمن';
+    return [$email, $pw, $name];
+}
+
+/**
+ * ينشئ حساب الأدمن من ADMIN_EMAIL/ADMIN_PASSWORD إن لم يوجد أي أدمن بالقاعدة.
+ * @return string|null رسالة بما حدث (أو null إن لم يكن هناك شيء لفعله)
+ * @throws Throwable إن لم تكن القاعدة جاهزة بعد (الجداول غير مستوردة)
+ */
+function bootstrap_admin_from_config(): ?string {
+    $v = admin_config_values();
+    if ($v === null) return null;
+    [$email, $pw, $name] = $v;
+    $conn = get_db();
+    if ($conn->execute('SELECT id FROM users WHERE is_admin=1 LIMIT 1')->fetchone()) {
+        @file_put_contents(admin_bootstrap_flag(), date('c'));
+        return null;
+    }
+    if (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
+        log_app_error('ERROR', 'ADMIN_EMAIL في config.php ليس بريداً صالحاً — لم يُنشأ حساب الأدمن');
+        return 'ADMIN_EMAIL غير صالح — لم يُنشأ حساب الأدمن';
+    }
+    if (mb_strlen($pw, 'UTF-8') < 8) {
+        log_app_error('ERROR', 'ADMIN_PASSWORD في config.php أقصر من 8 محارف — لم يُنشأ حساب الأدمن');
+        return 'ADMIN_PASSWORD أقصر من 8 محارف — لم يُنشأ حساب الأدمن';
+    }
+    $existing = $conn->execute('SELECT id FROM users WHERE email=?', [$email])->fetchone();
+    if ($existing) {
+        $conn->execute('UPDATE users SET is_admin=1, verified=1, banned=0, password=? WHERE id=?', [hash_pw($pw), $existing['id']]);
+        $msg = "تمت ترقية $email إلى أدمن";
+    } else {
+        $conn->execute('INSERT INTO users(name,email,password,verified,is_admin) VALUES(?,?,?,1,1)', [$name, $email, hash_pw($pw)]);
+        $msg = "أُنشئ حساب الأدمن $email";
+    }
+    $conn->commit();
+    _backfill_public_ids();
+    @file_put_contents(admin_bootstrap_flag(), date('c'));
+    @file_put_contents(DATA_DIR . '/logs/admin_audit.log', json_encode(['t' => date('c'), 'event' => 'admin_bootstrap', 'email' => $email], JSON_UNESCAPED_UNICODE) . "\n", FILE_APPEND | LOCK_EX);
+    return $msg . ' — احذف ADMIN_PASSWORD من core/config.php بعد أول تسجيل دخول';
+}
+
+/**
+ * يُستدعى مع كل طلب ويب (رخيص بعد النجاح الأول: ملف علم).
+ * - إعدادات قديمة بلا ثابت ADMIN_EMAIL: لا شيء.
+ * - ADMIN_EMAIL موجود ولا يوجد أي أدمن: ينشئه إن كانت القيم صالحة، وإلا تظهر صفحة إعداد واضحة تقول ماذا تكتب.
+ */
+function ensure_bootstrap_admin(): void {
+    static $done = false;
+    if ($done) return;
+    $done = true;
+    if (!defined('ADMIN_EMAIL') || is_file(admin_bootstrap_flag())) return;
+    try {
+        bootstrap_admin_from_config();
+        $hasAdmin = (bool)get_db()->execute('SELECT id FROM users WHERE is_admin=1 LIMIT 1')->fetchone();
+    } catch (Throwable $e) {
+        // أول تشغيل ولم تكتمل التهيئة: اشرح المشكلة بوضوح على أي رابط (بما فيه الصفحة الرئيسية) بدل أن تبدو الصفحة سليمة
+        log_app_error('EXCEPTION', get_class($e) . ': ' . $e->getMessage(), $e->getFile(), $e->getLine());
+        $hint = fc_db_setup_hint($e);
+        if ($hint !== null) fc_setup_problem($hint[0], $hint[1]);
+        return;
+    }
+    if ($hasAdmin) { @file_put_contents(admin_bootstrap_flag(), date('c')); return; }
+    $v = admin_config_values();
+    fc_setup_problem('لا يوجد حساب أدمن بعد', $v === null
+        ? ['افتح <code>core/config.php</code> واكتب <code>ADMIN_EMAIL</code> (بريدك) و <code>ADMIN_PASSWORD</code> (8 محارف فأكثر).', 'أعد تحميل الصفحة: يُنشأ حساب الأدمن تلقائياً.']
+        : ['<code>ADMIN_EMAIL</code> أو <code>ADMIN_PASSWORD</code> في <code>core/config.php</code> غير صالح: اكتب بريداً صحيحاً وكلمة مرور من 8 محارف فأكثر.', 'أعد تحميل الصفحة.']);
 }

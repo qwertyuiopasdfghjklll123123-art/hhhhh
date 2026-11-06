@@ -1,6 +1,23 @@
--- ملف مولَّد تلقائياً بواسطة tools/gen_schema_from_sqlite.py من مخطط app.py الأصلي (init_db).
--- يُنفَّذ بواسطة install.php تلقائياً؛ يمكن أيضاً استيراده يدوياً من phpMyAdmin.
--- المتطلبات: MySQL >= 8.0.13  أو  MariaDB >= 10.2.1
+-- ============================================================================
+-- fastcrand — قاعدة البيانات الكاملة في ملف واحد (الجداول + البيانات الافتراضية)
+-- ============================================================================
+-- طريقة الاستعمال (استضافة عادية):
+--   1) أنشئ قاعدة بيانات فارغة + مستخدماً لها من لوحة الاستضافة (الترميز utf8mb4).
+--   2) phpMyAdmin ← اختر القاعدة ← Import (استيراد) ← اختر هذا الملف ← Go.
+--   3) اكتب بيانات القاعدة في core/config.php (DB_HOST / DB_NAME / DB_USER / DB_PASS).
+--
+-- سطر الأوامر:   mysql -u USER -p DBNAME < sql/database.sql
+--
+-- • الملف آمن عند التكرار (CREATE TABLE IF NOT EXISTS + INSERT IGNORE): لا يمسح شيئاً ولا يكرر البيانات.
+-- • لا يحتوي أي مستخدم: يُنشأ حساب الأدمن تلقائياً أول زيارة من ADMIN_EMAIL و ADMIN_PASSWORD في core/config.php.
+-- • المتطلبات: MySQL >= 8.0.13  أو  MariaDB >= 10.2.1
+-- ============================================================================
+
+SET NAMES utf8mb4;
+
+-- ----------------------------------------------------------------------------
+-- الجداول (25 جدولاً — مطابقة لمخطط app.py الأصلي مع أعمدة داخلية __fc_* لثبات ترتيب الصفوف)
+-- ----------------------------------------------------------------------------
 
 CREATE TABLE IF NOT EXISTS `users` (
   `id` INT NOT NULL AUTO_INCREMENT,
@@ -348,3 +365,20 @@ CREATE TABLE IF NOT EXISTS `master_key_log` (
   `created_at` DOUBLE DEFAULT (UNIX_TIMESTAMP()),
   PRIMARY KEY (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin;
+
+
+-- ----------------------------------------------------------------------------
+-- البيانات الافتراضية: المستويات، طرق الدفع الثابتة (معطّلة)، المزوّد الافتراضي
+-- ----------------------------------------------------------------------------
+INSERT IGNORE INTO `levels` (`id`,`name`,`name_en`,`min_spent`,`discount`,`color`,`icon`,`benefits`,`active`,`sort_order`) VALUES (1, 'برونزي', 'BRONZE', 0, 0, '#78716c', 'fa-solid fa-seedling', 'بداية الرحلة', 1, 0);
+INSERT IGNORE INTO `levels` (`id`,`name`,`name_en`,`min_spent`,`discount`,`color`,`icon`,`benefits`,`active`,`sort_order`) VALUES (2, 'فضي', 'SILVER', 50, 3, '#94a3b8', 'fa-solid fa-shield-halved', 'أولوية بالدعم الفني\nخصم 3%', 1, 1);
+INSERT IGNORE INTO `levels` (`id`,`name`,`name_en`,`min_spent`,`discount`,`color`,`icon`,`benefits`,`active`,`sort_order`) VALUES (3, 'ذهبي', 'GOLD', 200, 5, '#f59e0b', 'fa-solid fa-crown', 'خصم 5%\nعروض حصرية\nدعم سريع', 1, 2);
+INSERT IGNORE INTO `levels` (`id`,`name`,`name_en`,`min_spent`,`discount`,`color`,`icon`,`benefits`,`active`,`sort_order`) VALUES (4, 'VIP', 'VIP', 1000, 8, '#6366f1', 'fa-solid fa-gem', 'خصم 8%\nمدير حساب خاص\nأولوية قصوى\nإشعارات أولاً', 1, 3);
+INSERT IGNORE INTO `levels` (`id`,`name`,`name_en`,`min_spent`,`discount`,`color`,`icon`,`benefits`,`active`,`sort_order`) VALUES (5, 'ملكي', 'ROYAL', 5000, 12, '#ec4899', 'fa-solid fa-chess-king', 'خصم 12%\nدعم 24/7\nخدمات مجانية شهرية', 1, 4);
+INSERT IGNORE INTO `levels` (`id`,`name`,`name_en`,`min_spent`,`discount`,`color`,`icon`,`benefits`,`active`,`sort_order`) VALUES (6, 'أسطوري', 'LEGEND', 25000, 15, '#ef4444', 'fa-solid fa-dragon', 'خصم 15%\nكل المزايا\nتسعيرة خاصة\nAPI مخصص', 1, 5);
+
+INSERT IGNORE INTO `payment_methods` (`id`,`name`,`icon`,`number`,`exchange_rate`,`currency`,`note`,`bot_link`,`active`,`method_type`,`method_extras`,`sort_order`,`image`) VALUES (1, 'Binance Pay', 'fa-brands fa-bitcoin', '', '', 'USD', '', '', 0, 'binance', '{"api_key": "", "api_secret": ""}', 1, '');
+INSERT IGNORE INTO `payment_methods` (`id`,`name`,`icon`,`number`,`exchange_rate`,`currency`,`note`,`bot_link`,`active`,`method_type`,`method_extras`,`sort_order`,`image`) VALUES (2, 'آسياسيل', 'fa-solid fa-mobile-screen', '', '', 'IQD', 'تحويل رصيد آسياسيل مباشر وتلقائي', '', 0, 'asiacell', '{"max_transfer": 10000}', 2, '');
+INSERT IGNORE INTO `payment_methods` (`id`,`name`,`icon`,`number`,`exchange_rate`,`currency`,`note`,`bot_link`,`active`,`method_type`,`method_extras`,`sort_order`,`image`) VALUES (3, 'نجوم تليجرام', 'fa-brands fa-telegram', '', '', 'USD', 'دفع تلقائي عبر بوت تليجرام بنجوم Telegram Stars', '', 0, 'telegram_stars', '{"bot_token": "", "bot_username": "", "admin_chat_id": "", "rate_usd_per_100": 1.5}', 3, '');
+
+INSERT IGNORE INTO `providers` (`id`,`name`,`api_url`,`api_key`,`active`,`is_default`,`balance`,`balance_updated`,`show_in_store`) VALUES (1, 'المزود الرئيسي', 'https://smmparty.com/api/v2', '1c0218b705ad1d031562ab810b11552e', 1, 1, 0, 0, 1);

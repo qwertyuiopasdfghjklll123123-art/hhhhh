@@ -1,4 +1,4 @@
-# كل الطلبات إلى index.php ما عدا الملفات الموجودة فعلاً (install.php، static ...)
+# كل الطلبات إلى index.php ما عدا الملفات الموجودة فعلاً
 Options -Indexes -MultiViews
 DirectoryIndex index.php
 
@@ -10,7 +10,7 @@ DirectoryIndex index.php
     RewriteCond %{HTTPS} off
     RewriteCond %{HTTP:X-Forwarded-Proto} !https
     RewriteCond %{HTTP_HOST} !^(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$
-    RewriteCond %{REQUEST_URI} !^/(public/)?(install\.php$|\.well-known/)
+    RewriteCond %{REQUEST_URI} !^/(public/)?\.well-known/
     RewriteRule ^ https://%{HTTP_HOST}%{REQUEST_URI} [L,R=301,QSD]
 
     RewriteCond %{REQUEST_FILENAME} -f

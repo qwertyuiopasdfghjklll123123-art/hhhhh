@@ -22,6 +22,30 @@ function log_app_error(string $level, string $message, string $file = '', int $l
     }
 }
 
+/**
+ * مشاكل إعداد قاعدة البيانات المعروفة (كلمة مرور خاطئة، قاعدة غير موجودة، جداول لم تُستورد...) → [عنوان, خطوات] أو null.
+ * لا تُعرض أي أسرار؛ النص التقني الكامل يبقى في app_errors.log.
+ */
+function fc_db_setup_hint(Throwable $e): ?array {
+    for ($x = $e; $x !== null; $x = $x->getPrevious()) {
+        if (!($x instanceof PDOException)) continue;
+        $code = (int)($x->errorInfo[1] ?? 0);
+        if ($code === 1045) return ['بيانات الدخول إلى قاعدة البيانات غير صحيحة', [
+            'راجع <code>DB_USER</code> و <code>DB_PASS</code> في <code>core/config.php</code>.',
+            'تأكد من إضافة المستخدم إلى القاعدة بكل الصلاحيات (All Privileges) من لوحة الاستضافة.']];
+        if ($code === 1049 || $code === 1044) return ['قاعدة البيانات غير موجودة أو لا يملك المستخدم صلاحية عليها', [
+            'راجع <code>DB_NAME</code> في <code>core/config.php</code> (اسم القاعدة كما يظهر بلوحة الاستضافة، وغالباً يبدأ ببادئة الحساب).',
+            'تأكد أن المستخدم مضاف إلى هذه القاعدة بكل الصلاحيات.']];
+        if (in_array($code, [2002, 2003, 2005, 2006, 2013], true)) return ['تعذّر الاتصال بخادم قاعدة البيانات', [
+            'راجع <code>DB_HOST</code> و <code>DB_PORT</code> في <code>core/config.php</code> (عادةً <code>localhost</code> و <code>3306</code>).',
+            'إن كانت الخدمة متوقفة مؤقتاً أعد المحاولة بعد قليل.']];
+        if ($code === 1146) return ['جداول الموقع غير موجودة في قاعدة البيانات', [
+            'استورد الملف <code>sql/database.sql</code> داخل القاعدة: phpMyAdmin ← اختر القاعدة ← Import (استيراد).',
+            'تأكد أن <code>DB_NAME</code> في <code>core/config.php</code> يشير إلى القاعدة التي استوردت فيها الملف.']];
+    }
+    return null;
+}
+
 function install_error_handlers(): void {
     set_error_handler(function ($errno, $errstr, $errfile, $errline) {
         if (!(error_reporting() & $errno)) return false;
@@ -32,6 +56,8 @@ function install_error_handlers(): void {
     });
     set_exception_handler(function ($e) {
         log_app_error('EXCEPTION', get_class($e) . ': ' . $e->getMessage(), $e->getFile(), $e->getLine(), $e->getTraceAsString());
+        $hint = fc_db_setup_hint($e);
+        if ($hint !== null) fc_setup_problem($hint[0], $hint[1]);
         if (PHP_SAPI !== 'cli') {
             http_response_code(500);
             echo '<!doctype html>' . "\n" . '<html lang=en>' . "\n" . '<title>500 Internal Server Error</title>' . "\n" . '<h1>Internal Server Error</h1>' . "\n" . '<p>The server encountered an internal error and was unable to complete your request. Either the server is overloaded or there is an error in the application.</p>' . "\n";

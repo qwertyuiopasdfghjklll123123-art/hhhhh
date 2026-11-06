@@ -10,4 +10,5 @@ if (PHP_SAPI === 'cli-server') {   // php -S: قدّم الملفات الثاب
 }
 require __DIR__ . '/../core/bootstrap.php';
 fc_session_load();
+ensure_bootstrap_admin();
 dispatch();
