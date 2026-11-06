@@ -10,6 +10,11 @@ DirectoryIndex index.php
 <IfModule mod_rewrite.c>
     RewriteEngine On
 
+    # حماية: إن كان DocumentRoot هو مجلد public نفسه (وهذا الملف في مجلد أعلى منه ويصله Apache لأن AllowOverride مفعّل هناك)
+    # فلا تُنفَّذ أي قاعدة هنا — يتولّى public/.htaccess كل شيء.
+    RewriteCond %{DOCUMENT_ROOT}/public/index.php !-f
+    RewriteRule ^ - [L]
+
     # نسخة بايثون الأصلية كانت تحوّل http إلى https بـ 301 (وتُسقط الـ query) — نفس السلوك.
     # لا تحويل على localhost/IP ولا خلف بروكسي/CDN ينهي TLS (X-Forwarded-Proto: https).
     RewriteCond %{HTTPS} off
