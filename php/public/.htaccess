@@ -1,12 +1,31 @@
 # كل الطلبات إلى index.php ما عدا الملفات الموجودة فعلاً (install.php، static ...)
 Options -Indexes -MultiViews
 DirectoryIndex index.php
+
 <IfModule mod_rewrite.c>
     RewriteEngine On
+
+    # نسخة بايثون الأصلية كانت تحوّل http:80 إلى https:443 بـ 301 (وتُسقط الـ query string) — نفس السلوك هنا.
+    # لا تحويل على localhost/IP، ولا خلف بروكسي/CDN ينهي TLS (X-Forwarded-Proto: https).
+    RewriteCond %{HTTPS} off
+    RewriteCond %{HTTP:X-Forwarded-Proto} !https
+    RewriteCond %{HTTP_HOST} !^(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$
+    RewriteRule ^ https://%{HTTP_HOST}%{REQUEST_URI} [L,R=301,QSD]
+
     RewriteCond %{REQUEST_FILENAME} -f
     RewriteRule ^ - [L]
     RewriteRule ^ index.php [L]
 </IfModule>
+
 <IfModule mod_php.c>
     php_flag display_errors off
+    php_value upload_max_filesize 64M
+    php_value post_max_size 64M
+    php_value memory_limit 256M
+    php_value max_execution_time 120
 </IfModule>
+
+# منع الوصول لملفات مخفية
+<FilesMatch "^\.">
+    Require all denied
+</FilesMatch>

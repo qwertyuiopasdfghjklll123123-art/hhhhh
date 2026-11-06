@@ -6,12 +6,14 @@
 define('APP_DIR', __DIR__);
 define('ROOT_DIR', dirname(__DIR__));
 
-if (!is_file(APP_DIR . '/config.php')) {
+// FC_CONFIG: مسار بديل لملف الإعدادات (لأدوات سطر الأوامر والاختبارات)
+$__fc_config = getenv('FC_CONFIG') ?: APP_DIR . '/config.php';
+if (!is_file($__fc_config)) {
     if (PHP_SAPI === 'cli') { fwrite(STDERR, "config.php غير موجود — شغّل install.php من المتصفح أو انسخ app/config.sample.php إلى app/config.php\n"); exit(1); }
     header('Location: /install.php');
     exit;
 }
-require APP_DIR . '/config.php';
+require $__fc_config;
 
 // قيم افتراضية لإعدادات قد تكون ناقصة في config.php قديم
 defined('DB_PORT') or define('DB_PORT', 3306);

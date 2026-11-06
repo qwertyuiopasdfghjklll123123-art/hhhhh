@@ -32,3 +32,8 @@ define('SMTP_PASS', 'YOUR_EMAIL_PASSWORD');
 
 // ===== تسجيل الدخول بجوجل (يمكن تغييره من لوحة الإدارة) =====
 define('GOOGLE_CLIENT_ID', 'YOUR_GOOGLE_CLIENT_ID.apps.googleusercontent.com');
+
+// ===== أمان الأسعار (اختياري) =====
+// نسخة بايثون الأصلية تأخذ سعر الطلب من المتصفح (حقل price) دون تحقق، فيمكن لأي مستخدم إرسال price=0 وشراء خدمة مجاناً.
+// ضع true لجعل الخادم يتحقق من السعر مقابل الكتالوج (الافتراضي false = نفس سلوك الأصل تماماً).
+define('STRICT_PRICING', false);

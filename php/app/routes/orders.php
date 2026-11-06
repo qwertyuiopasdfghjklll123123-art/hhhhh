@@ -59,6 +59,32 @@ function _find_default_service($service): ?array {
     return null;
 }
 
+/**
+ * اختياري (STRICT_PRICING=true بـ config.php، معطّل افتراضياً حتى يبقى السلوك مطابقاً للأصل):
+ * نسخة بايثون تثق بحقل `price` القادم من المتصفح (price=0 يعني طلباً مجانياً يدفع المزوّد ثمنه من رصيدك!).
+ * عند التفعيل يُحسب السعر الأدنى من الكتالوج (سعر الموقع بعد الأرباح × الكمية/1000 × خصم المستوى كما تحسبه الواجهة)
+ * ويُرفض الطلب إن كان السعر المرسل أقل منه، أو كانت الخدمة غير معروضة بالمتجر. الأدمن مستثنى كما بالأصل.
+ * @return string|null رسالة الرفض أو null إن كان السعر مقبولاً
+ */
+function _strict_price_check($service, int $quantity, float $client_price, $uid): ?string {
+    $rate = null;
+    [$platforms] = _build_services_catalog();
+    foreach ($platforms as $pl) {
+        foreach ($pl['categories'] as $items) {
+            foreach ($items as $it) {
+                if ($it['id'] === py_str($service)) { $rate = py_float($it['rate']); break 3; }
+            }
+        }
+    }
+    if ($rate === null) return 'الخدمة غير متاحة حالياً';
+    $disc = _get_user_level_discount($uid);
+    $expected = $quantity * $rate / 1000;
+    if ($disc > 0) $expected = $expected * (1 - $disc / 100);
+    // الواجهة ترسل toFixed(4): نسمح بفارق تقريب صغير فقط
+    if ($client_price + 0.0002 < $expected) return 'السعر غير صحيح، أعد تحميل الصفحة وحاول مجدداً';
+    return null;
+}
+
 /* '/api/order'  (app.py:3493) */
 route('/api/order', function () {
     if (!array_key_exists('user_id', $_SESSION)) return jsonify(['ok' => false, 'msg' => 'يرجى تسجيل الدخول'], 401);
@@ -72,6 +98,13 @@ route('/api/order', function () {
     $comments = py_strip(py_or(dget($data, 'comments'), ''));
     if (!py_truthy($service) || !py_truthy($link) || !$quantity) {
         return jsonify(['ok' => false, 'msg' => 'جميع الحقول مطلوبة'], 400);
+    }
+    if (defined('STRICT_PRICING') && STRICT_PRICING) {
+        $__u = get_db()->execute('SELECT is_admin FROM users WHERE id=?', [$uid])->fetchone();
+        if ($__u && !py_truthy($__u['is_admin'])) {
+            $__msg = _strict_price_check($service, $quantity, $site_price, $uid);
+            if ($__msg !== null) return jsonify(['ok' => false, 'msg' => $__msg]);
+        }
     }
     $_lv_disc = _get_user_level_discount($uid);
     if ($_lv_disc > 0 && $site_price > 0) {

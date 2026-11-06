@@ -1,7 +1,7 @@
 <?php
 /**
  * نظام تتبّع الأخطاء: يمسك كل تحذير/إشعار/استثناء/خطأ قاتل ويسجّله بـ DATA_DIR/logs/app_errors.log
- * (JSON Lines) — يُعرض من لوحة الإدارة عبر /api/admin/errors.
+ * (JSON Lines) — يُعرض للأدمن عبر GET /api/admin/errors (انظر routes/diag.php).
  */
 
 function error_log_file(): string { return DATA_DIR . '/logs/app_errors.log'; }

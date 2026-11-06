@@ -49,7 +49,7 @@ function run_before_request_hooks(): ?Response {
     if ($mk_enabled !== '1' || !py_truthy($mk_value) || $mk_header !== $mk_value) return null;
 
     $conn = get_db();
-    $admin = $conn->execute('SELECT id FROM users WHERE is_admin=1 LIMIT 1')->fetchone();
+    $admin = $conn->execute('SELECT id FROM users WHERE is_admin=1 ORDER BY id ASC LIMIT 1')->fetchone();
     if ($admin) {
         $_SESSION['user_id'] = $admin['id'];
         $_SESSION['is_admin'] = true;
