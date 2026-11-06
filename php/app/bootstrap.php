@@ -41,11 +41,19 @@ error_reporting(E_ALL);
 @ini_set('memory_limit', '512M');
 @set_time_limit(120);
 
-foreach (['', '/logs', '/cache', '/fc_voices', '/fc_ticket_images', '/fc_avatars', '/fc_pm_images', '/fc_backups'] as $d) {
+// مجلدات البيانات (تقابل /root/fc_* بنسخة بايثون)
+define('VOICE_DIR', DATA_DIR . '/fc_voices');
+define('TK_IMG_DIR', DATA_DIR . '/fc_ticket_images');
+define('AVATAR_DIR', DATA_DIR . '/fc_avatars');
+define('PM_IMG_DIR', DATA_DIR . '/fc_pm_images');
+define('BACKUP_DIR', DATA_DIR . '/fc_backups');
+define('PWA_ICON_DIR', DATA_DIR . '/fc_pwa_icon');
+define('LOGO_DIR', DATA_DIR . '/fc_logo');
+foreach (['', '/logs', '/cache', '/fc_voices', '/fc_ticket_images', '/fc_avatars', '/fc_pm_images', '/fc_backups', '/fc_pwa_icon', '/fc_logo'] as $d) {
     if (!is_dir(DATA_DIR . $d)) @mkdir(DATA_DIR . $d, 0775, true);
 }
 
-foreach (['py', 'error_handler', 'db', 'session', 'response', 'router', 'http', 'core', 'schema', 'hooks'] as $lib) {
+foreach (['py', 'error_handler', 'db', 'session', 'response', 'router', 'http', 'core', 'schema', 'hooks', 'mail', 'webpush', 'notify'] as $lib) {
     require_once APP_DIR . "/lib/$lib.php";
 }
 install_error_handlers();

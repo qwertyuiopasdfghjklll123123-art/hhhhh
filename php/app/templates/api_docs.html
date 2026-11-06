@@ -1,0 +1,63 @@
+<!DOCTYPE html><html lang="ar" dir="rtl"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0">
+<meta name="author" content="Fast"><title>__SITE_NAME__ API</title>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@300;400;500;600;700;800;900&family=Tajawal:wght@400;700;800;900&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+<style>
+:root{--bg:#070605;--c1:#0f0c0a;--c2:#140f0b;--bd:rgba(59,130,246,.16);--ac:#3b82f6;--t1:#f5efe8;--t2:#c9baa8;--t3:#94816d}
+*{margin:0;padding:0;box-sizing:border-box}body{font-family:IBM Plex Sans Arabic,'Tajawal',sans-serif;background:var(--bg);color:var(--t1);line-height:1.8}
+code{font-family:'JetBrains Mono',monospace}a{color:var(--ac);text-decoration:none}
+.tb{position:sticky;top:0;z-index:50;background:rgba(11,11,30,.92);backdrop-filter:blur(16px);border-bottom:1px solid var(--bd);padding:14px 16px;display:flex;align-items:center;gap:10px}
+.logo{font-family:'JetBrains Mono';font-size:16px;font-weight:800;background:linear-gradient(135deg,var(--ac),#60a5fa);-webkit-background-clip:text;-webkit-text-fill-color:transparent}
+.badge{padding:3px 8px;border-radius:5px;background:rgba(16,185,129,.1);border:1px solid rgba(16,185,129,.15);font-size:10px;font-weight:700;color:#4ade80}
+.sp{flex:1}
+.hero{padding:32px 16px 24px;text-align:center}
+.hero-tag{display:inline-flex;align-items:center;gap:5px;padding:5px 14px;border-radius:50px;background:rgba(99,102,241,.08);border:1px solid var(--bd);font-size:11px;font-weight:700;color:var(--ac);margin-bottom:12px}
+.hero h1{font-size:22px;font-weight:900;margin-bottom:6px}.hero p{font-size:13px;color:var(--t3);max-width:360px;margin:0 auto}
+.sec{padding:20px 16px;max-width:700px;margin:0 auto}.sec-t{font-size:17px;font-weight:900;margin-bottom:4px;display:flex;align-items:center;gap:7px}.sec-t i{color:var(--ac);font-size:14px}.sec-sub{font-size:12px;color:var(--t3);margin-bottom:16px}
+.steps{display:flex;flex-direction:column;gap:10px}.step{display:flex;gap:12px;padding:14px;border-radius:14px;background:var(--c1);border:1px solid var(--bd)}.step-n{width:30px;height:30px;border-radius:9px;background:var(--ac);color:#fff;display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:900;flex-shrink:0}.step-h{font-size:14px;font-weight:800}.step-p{font-size:12px;color:var(--t2)}.step-p code{background:var(--c2);padding:1px 6px;border-radius:4px;font-size:11px;color:var(--ac)}
+.ep{margin-bottom:10px;border-radius:14px;overflow:hidden;border:1px solid var(--bd);background:var(--c1)}
+.ep-h{padding:14px;display:flex;align-items:center;gap:8px;cursor:pointer}.ep-b{padding:4px 14px 14px;display:none}
+.ep.open .ep-b{display:block}.ep-badge{padding:4px 10px;border-radius:6px;font-size:10px;font-weight:900;font-family:'JetBrains Mono';background:rgba(99,102,241,.1);color:var(--ac);border:1px solid rgba(99,102,241,.12)}
+.ep-url{font-size:12px;font-weight:700;font-family:'JetBrains Mono';direction:ltr;text-align:left;color:var(--t1);flex:1}.ep-desc{font-size:11px;color:var(--t3)}
+.ep-lbl{font-size:11px;font-weight:800;color:var(--t3);text-transform:uppercase;letter-spacing:.3px;margin:10px 0 6px}
+.pm{padding:10px 12px;border-radius:10px;background:var(--c2);border:1px solid var(--bd);margin-bottom:6px}.pm-n{font-family:'JetBrains Mono';font-size:12px;font-weight:700;color:var(--ac)}.pm-d{font-size:11px;color:var(--t2)}.pm-r{font-size:9px;padding:2px 6px;border-radius:4px;font-weight:800;background:rgba(239,68,68,.1);color:#f87171}
+pre.r{padding:12px;background:#020510;font-family:'JetBrains Mono';font-size:11px;line-height:1.8;color:var(--t2);direction:ltr;text-align:left;overflow-x:auto;margin:0;white-space:pre;border-radius:0 0 10px 10px}
+.rb{border-radius:10px;overflow:hidden;border:1px solid var(--bd);margin-top:6px}.rb-t{display:flex;align-items:center;padding:6px 12px;background:var(--c2);border-bottom:1px solid var(--bd);font-size:10px;color:var(--t3)}
+.err{padding:10px 12px;border-radius:10px;background:var(--c1);border:1px solid var(--bd);margin-bottom:6px;display:flex;gap:10px}.err-c{flex-shrink:0;padding:3px 8px;border-radius:5px;font-size:10px;font-weight:900;font-family:'JetBrains Mono';background:rgba(239,68,68,.1);color:#f87171}.err-t{font-family:'JetBrains Mono';font-size:11px;font-weight:700;color:#ef4444}.err-d{font-size:11px;color:var(--t2)}
+.info{padding:12px;border-radius:10px;display:flex;gap:8px;margin-bottom:8px;font-size:12px;font-weight:600;line-height:1.6}.info i{font-size:13px;margin-top:2px;flex-shrink:0}.info b{color:var(--t1)}
+.info.bl{background:rgba(99,102,241,.05);border:1px solid rgba(99,102,241,.1);color:var(--t2)}.info.bl i{color:var(--ac)}
+.info.yl{background:rgba(234,179,8,.05);border:1px solid rgba(234,179,8,.1);color:var(--t2)}.info.yl i{color:#fbbf24}
+.info.rd{background:rgba(239,68,68,.05);border:1px solid rgba(239,68,68,.1);color:var(--t2)}.info.rd i{color:#f87171}
+.ft{padding:24px 16px;text-align:center;border-top:1px solid var(--bd);margin-top:20px;font-size:12px;color:var(--t3)}
+</style></head><body>
+<div class="tb"><div class="logo">__SITE_NAME__ API</div><div class="badge"><i class="fas fa-bolt"></i> v2</div><div class="sp"></div><a href="/" style="font-size:12px;color:var(--t3)">← الموقع</a></div>
+<div class="hero"><div class="hero-tag"><i class="fas fa-plug"></i> Reseller API</div><h1>وثائق __SITE_NAME__ API</h1><p>اطلب خدمات، تابع طلبات، واعرض رصيدك — كلشي أوتوماتيك من موقعك</p></div>
+<div class="sec"><div class="sec-t"><i class="fas fa-rocket"></i> كيف تبدأ</div><div class="sec-sub">٣ خطوات وتكون جاهز</div><div class="steps">
+<div class="step"><div class="step-n">1</div><div><div class="step-h">سجّل حساب</div><div class="step-p">سجّل من <a href="__BASE__">__BASE__</a> واشحن رصيدك</div></div></div>
+<div class="step"><div class="step-n">2</div><div><div class="step-h">ولّد مفتاح API</div><div class="step-p">حسابي ← API للريسيلر ← إنشاء مفتاح</div></div></div>
+<div class="step"><div class="step-n">3</div><div><div class="step-h">ابدأ بالاستخدام</div><div class="step-p">Base URL: <code>__BASE__/api/v2</code></div></div></div>
+</div></div>
+<div class="sec"><div class="sec-t"><i class="fas fa-server"></i> الـ Endpoints</div><div class="sec-sub">كل الطلبات POST على <code style="color:var(--ac)">__BASE__/api/v2</code></div>
+<div class="ep open"><div class="ep-h" onclick="this.parentElement.classList.toggle('open')"><span class="ep-badge">POST</span><div style="flex:1"><div class="ep-url">action=services</div><div class="ep-desc">قائمة الخدمات والأسعار</div></div></div><div class="ep-b"><div class="ep-lbl">الباراميترات</div><div class="pm"><div class="pm-n">key <span class="pm-r">مطلوب</span></div><div class="pm-d">مفتاح API</div></div><div class="pm"><div class="pm-n">action <span class="pm-r">مطلوب</span></div><div class="pm-d">services</div></div><div class="ep-lbl">الاستجابة</div><div class="rb"><div class="rb-t">200 OK</div><pre class="r">[{"service":"142","name":"Instagram Followers","category":"Instagram","rate":"0.85","min":"100","max":"100000"}]</pre></div></div></div>
+<div class="ep"><div class="ep-h" onclick="this.parentElement.classList.toggle('open')"><span class="ep-badge">POST</span><div style="flex:1"><div class="ep-url">action=add</div><div class="ep-desc">تقديم طلب جديد</div></div></div><div class="ep-b"><div class="ep-lbl">الباراميترات</div><div class="pm"><div class="pm-n">key <span class="pm-r">مطلوب</span></div></div><div class="pm"><div class="pm-n">service <span class="pm-r">مطلوب</span></div><div class="pm-d">رقم الخدمة</div></div><div class="pm"><div class="pm-n">link <span class="pm-r">مطلوب</span></div><div class="pm-d">رابط الحساب أو المنشور</div></div><div class="pm"><div class="pm-n">quantity <span class="pm-r">مطلوب</span></div><div class="pm-d">الكمية (بين min و max)</div></div><div class="ep-lbl">الاستجابة</div><div class="rb"><div class="rb-t">200 OK</div><pre class="r">{"order":485921,"cost":0.85,"balance":14.15}</pre></div><div class="info yl" style="margin-top:8px"><i class="fas fa-calculator"></i><div>التكلفة = (rate × quantity) / 1000</div></div></div></div>
+<div class="ep"><div class="ep-h" onclick="this.parentElement.classList.toggle('open')"><span class="ep-badge">POST</span><div style="flex:1"><div class="ep-url">action=status</div><div class="ep-desc">حالة طلب</div></div></div><div class="ep-b"><div class="ep-lbl">الباراميترات</div><div class="pm"><div class="pm-n">key <span class="pm-r">مطلوب</span></div></div><div class="pm"><div class="pm-n">order <span class="pm-r">مطلوب</span></div><div class="pm-d">رقم الطلب</div></div><div class="ep-lbl">الاستجابة</div><div class="rb"><div class="rb-t">200 OK</div><pre class="r">{"order":"485921","status":"processing","charge":"0.85","start_count":"1520","remains":"450"}</pre></div></div></div>
+<div class="ep"><div class="ep-h" onclick="this.parentElement.classList.toggle('open')"><span class="ep-badge">POST</span><div style="flex:1"><div class="ep-url">action=balance</div><div class="ep-desc">الرصيد الحالي</div></div></div><div class="ep-b"><div class="rb"><div class="rb-t">200 OK</div><pre class="r">{"balance":"15.0","currency":"USD"}</pre></div></div></div></div>
+<div class="sec"><div class="sec-t"><i class="fas fa-code"></i> مثال Python</div><div class="rb"><div class="rb-t">Python</div><pre class="r">import requests
+
+r = requests.post("__BASE__/api/v2", data={
+    "key": "fc_your_api_key",
+    "action": "add",
+    "service": 142,
+    "link": "https://instagram.com/user",
+    "quantity": 1000
+})
+print(r.json())</pre></div></div>
+<div class="sec"><div class="sec-t"><i class="fas fa-bug"></i> الأخطاء</div><div class="sec-sub">كل خطأ يرجع JSON مع حقل "error"</div>
+<div class="err"><span class="err-c">401</span><div><div class="err-t">invalid_api_key</div><div class="err-d">مفتاح غير صحيح أو مفقود</div></div></div>
+<div class="err"><span class="err-c">400</span><div><div class="err-t">service_not_found</div><div class="err-d">رقم الخدمة غير موجود</div></div></div>
+<div class="err"><span class="err-c">400</span><div><div class="err-t">insufficient_balance</div><div class="err-d">رصيد غير كافي</div></div></div>
+<div class="err"><span class="err-c">400</span><div><div class="err-t">quantity_out_of_range</div><div class="err-d">الكمية خارج الحدود</div></div></div>
+<div class="err"><span class="err-c">500</span><div><div class="err-t">provider_error</div><div class="err-d">خطأ من المزود</div></div></div></div>
+<div class="sec"><div class="info bl"><i class="fas fa-wallet"></i><div><b>الرصيد:</b> نفس رصيد حسابك بنفس الأسعار</div></div><div class="info yl"><i class="fas fa-key"></i><div><b>تسرب المفتاح؟</b> ولّد واحد جديد — القديم يتعطل تلقائياً</div></div><div class="info rd"><i class="fas fa-ban"></i><div><b>ممنوع:</b> مشاركة المفتاح أو استخدام الـ API للسبام</div></div></div>
+<div class="ft">&copy; __SITE_NAME__ API — __BASE__</div>
+</body></html>

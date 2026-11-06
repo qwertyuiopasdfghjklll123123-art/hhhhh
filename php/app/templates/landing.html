@@ -1,0 +1,740 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="author" content="Fast"><title>__SITE_NAME__ — SMM Panel</title>
+<link rel="manifest" href="/manifest.json">
+<meta name="theme-color" content="#2563eb">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="__SITE_NAME__">
+<link rel="apple-touch-icon" href="/pwa-icon-192.png?v=__PWA_ICON_VER__">
+<link rel="icon" type="image/png" sizes="192x192" href="/pwa-icon-192.png?v=__PWA_ICON_VER__">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@300;400;500;600;700;800;900&family=Tajawal:wght@400;500;700;800;900&display=swap" rel="stylesheet">
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+:root{
+  --bg:#f7f4f0;--bg2:#fbf7f3;
+  --card:#ffffff;--card-border:rgba(34,26,18,0.08);
+  --text:#221a12;--text2:#6b5d50;--text3:#998a7c;
+  --primary:#2563eb;--primary-light:#3b82f6;--primary-dark:#1d4ed8;
+  --primary-glow:rgba(37,99,235,0.14);
+  --input-bg:#fbf7f3;--input-border:#f0e6da;--input-focus:#2563eb;
+  --shadow:0 4px 20px rgba(34,26,18,0.07);
+  --shadow-lg:0 12px 40px rgba(34,26,18,0.10);
+  --icon-float:rgba(37,99,235,0.08);
+  --toggle-bg:#fdeee0;
+  --divider:#f0e6da;
+  --success:#10b981;
+  --step-line:#f0e6da;
+  --feature-icon-bg:rgba(37,99,235,0.10);
+  --err:#ef4444;
+}
+[data-theme="dark"]{
+  --bg:#070605;--bg2:#0b0906;
+  --card:#0f0c0a;--card-border:rgba(96,165,250,0.14);
+  --text:#f5efe8;--text2:#c9baa8;--text3:#94816d;
+  --primary:#3b82f6;--primary-light:#60a5fa;--primary-dark:#2563eb;
+  --primary-glow:rgba(59,130,246,0.20);
+  --input-bg:#120e0a;--input-border:#291f15;--input-focus:#60a5fa;
+  --shadow:0 4px 20px rgba(0,0,0,0.6);
+  --shadow-lg:0 12px 40px rgba(0,0,0,0.7);
+  --icon-float:rgba(59,130,246,0.10);
+  --toggle-bg:#120e0a;
+  --divider:#291f15;
+  --step-line:#291f15;
+  --feature-icon-bg:rgba(59,130,246,0.14);
+}
+html{scroll-behavior:smooth}
+body{font-family:IBM Plex Sans Arabic,'Tajawal',sans-serif;background:var(--bg);color:var(--text);transition:background .4s,color .4s;overflow-x:hidden}
+
+.floating-icons{position:fixed;inset:0;pointer-events:none;overflow:hidden;z-index:0}
+.floating-icons i{position:absolute;font-size:28px;color:var(--icon-float);animation:floatIcon 22s infinite linear;opacity:.5}
+@keyframes floatIcon{0%{transform:translateY(110vh) rotate(0deg)}100%{transform:translateY(-10vh) rotate(360deg)}}
+
+.topbar{position:fixed;top:0;left:0;right:0;z-index:100;display:flex;align-items:center;justify-content:space-between;padding:12px 24px;padding-top:max(12px,env(safe-area-inset-top,12px));background:var(--card);border-bottom:1px solid var(--card-border);backdrop-filter:blur(20px);transition:background .4s,border .4s}
+.logo-text{font-family:IBM Plex Sans Arabic,sans-serif;font-weight:800;font-size:21px;background:linear-gradient(135deg,var(--primary),var(--primary-light));-webkit-background-clip:text;-webkit-text-fill-color:transparent;letter-spacing:-0.5px}
+.topbar-actions{display:flex;align-items:center;gap:12px}
+.btn-login-top{padding:8px 20px;border-radius:9px;font-size:13px;font-weight:700;font-family:IBM Plex Sans Arabic,'Tajawal',sans-serif;cursor:pointer;transition:all .3s;border:1.5px solid var(--primary);background:none;color:var(--primary)}
+.btn-login-top:hover{background:var(--primary);color:#fff}
+.theme-toggle{width:40px;height:40px;border-radius:10px;border:1px solid var(--card-border);background:var(--toggle-bg);cursor:pointer;display:flex;align-items:center;justify-content:center;color:var(--text2);font-size:15px;transition:all .3s}
+.theme-toggle:hover{color:var(--primary);background:var(--primary-glow)}
+
+.hero{display:flex;align-items:center;justify-content:center;text-align:center;padding:110px 20px 40px;position:relative;z-index:1}
+.hero-inner{max-width:680px}
+.hero-badge{display:inline-flex;align-items:center;gap:8px;padding:8px 18px;border-radius:30px;background:var(--primary-glow);font-size:13px;font-weight:700;color:var(--primary);margin-bottom:20px;animation:fadeUp .7s ease}
+.hero h1{font-family:IBM Plex Sans Arabic,sans-serif;font-size:clamp(32px,6vw,52px);font-weight:900;line-height:1.2;margin-bottom:16px;animation:fadeUp .7s ease .1s both}
+.hero h1 .gradient{background:linear-gradient(135deg,var(--primary),var(--primary-light));-webkit-background-clip:text;-webkit-text-fill-color:transparent}
+.hero p{font-size:clamp(15px,2.5vw,18px);color:var(--text2);line-height:1.8;max-width:520px;margin:0 auto 32px;animation:fadeUp .7s ease .2s both}
+@keyframes fadeUp{from{opacity:0;transform:translateY(24px)}to{opacity:1;transform:translateY(0)}}
+@keyframes spin{0%{transform:rotate(0deg)}100%{transform:rotate(360deg)}}
+@keyframes shimmer{0%{background-position:-200% 0}100%{background-position:200% 0}}
+.hero-btns{display:flex;align-items:center;justify-content:center;gap:12px;flex-wrap:wrap;animation:fadeUp .7s ease .3s both}
+.btn-hero{padding:14px 32px;border-radius:12px;font-size:15px;font-weight:700;font-family:IBM Plex Sans Arabic,'Tajawal',sans-serif;cursor:pointer;transition:all .3s;display:inline-flex;align-items:center;gap:8px;border:none}
+.btn-hero.primary{background:linear-gradient(135deg,var(--primary),var(--primary-light));color:#fff;box-shadow:0 4px 20px var(--primary-glow)}
+.btn-hero.primary:hover{transform:translateY(-2px);box-shadow:0 8px 30px var(--primary-glow)}
+.btn-hero.outline{background:none;border:2px solid var(--card-border);color:var(--text)}
+.btn-hero.outline:hover{border-color:var(--primary);color:var(--primary)}
+.platforms-strip{display:flex;align-items:center;justify-content:center;gap:16px;margin-top:40px;animation:fadeUp .7s ease .4s both}
+.platforms-strip span{font-size:12px;color:var(--text3);font-weight:600}
+.platform-icons{display:flex;gap:10px}
+.platform-icons i{width:40px;height:40px;border-radius:10px;background:var(--bg2);border:1px solid var(--card-border);display:flex;align-items:center;justify-content:center;font-size:17px;color:var(--text2);transition:all .3s}
+.platform-icons i:hover{color:var(--primary);border-color:var(--primary);transform:translateY(-3px)}
+
+.section{padding:80px 20px;position:relative;z-index:1}
+.section-alt{background:var(--bg2)}
+.section-title{text-align:center;margin-bottom:48px}
+.section-title h2{font-size:clamp(24px,4vw,34px);font-weight:900;margin-bottom:10px}
+.section-title p{font-size:15px;color:var(--text3);max-width:500px;margin:0 auto}
+.features-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:16px;max-width:900px;margin:0 auto}
+.feature-card{background:var(--card);border:1px solid var(--card-border);border-radius:16px;padding:28px 24px;transition:all .3s;position:relative;overflow:hidden}
+.feature-card:hover{transform:translateY(-4px);box-shadow:var(--shadow-lg)}
+.feature-card::after{content:'';position:absolute;top:0;left:0;right:0;height:3px;background:var(--primary);opacity:0;transition:opacity .3s}
+.feature-card:hover::after{opacity:1}
+.feature-icon{width:48px;height:48px;border-radius:12px;background:var(--feature-icon-bg);display:flex;align-items:center;justify-content:center;font-size:20px;color:var(--primary);margin-bottom:16px}
+.feature-card h3{font-size:16px;font-weight:800;margin-bottom:8px}
+.feature-card p{font-size:13px;color:var(--text3);line-height:1.7}
+
+.stats-bar{padding:0 20px;position:relative;z-index:1;margin-top:-30px;margin-bottom:-30px}
+.stats-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;max-width:900px;margin:0 auto}
+.stat-item{text-align:center;padding:24px 16px;background:var(--card);border:1px solid var(--card-border);border-radius:14px;transition:all .3s}
+.stat-item:hover{transform:translateY(-3px);box-shadow:var(--shadow)}
+.stat-item .num{font-family:IBM Plex Sans Arabic,sans-serif;font-weight:900;font-size:clamp(22px,3vw,32px);color:var(--primary);display:block}
+.stat-item .label{font-size:12px;color:var(--text3);margin-top:4px;font-weight:600}
+
+.steps-container{max-width:700px;margin:0 auto;position:relative}
+.steps-container::before{content:'';position:absolute;right:27px;top:40px;bottom:40px;width:2px;background:var(--step-line)}
+.step{display:flex;gap:20px;align-items:flex-start;margin-bottom:36px;position:relative}
+.step:last-child{margin-bottom:0}
+.step-num{width:54px;height:54px;border-radius:14px;flex-shrink:0;background:linear-gradient(135deg,var(--primary),var(--primary-light));color:#fff;font-family:IBM Plex Sans Arabic,sans-serif;font-weight:800;font-size:20px;display:flex;align-items:center;justify-content:center;box-shadow:0 4px 16px var(--primary-glow);position:relative;z-index:1}
+.step-content{flex:1;background:var(--card);border:1px solid var(--card-border);border-radius:14px;padding:22px;transition:all .3s}
+.step-content:hover{box-shadow:var(--shadow)}
+.step-content h3{font-size:16px;font-weight:800;margin-bottom:6px;display:flex;align-items:center;gap:8px}
+.step-content h3 i{color:var(--primary);font-size:15px}
+.step-content p{font-size:13px;color:var(--text3);line-height:1.8}
+
+.auth-section{min-height:auto;display:flex;align-items:center;justify-content:center;padding:0 20px 60px;position:relative;z-index:1}
+.auth-card{width:100%;max-width:430px;background:var(--card);border:1px solid var(--card-border);border-radius:20px;padding:36px 28px;box-shadow:var(--shadow-lg);position:relative;overflow:hidden}
+.auth-card::before{content:'';position:absolute;top:0;left:0;right:0;height:4px;background:var(--primary)}
+.smm-badge{display:flex;align-items:center;justify-content:center;gap:6px;margin-bottom:18px;padding:8px 14px;border-radius:20px;background:var(--primary-glow);font-size:12px;font-weight:600;color:var(--primary)}
+.tabs{display:flex;gap:4px;background:var(--input-bg);border-radius:12px;padding:4px;margin-bottom:24px}
+.tab{flex:1;padding:10px;text-align:center;border-radius:9px;font-weight:700;font-size:14px;cursor:pointer;color:var(--text3);transition:all .3s;border:none;background:none;font-family:IBM Plex Sans Arabic,'Tajawal',sans-serif}
+.tab.active{background:var(--card);color:var(--primary);box-shadow:0 2px 10px rgba(0,0,0,0.05)}
+.welcome{text-align:center;margin-bottom:22px}
+.welcome h2{font-size:21px;font-weight:800;margin-bottom:5px}
+.welcome p{font-size:13px;color:var(--text3)}
+.form-group{margin-bottom:14px}
+.form-group label{display:block;font-size:12px;font-weight:600;color:var(--text2);margin-bottom:5px}
+.input-wrap{position:relative}
+.input-wrap i.fi{position:absolute;right:13px;top:50%;transform:translateY(-50%);color:var(--text3);font-size:14px;transition:color .3s}
+.input-wrap input{width:100%;padding:11px 40px 11px 40px;background:var(--input-bg);border:1.5px solid var(--input-border);border-radius:10px;font-size:14px;font-family:IBM Plex Sans Arabic,'Tajawal',sans-serif;color:var(--text);transition:all .3s;outline:none}
+.input-wrap input:focus{border-color:var(--input-focus);box-shadow:0 0 0 3px var(--primary-glow)}
+.input-wrap input::placeholder{color:var(--text3)}
+.eye-btn{position:absolute;left:12px;top:50%;transform:translateY(-50%);border:none;background:none;cursor:pointer;color:var(--text3);font-size:13px;padding:4px;transition:color .3s}
+.eye-btn:hover{color:var(--primary)}
+.forgot{text-align:left;margin-top:5px}
+.forgot a{font-size:12px;color:var(--primary);text-decoration:none;font-weight:600}
+.btn-primary{width:100%;padding:13px;border:none;border-radius:12px;background:linear-gradient(135deg,var(--primary),var(--primary-light));color:#fff;font-size:14px;font-weight:700;cursor:pointer;font-family:IBM Plex Sans Arabic,'Tajawal',sans-serif;transition:all .3s;box-shadow:0 4px 18px var(--primary-glow);display:flex;align-items:center;justify-content:center;gap:8px;margin-top:8px;-webkit-tap-highlight-color:transparent;min-height:46px}
+.btn-primary:hover{transform:translateY(-1px);box-shadow:0 6px 24px var(--primary-glow)}
+.btn-primary:active{transform:scale(.97)}
+.btn-primary:disabled{opacity:.6;cursor:not-allowed;transform:none}
+.btn-outline{width:100%;padding:13px;border:1.5px solid var(--primary);border-radius:12px;background:var(--primary-bg);color:var(--primary);font-size:13px;font-weight:700;cursor:pointer;font-family:var(--font);display:flex;align-items:center;justify-content:center;gap:8px;transition:all .25s;min-height:46px;-webkit-tap-highlight-color:transparent}.btn-outline:hover{background:var(--primary);color:#fff;transform:translateY(-1px);box-shadow:0 4px 18px var(--primary-glow)}.btn-outline:active{transform:scale(.97)}
+.btn-danger{width:100%;padding:13px;border:1.5px solid var(--red);border-radius:12px;background:rgba(239,68,68,.05);color:var(--red);font-size:13px;font-weight:700;cursor:pointer;font-family:var(--font);display:flex;align-items:center;justify-content:center;gap:8px;transition:all .25s;min-height:46px;-webkit-tap-highlight-color:transparent}.btn-danger:hover{background:var(--red);color:#fff}.btn-danger:active{transform:scale(.97)}
+.btn-warning{width:100%;padding:13px;border:1.5px solid var(--orange);border-radius:12px;background:rgba(245,158,11,.05);color:var(--orange);font-size:13px;font-weight:700;cursor:pointer;font-family:var(--font);display:flex;align-items:center;justify-content:center;gap:8px;transition:all .25s;min-height:46px;-webkit-tap-highlight-color:transparent}.btn-warning:hover{background:var(--orange);color:#fff}.btn-warning:active{transform:scale(.97)}
+.btn-sm{padding:10px 14px;border:1.5px solid var(--primary);border-radius:10px;background:var(--primary-bg);color:var(--primary);font-size:12px;font-weight:700;cursor:pointer;font-family:var(--font);flex-shrink:0;display:flex;align-items:center;gap:5px;transition:all .2s;-webkit-tap-highlight-color:transparent}.btn-sm:hover{background:var(--primary);color:#fff}.btn-sm:active{transform:scale(.95)}
+.btn-sm-danger{padding:6px 10px;border:1px solid rgba(239,68,68,.2);border-radius:8px;background:rgba(239,68,68,.06);color:var(--red);font-size:11px;font-weight:700;cursor:pointer;font-family:var(--font);flex-shrink:0;transition:all .2s}.btn-sm-danger:hover{background:var(--red);color:#fff}
+.btn-sm-green{padding:8px 16px;border:1px solid rgba(16,185,129,.2);border-radius:10px;background:rgba(16,185,129,.06);color:var(--green);font-size:12px;font-weight:800;cursor:pointer;font-family:var(--font);display:flex;align-items:center;gap:5px;transition:all .2s}.btn-sm-green:hover{background:var(--green);color:#fff}
+.auth-footer{text-align:center;margin-top:16px;font-size:12px;color:var(--text3)}
+.auth-footer a{color:var(--primary);text-decoration:none;font-weight:600;cursor:pointer}
+.verify-notice{display:none;text-align:center;padding:20px 0}
+.verify-notice.show{display:block;animation:fadeUp .4s ease}
+.verify-icon{width:68px;height:68px;border-radius:50%;margin:0 auto 16px;background:linear-gradient(135deg,var(--success),#34d399);display:flex;align-items:center;justify-content:center;color:#fff;font-size:28px;box-shadow:0 6px 24px rgba(16,185,129,0.25)}
+.verify-notice h3{font-size:18px;font-weight:700;margin-bottom:8px}
+.verify-notice p{font-size:13px;color:var(--text3);line-height:1.7}
+.verify-email{display:inline-block;margin:10px 0;padding:5px 14px;background:var(--primary-glow);border-radius:8px;font-size:13px;font-weight:700;color:var(--primary)}
+.site-footer{text-align:center;padding:28px 20px;border-top:1px solid var(--card-border);font-size:12px;color:var(--text3);position:relative;z-index:1;background:var(--bg)}
+.site-footer a{color:var(--primary);text-decoration:none}
+.reveal{opacity:0;transform:translateY(30px);transition:opacity .6s,transform .6s}
+.reveal.visible{opacity:1;transform:translateY(0)}
+.welcome-strip{max-width:640px;margin:22px auto 0;padding:14px 20px;background:var(--card);border:1px solid var(--card-border);border-radius:14px;display:flex;align-items:flex-start;gap:12px;text-align:right;animation:fadeUp .7s ease .2s both}
+.welcome-strip i{font-size:18px;color:var(--primary);flex-shrink:0;margin-top:2px}
+.welcome-strip p{font-size:12.5px;color:var(--text2);line-height:1.8;margin:0}
+.explain-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:16px;max-width:960px;margin:0 auto}
+.explain-card{background:var(--card);border:1px solid var(--card-border);border-radius:16px;padding:22px;position:relative;overflow:hidden;transition:all .3s}
+.explain-card-ic{width:46px;height:46px;border-radius:13px;display:flex;align-items:center;justify-content:center;font-size:19px;margin-bottom:14px}
+.explain-card-ic img{width:100%;height:100%;object-fit:contain;border-radius:13px}
+.explain-card h3{font-size:14.5px;font-weight:800;margin-bottom:6px;color:var(--text)}
+.explain-card p{font-size:12px;color:var(--text3);line-height:1.8;margin:0}
+.pm-showcase{display:flex;flex-wrap:wrap;gap:10px;margin-top:14px}
+.pm-showcase-item{display:flex;align-items:center;gap:7px;padding:9px 14px;background:var(--bg2);border:1px solid var(--card-border);border-radius:30px;font-size:11.5px;font-weight:700;color:var(--text2)}
+.pm-showcase-item i{font-size:13px;color:var(--primary)}
+.svc-teaser{position:relative;overflow:hidden;margin-top:6px}
+.svc-teaser-row{display:flex;align-items:center;gap:12px;padding:13px 14px;background:var(--bg2);border-radius:12px;transition:opacity .35s ease}
+.svc-teaser-row.fading{opacity:0}
+.svc-teaser-ic{width:36px;height:36px;border-radius:10px;background:var(--primary-glow);color:var(--primary);display:flex;align-items:center;justify-content:center;font-size:15px;flex-shrink:0}
+.svc-teaser-info{flex:1;min-width:0}
+.svc-teaser-name{font-size:12px;font-weight:800;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.svc-teaser-meta{font-size:10px;color:var(--text3);margin-top:2px}
+.svc-teaser-price{font-size:13px;font-weight:900;color:var(--green,#10b981);flex-shrink:0}
+.svc-teaser::after{content:'';position:absolute;inset:0;pointer-events:none;background:linear-gradient(100deg,transparent 35%,rgba(255,255,255,.16) 50%,transparent 65%);background-size:220% 100%;animation:shimmer 3.2s infinite}
+.section-subtitle-row{display:flex;align-items:center;justify-content:center;gap:8px;margin-top:4px}
+.section-subtitle-row p{margin:0}
+.mini-interactive{width:26px;height:26px;border-radius:50%;background:var(--primary-glow);color:var(--primary);display:inline-flex;align-items:center;justify-content:center;font-size:10px;cursor:pointer;animation:miniBounce 1.8s ease-in-out infinite;border:none;flex-shrink:0;transition:transform .2s;padding:0}
+.mini-interactive:hover{transform:scale(1.2)}
+@keyframes miniBounce{0%,100%{transform:translateY(0)}50%{transform:translateY(-4px)}}
+.stepper{max-width:640px;margin:0 auto}
+.stepper-circles{position:relative;display:flex;justify-content:space-between;align-items:center;max-width:420px;margin:0 auto 28px;padding:0 4px}
+.stepper-line{position:absolute;top:50%;right:24px;left:24px;height:3px;background:var(--card-border);border-radius:3px;transform:translateY(-50%);z-index:0}
+.stepper-line-fill{height:100%;width:0%;background:linear-gradient(90deg,var(--primary),var(--primary-light));border-radius:3px;transition:width .5s cubic-bezier(.4,0,.2,1)}
+.stepper-circle{position:relative;z-index:1;width:48px;height:48px;border-radius:50%;background:var(--card);border:2px solid var(--card-border);color:var(--text3);font-size:16px;display:flex;align-items:center;justify-content:center;cursor:pointer;transition:all .35s cubic-bezier(.34,1.56,.64,1);font-family:inherit}
+.stepper-circle.active{background:linear-gradient(135deg,var(--primary),var(--primary-light));border-color:transparent;color:#fff;transform:scale(1.15);box-shadow:0 4px 18px var(--primary-glow),0 0 0 5px var(--primary-glow)}
+.stepper-circle.done{background:var(--primary-glow);border-color:var(--primary);color:var(--primary)}
+.stepper-panel{background:var(--card);border:1px solid var(--card-border);border-radius:18px;padding:26px 24px;text-align:center;min-height:110px;position:relative}
+.stepper-panel-content{animation:stepFade .4s ease}
+.stepper-panel-content h3{font-size:16px;font-weight:800;margin-bottom:8px;color:var(--text)}
+.stepper-panel-content p{font-size:13px;color:var(--text3);line-height:1.8;margin:0 auto;max-width:440px}
+@keyframes stepFade{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
+.btn-google{width:100%;padding:11px;border:1.5px solid var(--card-border);border-radius:10px;background:var(--card);color:var(--text);font-size:14px;font-weight:700;cursor:pointer;font-family:IBM Plex Sans Arabic,'Tajawal',sans-serif;transition:all .3s;display:flex;align-items:center;justify-content:center;gap:10px}
+.btn-google:hover{border-color:var(--primary);box-shadow:0 2px 12px var(--primary-glow)}
+.msg-toast{position:fixed;top:80px;left:50%;transform:translateX(-50%);padding:11px 22px;border-radius:12px;font-size:13px;font-weight:700;z-index:9999;animation:fadeUp .3s ease;font-family:IBM Plex Sans Arabic,'Tajawal',sans-serif;max-width:90%;background:#1e1e2e;color:#fff;border:1px solid rgba(255,255,255,.12);box-shadow:0 8px 28px rgba(0,0,0,.35);display:flex;align-items:center;gap:8px;backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px)}
+.msg-toast::before{content:'\f05a';font-family:'Font Awesome 6 Free';font-weight:900;font-size:14px;color:#a78bfa}
+.msg-toast.success{background:#10b981;color:#fff;border-color:rgba(255,255,255,.2)}
+.msg-toast.success::before{content:'\f058';color:#fff}
+.msg-toast.error{background:#ef4444;color:#fff;border-color:rgba(255,255,255,.2)}
+.msg-toast.error::before{content:'\f057';color:#fff}
+.msg-toast.warning{background:#f59e0b;color:#fff;border-color:rgba(255,255,255,.2)}
+.msg-toast.warning::before{content:'\f071';color:#fff}
+.msg-toast.info{background:#3b82f6;color:#fff;border-color:rgba(255,255,255,.2)}
+.msg-toast.info::before{content:'\f05a';color:#fff}
+.msg-toast.order{background:#6366f1;color:#fff;border-color:rgba(255,255,255,.2)}
+.msg-toast.order::before{content:'\f1d8';color:#fff}
+[data-theme="light"] .msg-toast{background:#fff;color:#1a1a2e;border-color:rgba(0,0,0,.08);box-shadow:0 8px 28px rgba(0,0,0,.12)}
+
+@media(max-width:768px){
+  .topbar{padding:8px 14px}
+  .logo-text{font-size:16px}
+  .btn-login-top{padding:5px 12px;font-size:11px;border-radius:7px}
+  .theme-toggle{width:32px;height:32px;border-radius:8px;font-size:13px}
+  .hero{padding:70px 14px 32px;min-height:auto}
+  .hero h1{font-size:24px}
+  .hero p{font-size:13px;margin-bottom:20px;line-height:1.7}
+  .hero-badge{font-size:10px;padding:5px 12px;border-radius:20px}
+  .hero-badge i{font-size:9px}
+  .btn-hero{padding:10px 18px;font-size:13px;border-radius:9px}
+  .btn-hero.outline{border-width:1.5px}
+  .platforms-strip{flex-direction:column;gap:8px;margin-top:28px}
+  .platforms-strip span{font-size:10px}
+  .platform-icons{gap:6px}
+  .platform-icons i{width:32px;height:32px;font-size:13px;border-radius:7px}
+  .section{padding:40px 14px}
+  .section-title{margin-bottom:32px}
+  .section-title h2{font-size:19px}
+  .section-title h2 i{font-size:16px}
+  .section-title p{font-size:12px}
+  .features-grid{grid-template-columns:1fr;gap:10px;max-width:100%}
+  .feature-card{padding:18px 16px;border-radius:12px}
+  .feature-icon{width:36px;height:36px;font-size:15px;border-radius:9px;margin-bottom:12px}
+  .feature-card h3{font-size:14px}
+  .feature-card p{font-size:11px}
+  .stats-bar{padding:0 14px;margin-top:-16px;margin-bottom:-16px}
+  .stats-grid{grid-template-columns:repeat(2,1fr);gap:8px}
+  .stat-item{padding:14px 10px;border-radius:10px}
+  .stat-item .num{font-size:18px}
+  .stat-item .label{font-size:10px}
+  .steps-container::before{right:19px}
+  .step{gap:10px;margin-bottom:24px}
+  .step-num{width:38px;height:38px;font-size:14px;border-radius:10px}
+  .step-content{padding:14px;border-radius:10px}
+  .step-content h3{font-size:13px}
+  .step-content h3 i{font-size:12px}
+  .step-content p{font-size:11px;line-height:1.7}
+  .auth-section{padding:0 14px 32px;min-height:auto}
+  .auth-card{padding:20px 16px;border-radius:14px;max-width:100%}
+  .smm-badge{font-size:10px;padding:5px 10px;border-radius:16px;margin-bottom:14px}
+  .tabs{margin-bottom:16px;padding:3px;border-radius:10px}
+  .tab{padding:7px;font-size:12px;border-radius:7px}
+  .welcome{margin-bottom:16px}
+  .welcome h2{font-size:17px}
+  .welcome p{font-size:11px}
+  .form-group{margin-bottom:10px}
+  .form-group label{font-size:10px;margin-bottom:4px}
+  .input-wrap input{padding:9px 32px 9px 32px;font-size:12px;border-radius:8px}
+  .input-wrap i.fi{font-size:12px;right:10px}
+  .eye-btn{left:8px;font-size:11px}
+  .btn-primary{padding:9px;font-size:13px;border-radius:8px;margin-top:4px}
+  .btn-google{padding:9px;font-size:12px;border-radius:8px}
+  .btn-google svg{width:14px;height:14px}
+  .forgot a{font-size:10px}
+  .auth-footer{font-size:10px;margin-top:12px}
+  .verify-icon{width:52px;height:52px;font-size:22px}
+  .verify-notice h3{font-size:15px}
+  .verify-notice p{font-size:11px}
+  .verify-email{font-size:11px;padding:4px 10px}
+  .site-footer{padding:16px 14px;font-size:10px}
+}
+@media(max-width:380px){
+  .topbar{padding:7px 10px}
+  .logo-text{font-size:15px}
+  .btn-login-top{padding:4px 8px;font-size:10px}
+  .btn-login-top i{display:none}
+  .theme-toggle{width:28px;height:28px;font-size:11px;border-radius:6px}
+  .hero{padding:60px 12px 28px}
+  .hero h1{font-size:21px}
+  .hero p{font-size:12px}
+  .hero-badge{font-size:9px}
+  .btn-hero{padding:9px 14px;font-size:12px;width:100%;justify-content:center}
+  .hero-btns{flex-direction:column;width:100%}
+  .platform-icons i{width:28px;height:28px;font-size:12px}
+  .features-grid{gap:8px}
+  .feature-card{padding:14px 12px}
+  .feature-icon{width:32px;height:32px;font-size:14px}
+  .feature-card h3{font-size:13px}
+  .stats-grid{gap:6px}
+  .stat-item{padding:12px 8px;border-radius:8px}
+  .stat-item .num{font-size:16px}
+  .step-num{width:34px;height:34px;font-size:13px;border-radius:8px}
+  .steps-container::before{right:17px}
+  .step-content{padding:12px}
+  .auth-card{padding:16px 12px;border-radius:12px}
+  .tabs{padding:2px}
+  .tab{font-size:11px;padding:6px}
+  .welcome h2{font-size:15px}
+  .input-wrap input{padding:8px 28px 8px 28px;font-size:11px}
+  .btn-primary{padding:8px;font-size:12px}
+}
+</style>
+</head>
+<body>
+
+<div class="floating-icons" id="floatingIcons"></div>
+
+<div class="topbar">
+  <span class="logo-text">__SITE_NAME__</span>
+  <div class="topbar-actions">
+    <button class="btn-login-top" id="btnScrollAuth"><i class="fa-solid fa-right-to-bracket"></i> تسجيل الدخول</button>
+    <button class="theme-toggle" id="btnTheme" title="تبديل الثيم"><i class="fa-solid fa-sun" id="themeIcon"></i></button>
+  </div>
+</div>
+
+<section class="hero">
+  <div class="hero-inner">
+    <div class="hero-badge"><i class="fa-solid fa-bolt"></i> المنصة #1 لخدمات التواصل الاجتماعي <i class="fa-solid fa-bolt"></i></div>
+    <div class="platforms-strip">
+      <span>ندعم جميع المنصات</span>
+      <div class="platform-icons">
+        <i class="fa-brands fa-instagram"></i><i class="fa-brands fa-tiktok"></i><i class="fa-brands fa-youtube"></i><i class="fa-brands fa-twitter"></i><i class="fa-brands fa-facebook"></i><i class="fa-brands fa-telegram"></i><i class="fa-brands fa-snapchat"></i>
+      </div>
+    </div>
+    <div class="welcome-strip">
+      <i class="fa-solid fa-hand-sparkles"></i>
+      <p>مرحباً بك في <b>__SITE_NAME__</b> — منصتك المتكاملة لتطوير حساباتك على مواقع التواصل الاجتماعي: متابعين، إعجابات، مشاهدات وتعليقات بأسعار تنافسية وتوصيل فوري، مع مساعد ذكي يرشدك لأنسب خدمة ومكافأة يومية مجانية. سجّل دخولك أو أنشئ حسابك بالأسفل وابدأ خلال دقيقة.</p>
+    </div>
+  </div>
+</section>
+
+<section class="auth-section" id="authSection">
+  <div class="auth-card">
+    <div class="smm-badge"><i class="fa-solid fa-rocket"></i> ابدأ رحلتك الآن مع __SITE_NAME__ <i class="fa-solid fa-star"></i></div>
+    <div class="tabs">
+      <button class="tab active" id="tabLogin"><i class="fa-solid fa-right-to-bracket"></i> تسجيل الدخول</button>
+      <button class="tab" id="tabRegister"><i class="fa-solid fa-user-plus"></i> إنشاء حساب</button>
+    </div>
+    <div id="loginForm">
+      <div class="welcome"><h2>مرحباً بعودتك! </h2><p>سجّل دخولك للوصول إلى لوحة التحكم</p></div>
+      <div class="form-group"><label>اسم المستخدم أو البريد</label><div class="input-wrap"><input type="text" placeholder="أدخل اسم المستخدم أو البريد" id="loginEmail"><i class="fa-solid fa-envelope fi"></i></div></div>
+      <div class="form-group"><label>كلمة المرور</label><div class="input-wrap"><input type="password" placeholder="••••••••" id="loginPass"><i class="fa-solid fa-lock fi"></i><button class="eye-btn" id="eyeLoginPass"><i class="fa-solid fa-eye"></i></button></div><div class="forgot"><a href="#" id="btnForgotPass">نسيت كلمة المرور؟</a></div></div>
+      <button class="btn-primary" id="btnLogin">تسجيل الدخول <i class="fa-solid fa-arrow-left"></i></button>
+      <div style="display:flex;align-items:center;gap:12px;margin:16px 0"><div style="flex:1;height:1px;background:var(--divider)"></div><span style="font-size:12px;color:var(--text3)">أو</span><div style="flex:1;height:1px;background:var(--divider)"></div></div>
+      <button type="button" class="btn-google" id="btnGoogleLogin"><svg width="18" height="18" viewBox="0 0 48 48"><path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/><path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/><path fill="#FBBC05" d="M10.53 28.59a14.5 14.5 0 0 1 0-9.18l-7.98-6.19a24.01 24.01 0 0 0 0 21.56l7.98-6.19z"/><path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/></svg> تسجيل بواسطة Google</button>
+    </div>
+    <div id="forgotForm" style="display:none">
+      <div class="welcome"><h2>استعادة كلمة المرور </h2><p>أدخل بريدك وسنرسل لك رمز التحقق</p></div>
+      <div id="forgotStep1">
+        <div class="form-group"><label>البريد الإلكتروني</label><div class="input-wrap"><input type="email" placeholder="أدخل بريدك الإلكتروني" id="forgotEmail"><i class="fa-solid fa-envelope fi"></i></div></div>
+        <button class="btn-primary" id="btnSendReset" style="width:100%"><i class="fa-solid fa-paper-plane"></i> إرسال رمز التحقق</button>
+      </div>
+      <div id="forgotStep2" style="display:none">
+        <div style="text-align:center;margin-bottom:16px"><div class="verify-email" id="forgotAddr">---</div></div>
+        <div class="form-group"><label>رمز التحقق</label><div class="input-wrap"><input type="text" id="resetCode" maxlength="6" placeholder="000000" style="text-align:center;font-family:IBM Plex Sans Arabic,monospace;font-size:20px;letter-spacing:6px" oninput="this.value=this.value.replace(/[^0-9]/g,'')"><i class="fa-solid fa-key fi"></i></div></div>
+        <div class="form-group"><label>كلمة المرور الجديدة</label><div class="input-wrap"><input type="password" placeholder="••••••••" id="resetNewPass"><i class="fa-solid fa-lock fi"></i></div></div>
+        <div class="form-group"><label>تأكيد كلمة المرور</label><div class="input-wrap"><input type="password" placeholder="••••••••" id="resetNewPass2"><i class="fa-solid fa-shield-halved fi"></i></div></div>
+        <button class="btn-primary" id="btnResetPass" style="width:100%"><i class="fa-solid fa-check"></i> تغيير كلمة المرور</button>
+      </div>
+      <div style="text-align:center;margin-top:14px"><a href="#" id="btnBackToLogin" style="font-size:12px;color:var(--primary);font-weight:700;text-decoration:none"><i class="fa-solid fa-arrow-right"></i> العودة لتسجيل الدخول</a></div>
+    </div>
+    <div id="registerForm" style="display:none">
+      <div class="welcome"><h2>أنشئ حسابك الآن </h2><p>ابدأ رحلتك مع أفضل خدمات SMM</p></div>
+      <div class="form-group"><label>الاسم الكامل</label><div class="input-wrap"><input type="text" placeholder="اسمك الكامل" id="regName"><i class="fa-solid fa-user fi"></i></div></div>
+      <div class="form-group"><label>البريد الإلكتروني</label><div class="input-wrap"><input type="email" placeholder="أدخل بريدك الإلكتروني" id="regEmail"><i class="fa-solid fa-envelope fi"></i></div></div>
+      <div class="form-group"><label>كلمة المرور</label><div class="input-wrap"><input type="password" placeholder="••••••••" id="regPass"><i class="fa-solid fa-lock fi"></i><button class="eye-btn" id="eyeRegPass"><i class="fa-solid fa-eye"></i></button></div></div>
+      <div class="form-group"><label>تأكيد كلمة المرور</label><div class="input-wrap"><input type="password" placeholder="••••••••" id="regPassC"><i class="fa-solid fa-shield-halved fi"></i><button class="eye-btn" id="eyeRegPassC"><i class="fa-solid fa-eye"></i></button></div></div>
+      <div style="display:flex;align-items:flex-start;gap:8px;margin:4px 0 14px">
+        <input type="checkbox" id="regAgreePolicy" style="margin-top:3px;width:16px;height:16px;flex-shrink:0;cursor:pointer;accent-color:var(--primary)">
+        <label for="regAgreePolicy" style="font-size:11px;color:var(--text2);line-height:1.6;cursor:pointer">أوافق على <a href="#" onclick="event.preventDefault();openPolicyModal('terms')" style="color:var(--primary);font-weight:700;text-decoration:none">الشروط والأحكام</a> و<a href="#" onclick="event.preventDefault();openPolicyModal('privacy')" style="color:var(--primary);font-weight:700;text-decoration:none">سياسة الخصوصية</a></label>
+      </div>
+      <button class="btn-primary" id="btnRegister">إنشاء الحساب <i class="fa-solid fa-user-check"></i></button>
+      <div style="display:flex;align-items:center;gap:12px;margin:16px 0"><div style="flex:1;height:1px;background:var(--divider)"></div><span style="font-size:12px;color:var(--text3)">أو</span><div style="flex:1;height:1px;background:var(--divider)"></div></div>
+      <button type="button" class="btn-google" id="btnGoogleReg"><svg width="18" height="18" viewBox="0 0 48 48"><path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/><path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/><path fill="#FBBC05" d="M10.53 28.59a14.5 14.5 0 0 1 0-9.18l-7.98-6.19a24.01 24.01 0 0 0 0 21.56l7.98-6.19z"/><path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/></svg> التسجيل بواسطة Google</button>
+    </div>
+    <div id="verifyNotice" class="verify-notice">
+      <div class="verify-icon"><i class="fa-solid fa-envelope-circle-check"></i></div>
+      <h3>أدخل رمز التحقق</h3>
+      <p>أرسلنا رمز مكون من 6 أرقام إلى بريدك</p>
+      <div class="verify-email" id="verifyAddr">---</div>
+      <div style="display:flex;justify-content:center;gap:8px;margin:20px 0">
+        <input type="text" id="otpInput" maxlength="6" placeholder="000000" style="width:200px;text-align:center;font-family:IBM Plex Sans Arabic,monospace;font-size:28px;font-weight:900;letter-spacing:8px;padding:14px;border-radius:14px;border:2px solid var(--divider);background:var(--input-bg);color:var(--heading);outline:none" oninput="this.value=this.value.replace(/[^0-9]/g,'')">
+      </div>
+      <button class="btn-primary" id="btnVerifyCode" style="width:100%"><i class="fa-solid fa-check-circle"></i> تأكيد الرمز</button>
+      <button id="btnResendCode" style="margin-top:12px;background:none;border:none;color:var(--primary);font-family:inherit;font-size:12px;font-weight:700;cursor:pointer"><i class="fa-solid fa-rotate"></i> إعادة إرسال الرمز</button>
+    </div>
+    <div class="auth-footer" id="authFooter"><span id="footerText">ليس لديك حساب؟ <a id="footerLink">أنشئ واحداً</a></span></div>
+  </div>
+</section>
+
+<div id="policyModalOv" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:9999;align-items:center;justify-content:center;padding:16px" onclick="if(event.target===this)closePolicyModal()">
+  <div style="background:var(--card);border-radius:16px;max-width:480px;width:100%;max-height:80vh;display:flex;flex-direction:column;overflow:hidden;box-shadow:var(--shadow-lg)">
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:16px;border-bottom:1px solid var(--divider)">
+      <h3 id="policyModalTitle" style="margin:0;font-size:15px;font-weight:800;color:var(--text)">الشروط والأحكام</h3>
+      <button onclick="closePolicyModal()" style="background:none;border:none;font-size:20px;line-height:1;color:var(--text3);cursor:pointer">&times;</button>
+    </div>
+    <div id="policyModalBody" style="padding:16px;overflow-y:auto;font-size:12px;color:var(--text2);line-height:1.9;white-space:pre-wrap"></div>
+  </div>
+</div>
+
+<section class="section section-alt">
+  <div class="section-title reveal">
+    <h2><i class="fa-solid fa-route" style="color:var(--primary)"></i> كيف يعمل __SITE_NAME__؟</h2>
+    <div class="section-subtitle-row">
+      <p>أربع خطوات وتبدأ</p>
+      <button type="button" class="mini-interactive" id="miniStepIndicator" title="الخطوة التالية"><i class="fa-solid fa-chevron-left"></i></button>
+    </div>
+  </div>
+  <div class="stepper reveal" style="margin-bottom:48px">
+    <div class="stepper-circles" id="stepperCircles">
+      <div class="stepper-line"><div class="stepper-line-fill" id="stepperLineFill"></div></div>
+      <button type="button" class="stepper-circle" data-step="0"><i class="fa-solid fa-user-plus"></i></button>
+      <button type="button" class="stepper-circle" data-step="1"><i class="fa-solid fa-wallet"></i></button>
+      <button type="button" class="stepper-circle" data-step="2"><i class="fa-solid fa-cart-shopping"></i></button>
+      <button type="button" class="stepper-circle" data-step="3"><i class="fa-solid fa-chart-line"></i></button>
+    </div>
+    <div class="stepper-panel" id="stepperPanel"></div>
+  </div>
+
+  <div class="explain-grid">
+    <div class="explain-card reveal">
+      <div class="explain-card-ic" style="background:var(--primary-glow)"><img src="__AI_ICON__" alt=""></div>
+      <h3>مساعدك الذكي على مدار الساعة</h3>
+      <p>اسأله بلغتك العادية عن أي خدمة — "أرخص متابعين انستقرام" مثلاً — وسيرشّح لك الخدمة المناسبة مع زر ينقلك مباشرة لصفحة الطلب. يجاوبك أيضاً عن رصيدك وحالة طلباتك وطرق الدفع في أي وقت.</p>
+    </div>
+    <div class="explain-card reveal">
+      <div class="explain-card-ic" style="background:rgba(16,185,129,.1);color:var(--green)"><i class="fa-solid fa-gift"></i></div>
+      <h3>هدية يومية مجانية</h3>
+      <p>سجّل دخولك يومياً واحصل على مكافأة رصيد مجانية كل 24 ساعة من صفحة حسابك — رصيد إضافي بدون أي تكلفة، فقط بضغطة زر.</p>
+    </div>
+    <div class="explain-card reveal" style="grid-column:1/-1">
+      <div class="explain-card-ic" style="background:var(--primary-glow);color:var(--primary)"><i class="fa-solid fa-credit-card"></i></div>
+      <h3>طرق دفع متعددة وسريعة</h3>
+      <p>اشحن رصيدك بالطريقة الأسهل لك — دفع تلقائي فوري أو تحويل محلي مباشر.</p>
+      <div class="pm-showcase">
+        <div class="pm-showcase-item"><i class="fa-brands fa-bitcoin"></i> Binance Pay</div>
+        <div class="pm-showcase-item"><i class="fa-solid fa-mobile-screen"></i> آسياسيل</div>
+        <div class="pm-showcase-item"><i class="fa-brands fa-telegram"></i> نجوم تليجرام</div>
+        <div class="pm-showcase-item"><i class="fa-solid fa-building-columns"></i> تحويل محلي</div>
+      </div>
+    </div>
+    <div class="explain-card reveal" style="grid-column:1/-1">
+      <div class="explain-card-ic" style="background:rgba(99,102,241,.1);color:var(--primary)"><i class="fa-solid fa-layer-group"></i></div>
+      <h3>خدمات بأسعار تبدأ من $0.01</h3>
+      <p style="margin-bottom:2px">أمثلة من خدماتنا — تصفّح القائمة الكاملة والأسعار الحقيقية من داخل حسابك:</p>
+      <div class="svc-teaser">
+        <div class="svc-teaser-row" id="svcTeaserRow">
+          <div class="svc-teaser-ic"><i class="fa-brands fa-instagram"></i></div>
+          <div class="svc-teaser-info"><div class="svc-teaser-name">متابعين انستقرام حقيقيين</div><div class="svc-teaser-meta">Instagram — توصيل فوري</div></div>
+          <div class="svc-teaser-price">$1.20<span style="font-size:9px;color:var(--text3);font-weight:600"> /1K</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<div class="site-footer"><p>&copy; 2026 <a href="#">__SITE_NAME__</a></p></div>
+
+<script>
+(function(){
+  var iconNames=['fa-instagram','fa-tiktok','fa-youtube','fa-facebook','fa-twitter','fa-telegram','fa-snapchat','fa-linkedin','fa-pinterest','fa-whatsapp','fa-discord','fa-twitch'];
+  var fc=document.getElementById('floatingIcons');
+  for(var i=0;i<18;i++){var el=document.createElement('i');el.className='fa-brands '+iconNames[i%iconNames.length];el.style.left=Math.random()*100+'%';el.style.animationDuration=(18+Math.random()*22)+'s';el.style.animationDelay=(-Math.random()*20)+'s';el.style.fontSize=(18+Math.random()*26)+'px';fc.appendChild(el);}
+
+  function _utc(dark){var m=document.querySelector('meta[name="theme-color"]');if(m)m.setAttribute('content',dark?'#000000':'#ffffff');}
+  var savedTheme=localStorage.getItem('fc_theme');
+  if(savedTheme==='dark'){document.documentElement.setAttribute('data-theme','dark');document.getElementById('themeIcon').className='fa-solid fa-moon';_utc(true);}else{_utc(false);}
+  document.getElementById('btnTheme').addEventListener('click',function(){
+    var d=document.documentElement,ic=document.getElementById('themeIcon');
+    if(d.getAttribute('data-theme')==='dark'){d.removeAttribute('data-theme');ic.className='fa-solid fa-sun';localStorage.setItem('fc_theme','light');_utc(false);}
+    else{d.setAttribute('data-theme','dark');ic.className='fa-solid fa-moon';localStorage.setItem('fc_theme','dark');_utc(true);}
+  });
+
+  function toast(msg,type){
+    var old=document.querySelector('.msg-toast');if(old)old.remove();
+    var t=document.createElement('div');t.className='msg-toast '+type;t.textContent=msg;
+    document.body.appendChild(t);setTimeout(function(){t.remove();},3500);
+  }
+
+  function openPolicyModal(type){
+    document.getElementById('policyModalTitle').textContent=type==='terms'?'الشروط والأحكام':'سياسة الخصوصية';
+    var body=document.getElementById('policyModalBody');body.textContent='جاري التحميل...';
+    document.getElementById('policyModalOv').style.display='flex';
+    fetch('/api/site-policies').then(function(r){return r.json();}).then(function(d){
+      var txt=(type==='terms'?d.terms:d.privacy)||'لا يوجد محتوى بعد.';
+      body.textContent=txt;
+    }).catch(function(){body.textContent='تعذر تحميل المحتوى، حاول مرة أخرى.';});
+  }
+  window.openPolicyModal=openPolicyModal;
+  function closePolicyModal(){document.getElementById('policyModalOv').style.display='none';}
+  window.closePolicyModal=closePolicyModal;
+
+  var params=new URLSearchParams(window.location.search);
+  if(params.get('verified')==='1') toast('تم تأكيد حسابك بنجاح! سجّل الدخول الآن','success');
+  if(params.get('verified')==='0') toast('رابط التأكيد غير صالح','error');
+
+  function scrollTo(id){document.getElementById(id).scrollIntoView({behavior:'smooth'});}
+  document.getElementById('btnScrollAuth').addEventListener('click',function(){scrollTo('authSection');});
+
+  (function(){
+    var svcSamples=[
+      {ic:'fa-brands fa-instagram',name:'متابعين انستقرام حقيقيين',meta:'Instagram — توصيل فوري',price:'$1.20'},
+      {ic:'fa-brands fa-tiktok',name:'مشاهدات تيك توك',meta:'TikTok — بداية خلال دقائق',price:'$0.35'},
+      {ic:'fa-brands fa-youtube',name:'مشتركين يوتيوب',meta:'YouTube — جودة عالية',price:'$2.80'},
+      {ic:'fa-brands fa-telegram',name:'أعضاء قناة تيليجرام',meta:'Telegram — بدون كلمة مرور',price:'$0.90'},
+      {ic:'fa-brands fa-facebook',name:'إعجابات فيسبوك',meta:'Facebook — تعويض تلقائي',price:'$1.05'}
+    ];
+    var _si=0;
+    var row=document.getElementById('svcTeaserRow');
+    if(row){
+      setInterval(function(){
+        row.classList.add('fading');
+        setTimeout(function(){
+          _si=(_si+1)%svcSamples.length;
+          var s=svcSamples[_si];
+          row.querySelector('.svc-teaser-ic').innerHTML='<i class="'+s.ic+'"></i>';
+          row.querySelector('.svc-teaser-name').textContent=s.name;
+          row.querySelector('.svc-teaser-meta').textContent=s.meta;
+          row.querySelector('.svc-teaser-price').innerHTML=s.price+'<span style="font-size:9px;color:var(--text3);font-weight:600"> /1K</span>';
+          row.classList.remove('fading');
+        },350);
+      },3200);
+    }
+  })();
+
+  (function(){
+    var stepsData=[
+      {ic:'fa-solid fa-user-plus',title:'أنشئ حسابك',text:'سجّل حساب جديد مجاناً باستخدام بريدك الإلكتروني. ستصلك رسالة تأكيد — اضغط على الرابط لتفعيل حسابك والبدء فوراً.'},
+      {ic:'fa-solid fa-wallet',title:'اشحن رصيدك',text:'أضف رصيد لحسابك بسهولة عبر طرق دفع متعددة وسريعة. الحد الأدنى للشحن يبدأ من $1 فقط.'},
+      {ic:'fa-solid fa-cart-shopping',title:'اختر خدمتك واطلب',text:'تصفّح قائمة الخدمات أو اسأل مساعدنا الذكي عمّا تحتاجه، أدخل رابط حسابك أو منشورك، ثم اضغط "طلب".'},
+      {ic:'fa-solid fa-chart-line',title:'تابع طلبك',text:'بعد تأكيد الطلب، يبدأ التنفيذ تلقائياً. تابع حالة طلبك من لوحة التحكم وشاهد النتائج تظهر على حسابك في دقائق!'}
+    ];
+    var curStep=0,stepTimer=null;
+    var circles=document.querySelectorAll('.stepper-circle');
+    var panel=document.getElementById('stepperPanel');
+    var lineFill=document.getElementById('stepperLineFill');
+    function renderStep(i){
+      curStep=i;
+      circles.forEach(function(c,idx){
+        c.classList.toggle('active',idx===i);
+        c.classList.toggle('done',idx<i);
+      });
+      if(lineFill)lineFill.style.width=(i/(stepsData.length-1)*100)+'%';
+      var s=stepsData[i];
+      if(panel)panel.innerHTML='<div class="stepper-panel-content"><h3><i class="'+s.ic+'" style="color:var(--primary);margin-left:6px"></i>'+s.title+'</h3><p>'+s.text+'</p></div>';
+    }
+    function resetTimer(){
+      if(stepTimer)clearInterval(stepTimer);
+      stepTimer=setInterval(function(){renderStep((curStep+1)%stepsData.length)},4500);
+    }
+    function goToStep(i){renderStep(i);resetTimer();}
+    circles.forEach(function(c,idx){c.addEventListener('click',function(){goToStep(idx)})});
+    if(circles.length){renderStep(0);resetTimer();}
+    var mini=document.getElementById('miniStepIndicator');
+    if(mini)mini.addEventListener('click',function(){goToStep((curStep+1)%stepsData.length)});
+  })();
+
+  var currentTab='login';
+  function switchTab(tab){
+    currentTab=tab;
+    document.getElementById('tabLogin').classList.toggle('active',tab==='login');
+    document.getElementById('tabRegister').classList.toggle('active',tab==='register');
+    document.getElementById('loginForm').style.display=tab==='login'?'block':'none';
+    document.getElementById('registerForm').style.display=tab==='register'?'block':'none';
+    document.getElementById('forgotForm').style.display='none';
+    document.getElementById('verifyNotice').style.display='none';
+    document.getElementById('verifyNotice').classList.remove('show');
+    document.getElementById('authFooter').style.display='block';
+    var ft=document.getElementById('footerText'),fl=document.getElementById('footerLink');
+    if(tab==='login'){ft.childNodes[0].textContent='ليس لديك حساب؟ ';fl.textContent='أنشئ واحداً';}
+    else{ft.childNodes[0].textContent='لديك حساب بالفعل؟ ';fl.textContent='سجّل الدخول';}
+  }
+  document.getElementById('tabLogin').addEventListener('click',function(){switchTab('login');});
+  document.getElementById('tabRegister').addEventListener('click',function(){switchTab('register');});
+  document.getElementById('footerLink').addEventListener('click',function(){switchTab(currentTab==='login'?'register':'login');});
+  var _verifyEmail='';
+  document.getElementById('btnVerifyCode').addEventListener('click',function(){
+    var btn=this;var code=document.getElementById('otpInput').value.trim();
+    if(code.length!==6){toast('أدخل الرمز المكون من 6 أرقام','error');return;}
+    btn.disabled=true;btn.innerHTML='<i class="fa-solid fa-spinner fa-spin"></i> جاري التحقق...';
+    fetch('/api/verify-code',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email:_verifyEmail,code:code})})
+    .then(function(r){return r.json();})
+    .then(function(d){
+      if(d.ok){toast(d.msg,'success');setTimeout(function(){window.location.replace('/app')},800);}
+      else{toast(d.msg,'error');}
+      btn.disabled=false;btn.innerHTML='<i class="fa-solid fa-check-circle"></i> تأكيد الرمز';
+    }).catch(function(){toast('خطأ بالاتصال','error');btn.disabled=false;btn.innerHTML='<i class="fa-solid fa-check-circle"></i> تأكيد الرمز';});
+  });
+  document.getElementById('otpInput').addEventListener('keydown',function(e){if(e.key==='Enter')document.getElementById('btnVerifyCode').click();});
+  document.getElementById('btnResendCode').addEventListener('click',function(){
+    var btn=this;btn.disabled=true;btn.textContent='جاري الإرسال...';
+    fetch('/api/resend-code',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email:_verifyEmail})})
+    .then(function(r){return r.json();})
+    .then(function(d){
+      if(d.ok){toast('تم إرسال رمز جديد','success');}else{toast(d.msg,'error');}
+      btn.disabled=false;btn.innerHTML='<i class="fa-solid fa-rotate"></i> إعادة إرسال الرمز';
+    }).catch(function(){btn.disabled=false;btn.innerHTML='<i class="fa-solid fa-rotate"></i> إعادة إرسال الرمز';});
+  });
+
+  var _forgotEmail='';
+  document.getElementById('btnForgotPass').addEventListener('click',function(e){
+    e.preventDefault();
+    document.getElementById('loginForm').style.display='none';
+    document.getElementById('authFooter').style.display='none';
+    document.getElementById('forgotForm').style.display='block';
+    document.getElementById('forgotStep1').style.display='block';
+    document.getElementById('forgotStep2').style.display='none';
+  });
+  document.getElementById('btnBackToLogin').addEventListener('click',function(e){
+    e.preventDefault();
+    document.getElementById('forgotForm').style.display='none';
+    document.getElementById('loginForm').style.display='block';
+    document.getElementById('authFooter').style.display='block';
+  });
+  document.getElementById('btnSendReset').addEventListener('click',function(){
+    var btn=this;var email=document.getElementById('forgotEmail').value.trim();
+    if(!email){toast('أدخل البريد الإلكتروني','error');return;}
+    btn.disabled=true;btn.innerHTML='<i class="fa-solid fa-spinner fa-spin"></i> جاري الإرسال...';
+    fetch('/api/forgot-password',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email:email})})
+    .then(function(r){return r.json();})
+    .then(function(d){
+      if(d.ok){_forgotEmail=email;toast(d.msg,'success');document.getElementById('forgotAddr').textContent=email;document.getElementById('forgotStep1').style.display='none';document.getElementById('forgotStep2').style.display='block';}
+      else{toast(d.msg,'error');}
+      btn.disabled=false;btn.innerHTML='<i class="fa-solid fa-paper-plane"></i> إرسال رمز التحقق';
+    }).catch(function(){toast('خطأ بالاتصال','error');btn.disabled=false;btn.innerHTML='<i class="fa-solid fa-paper-plane"></i> إرسال رمز التحقق';});
+  });
+  document.getElementById('btnResetPass').addEventListener('click',function(){
+    var btn=this;var code=document.getElementById('resetCode').value.trim();
+    var pw=document.getElementById('resetNewPass').value;var pw2=document.getElementById('resetNewPass2').value;
+    if(!code||code.length!==6){toast('أدخل الرمز المكون من 6 أرقام','error');return;}
+    if(!pw||pw.length<6){toast('كلمة المرور 6 أحرف على الأقل','error');return;}
+    if(pw!==pw2){toast('كلمة المرور غير متطابقة','error');return;}
+    btn.disabled=true;btn.innerHTML='<i class="fa-solid fa-spinner fa-spin"></i> جاري التغيير...';
+    fetch('/api/reset-password',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email:_forgotEmail,code:code,password:pw})})
+    .then(function(r){return r.json();})
+    .then(function(d){
+      if(d.ok){toast(d.msg,'success');setTimeout(function(){window.location.replace('/app')},800);}
+      else{toast(d.msg,'error');}
+      btn.disabled=false;btn.innerHTML='<i class="fa-solid fa-check"></i> تغيير كلمة المرور';
+    }).catch(function(){toast('خطأ','error');btn.disabled=false;btn.innerHTML='<i class="fa-solid fa-check"></i> تغيير كلمة المرور';});
+  });
+
+  function setupEye(b,inp){document.getElementById(b).addEventListener('click',function(){var i=document.getElementById(inp),ic=this.querySelector('i');if(i.type==='password'){i.type='text';ic.className='fa-solid fa-eye-slash';}else{i.type='password';ic.className='fa-solid fa-eye';}});}
+  setupEye('eyeLoginPass','loginPass');setupEye('eyeRegPass','regPass');setupEye('eyeRegPassC','regPassC');
+
+  document.getElementById('btnLogin').addEventListener('click',function(){
+    var btn=this;btn.disabled=true;
+    var email=document.getElementById('loginEmail').value;
+    var pw=document.getElementById('loginPass').value;
+    if(!email||!pw){toast('جميع الحقول مطلوبة','error');btn.disabled=false;return;}
+    fetch('/api/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email:email,password:pw})})
+    .then(function(r){return r.json();})
+    .then(function(d){
+      if(d.ok){toast(d.msg,'success');setTimeout(function(){window.location.replace('/app')},1000);}
+      else{toast(d.msg,'error');}
+      btn.disabled=false;
+    }).catch(function(){toast('حدث خطأ، حاول مرة أخرى','error');btn.disabled=false;});
+  });
+
+  document.getElementById('btnRegister').addEventListener('click',function(){
+    var btn=this;btn.disabled=true;
+    var name=document.getElementById('regName').value;
+    var email=document.getElementById('regEmail').value;
+    var pw=document.getElementById('regPass').value;
+    var pw2=document.getElementById('regPassC').value;
+    if(!name||!email||!pw){toast('جميع الحقول مطلوبة','error');btn.disabled=false;return;}
+    if(pw!==pw2){toast('كلمة المرور غير متطابقة','error');btn.disabled=false;return;}
+    if(!document.getElementById('regAgreePolicy').checked){toast('يجب الموافقة على الشروط والأحكام وسياسة الخصوصية','error');btn.disabled=false;return;}
+    fetch('/api/register',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:name,email:email,password:pw,password2:pw2,ref_code:sessionStorage.getItem('fc_ref')||new URLSearchParams(window.location.search).get('ref')||''})})
+    .then(function(r){return r.json();})
+    .then(function(d){
+      if(d.ok){
+        if(d.auto_login){toast(d.msg,'success');setTimeout(function(){window.location.replace('/app')},800);return}
+        _verifyEmail=email;
+        document.getElementById('verifyAddr').textContent=email;
+        document.getElementById('registerForm').style.display='none';
+        document.getElementById('authFooter').style.display='none';
+        var v=document.getElementById('verifyNotice');v.style.display='block';v.classList.add('show');
+      }else{toast(d.msg,'error');}
+      btn.disabled=false;
+    }).catch(function(){toast('حدث خطأ، حاول مرة أخرى','error');btn.disabled=false;});
+  });
+
+  (function(){try{var u=new URLSearchParams(window.location.search);var rc=u.get('ref');if(rc)sessionStorage.setItem('fc_ref',rc)}catch(e){}})();
+
+  var obs=new IntersectionObserver(function(entries){entries.forEach(function(e){if(e.isIntersecting)e.target.classList.add('visible');});},{threshold:0.15});
+  document.querySelectorAll('.reveal').forEach(function(el){obs.observe(el);});
+
+  function handleGoogleResponse(response){
+    if(!response || !response.credential){toast('فشل تسجيل Google','error');return}
+    fetch('/api/google-login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({credential:response.credential})})
+    .then(function(r){return r.json();})
+    .then(function(d){
+      if(d.ok){toast(d.msg,'success');setTimeout(function(){window.location.replace('/app')},1000);}
+      else{toast(d.msg,'error');}
+    }).catch(function(){toast('حدث خطأ مع Google','error');});
+  }
+  window.handleGoogleResponse=handleGoogleResponse;
+
+  var _gClientId='__GOOGLE_CLIENT_ID__';
+  var _gReady=false;
+  function triggerGoogleLogin(){
+    if(!_gClientId||_gClientId==='YOUR_GOOGLE_CLIENT_ID.apps.googleusercontent.com'){toast('تسجيل Google غير مفعّل بعد. تواصل مع الإدارة','error');return}
+    if(!window.google||!window.google.accounts){toast('جاري تحميل Google... حاول مرة ثانية','error');return}
+    if(!_gReady){
+      try{google.accounts.id.initialize({client_id:_gClientId,callback:window.handleGoogleResponse,auto_select:false,cancel_on_tap_outside:false});_gReady=true}catch(e){toast('خطأ بإعداد Google: '+e.message,'error');return}
+    }
+    google.accounts.id.prompt(function(notification){
+      if(notification.isNotDisplayed()||notification.isSkippedMoment()){
+        var _gdiv=document.getElementById('_gHiddenBtn');
+        if(!_gdiv){_gdiv=document.createElement('div');_gdiv.id='_gHiddenBtn';_gdiv.style.cssText='position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:99999;background:rgba(0,0,0,.5);padding:40px;border-radius:20px';document.body.appendChild(_gdiv);
+          google.accounts.id.renderButton(_gdiv,{type:'standard',theme:'outline',size:'large',text:'signin_with',shape:'rectangular',logo_alignment:'center',width:300});
+          var _closeOv=document.createElement('div');_closeOv.style.cssText='text-align:center;margin-top:12px;color:#fff;font-size:12px;cursor:pointer;font-family:inherit';_closeOv.textContent='✕ إغلاق';_closeOv.onclick=function(){_gdiv.remove()};_gdiv.appendChild(_closeOv);
+        }else{_gdiv.style.display='block'}
+      }
+    });
+  }
+  document.getElementById('btnGoogleLogin').addEventListener('click',triggerGoogleLogin);
+  document.getElementById('btnGoogleReg').addEventListener('click',triggerGoogleLogin);
+})();
+</script>
+<script src="https://accounts.google.com/gsi/client" async defer></script>
+<script>
+window.addEventListener('load',function(){
+  var _cid='__GOOGLE_CLIENT_ID__';
+  if(!_cid||_cid==='YOUR_GOOGLE_CLIENT_ID.apps.googleusercontent.com')return;
+  if(window.google && window.google.accounts){
+    try{google.accounts.id.initialize({client_id:_cid,callback:window.handleGoogleResponse,auto_select:false,cancel_on_tap_outside:false});_gReady=true}catch(e){console.log('Google init error:',e)}
+  }
+});
+</script>
+</body>
+</html>

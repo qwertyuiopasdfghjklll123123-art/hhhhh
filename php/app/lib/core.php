@@ -141,3 +141,47 @@ function _backfill_public_ids(): void {
     }
     $conn->commit();
 }
+
+/* ---- أدوات الصفحات/القوالب ---- */
+
+/** قراءة قالب واجهة مستخرج حرفياً من app.py (انظر tools/extract_from_python.py) */
+function tpl(string $name): string {
+    static $cache = [];
+    if (!isset($cache[$name])) $cache[$name] = (string)file_get_contents(APP_DIR . '/templates/' . $name);
+    return $cache[$name];
+}
+
+/** _get_google_client_id  (app.py:686) */
+function _get_google_client_id(): string {
+    $v = get_setting('google_client_id', '');
+    return py_truthy($v) ? $v : GOOGLE_CLIENT_ID;
+}
+
+/** get_ai_icon_data_uri  (app.py:1839) */
+function get_ai_icon_data_uri(): string {
+    $custom = get_setting('ai_logo', '');
+    if (py_truthy($custom)) return $custom;
+    return 'data:image/png;base64,' . trim(tpl('ai_icon_default.b64'));
+}
+
+/* ---- مهام مؤجلة بعد الاستجابة (بديل الـ threads/ThreadPoolExecutor بالأصل) ---- */
+
+$GLOBALS['__deferred'] = [];
+
+function defer_after_response(callable $fn): void {
+    $GLOBALS['__deferred'][] = $fn;
+    if (PHP_SAPI === 'cli' && empty($GLOBALS['__deferred_registered'])) {   // cron/CLI: شغّلها عند الانتهاء
+        $GLOBALS['__deferred_registered'] = true;
+        register_shutdown_function('run_deferred');
+    }
+}
+
+function run_deferred(): void {
+    @set_time_limit(120);
+    while (!empty($GLOBALS['__deferred'])) {
+        $fn = array_shift($GLOBALS['__deferred']);
+        try { $fn(); }
+        catch (Throwable $e) { log_app_error('DEFERRED', get_class($e) . ': ' . $e->getMessage(), $e->getFile(), $e->getLine(), $e->getTraceAsString()); }
+        Conn::shutdown();
+    }
+}

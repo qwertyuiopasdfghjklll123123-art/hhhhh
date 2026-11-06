@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>__FC_SITE_NAME__ — حساب محظور</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@300;400;500;600;700;800;900&family=Tajawal:wght@400;500;700;800;900&display=swap" rel="stylesheet">
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:IBM Plex Sans Arabic,'Tajawal',sans-serif;min-height:100vh;min-height:100dvh;display:flex;align-items:center;justify-content:center;background:#0f0f1a;color:#fff;padding:20px}
+.ban-wrap{max-width:440px;width:100%;text-align:center}
+.ban-icon{width:90px;height:90px;border-radius:50%;background:rgba(239,68,68,.12);display:inline-flex;align-items:center;justify-content:center;font-size:38px;color:#ef4444;margin-bottom:20px;border:2px solid rgba(239,68,68,.2)}
+.ban-title{font-size:24px;font-weight:900;margin-bottom:8px;color:#fff}
+.ban-sub{font-size:13px;color:#888;line-height:1.8;margin-bottom:28px}
+.ban-user{background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);border-radius:14px;padding:16px;margin-bottom:24px}
+.ban-name{font-size:15px;font-weight:800;margin-bottom:2px}
+.ban-email{font-size:11px;color:#666}
+.ban-msg-wrap{background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);border-radius:14px;padding:16px;margin-bottom:16px;display:none}
+.ban-msg-wrap.show{display:block}
+.ban-ta{width:100%;padding:12px;border-radius:10px;border:1px solid rgba(255,255,255,.1);background:rgba(255,255,255,.06);color:#fff;font-family:IBM Plex Sans Arabic,'Tajawal',sans-serif;font-size:13px;resize:none;min-height:90px;outline:none}
+.ban-ta::placeholder{color:#555}
+.ban-btn{width:100%;padding:14px;border:none;border-radius:12px;font-family:IBM Plex Sans Arabic,'Tajawal',sans-serif;font-size:14px;font-weight:800;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:8px;transition:all .2s;margin-bottom:10px}
+.ban-btn-primary{background:linear-gradient(135deg,#2563eb,#3b82f6);color:#fff;box-shadow:0 4px 18px rgba(37,99,235,.25)}
+.ban-btn-primary:hover{transform:translateY(-1px)}
+.ban-btn-outline{background:transparent;border:1.5px solid rgba(255,255,255,.12);color:#aaa}
+.ban-btn-outline:hover{border-color:rgba(255,255,255,.25);color:#fff}
+.ban-btn-send{background:linear-gradient(135deg,#10b981,#059669);color:#fff;box-shadow:0 4px 18px rgba(16,185,129,.25)}
+.ban-btn:disabled{opacity:.5;cursor:not-allowed;transform:none}
+.ban-toast{position:fixed;top:20px;left:50%;transform:translateX(-50%);padding:10px 20px;border-radius:10px;font-size:12px;font-weight:700;font-family:IBM Plex Sans Arabic,'Tajawal',sans-serif;z-index:9999;display:none}
+.ban-toast.ok{display:block;background:#10b981;color:#fff}
+.ban-toast.er{display:block;background:#ef4444;color:#fff}
+.ban-logout{margin-top:12px;font-size:11px;color:#555}
+.ban-logout a{color:#888;text-decoration:none}
+.ban-logout a:hover{color:#fff}
+</style></head><body>
+<div class="ban-wrap">
+<div class="ban-icon"><i class="fa-solid fa-ban"></i></div>
+<div class="ban-title">حسابك محظور</div>
+<div class="ban-sub">تم حظر حسابك من قبل إدارة الموقع.<br>إذا تعتقد هذا خطأ، تواصل مع الإدارة.</div>
+<div class="ban-user"><div class="ban-name">__FC_NAME__</div><div class="ban-email">__FC_EMAIL__</div></div>
+<button class="ban-btn ban-btn-primary" onclick="document.getElementById('banMsgWrap').classList.toggle('show')"><i class="fa-solid fa-envelope"></i> تواصل مع الإدارة</button>
+<div class="ban-msg-wrap" id="banMsgWrap">
+<textarea class="ban-ta" id="banMsg" placeholder="اكتب رسالتك للإدارة..." maxlength="500"></textarea>
+<div style="text-align:left;font-size:9px;color:#555;margin:6px 0 10px" id="banCharCount">0/500</div>
+<button class="ban-btn ban-btn-send" id="banSendBtn" onclick="sendBanMsg()"><i class="fa-solid fa-paper-plane"></i> إرسال</button>
+</div>
+<a href="/api/logout" class="ban-btn ban-btn-outline"><i class="fa-solid fa-right-from-bracket"></i> تسجيل الخروج</a>
+<div class="ban-logout"><a href="/">&larr; الرجوع للصفحة الرئيسية</a></div>
+</div>
+<div class="ban-toast" id="banToast"></div>
+<script>
+document.getElementById('banMsg').addEventListener('input',function(){document.getElementById('banCharCount').textContent=this.value.length+'/500'});
+function sendBanMsg(){
+  var msg=document.getElementById('banMsg').value.trim();
+  if(!msg)return;
+  var btn=document.getElementById('banSendBtn');
+  btn.disabled=true;btn.innerHTML='<i class="fa-solid fa-spinner fa-spin"></i> جاري الإرسال...';
+  fetch('/api/banned-contact',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({message:msg})})
+  .then(function(r){return r.json()}).then(function(d){
+    var t=document.getElementById('banToast');
+    if(d.ok){t.className='ban-toast ok';t.textContent='تم إرسال رسالتك بنجاح';document.getElementById('banMsg').value='';document.getElementById('banCharCount').textContent='0/500'}
+    else{t.className='ban-toast er';t.textContent=d.msg||'خطأ'}
+    setTimeout(function(){t.className='ban-toast'},3000);
+    btn.disabled=false;btn.innerHTML='<i class="fa-solid fa-paper-plane"></i> إرسال';
+  }).catch(function(){
+    var t=document.getElementById('banToast');t.className='ban-toast er';t.textContent='خطأ بالاتصال';
+    setTimeout(function(){t.className='ban-toast'},3000);
+    btn.disabled=false;btn.innerHTML='<i class="fa-solid fa-paper-plane"></i> إرسال';
+  });
+}
+</script></body></html>

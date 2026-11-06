@@ -74,7 +74,7 @@ function mime_for_path(string $path): string {
     return $map[$ext] ?? 'application/octet-stream';
 }
 
-function send_file(string $path, ?string $mimetype = null, bool $as_attachment = false, ?string $download_name = null): Response {
+function send_file(string $path, ?string $mimetype = null, bool $as_attachment = false, ?string $download_name = null, ?int $max_age = null): Response {
     if (!is_file($path)) {
         return new Response('<!doctype html>' . "\n" . '<html lang=en>' . "\n" . '<title>404 Not Found</title>' . "\n" . '<h1>Not Found</h1>' . "\n" . '<p>The requested URL was not found on the server. If you entered the URL manually please check your spelling and try again.</p>' . "\n", 404);
     }
@@ -83,7 +83,12 @@ function send_file(string $path, ?string $mimetype = null, bool $as_attachment =
     $mtime = filemtime($path);
     $r->headers['Last-Modified'] = gmdate('D, d M Y H:i:s', $mtime) . ' GMT';
     $r->headers['ETag'] = '"' . $mtime . '-' . filesize($path) . '"';
-    $r->headers['Cache-Control'] = 'no-cache';
+    if ($max_age !== null) {   // Flask: public + max-age + Expires
+        $r->headers['Cache-Control'] = 'public, max-age=' . $max_age;
+        $r->headers['Expires'] = gmdate('D, d M Y H:i:s', time() + $max_age) . ' GMT';
+    } else {
+        $r->headers['Cache-Control'] = 'no-cache';
+    }
     if ($as_attachment) {
         $r->headers['Content-Disposition'] = 'attachment; filename="' . str_replace('"', '', $download_name ?? basename($path)) . '"';
     }
@@ -145,4 +150,10 @@ function emit_response(Response $r): void {
     }
     if ($r->status !== 304) header('Content-Length: ' . strlen($body));
     if (($_SERVER['REQUEST_METHOD'] ?? 'GET') !== 'HEAD') echo $body;
+}
+
+/** بعد إرسال الاستجابة: أغلق اتصال العميل (FPM) ليكمل PHP بالمهام المؤجلة (بديل threads/executor بالأصل) */
+function finish_request(): void {
+    if (function_exists('fastcgi_finish_request')) { @fastcgi_finish_request(); }
+    else { if (ob_get_level() > 0) @ob_end_flush(); @flush(); }
 }

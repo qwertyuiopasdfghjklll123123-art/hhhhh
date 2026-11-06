@@ -7,7 +7,9 @@
 
 final class Req {
     public static ?string $rawBody = null;
-    public static $json = false;      // false = لم يُحلَّل بعد، null = غير صالح
+    public static $json = false;      // false = لم يُحلَّل بعد
+    public static bool $jsonValid = false;
+    public static string $jsonKind = '';   // أول محرف من الجسم: '{' قاموس أو '[' قائمة
     public static function body(): string {
         if (self::$rawBody === null) self::$rawBody = (string)file_get_contents('php://input');
         return self::$rawBody;
@@ -54,18 +56,39 @@ function req_is_json(): bool {
 function req_json(bool $force = false, bool $silent = false) {
     if (Req::$json === false) {
         $body = Req::body();
+        $trim = ltrim($body);
         $v = json_decode($body, true, 512, JSON_BIGINT_AS_STRING);
-        Req::$json = ($body !== '' && json_last_error() === JSON_ERROR_NONE) ? $v : null;
+        Req::$jsonValid = ($body !== '' && json_last_error() === JSON_ERROR_NONE);
+        Req::$json = Req::$jsonValid ? $v : null;
+        Req::$jsonKind = $trim === '' ? '' : $trim[0];
     }
     if (!$force && !req_is_json()) {
         if ($silent) return null;
         abort_response(http_error_page(415));
     }
-    if (Req::$json === null) {
+    if (!Req::$jsonValid) {
         if ($silent) return null;
         abort_response(http_error_page(400));
     }
     return Req::$json;
+}
+
+/**
+ * data = freq.get_json() or {}  ثم data.get(...):
+ * جسم JSON فارغ/null/[]/{} → [] ؛ وجسم قائمة/نص/رقم غير فارغ يرمي PyTypeError (→ 500 مثل AttributeError ببايثون)
+ */
+function req_data(): array {
+    $d = req_json();
+    if (!py_truthy($d)) return [];
+    if (!is_array($d) || Req::$jsonKind !== '{') throw new PyTypeError("object has no attribute 'get'");
+    return $d;
+}
+
+/** data = freq.get_json() ثم data.get(...) مباشرة (بدون or {}): null أو غير قاموس → 500 */
+function req_data_strict(): array {
+    $d = req_json();
+    if (!is_array($d) || Req::$jsonKind !== '{') throw new PyTypeError("'NoneType' object has no attribute 'get'");
+    return $d;
 }
 
 /* ------------------------------- المسارات -------------------------------- */
@@ -139,4 +162,6 @@ function dispatch(): void {
     }
     Conn::shutdown();
     emit_response($resp);
+    finish_request();
+    run_deferred();
 }

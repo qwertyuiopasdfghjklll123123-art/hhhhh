@@ -128,6 +128,9 @@ function py_truthy($v): bool {
     return true;
 }
 
+/** a or b  (على طريقة بايثون: '0' نص صحيح = True) */
+function py_or($a, $b) { return py_truthy($a) ? $a : $b; }
+
 /** str.strip() الافتراضي: يزيل كل المسافات البيضاء (بما فيها Unicode) */
 function py_strip($s): string {
     return preg_replace('/^\s+|\s+$/u', '', (string)$s) ?? (string)$s;
@@ -246,3 +249,26 @@ function jobj(array $a = []) { return $a === [] ? new stdClass() : $a; }
 
 /** مقارنة نصوص آمنة للتوقيتات */
 function safe_eq(string $a, string $b): bool { return hash_equals($a, $b); }
+
+/**
+ * base64.b64decode(s) بوضعه الافتراضي: يتجاهل المحارف خارج الأبجدية، ويرمي PyValueError عند
+ * ترقيم/طول غير صحيح (Incorrect padding) مثل binascii.Error.
+ */
+function py_b64decode($s): string {
+    $s = (string)$s;
+    $data = ''; $pads = 0;
+    for ($i = 0, $n = strlen($s); $i < $n; $i++) {
+        $c = $s[$i];
+        if ($c === '=') { $pads++; continue; }
+        if (ctype_alnum($c) || $c === '+' || $c === '/') {
+            if ($pads > 0 && strlen($data) % 4 === 0) { /* بعد اكتمال رباعية ينتهي الإدخال */ break; }
+            $data .= $c;
+        }
+    }
+    $rem = strlen($data) % 4;
+    if ($rem === 1) throw new PyValueError('Invalid base64-encoded string: number of data characters (' . strlen($data) . ') cannot be 1 more than a multiple of 4');
+    if ($rem !== 0 && $pads < 4 - $rem) throw new PyValueError('Incorrect padding');
+    $r = base64_decode($data . str_repeat('=', (4 - $rem) % 4), true);
+    if ($r === false) throw new PyValueError('Invalid base64-encoded string');
+    return $r;
+}
