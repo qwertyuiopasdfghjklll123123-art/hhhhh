@@ -106,7 +106,13 @@ route('/api/admin/transfer/analyze', function () {
     [$okRate, $wait] = rate_limit_hit('analyze|' . $_SESSION['user_id'], 30, 600);
     if (!$okRate) return tj(['ok' => false, 'msg' => 'محاولات رفع كثيرة، انتظر قليلاً'], 429);
     $f = $_FILES['file'] ?? null;
-    if (!is_array($f) || !isset($f['error']) || is_array($f['error'])) return tj(['ok' => false, 'msg' => 'لم يصل أي ملف'], 400);
+    if (!is_array($f) || !isset($f['error']) || is_array($f['error'])) {
+        // عند تجاوز post_max_size يُسقط PHP كل الحقول والملفات بصمت (فيبدو الأمر كأن لا ملف وصل)
+        $lim = transfer_upload_limits(); $cl = (int)($_SERVER['CONTENT_LENGTH'] ?? 0);
+        if ($cl > 0 && $lim['post_max'] > 0 && $cl > $lim['post_max'])
+            return tj(['ok' => false, 'msg' => 'حجم الملف أكبر من الحد المسموح بالخادم (' . tf_human_bytes($lim['effective']) . '). ارفع حدّ upload_max_filesize/post_max_size أو استورد عبر سطر الأوامر'], 400);
+        return tj(['ok' => false, 'msg' => 'لم يصل أي ملف'], 400);
+    }
     $err = (int)$f['error'];
     if ($err !== UPLOAD_ERR_OK) {
         $lim = transfer_upload_limits();
