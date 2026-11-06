@@ -193,3 +193,29 @@ function _admin_check(): bool {
     $u = $conn->execute('SELECT is_admin FROM users WHERE id=?', [$_SESSION['user_id']])->fetchone();
     return (bool)($u && py_truthy($u['is_admin']));
 }
+
+/* ---- مطابقة سلوك SQLite عند ربط قيم الطلب بالأعمدة (MySQL يحوّل النصوص ذات البادئة الرقمية '5abc' إلى 5) ---- */
+
+/**
+ * قيمة تُقارن بعمود INTEGER: SQLite يحوّل النص الرقمي فقط ('5' أو '5.0') ولا يطابق '5abc' أبداً.
+ * يرجع int/float للقيم الرقمية و null لغيرها (فيكون الشرط لا يطابق شيئاً مثل SQLite).
+ */
+function sql_int($v) {
+    if (is_int($v) || is_float($v)) return $v;
+    if (is_bool($v)) return $v ? 1 : 0;
+    if (is_string($v)) {
+        $t = trim($v);
+        if (preg_match('/^[+-]?(\d+(\.\d*)?|\.\d+)([eE][+-]?\d+)?$/', $t)) return $t + 0;
+        return null;
+    }
+    return null;
+}
+
+/** قيمة تُقارن بعمود TEXT: SQLite يحوّل الأعداد إلى نص قبل المقارنة (نفس خوارزمية الحفظ) */
+function sql_str($v) {
+    if ($v === null || is_string($v)) return $v;
+    if (is_bool($v)) return $v ? '1' : '0';
+    if (is_int($v)) return (string)$v;
+    if (is_float($v)) return py_sqlite_float_text($v);
+    return py_str($v);
+}

@@ -81,6 +81,7 @@ function send_file(string $path, ?string $mimetype = null, bool $as_attachment =
     $r = new Response('', 200, $mimetype ?? mime_for_path($path));
     $r->file = $path;
     $mtime = filemtime($path);
+    $r->headers['Accept-Ranges'] = 'bytes';
     $r->headers['Last-Modified'] = gmdate('D, d M Y H:i:s', $mtime) . ' GMT';
     $r->headers['ETag'] = '"' . $mtime . '-' . filesize($path) . '"';
     if ($max_age !== null) {   // Flask: public + max-age + Expires
@@ -89,9 +90,10 @@ function send_file(string $path, ?string $mimetype = null, bool $as_attachment =
     } else {
         $r->headers['Cache-Control'] = 'no-cache';
     }
-    if ($as_attachment) {
-        $r->headers['Content-Disposition'] = 'attachment; filename="' . str_replace('"', '', $download_name ?? basename($path)) . '"';
-    }
+    // Content-Disposition كما يضعها werkzeug: inline; filename=name (أو attachment)
+    $name = $download_name ?? basename($path);
+    $fn = preg_match('/^[!#$%&*+.^_`|~0-9A-Za-z-]+$/', $name) ? $name : '"' . addcslashes($name, '"\\') . '"';
+    $r->headers['Content-Disposition'] = ($as_attachment ? 'attachment' : 'inline') . '; filename=' . $fn;
     return $r;
 }
 
@@ -118,7 +120,12 @@ function emit_response(Response $r): void {
     // 304 للملفات المخزّنة
     if ($r->file !== null) {
         $etag = $r->headers['ETag'] ?? null;
-        if ($etag && (($_SERVER['HTTP_IF_NONE_MATCH'] ?? '') === $etag)) { $r->status = 304; $r->file = null; $r->body = ''; }
+        $inm = $_SERVER['HTTP_IF_NONE_MATCH'] ?? '';
+        $ims = isset($_SERVER['HTTP_IF_MODIFIED_SINCE']) ? strtotime($_SERVER['HTTP_IF_MODIFIED_SINCE']) : false;
+        $lm = isset($r->headers['Last-Modified']) ? strtotime($r->headers['Last-Modified']) : false;
+        if ($etag && $inm !== '' ? $inm === $etag : ($ims !== false && $lm !== false && $lm <= $ims)) {
+            $r->status = 304; $r->file = null; $r->body = '';
+        }
     }
 
     $body = $r->body;
@@ -144,8 +151,7 @@ function emit_response(Response $r): void {
     if ($cookie !== null) header('Set-Cookie: ' . $cookie, false);
 
     if ($isFile) {
-        header('Content-Length: ' . filesize($r->file));
-        if (($_SERVER['REQUEST_METHOD'] ?? 'GET') !== 'HEAD') readfile($r->file);
+        emit_file_body($r);
         return;
     }
     if ($r->status !== 304) header('Content-Length: ' . strlen($body));
@@ -156,4 +162,41 @@ function emit_response(Response $r): void {
 function finish_request(): void {
     if (function_exists('fastcgi_finish_request')) { @fastcgi_finish_request(); }
     else { if (ob_get_level() > 0) @ob_end_flush(); @flush(); }
+}
+
+/** بثّ ملف مع دعم Range (مثل werkzeug.send_file: 206/416 + Accept-Ranges) — ضروري لتشغيل الصوت بالمتصفحات */
+function emit_file_body(Response $r): void {
+    $size = (int)filesize($r->file);
+    $start = 0; $end = $size - 1;
+    $range = trim((string)($_SERVER['HTTP_RANGE'] ?? ''));
+    if ($r->status === 200 && $range !== '' && preg_match('/^bytes=(\d*)-(\d*)$/', $range, $m) && ($m[1] !== '' || $m[2] !== '')) {
+        if ($m[1] === '') { $start = max(0, $size - (int)$m[2]); $end = $size - 1; }
+        else { $start = (int)$m[1]; $end = $m[2] === '' ? $size - 1 : min((int)$m[2], $size - 1); }
+        if ($start > $end || $start >= $size) {
+            // مثل werkzeug: صفحة خطأ 416 HTML
+            $body = "<!doctype html>\n<html lang=en>\n<title>416 Requested Range Not Satisfiable</title>\n<h1>Requested Range Not Satisfiable</h1>\n<p>The server cannot provide the requested range.</p>\n";
+            http_response_code(416);
+            header('Content-Type: text/html; charset=utf-8');
+            header('Content-Range: bytes */' . $size);
+            header('Content-Length: ' . strlen($body));
+            if (($_SERVER['REQUEST_METHOD'] ?? 'GET') !== 'HEAD') echo $body;
+            return;
+        }
+        http_response_code(206);
+        header('Content-Range: bytes ' . $start . '-' . $end . '/' . $size);
+    }
+    $len = $end - $start + 1;
+    header('Content-Length: ' . ($size === 0 ? 0 : $len));
+    if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'HEAD' || $size === 0) return;
+    $fp = fopen($r->file, 'rb');
+    if (!$fp) return;
+    if ($start > 0) fseek($fp, $start);
+    $left = $len;
+    while ($left > 0 && !feof($fp)) {
+        $chunk = fread($fp, min(65536, $left));
+        if ($chunk === false || $chunk === '') break;
+        echo $chunk;
+        $left -= strlen($chunk);
+    }
+    fclose($fp);
 }
