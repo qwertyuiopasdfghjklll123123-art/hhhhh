@@ -94,6 +94,9 @@ WantedBy=multi-user.target
 
 **Apache:** `.htaccess` (بجانب `core/`) و`public/.htaccess` جاهزان: الأول يوجّه كل شيء إلى `public/` ويحجب `core/ data/ sql/ tools/ tests/` و`cron.php`، والثاني يوجّه لـ index.php ويرفع حد الرفع إلى 64MB ويحوّل http→https بـ 301 كما كانت نسخة بايثون. فعّل `mod_rewrite` و`AllowOverride All`.
 
+> **شهادة SSL:** كما كانت نسخة بايثون، يحوّل الموقع كل طلب `http://` إلى `https://` بـ 301 (ويُسقط الـ query string؛ لا تحويل على localhost أو خلف بروكسي/CDN يرسل `X-Forwarded-Proto: https`).
+> المثبّت `install.php` ومسار `/.well-known/` (تحقق الشهادات) **مستثنيان** من التحويل كي لا تُقفل نفسك قبل تفعيل SSL. إن لم تكن لدومينك شهادة SSL بعد فعلّق قاعدة التحويل (5 أسطر في `.htaccess`، ومثلها في `public/.htaccess`) مؤقتاً.
+
 **Nginx + PHP-FPM:**
 ```nginx
 server { listen 80; server_name example.com; return 301 https://$host$uri; }   # الأصل يُسقط الـ query أيضاً

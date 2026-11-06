@@ -159,7 +159,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !$hardFail) {
 
 $f = fn(string $k) => h($v[$k]);
 $disabled = $hardFail ? ' disabled' : '';
+$isHttps = (!empty($_SERVER['HTTPS']) && strtolower((string)$_SERVER['HTTPS']) !== 'off')
+    || strtolower((string)($_SERVER['HTTP_X_FORWARDED_PROTO'] ?? '')) === 'https';
+$isLocal = (bool)preg_match('/^(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$/i', (string)($_SERVER['HTTP_HOST'] ?? ''));
 page('<h1>تثبيت الموقع (PHP + MySQL)</h1>'
+    . (!$isHttps && !$isLocal ? '<p class="warn">⚠ أنت تفتح المثبّت عبر اتصال غير مشفّر (HTTP): كلمة مرور قاعدة البيانات وكلمة مرور الأدمن ستُرسل بلا تشفير. إن كانت شهادة SSL مفعّلة لدومينك فافتح هذه الصفحة عبر <code>https://</code> بدلاً من ذلك.</p>' : '')
     . '<h2>فحص المتطلبات</h2>' . checks_html($checks)
     . ($hardFail ? '<p class="bad">أصلح المتطلبات الفاشلة (✘) ثم أعد تحميل الصفحة.</p>' : '')
     . ($error !== '' ? '<p class="bad"><b>خطأ:</b> ' . h($error) . '</p>' : '')

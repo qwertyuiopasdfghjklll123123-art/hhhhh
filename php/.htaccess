@@ -15,10 +15,15 @@ DirectoryIndex index.php
     RewriteCond %{HTTPS} off
     RewriteCond %{HTTP:X-Forwarded-Proto} !https
     RewriteCond %{HTTP_HOST} !^(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$
+    RewriteCond %{REQUEST_URI} !^/(install\.php$|\.well-known/)
     RewriteRule ^ https://%{HTTP_HOST}%{REQUEST_URI} [L,R=301,QSD]
+    # (مستثنى من التحويل: المثبّت install.php وتحقق الشهادات .well-known كي لا تُقفل نفسك قبل تفعيل SSL.
+    #  إن لم تكن لدومينك شهادة SSL بعد فعلّق الأسطر الخمسة أعلاه مؤقتاً.)
 
     # بعد التوجيه الداخلي إلى public/ لا تُعد المعالجة (يتولّاها public/.htaccess)
     RewriteRule ^public/ - [L]
+    # ملفات التحقق من شهادات SSL (Let's Encrypt / AutoSSL) تُخدَّم كما هي من جذر الموقع
+    RewriteRule ^\.well-known/ - [L]
 
     # المجلدات الخاصة (ما بداخلها فقط: core/ data/ ...) ممنوعة. (ملاحظة: مجلد الشيفرة اسمه core وليس app كي لا يتعارض مع رابط الموقع /app — لوحة المستخدم).
     RewriteRule ^(core|data|sql|tools|tests|\.git)/ - [F,L,NC]
