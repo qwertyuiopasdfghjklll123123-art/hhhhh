@@ -1,0 +1,12 @@
+# كل الطلبات إلى index.php ما عدا الملفات الموجودة فعلاً (install.php، static ...)
+Options -Indexes -MultiViews
+DirectoryIndex index.php
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+    RewriteCond %{REQUEST_FILENAME} -f
+    RewriteRule ^ - [L]
+    RewriteRule ^ index.php [L]
+</IfModule>
+<IfModule mod_php.c>
+    php_flag display_errors off
+</IfModule>
