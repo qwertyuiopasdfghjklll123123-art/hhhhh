@@ -39,9 +39,9 @@ eq($threw, true, 'unterminated quote throws');
 $all = SqlSplitter::eachStatement(__DIR__ . '/../sql/database.sql', function ($s) use (&$types) {
     $types[] = strtoupper(substr($s, 0, strpos($s . ' ', ' ') + 0 ?: 6) . ' ' . (preg_match('/^(\w+)\s+(\w+)/', $s, $m) ? $m[2] : ''));
 });
-eq($all, 36, 'database.sql statement count');
+eq($all, 37, 'database.sql statement count');
 $c = array_count_values(array_map(fn($t) => explode(' ', trim($t))[0], $types));
-eq($c['CREATE'] ?? 0, 25, 'database.sql CREATE count');
+eq($c['CREATE'] ?? 0, 26, 'database.sql CREATE count');
 eq($c['INSERT'] ?? 0, 10, 'database.sql INSERT count');
 eq($c['SET'] ?? 0, 1, 'database.sql SET count');
 

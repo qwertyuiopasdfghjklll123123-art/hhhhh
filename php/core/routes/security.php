@@ -61,6 +61,15 @@ function security_checks(): array {
     $tp = defined('TRUSTED_PROXIES') ? array_filter((array)TRUSTED_PROXIES) : [];
     $add('proxy', 'info', $tp ? 'بروكسي موثوق مضبوط' : 'لا بروكسي موثوق', $tp ? 'عنوان الزائر يُقرأ من ترويسة البروكسي لطلبات تأتي من: ' . implode('، ', $tp) : 'إن كان موقعك خلف Cloudflare/بروكسي فاضبط TRUSTED_PROXIES كي يُحسب عنوان الزائر الحقيقي (للحظر والسجل).');
 
+    // المصادقة الثنائية لحسابات الأدمن
+    try {
+        $adm = get_db()->execute('SELECT email,totp_enabled FROM users WHERE is_admin=1')->fetchall();
+        $no2 = []; foreach ($adm as $r) if ((int)$r['totp_enabled'] !== 1) $no2[] = (string)$r['email'];
+        if (!$adm) {}
+        elseif (!$no2) $add('admin2fa', 'ok', 'المصادقة الثنائية مفعّلة لكل حسابات الأدمن', '');
+        else $add('admin2fa', 'warn', 'حسابات أدمن بلا مصادقة ثنائية (' . count($no2) . ')', 'فعّلها من «حسابي ← الأمان» لكل أدمن: ' . implode('، ', array_map('security_mask_email', $no2)));
+    } catch (Throwable $e) {}
+
     // PHP
     $add('php', version_compare(PHP_VERSION, '8.1.0', '>=') ? 'ok' : 'warn', 'PHP ' . PHP_VERSION, version_compare(PHP_VERSION, '8.1.0', '>=') ? '' : 'إصدار PHP 8.0 انتهى دعمه الأمني: حدّث إلى 8.2 أو أحدث من لوحة الاستضافة.');
     $add('errors', ini_get('display_errors') ? 'warn' : 'ok', ini_get('display_errors') ? 'عرض أخطاء PHP مفعّل' : 'عرض الأخطاء للزوّار معطّل', ini_get('display_errors') ? 'عطّله في الاستضافة كي لا تظهر مسارات/تفاصيل داخلية.' : '');

@@ -38,7 +38,7 @@ route('/api/account/2fa/setup', function () {
     if (user_has_2fa($u)) return jsonify(['ok' => false, 'msg' => 'المصادقة الثنائية مفعّلة بالفعل']);
     $secret = totp_new_secret();
     $conn = get_db();
-    $conn->execute('UPDATE users SET totp_secret=?, totp_enabled=0 WHERE id=?', [$secret, $u['id']]);
+    $conn->execute('UPDATE users SET totp_secret=?, totp_enabled=0 WHERE id=?', [totp_secret_enc($secret), $u['id']]);
     $conn->commit();
     return jsonify(['ok' => true, 'secret' => $secret, 'uri' => totp_uri($secret, (string)$u['email'])]);
 }, ['POST']);
@@ -48,7 +48,7 @@ route('/api/account/2fa/enable', function () {
     if (user_has_2fa($u)) return jsonify(['ok' => false, 'msg' => 'المصادقة الثنائية مفعّلة بالفعل']);
     [$okRate] = rate_limit_hit('acc_enable|' . $u['id'], 10, 600);
     if (!$okRate) return jsonify(['ok' => false, 'msg' => 'محاولات كثيرة، انتظر قليلاً'], 429);
-    $secret = (string)($u['totp_secret'] ?? '');
+    $secret = totp_secret_get($u);
     if ($secret === '') return jsonify(['ok' => false, 'msg' => 'ابدأ الإعداد أولاً']);
     $code = (string)py_or(dget(req_data(), 'code'), '');
     if (!totp_verify($secret, $code, (int)$u['id'])) return jsonify(['ok' => false, 'msg' => 'الرمز غير صحيح — تأكد من ساعة هاتفك وأعد المحاولة']);

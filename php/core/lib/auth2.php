@@ -12,7 +12,7 @@
 /** أعمدة أضيفت بعد النسخة الأولى: تُضاف تلقائياً مرة واحدة (علم schema_v3.done) إن كانت القاعدة مستوردة من ملف أقدم */
 function schema_upgrade_columns(): array {
     return [
-        'users' => ['totp_secret' => 'VARCHAR(64) NULL', 'totp_enabled' => 'INT NOT NULL DEFAULT 0', 'totp_recovery' => 'LONGTEXT NULL'],
+        'users' => ['totp_secret' => 'VARCHAR(255) NULL', 'totp_enabled' => 'INT NOT NULL DEFAULT 0', 'totp_recovery' => 'LONGTEXT NULL'],
         'custom_orders' => ['ticket_id' => 'INT NULL'],
     ];
 }
@@ -63,6 +63,21 @@ function b32_decode(string $s): string {
     return $out;
 }
 function totp_new_secret(): string { return b32_encode(random_bytes(20)); }
+/** السرّ يُخزَّن مشفَّراً (AES-256-GCM بمفتاح مشتق من SECRET_KEY): تسرّب قاعدة البيانات/النسخ الاحتياطية وحده لا يكفي لتوليد الرموز */
+function totp_secret_key(): string { return hash('sha256', 'totp-secret|' . SECRET_KEY, true); }
+function totp_secret_enc(string $s): string {
+    $iv = random_bytes(12);
+    $ct = openssl_encrypt($s, 'aes-256-gcm', totp_secret_key(), OPENSSL_RAW_DATA, $iv, $tag);
+    return 'v1:' . base64_encode($iv . $tag . $ct);
+}
+function totp_secret_dec(string $s): string {
+    if (strncmp($s, 'v1:', 3) !== 0) return $s;                 // قيمة قديمة غير مشفّرة
+    $raw = base64_decode(substr($s, 3), true);
+    if ($raw === false || strlen($raw) < 29) return '';
+    $pt = openssl_decrypt(substr($raw, 28), 'aes-256-gcm', totp_secret_key(), OPENSSL_RAW_DATA, substr($raw, 0, 12), substr($raw, 12, 16));
+    return $pt === false ? '' : $pt;                            // SECRET_KEY تغيّر: لا يمكن فك السرّ (استعمل tools/disable_2fa.php)
+}
+function totp_secret_get(Row $u): string { return totp_secret_dec((string)($u['totp_secret'] ?? '')); }
 function totp_code(string $secret, ?int $time = null, int $step = 30): string {
     $c = intdiv($time ?? time(), $step);
     $h = hash_hmac('sha1', pack('J', $c), b32_decode($secret), true);
@@ -99,7 +114,7 @@ function recovery_generate(): array {
 function twofa_check_code(Row $user, string $code): bool {
     $code = trim($code);
     if ($code === '') return false;
-    if (totp_verify((string)$user['totp_secret'], $code, (int)$user['id'])) return true;
+    if (totp_verify(totp_secret_get($user), $code, (int)$user['id'])) return true;
     $list = json_decode((string)($user['totp_recovery'] ?? '[]'), true);
     if (!is_array($list)) return false;
     $h = recovery_hash($code);

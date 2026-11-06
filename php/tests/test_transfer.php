@@ -152,7 +152,7 @@ if (extension_loaded('pdo_sqlite')) {
 
 // قائمة الجداول الثابتة تطابق sql/database.sql بالضبط
 $fromSql = [];
-SqlSplitter::eachStatement(__DIR__ . '/../sql/database.sql', function ($st) use (&$fromSql) { if (preg_match('/^CREATE TABLE IF NOT EXISTS `(\w+)`/', $st, $m)) $fromSql[] = $m[1]; });
+SqlSplitter::eachStatement(__DIR__ . '/../sql/database.sql', function ($st) use (&$fromSql) { if (preg_match('/^CREATE TABLE IF NOT EXISTS `(\w+)`/', $st, $m) && $m[1] !== 'user_sessions') $fromSql[] = $m[1]; });   // user_sessions: جلسات أجهزة مرتبطة بكوكيات هذا الموقع، لا تدخل في النسخ/الاستيراد
 sort($fromSql); $mine = TRANSFER_TABLES; sort($mine);
 ok($fromSql === $mine, 'TRANSFER_TABLES matches sql/database.sql', array_diff($fromSql, $mine) + array_diff($mine, $fromSql));
 

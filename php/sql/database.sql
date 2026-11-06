@@ -39,7 +39,7 @@ CREATE TABLE IF NOT EXISTS `users` (
   `telegram_chat_id` VARCHAR(64) DEFAULT '',
   `api_key` VARCHAR(255) DEFAULT '',
   `public_id` VARCHAR(64) DEFAULT '',
-  `totp_secret` VARCHAR(64) NULL,
+  `totp_secret` VARCHAR(255) NULL,
   `totp_enabled` INT NOT NULL DEFAULT 0,
   `totp_recovery` LONGTEXT NULL,
   PRIMARY KEY (`id`),

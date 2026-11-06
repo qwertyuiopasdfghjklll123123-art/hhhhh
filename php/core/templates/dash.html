@@ -1902,6 +1902,143 @@ html:not([data-theme="dark"]) .rv-star-btn{color:rgba(0,0,0,.1)}
 .sec-row .st{font-size:12px;font-weight:800}.sec-row .sd{font-size:10px;color:var(--text3);margin-top:2px;line-height:1.7}
 .aud-row{display:grid;grid-template-columns:96px 1fr;gap:2px 8px;padding:7px 4px;border-bottom:1px solid var(--card-border);font-size:10px}
 .aud-row .at{color:var(--text3);font-family:var(--font-num);direction:ltr;text-align:left}.aud-row .ae{font-weight:700;word-break:break-all}.aud-row .ai{grid-column:1/-1;color:var(--text3);font-family:var(--font-num);direction:ltr;text-align:left}
+/* ====================================================================
+   v2 — تصميم مسطّح: أزرار بأحجام وأنماط جديدة، أيقونات منصات أكبر ولامعة، بطاقات الألعاب، الأمان، طلباتي
+   ==================================================================== */
+.btn-primary{height:52px;padding:0 20px;border-radius:15px;background:var(--primary);box-shadow:0 3px 0 rgba(0,0,0,.20);font-size:15px;font-weight:700;display:flex;align-items:center;justify-content:center;gap:8px;transition:transform .08s,box-shadow .08s}
+.btn-primary:active{transform:translateY(2px);box-shadow:0 1px 0 rgba(0,0,0,.20)}
+.btn-outline{height:48px;padding:0 18px;border:0;border-radius:14px;background:var(--primary-bg);color:var(--primary);font-size:14px}
+.btn-danger{height:48px;padding:0 18px;border:0;border-radius:14px;background:rgba(239,68,68,.10);color:var(--red);font-size:14px}
+.btn-sm{height:38px;padding:0 14px;border:0;border-radius:11px;background:var(--primary-bg);color:var(--primary);font-size:13px}
+.btn-sm-green{height:36px;border:0;border-radius:11px;background:rgba(16,185,129,.12)}
+.btn-sm-danger{height:32px;border:0;border-radius:10px}
+.v2-btn{display:inline-flex;align-items:center;justify-content:center;gap:7px;height:44px;padding:0 16px;border:0;border-radius:13px;font-family:var(--font);font-size:14px;font-weight:700;cursor:pointer;white-space:nowrap;-webkit-tap-highlight-color:transparent}
+.v2-btn.sm{height:34px;padding:0 12px;border-radius:10px;font-size:12.5px}
+.v2-btn.xs{height:28px;padding:0 10px;border-radius:9px;font-size:11.5px}
+.v2-btn.lg{height:54px;padding:0 22px;border-radius:16px;font-size:16px}
+.v2-btn.solid{background:var(--primary);color:#fff;box-shadow:0 3px 0 rgba(0,0,0,.20)}
+.v2-btn.solid:active{transform:translateY(2px);box-shadow:0 1px 0 rgba(0,0,0,.20)}
+.v2-btn.tonal{background:var(--primary-bg);color:var(--primary)}
+.v2-btn.success{background:var(--green);color:#fff;box-shadow:0 3px 0 rgba(0,0,0,.18)}
+.v2-btn.danger{background:rgba(239,68,68,.10);color:var(--red)}
+.v2-btn.outline{background:var(--card);color:var(--text);box-shadow:inset 0 0 0 1.5px var(--card-border)}
+.v2-btn.full{width:100%}
+.v2-btn:disabled{opacity:.55;cursor:not-allowed}
+.v2-chip{display:inline-flex;align-items:center;gap:5px;height:22px;padding:0 9px;border-radius:8px;font-size:11px;font-weight:700;white-space:nowrap}
+.v2-chip.g{background:rgba(16,185,129,.12);color:#059669}.v2-chip.b{background:var(--primary-bg);color:var(--primary)}.v2-chip.y{background:rgba(245,158,11,.14);color:#b45309}.v2-chip.r{background:rgba(239,68,68,.12);color:#dc2626}.v2-chip.n{background:rgba(120,110,100,.12);color:var(--text2)}
+/* أيقونات المنصات: أكبر ولامعة */
+.platforms-grid{gap:6px!important}
+.p-pill{padding:12px 2px 8px;gap:9px}
+.p-pill .p-icon{width:58px;height:58px;border-radius:18px;font-size:27px;position:relative;overflow:hidden;box-shadow:0 8px 16px -8px rgba(0,0,0,.45),inset 0 1px 0 rgba(255,255,255,.45),inset 0 -3px 6px rgba(0,0,0,.14)}
+.p-pill .p-icon::after{content:'';position:absolute;left:0;right:0;top:0;height:52%;background:linear-gradient(180deg,rgba(255,255,255,.40),rgba(255,255,255,.04));border-radius:18px 18px 55% 55%/18px 18px 100% 100%;pointer-events:none}
+.p-pill .p-icon i{position:relative;z-index:1;filter:drop-shadow(0 1px 1px rgba(0,0,0,.25))}
+.p-pill .p-name{font-size:11.5px}
+.p-pill:hover .p-icon{transform:scale(1.06)}
+/* المساعد الذكي */
+.ai-card{display:flex;align-items:center;gap:13px;background:var(--primary);color:#fff;border-radius:20px;padding:13px 14px;margin-bottom:12px;cursor:pointer;box-shadow:0 4px 0 rgba(0,0,0,.18);position:relative;overflow:hidden}
+.ai-card::before{content:'';position:absolute;left:-30px;top:-40px;width:130px;height:130px;border-radius:50%;background:rgba(255,255,255,.10)}
+.ai-card:active{transform:translateY(2px);box-shadow:0 2px 0 rgba(0,0,0,.18)}
+.ai-card-ic{width:52px;height:52px;border-radius:16px;background:#fff;flex-shrink:0;overflow:hidden;padding:5px;position:relative}
+.ai-card-ic img{width:100%;height:100%;object-fit:contain}
+.ai-card-tx{flex:1;min-width:0;position:relative}
+.ai-card-t{font-size:15px;font-weight:800;display:flex;align-items:center;gap:7px}
+.ai-card-badge{font:800 9px var(--font-num,'Inter');background:rgba(255,255,255,.25);padding:2px 7px;border-radius:6px;letter-spacing:.5px}
+.ai-card-d{font-size:11.5px;opacity:.88;margin-top:2px;line-height:1.5}
+.ai-card-go{width:34px;height:34px;border-radius:11px;background:rgba(255,255,255,.2);display:flex;align-items:center;justify-content:center;font-size:12px;position:relative}
+.ai-chips{display:flex;gap:7px;overflow-x:auto;margin:-4px -16px 12px;padding:0 16px 2px;scrollbar-width:none}
+.ai-chips::-webkit-scrollbar{display:none}
+.ai-chips span{flex:none;background:var(--card);border:1px solid var(--card-border);border-radius:11px;padding:7px 12px;font-size:11.5px;font-weight:700;color:var(--text2);cursor:pointer}
+/* شريط الألعاب / الخدمات المخصصة: يُسحب يميناً ويساراً */
+.gm-sec{margin-bottom:12px}
+.gm-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:9px;padding:0 2px}
+.gm-title{font-size:14px;font-weight:800;color:var(--text);display:flex;align-items:center;gap:7px}
+.gm-title i{color:var(--primary);font-size:13px}
+.gm-head a{font-size:12px;font-weight:700;color:var(--primary);text-decoration:none;display:flex;align-items:center;gap:4px}
+.gm-head a i{font-size:9px}
+.gm-strip{display:flex;gap:10px;overflow-x:auto;scroll-snap-type:x proximity;margin:0 -16px;padding:2px 16px 8px;scrollbar-width:none;-webkit-overflow-scrolling:touch}
+.gm-strip::-webkit-scrollbar{display:none}
+.gm-card{flex:0 0 138px;scroll-snap-align:start;background:var(--card);border:1px solid var(--card-border);border-radius:18px;padding:10px;cursor:pointer;box-shadow:0 1px 2px rgba(34,26,18,.04),0 8px 16px -12px rgba(34,26,18,.25);transition:transform .1s}
+.gm-card:active{transform:scale(.97)}
+.gm-card .gm-ic{height:64px;border-radius:13px;display:flex;align-items:center;justify-content:center;font-size:28px;color:#fff;position:relative;overflow:hidden;margin-bottom:9px;box-shadow:inset 0 1px 0 rgba(255,255,255,.35),inset 0 -3px 6px rgba(0,0,0,.12)}
+.gm-card .gm-ic::after{content:'';position:absolute;left:0;right:0;top:0;height:50%;background:linear-gradient(180deg,rgba(255,255,255,.32),rgba(255,255,255,0))}
+.gm-card .gm-ic i,.gm-card .gm-ic img{position:relative;z-index:1}
+.gm-card .gm-ic img{width:100%;height:100%;object-fit:cover;position:absolute;inset:0;z-index:0}
+.gm-nm{font-size:12.5px;font-weight:800;color:var(--text);line-height:1.4;height:35px;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
+.gm-pr{font-size:11px;color:var(--text3);font-weight:700;margin-top:5px;display:flex;align-items:center;justify-content:space-between}
+.gm-pr b{color:var(--primary);font-family:var(--font-num,'Inter')}
+/* حسابي: الأمان + المزيد من الإعدادات */
+.new-tag{font-size:9px;font-weight:800;background:var(--green);color:#fff;padding:2px 7px;border-radius:6px;margin-right:6px;vertical-align:middle}
+.acc-pill{font-size:12px;font-weight:700;padding:6px 13px;border-radius:10px;background:var(--primary);color:#fff;box-shadow:0 2px 0 rgba(0,0,0,.2);white-space:nowrap}
+.acc-pill.on{background:rgba(16,185,129,.14);color:#059669;box-shadow:none}
+.sess-now{display:flex;align-items:center;gap:12px;padding:12px 14px;border-radius:16px;border:1px solid rgba(16,185,129,.35);background:rgba(16,185,129,.07);margin-top:8px}
+.sess-ic{width:42px;height:42px;border-radius:13px;display:flex;align-items:center;justify-content:center;font-size:17px;flex-shrink:0;background:rgba(16,185,129,.14);color:#059669}
+.sess-tx{flex:1;min-width:0}.sess-t{font-size:13.5px;font-weight:800;color:var(--text)}.sess-d{font-size:11px;color:var(--text3);margin-top:2px}
+.more-hd{display:flex;align-items:center;gap:12px;padding:13px 14px;background:var(--card);border:1px solid var(--card-border);border-radius:16px;cursor:pointer;margin-bottom:8px}
+.more-hd .mi-ic{flex-shrink:0}
+.more-hd .more-t{flex:1;font-size:14px;font-weight:800;color:var(--text)}
+.more-hd .more-d{font-size:11px;color:var(--text3);font-weight:600}
+.more-hd .more-chev{color:var(--text3);font-size:12px;transition:transform .25s}
+.more-set.open .more-chev{transform:rotate(-90deg)}
+.more-bd{display:none}
+.more-set.open .more-bd{display:block}
+/* صفحات 2FA والجلسات */
+.tf-steps{display:flex;align-items:center;gap:8px;margin-bottom:14px}
+.tf-steps .s{display:flex;align-items:center;gap:7px;font-size:11.5px;font-weight:700;color:var(--text3);flex:1}
+.tf-steps .s b{width:24px;height:24px;border-radius:50%;background:var(--card-border);display:grid;place-items:center;font:700 12px var(--font-num,'Inter');flex:none}
+.tf-steps .s.a{color:var(--text)}.tf-steps .s.a b{background:var(--primary);color:#fff}.tf-steps .s.d b{background:var(--green);color:#fff}
+.tf-qr{background:#fff;border:1px solid var(--card-border);border-radius:18px;padding:16px;display:flex;flex-direction:column;align-items:center;gap:10px}
+.tf-qr canvas,.tf-qr img,.tf-qr svg{width:176px;height:176px;image-rendering:pixelated}
+.tf-key{display:flex;align-items:center;justify-content:space-between;gap:8px;width:100%;background:var(--bg);border:1px dashed var(--card-border);border-radius:12px;padding:8px 12px;direction:ltr}
+.tf-key span{font:700 13px var(--font-num,'Inter');letter-spacing:.08em;word-break:break-all}
+.tf-code{display:flex;gap:8px;direction:ltr;margin:8px 0 12px}
+.tf-code input{flex:1;min-width:0;height:52px;text-align:center;border-radius:13px;border:1.5px solid var(--input-border);background:var(--input-bg);color:var(--text);font:700 22px var(--font-num,'Inter');outline:none}
+.tf-code input:focus{border-color:var(--primary);box-shadow:0 0 0 4px var(--primary-glow)}
+.tf-note{display:flex;gap:10px;padding:12px;border-radius:14px;background:rgba(245,158,11,.12);color:#92400e;font-size:12px;line-height:1.7;font-weight:600;margin-top:12px}
+.tf-rec{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:10px 0;direction:ltr}
+.tf-rec div{background:var(--bg);border:1px solid var(--card-border);border-radius:11px;padding:9px;text-align:center;font:700 14px var(--font-num,'Inter');letter-spacing:.06em}
+.ss-card{background:var(--card);border:1px solid var(--card-border);border-radius:18px;margin-bottom:10px;overflow:hidden}
+.ss-row{display:flex;align-items:center;gap:12px;padding:13px 14px}
+.ss-row+.ss-row{border-top:1px solid var(--card-border)}
+.ss-ic{width:44px;height:44px;border-radius:13px;display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0;background:var(--primary-bg);color:var(--primary)}
+.ss-ic.cur{background:rgba(16,185,129,.14);color:#059669}
+.ss-tx{flex:1;min-width:0}.ss-t{font-size:14px;font-weight:800;color:var(--text)}.ss-d{font-size:11.5px;color:var(--text3);margin-top:2px}
+/* طلباتي: تبويبات + طلبات الألعاب والمخصّصة */
+.ord-tabs{display:flex;padding:4px;border-radius:14px;background:var(--card-border);margin-bottom:10px;gap:2px}
+.ord-tabs div{flex:1;height:38px;display:flex;align-items:center;justify-content:center;gap:6px;font-size:13px;font-weight:700;color:var(--text2);border-radius:10px;cursor:pointer}
+.ord-tabs div.on{background:var(--card);color:var(--text);box-shadow:0 1px 2px rgba(34,26,18,.15)}
+.ord-tabs .cnt{min-width:18px;height:18px;border-radius:9px;background:var(--red);color:#fff;font:700 10px var(--font-num,'Inter');display:none;align-items:center;justify-content:center;padding:0 5px}
+.cocard{background:var(--card);border:1px solid var(--card-border);border-radius:18px;padding:13px;margin-bottom:10px;box-shadow:0 1px 2px rgba(34,26,18,.04),0 8px 16px -12px rgba(34,26,18,.22)}
+.co-h{display:flex;align-items:center;gap:12px}
+.co-ic{width:46px;height:46px;border-radius:14px;display:flex;align-items:center;justify-content:center;font-size:20px;color:#fff;flex-shrink:0;position:relative;overflow:hidden}
+.co-ic::after{content:'';position:absolute;left:0;right:0;top:0;height:50%;background:linear-gradient(180deg,rgba(255,255,255,.3),rgba(255,255,255,0))}
+.co-ic i{position:relative;z-index:1}
+.co-tx{flex:1;min-width:0}.co-t{font-size:14px;font-weight:800;color:var(--text);line-height:1.4}.co-d{font-size:11.5px;color:var(--text3);margin-top:2px}
+.co-m{display:flex;gap:12px;align-items:center;margin-top:10px;font-size:12px;color:var(--text2);flex-wrap:wrap}.co-m b{color:var(--text);font-family:var(--font-num,'Inter')}
+.co-f{display:flex;gap:8px;margin-top:11px}
+.co-dot{width:8px;height:8px;border-radius:50%;background:var(--red);box-shadow:0 0 0 3px rgba(239,68,68,.2)}
+.ocard{border-radius:18px;box-shadow:0 1px 2px rgba(34,26,18,.04),0 8px 16px -12px rgba(34,26,18,.22)}
+/* الشاشة الرئيسية للخدمة المخصصة (لعبة) */
+.gm-pkgs{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin:0 14px 12px}
+.gm-pkg{position:relative;padding:12px;border-radius:15px;background:var(--card);box-shadow:inset 0 0 0 1.5px var(--card-border);cursor:pointer}
+.gm-pkg b{display:block;font:800 17px var(--font-num,'Inter');color:var(--text)}
+.gm-pkg span{font-size:11px;color:var(--text3)}
+.gm-pkg em{display:block;font:800 15px var(--font-num,'Inter');font-style:normal;color:var(--primary);margin-top:4px}
+.gm-pkg.sel{box-shadow:inset 0 0 0 2px var(--primary);background:var(--primary-bg)}
+.gm-pkg.sel::after{content:'✓';position:absolute;top:9px;left:9px;width:22px;height:22px;border-radius:50%;background:var(--primary);color:#fff;font-size:12px;display:grid;place-items:center}
+.gm-sum{margin:0 14px 12px;padding:13px 14px;border-radius:15px;background:var(--card);border:1px solid var(--card-border);font-size:13px}
+.gm-sum div{display:flex;justify-content:space-between;color:var(--text2);padding:3px 0}.gm-sum b{color:var(--text);font-family:var(--font-num,'Inter')}
+.gm-sum .tot{border-top:1px dashed var(--card-border);margin-top:6px;padding-top:9px;font-size:14px;font-weight:800;color:var(--text)}.gm-sum .tot b{color:var(--primary);font-size:16px}
+/* شعار الموقع المتحرك بدل الاسم */
+.brand-media{height:38px;max-width:190px;width:auto;display:block;object-fit:contain;background:transparent}
+.rch-bal{background:var(--primary)!important;border:0!important;border-radius:20px!important;box-shadow:0 4px 0 rgba(0,0,0,.20)}
+.rch-bal::before{background:#fff!important;opacity:.14!important}
+.rch-bal-lbl,.rch-bal-sub{color:rgba(255,255,255,.88)!important}
+.rch-bal-val{background:none!important;-webkit-text-fill-color:#fff!important;color:#fff!important;font-size:32px!important}
+.rch-bal-ic{background:rgba(255,255,255,.22)!important;color:#fff!important}
+.rch-strip-wrap{border-radius:16px}
+/* شعار طريقة الدفع */
+.rch-strip-ic{width:52px;height:52px;border-radius:14px}
+.rch-strip-ic img{object-fit:contain;background:#fff;padding:4px;border-radius:14px}
 </style>
 </head>
 <body>
@@ -2041,11 +2178,12 @@ html:not([data-theme="dark"]) .rv-star-btn{color:rgba(0,0,0,.1)}
       </div>
     </div>
     <div id="annBoxWrap" class="nonadmin-only" style="display:none"></div>
-    <div class="nonadmin-only" onclick="document.getElementById('aiChatPage').classList.add('show');openAiConversation(0)" style="display:flex;align-items:center;gap:12px;background:var(--card);border:1px solid var(--card-border);border-radius:16px;padding:12px 16px;margin-bottom:10px;cursor:pointer;box-shadow:var(--shadow)">
-      <div style="width:46px;height:46px;border-radius:50%;flex-shrink:0;overflow:hidden"><img src="__AI_ICON__" alt="" style="width:100%;height:100%;object-fit:contain"></div>
-      <div style="flex:1;min-width:0"><div style="font-size:13px;font-weight:800;color:var(--text)">اسأل المساعد الذكي</div><div style="font-size:10px;color:var(--text3)">جاهز يساعدك بخدماتك، طلباتك، ورصيدك</div></div>
-      <i class="fa-solid fa-chevron-left" style="color:var(--text3);font-size:12px"></i>
+    <div class="nonadmin-only ai-card" onclick="document.getElementById('aiChatPage').classList.add('show');openAiConversation(0)">
+      <div class="ai-card-ic"><img src="__AI_ICON__" alt=""></div>
+      <div class="ai-card-tx"><div class="ai-card-t">المساعد الذكي <span class="ai-card-badge">AI</span></div><div class="ai-card-d">اسأله عن خدماتك وطلباتك ورصيدك — يجيبك فوراً</div></div>
+      <div class="ai-card-go"><i class="fa-solid fa-chevron-left"></i></div>
     </div>
+    <div class="nonadmin-only ai-chips"><span onclick="aiQuick('كم رصيدي الحالي؟')">💰 كم رصيدي؟</span><span onclick="aiQuick('أين طلبي الأخير؟')">📦 أين طلبي؟</span><span onclick="aiQuick('ما أرخص خدمة متابعين؟')">⭐ أرخص خدمة</span><span onclick="aiQuick('كيف أشحن رصيدي؟')">💳 كيف أشحن؟</span></div>
     <div style="margin-bottom:10px">
       <div id="customSvcsSec"></div>
       <div id="favSvcsSec" style="margin-top:10px"></div>
@@ -2078,6 +2216,7 @@ html:not([data-theme="dark"]) .rv-star-btn{color:rgba(0,0,0,.1)}
   <div class="page" id="pageOrders">
     <div class="sec-label" style="margin-bottom:10px"><i class="fa-solid fa-clock-rotate-left"></i> طلباتي</div>
     <div class="ord-stats"><div class="os"><div class="n gn" id="osDone">0</div><div class="l"><i class="fa-solid fa-check-circle"></i> مكتمل</div></div><div class="os"><div class="n yl" id="osPend">0</div><div class="l"><i class="fa-solid fa-clock"></i> جاري</div></div><div class="os"><div class="n rd" id="osCanc">0</div><div class="l"><i class="fa-solid fa-xmark-circle"></i> ملغي</div></div></div>
+    <div class="ord-tabs" id="ordTabs"><div class="on" data-t="all">الكل</div><div data-t="smm">الخدمات</div><div data-t="custom"><i class="fa-solid fa-gamepad"></i> الألعاب <span class="cnt" id="ordCoCnt"></span></div></div>
     <div class="ord-search"><i class="fa-solid fa-search"></i><input type="text" placeholder="بحث بالرقم، الرابط، أو الخدمة..." id="ordSearchInput" oninput="filterOrdersBySearch()"></div>
     <div class="filters" id="ordFilters"><div class="flt on" data-f="all">الكل</div><div class="flt" data-f="Processing">قيد التنفيذ</div><div class="flt" data-f="Completed">مكتملة</div><div class="flt" data-f="Pending">معلّقة</div><div class="flt" data-f="Canceled">ملغاة</div><div class="flt" data-f="Partial">جزئي</div></div>
     <div id="ordList"><div class="ord-empty"><i class="fa-solid fa-inbox"></i><p>لا توجد طلبات حالياً</p></div></div>
@@ -2160,6 +2299,21 @@ html:not([data-theme="dark"]) .rv-star-btn{color:rgba(0,0,0,.1)}
       </div>
     </div>
 
+    <div class="sec-sep">الأمان <span class="new-tag">جديد</span></div>
+    <div class="acc-card" id="accSecCard">
+      <a class="acc-item" href="#" onclick="event.preventDefault();openTwofaPage()">
+        <div class="mi-ic green"><i class="fa-solid fa-shield-halved"></i></div>
+        <div class="mi-info"><div class="mi-title">المصادقة الثنائية (2FA)</div><div class="mi-desc" id="accTwofaSub">جارٍ التحميل…</div></div>
+        <span class="acc-pill" id="accTwofaBtn">تفعيل</span>
+      </a>
+      <a class="acc-item" href="#" onclick="event.preventDefault();openSessionsPage()">
+        <div class="mi-ic purple"><i class="fa-solid fa-mobile-screen-button"></i></div>
+        <div class="mi-info"><div class="mi-title">الأجهزة والجلسات</div><div class="mi-desc" id="accSessSub">—</div></div>
+        <span class="arr"><i class="fa-solid fa-chevron-left"></i></span>
+      </a>
+    </div>
+    <div class="sess-now" id="accNowCard" style="display:none"></div>
+
     <div class="sec-sep nonadmin-only">الإعدادات العامة</div>
     <div class="curr-card-vps nonadmin-only" id="currBtn">
       <div class="curr-card-vps-ic"><i class="fa-solid fa-coins" id="currIcon"></i></div>
@@ -2178,6 +2332,13 @@ html:not([data-theme="dark"]) .rv-star-btn{color:rgba(0,0,0,.1)}
       </div>
       <i class="fa-solid fa-chevron-left curr-card-vps-chev"></i>
     </div>
+    <div class="more-set nonadmin-only" id="moreSet">
+    <div class="more-hd" onclick="document.getElementById('moreSet').classList.toggle('open')">
+      <div class="mi-ic blue"><i class="fa-solid fa-sliders"></i></div>
+      <div style="flex:1"><div class="more-t">المزيد من الإعدادات</div><div class="more-d">المظهر · الإشعارات</div></div>
+      <i class="fa-solid fa-chevron-down more-chev"></i>
+    </div>
+    <div class="more-bd">
     <div class="acc-card nonadmin-only">
       <div class="acc-item" id="btnTheme" style="cursor:pointer">
         <div class="mi-ic" style="background:rgba(245,158,11,.1);color:#f59e0b"><i class="fa-solid fa-moon"></i></div>
@@ -2190,6 +2351,8 @@ html:not([data-theme="dark"]) .rv-star-btn{color:rgba(0,0,0,.1)}
         <span class="arr"><i class="fa-solid fa-chevron-left"></i></span>
       </a>
     </div>
+    </div></div>
+
 
     <div class="sec-sep admin-only">الإدارة</div>
     <div class="acc-card admin-only">
@@ -2422,6 +2585,14 @@ html:not([data-theme="dark"]) .rv-star-btn{color:rgba(0,0,0,.1)}
     </div>
   </div>
 </div>
+<div class="overlay-page" id="twofaPage">
+  <div class="ov-topbar"><button class="ov-back" onclick="document.getElementById('twofaPage').classList.remove('show')"><i class="fa-solid fa-arrow-right"></i></button><div class="ov-title"><i class="fa-solid fa-shield-halved"></i> المصادقة الثنائية (2FA)</div></div>
+  <div class="ov-body" id="twofaBody"></div>
+</div>
+<div class="overlay-page" id="sessionsPage">
+  <div class="ov-topbar"><button class="ov-back" onclick="document.getElementById('sessionsPage').classList.remove('show')"><i class="fa-solid fa-arrow-right"></i></button><div class="ov-title"><i class="fa-solid fa-mobile-screen-button"></i> الأجهزة والجلسات</div></div>
+  <div class="ov-body" id="sessionsBody"></div>
+</div>
 <div class="overlay-page nonadmin-only" id="faqPage">
   <div class="ov-topbar"><button class="ov-back" onclick="document.getElementById('faqPage').classList.remove('show')"><i class="fa-solid fa-arrow-right"></i></button><div class="ov-title"><i class="fa-solid fa-circle-question"></i> الأسئلة الشائعة</div></div>
   <div class="ov-body" id="faqBody">
@@ -2493,6 +2664,16 @@ html:not([data-theme="dark"]) .rv-star-btn{color:rgba(0,0,0,.1)}
         <input type="file" id="logoFileIn" accept="image/*" hidden onchange="uploadLogo(this)">
       </div>
       <button onclick="deleteLogo()" class="btn-danger" style="margin-top:10px"><i class="fa-solid fa-trash"></i> إزالة اللوغو</button>
+    </div>
+    <div style="background:var(--card);border:1px solid var(--card-border);border-radius:14px;padding:16px;margin-bottom:12px">
+      <div class="sec-label"><i class="fa-solid fa-film"></i> شعار متحرك بدل اسم الموقع</div>
+      <div style="font-size:11px;color:var(--text3);line-height:1.9;margin-bottom:10px">ارفع فيديو <b>webm</b> بخلفية شفافة أو صورة متحركة (<b>gif / webp / png</b>) فتظهر للمستخدمين في الشريط العلوي <b>بدل اسم الموقع</b>. الحجم الأقصى 8MB، والأفضل ارتفاع 40–80px. لشفافية الفيديو على Safari/iOS ارفع أيضاً نسخة <b>mov</b> (HEVC بقناة ألفا).</div>
+      <div id="brandMediaStatus" style="margin-bottom:10px"></div>
+      <div style="display:flex;gap:8px;margin-bottom:8px">
+        <label class="v2-btn tonal" style="flex:1;cursor:pointer"><i class="fa-solid fa-upload"></i> رفع الشعار<input type="file" hidden accept=".webm,.mp4,.gif,.webp,.png,.svg,video/webm,video/mp4,image/gif,image/webp,image/png,image/svg+xml" onchange="uploadBrandMedia('a',this)"></label>
+        <label class="v2-btn outline" style="flex:1;cursor:pointer"><i class="fa-brands fa-safari"></i> نسخة Safari (mov)<input type="file" hidden accept=".mov,.mp4,video/quicktime,video/mp4" onchange="uploadBrandMedia('b',this)"></label>
+      </div>
+      <button class="v2-btn danger full" onclick="deleteBrandMedia()"><i class="fa-solid fa-trash"></i> إزالة الشعار المتحرك (العودة للاسم)</button>
     </div>
     <div style="background:var(--card);border:1px solid var(--card-border);border-radius:14px;padding:16px;margin-bottom:12px">
       <div class="sec-label"><i class="fa-solid fa-heading"></i> اسم الموقع</div>
@@ -4011,29 +4192,59 @@ print(r.json())</pre>
         if(attempt<3){setTimeout(function(){loadOrders(attempt+1)},2000);return}
         list.innerHTML='<div style="text-align:center;padding:30px"><div style="font-size:1.5rem;margin-bottom:6px;opacity:.3"><i class="fa-solid fa-triangle-exclamation"></i></div><div style="font-size:12px;font-weight:700;color:var(--text)">خطأ بتحميل الطلبات</div><button onclick="loadOrders(1)" class="btn-sm" style="padding:8px 18px;margin-top:8px"><i class="fa-solid fa-rotate"></i> إعادة المحاولة</button></div>';return}
       allOrders=d.orders||[];
-      renderOrders('all');
-      var done=0,pend=0,canc=0;
-      allOrders.forEach(function(o){
-        var s=(o.status||'').toLowerCase();
-        if(s==='completed')done++;
-        else if(s==='canceled'||s==='cancelled')canc++;
-        else pend++;
-      });
-      document.getElementById('osDone').textContent=done;
-      document.getElementById('osPend').textContent=pend;
-      document.getElementById('osCanc').textContent=canc;
+      loadCustomOrders();
     }).catch(function(){
       if(attempt<3){setTimeout(function(){loadOrders(attempt+1)},2000);return}
       list.innerHTML='<div style="text-align:center;padding:30px"><div style="font-size:1.5rem;margin-bottom:6px;opacity:.3"><i class="fa-solid fa-wifi"></i></div><div style="font-size:12px;font-weight:700;color:var(--text)">خطأ بالاتصال</div><div style="font-size:11px;color:var(--text3);margin:4px 0 8px">تأكد من اتصالك بالإنترنت</div><button onclick="loadOrders(1)" class="btn-sm" style="padding:8px 18px"><i class="fa-solid fa-rotate"></i> إعادة المحاولة</button></div>'});
   }
+  var customOrders=[];
+  function _coSt(s){s=(s||'').toLowerCase();return s==='completed'?'Completed':(s==='canceled'||s==='cancelled')?'Canceled':s==='processing'?'Processing':'Pending'}
+  function loadCustomOrders(){
+    return fetch('/api/my_custom_orders').then(function(r){return r.json()}).then(function(d){customOrders=(d&&d.ok&&d.orders)||[]}).catch(function(){customOrders=[]}).then(_ordRefresh);
+  }
+  function _ordRefresh(){
+    var af=document.querySelector('#ordFilters .flt.on');renderOrders(af?af.dataset.f:'all');
+    var done=0,pend=0,canc=0;
+    allOrders.concat(customOrders.map(function(o){return {status:_coSt(o.status)}})).forEach(function(o){
+      var s=(o.status||'').toLowerCase();
+      if(s==='completed')done++;else if(s==='canceled'||s==='cancelled')canc++;else pend++;
+    });
+    document.getElementById('osDone').textContent=done;document.getElementById('osPend').textContent=pend;document.getElementById('osCanc').textContent=canc;
+    var un=customOrders.filter(function(o){var st=_coSt(o.status);return o.last_sender==='admin'&&st!=='Completed'&&st!=='Canceled'}).length;
+    var c=document.getElementById('ordCoCnt');if(c){c.textContent=un;c.style.display=un?'inline-flex':'none'}
+  }
+  var _coBg=['#f59e0b','#2563eb','#7c3aed','#db2777','#10b981','#0891b2','#ef4444'];
+  function _coCard(o){
+    var st=_coSt(o.status);
+    var lbl={Completed:'مكتمل',Pending:'بانتظار التنفيذ',Processing:'قيد التنفيذ',Canceled:'ملغي'}[st];
+    var cls={Completed:'g',Pending:'y',Processing:'b',Canceled:'r'}[st];
+    var isGame=o.type==='game';
+    var icon=isGame?'fa-gamepad':(o.type==='subscription'?'fa-crown':'fa-gem');
+    var hsh=0;String(o.service_id||o.service_name||'').split('').forEach(function(ch){hsh=(hsh*31+ch.charCodeAt(0))>>>0});
+    var dt=o.created_at?new Date(o.created_at*1000):null;
+    var date=dt?(dt.getFullYear()+'-'+String(dt.getMonth()+1).padStart(2,'0')+'-'+String(dt.getDate()).padStart(2,'0')+' '+String(dt.getHours()).padStart(2,'0')+':'+String(dt.getMinutes()).padStart(2,'0')):'';
+    var unread=o.last_sender==='admin'&&st!=='Completed'&&st!=='Canceled';
+    var h='<div class="cocard"><div class="co-h"><div class="co-ic" style="background:'+_coBg[hsh%_coBg.length]+'"><i class="fa-solid '+icon+'"></i></div>';
+    h+='<div class="co-tx"><div class="co-t">'+esc(o.service_name||'')+(o.package?' — '+esc(o.package):'')+'</div><div class="co-d">#'+esc(o.id)+(isGame&&o.link?' · ID <span style="font-family:var(--font-num,Inter);font-weight:700">'+esc(o.link)+'</span>':'')+'</div></div>';
+    h+='<span class="v2-chip '+cls+'">'+lbl+'</span></div>';
+    h+='<div class="co-m"><span>السعر <b data-usd="'+(o.cost||0)+'">'+fmtP(o.cost||0)+'</b></span>'+(date?'<span>'+date+'</span>':'')+'</div>';
+    if(o.ticket_id)h+='<div class="co-f"><button class="v2-btn solid sm" style="flex:1" onclick="openTicket('+parseInt(o.ticket_id)+')"><i class="fa-solid fa-comments"></i> فتح المحادثة'+(unread?' <span class="co-dot"></span>':'')+'</button></div>';
+    return h+'</div>';
+  }
   function renderOrders(filter){
     var list=document.getElementById('ordList');
     var sq=(document.getElementById('ordSearchInput')||{}).value||'';
-    var filtered=filter==='all'?allOrders:allOrders.filter(function(o){return o.status===filter});
-    if(sq.trim()){var q=sq.trim().toLowerCase();filtered=filtered.filter(function(o){return (o.service_name||'').toLowerCase().indexOf(q)!==-1||(o.order||'').toString().indexOf(q)!==-1||(o.link||'').toLowerCase().indexOf(q)!==-1})}
-    if(!filtered.length){list.innerHTML='<div class="ord-empty"><i class="fa-solid fa-inbox"></i><p>لا توجد طلبات</p></div>';return}
+    var tab=window._ordTab||'all';
+    var filtered=tab==='custom'?[]:(filter==='all'?allOrders:allOrders.filter(function(o){return o.status===filter}));
+    var cust=tab==='smm'?[]:customOrders.filter(function(o){return filter==='all'||_coSt(o.status)===filter});
+    if(sq.trim()){
+      var q=sq.trim().toLowerCase();
+      filtered=filtered.filter(function(o){return (o.service_name||'').toLowerCase().indexOf(q)!==-1||(o.order||'').toString().indexOf(q)!==-1||(o.link||'').toLowerCase().indexOf(q)!==-1});
+      cust=cust.filter(function(o){return ((o.service_name||'')+' '+(o.package||'')+' '+(o.link||'')+' '+o.id).toLowerCase().indexOf(q)!==-1});
+    }
+    if(!filtered.length&&!cust.length){list.innerHTML='<div class="ord-empty"><i class="fa-solid fa-inbox"></i><p>لا توجد طلبات</p></div>';return}
     var statusAr={'Completed':'مكتمل','Pending':'معلّق','Processing':'قيد التنفيذ','In progress':'قيد التنفيذ','Canceled':'ملغاة','Partial':'جزئي','Queued':'بالانتظار'};
-    var h='';
+    var h=cust.map(_coCard).join('');
     filtered.forEach(function(o,idx){
       var st=o.status||'Pending';
       var dispId=o.order||('L'+o.id);
@@ -4078,11 +4289,7 @@ print(r.json())</pre>
       body.innerHTML=buildDetail(o,status,statusAr[status]||status,charge,startCount,remains,progress);
       if(status!==st){
         o.status=status;o.charge=charge;
-        var af=document.querySelector('#ordFilters .flt.on');renderOrders(af?af.dataset.f:'all');
-        var done=0,pend=0,canc=0;
-        allOrders.forEach(function(x){var s=(x.status||'').toLowerCase();if(s==='completed')done++;else if(s==='canceled'||s==='cancelled')canc++;else pend++});
-        var elD=document.getElementById('osDone'),elP=document.getElementById('osPend'),elC=document.getElementById('osCanc');
-        if(elD)elD.textContent=done;if(elP)elP.textContent=pend;if(elC)elC.textContent=canc;
+        _ordRefresh();
       }
     }).catch(function(){});
     } // end if has order
@@ -4204,7 +4411,7 @@ print(r.json())</pre>
   });
   var origSwitch=switchPage;
   switchPage=function(p){origSwitch(p);if(p==='pageOrders')loadOrders();if(p==='pageAllOrders')loadAllOrders();if(p==='pageRecharge')loadRecharge();};
-  window.switchPage=switchPage;window.showDetail=showDetail;window.loadOrders=loadOrders;window.loadRecharge=loadRecharge;window.allOrders=allOrders;
+  window.switchPage=switchPage;window.showDetail=showDetail;window.loadOrders=loadOrders;window.loadCustomOrders=loadCustomOrders;window.loadRecharge=loadRecharge;window.allOrders=allOrders;(function(){var tb=document.getElementById('ordTabs');if(!tb)return;tb.querySelectorAll('div').forEach(function(d){d.addEventListener('click',function(){tb.querySelectorAll('div').forEach(function(x){x.classList.remove('on')});d.classList.add('on');window._ordTab=d.dataset.t;_ordRefresh()})})})();
 
   var rchMethods=[],rchPayIdx=-1;
   function loadRecharge(attempt){
@@ -6242,90 +6449,66 @@ async function loadCustomServices(force){
     if(d.ok){_csCache=d.services||{};renderCustomServices()}
   }catch(e){}
 }
-var _csRotList=[],_csRotIdx=0,_csRotTimer=null;
+var _csRotTimer=null,_csKind='';
+var _csBg=['#2563eb','#7c3aed','#db2777','#f59e0b','#10b981','#0891b2','#ef4444','#4f46e5'];
 function renderCustomServices(){
   var el=document.getElementById('customSvcsSec');if(!el||!_csCache)return;
-  _csRotList=Object.values(_csCache);
-  if(!_csRotList.length){el.innerHTML='';if(_csRotTimer){clearInterval(_csRotTimer);_csRotTimer=null}return}
-  _csRotIdx=0;
-  _csRenderCard();
-  _csStartRotation();
+  var list=Object.values(_csCache);
+  if(_csRotTimer){clearInterval(_csRotTimer);_csRotTimer=null}
+  if(!list.length){el.innerHTML='';return}
+  var games=list.filter(function(s){return s.type==='game'}),others=list.filter(function(s){return s.type!=='game'});
+  el.innerHTML=(games.length?_csStrip('خدمات الألعاب','fa-gamepad',games,'game'):'')+(others.length?_csStrip('خدمات مخصصة','fa-gem',others,'other'):'');
+}
+function _csMinPrice(s){
+  if((s.type==='subscription'||s.type==='game')&&s.packages&&s.packages.length)return '$'+Math.min.apply(null,s.packages.map(function(p){return parseFloat(p.price||0)})).toFixed(2);
+  return s.rate?('$'+parseFloat(s.rate).toFixed(2)):'';
 }
 function _csPriceOf(s){
-  var isSub=s.type==='subscription';
-  if(isSub&&s.packages&&s.packages.length)return '$'+parseFloat(s.packages[0].price||0).toFixed(2)+' / '+(s.packages[0].duration||'شهر');
+  if((s.type==='subscription'||s.type==='game')&&s.packages&&s.packages.length)return 'من '+_csMinPrice(s);
   return s.rate?('$'+parseFloat(s.rate).toFixed(2)+' / 1000'):'';
 }
-function _csOpenAll(e){if(e){e.preventDefault();e.stopPropagation()}document.getElementById('customSvcsPage').classList.add('show');showCustomSvcsPage()}
-window._csOpenAll=_csOpenAll;
-function _csRenderCard(){
-  var el=document.getElementById('customSvcsSec');if(!el||!_csRotList.length)return;
-  var s=_csRotList[_csRotIdx];
-  var _d2=_detectSvcIcon(s.name);
-  var icHtml=s.image?'<img src="'+esc(s.image)+'" style="width:100%;height:100%;object-fit:cover;border-radius:inherit">':(_d2?'<i class="'+_d2+'"></i>':'<i class="fa-solid fa-gem"></i>');
-  var dotsHtml='';
-  if(_csRotList.length>1){
-    dotsHtml='<div class="cs-rot-dots" onclick="_csOpenAll(event)" title="عرض جميع الخدمات المخصصة">'+_csRotList.map(function(_,i){return '<span class="cs-rot-dot'+(i===_csRotIdx?' on':'')+'"></span>'}).join('')+'</div>';
-  }
-  el.innerHTML='<div class="cs-carousel-head"><div class="cs-carousel-title"><i class="fa-solid fa-gem"></i> خدمات مخصصة</div><a href="#" onclick="_csOpenAll(event)">عرض الكل <i class="fa-solid fa-chevron-left" style="font-size:9px"></i></a></div>'+
-  '<div class="ai-cs-card ai-cs-card-big cs-rot-slide" id="csRotCard" onclick="if(!this._swiped)openCustomSvc(\''+s.id+'\');this._swiped=false">'+
-  '<div class="ai-cs-ic ai-cs-ic-big">'+icHtml+'</div>'+
-  '<div class="ai-cs-info"><div class="ai-cs-title" style="font-size:14px">'+esc(s.name)+'</div><div style="font-size:11px;color:var(--text3);font-weight:700;margin-top:2px">'+_csPriceOf(s)+'</div></div>'+
-  '<div class="ai-cs-arrow"><i class="fa-solid fa-chevron-left"></i></div>'+
-  '</div>'+dotsHtml;
-  _csWireSwipe();
-}
-function _csStartRotation(){
-  if(_csRotTimer){clearInterval(_csRotTimer);_csRotTimer=null}
-  if(_csRotList.length<=1)return;
-  _csRotTimer=setInterval(function(){_csAdvance(1)},10000);
-}
-function _csAdvance(dir){
-  if(!_csRotList.length)return;
-  _csRotIdx=(_csRotIdx+dir+_csRotList.length)%_csRotList.length;
-  _csRenderCard();
-}
-function _csWireSwipe(){
-  var card=document.getElementById('csRotCard');if(!card)return;
-  var startX=0,startY=0;
-  card.addEventListener('touchstart',function(e){startX=e.touches[0].clientX;startY=e.touches[0].clientY},{passive:true});
-  card.addEventListener('touchend',function(e){
-    var dx=e.changedTouches[0].clientX-startX,dy=e.changedTouches[0].clientY-startY;
-    if(Math.abs(dx)>40&&Math.abs(dx)>Math.abs(dy)){
-      card._swiped=true;
-      if(_csRotTimer){clearInterval(_csRotTimer);_csRotTimer=null}
-      _csAdvance(dx<0?1:-1);
-      _csStartRotation();
-    }
+function _csStrip(title,icon,arr,kind){
+  var h='<div class="gm-sec"><div class="gm-head"><div class="gm-title"><i class="fa-solid '+icon+'"></i> '+title+'</div><a href="#" onclick="_csOpenAll(event,\''+kind+'\')">عرض الكل <i class="fa-solid fa-chevron-left"></i></a></div><div class="gm-strip">';
+  arr.forEach(function(s,i){
+    var d=_detectSvcIcon(s.name);
+    var inner=s.image?'<img src="'+esc(s.image)+'" alt="">':'<i class="'+(d||(s.type==='game'?'fa-solid fa-gamepad':'fa-solid fa-gem'))+'"></i>';
+    h+='<div class="gm-card" onclick="openCustomSvc(\''+s.id+'\')"><div class="gm-ic" style="background:'+_csBg[i%_csBg.length]+'">'+inner+'</div><div class="gm-nm">'+esc(s.name)+'</div><div class="gm-pr"><span>'+(s.type==='game'?'تسليم يدوي':(s.type==='subscription'?'اشتراك':'سوشيال'))+'</span><b>'+_csMinPrice(s)+'</b></div></div>';
   });
+  return h+'</div></div>';
 }
+function _csOpenAll(e,kind){if(e){e.preventDefault();e.stopPropagation()}_csKind=kind||'';document.getElementById('customSvcsPage').classList.add('show');showCustomSvcsPage()}
+window._csOpenAll=_csOpenAll;
+function aiQuick(q){document.getElementById('aiChatPage').classList.add('show');openAiConversation(0);setTimeout(function(){var f=document.getElementById('aiInputField');if(f){f.value=q;if(window.sendAiMessage)window.sendAiMessage()}},400)}
+window.aiQuick=aiQuick;
 function showCustomSvcsPage(){
   var el=document.getElementById('csPageContent');
   if(!_csCache||!Object.keys(_csCache).length){el.innerHTML='<div class="csl-header"><div class="csl-back" onclick="document.getElementById(\'customSvcsPage\').classList.remove(\'show\')">→</div><div class="csl-title"><i class="fa-solid fa-box"></i> الخدمات المخصصة</div></div><div style="text-align:center;padding:40px 16px"><div style="font-size:2rem;margin-bottom:8px;opacity:.3"><i class="fa-solid fa-box"></i></div><div style="font-size:13px;color:var(--text3);font-weight:600">لا توجد خدمات مخصصة حالياً</div></div>';return}
-  var svcs=Object.values(_csCache);var CLRS=['cp','cpk','cbl','cgn','cyl','ccy','crs'];
-  var h='<div class="csl-header"><div class="csl-back" onclick="document.getElementById(\'customSvcsPage\').classList.remove(\'show\')">→</div><div class="csl-title"><i class="fa-solid fa-gem"></i> الخدمات المخصصة</div><div class="csl-count">'+svcs.length+'</div></div>';
+  var svcs=Object.values(_csCache).filter(function(s){return !_csKind||(_csKind==='game'?s.type==='game':s.type!=='game')});var CLRS=['cp','cpk','cbl','cgn','cyl','ccy','crs'];
+  var h='<div class="csl-header"><div class="csl-back" onclick="document.getElementById(\'customSvcsPage\').classList.remove(\'show\')">→</div><div class="csl-title"><i class="fa-solid '+(_csKind==='game'?'fa-gamepad':'fa-gem')+'"></i> '+(_csKind==='game'?'خدمات الألعاب':'الخدمات المخصصة')+'</div><div class="csl-count">'+svcs.length+'</div></div>';
   h+='<div class="csl-wrap"><div class="csl-orb1"></div><div class="csl-orb2"></div>';
   h+='<div class="csl-search"><i class="fa-solid fa-search"></i><input type="text" placeholder="ابحث عن خدمة..." oninput="_cslFilter(this.value)"></div>';
-  svcs.forEach(function(s,i){var isSub=s.type==='subscription';var price=isSub&&s.packages?'$'+Math.min.apply(null,s.packages.map(function(p){return parseFloat(p.price||0)})).toFixed(2):s.rate?'$'+parseFloat(s.rate).toFixed(2):'';
+  svcs.forEach(function(s,i){var isSub=s.type==='subscription'||s.type==='game';var price=isSub&&s.packages?'$'+Math.min.apply(null,s.packages.map(function(p){return parseFloat(p.price||0)})).toFixed(2):s.rate?'$'+parseFloat(s.rate).toFixed(2):'';
     var _d2=_detectSvcIcon(s.name);var icHtml='';
     if(_d2)icHtml='<div class="csl-ic '+CLRS[i%CLRS.length]+'"><i class="'+_d2+'" style="font-size:18px"></i><div class="csl-dot"></div></div>';
     else if(s.image)icHtml='<div class="csl-ic" style="overflow:hidden"><img src="'+esc(s.image)+'"><div class="csl-dot"></div></div>';
     else icHtml='<div class="csl-ic '+CLRS[i%CLRS.length]+'">'+(s.icon||'<i class="fa-solid fa-box"></i>')+'<div class="csl-dot"></div></div>';
     var feat=i===0?' csl-feat':'';var featBadge=i===0?'<div class="csl-feat-badge"><i class="fa-solid fa-fire"></i> الأكثر طلباً</div>':'';
-    h+='<div class="csl-item'+feat+'" data-nm="'+esc(s.name).toLowerCase()+'" onclick="openCustomSvc(\''+s.id+'\')"><div class="csl-item-glow"></div>'+icHtml+'<div class="csl-body">'+featBadge+'<div class="csl-nm">'+esc(s.name)+'</div><div class="csl-tags"><span class="csl-tag sub">'+(isSub?'<i class="fa-solid fa-box"></i> اشتراك':'<i class="fa-solid fa-mobile-screen"></i> سوشيال')+'</span><span class="csl-tag pr">'+price+'</span></div></div><div class="csl-arrow">←</div></div>'});
+    h+='<div class="csl-item'+feat+'" data-nm="'+esc(s.name).toLowerCase()+'" onclick="openCustomSvc(\''+s.id+'\')"><div class="csl-item-glow"></div>'+icHtml+'<div class="csl-body">'+featBadge+'<div class="csl-nm">'+esc(s.name)+'</div><div class="csl-tags"><span class="csl-tag sub">'+(s.type==='game'?'<i class="fa-solid fa-gamepad"></i> لعبة':isSub?'<i class="fa-solid fa-box"></i> اشتراك':'<i class="fa-solid fa-mobile-screen"></i> سوشيال')+'</span><span class="csl-tag pr">'+price+'</span></div></div><div class="csl-arrow">←</div></div>'});
   h+='</div>';el.innerHTML=h;window.scrollTo(0,0);
 }
 function _cslFilter(q){q=q.trim().toLowerCase();document.querySelectorAll('.csl-item').forEach(function(el){el.style.display=!q||(el.dataset.nm||'').includes(q)?'':'none'})}
 function csImgHtml(s,size){size=size||'46px';if(s.image)return '<div style="width:'+size+';height:'+size+';border-radius:14px;overflow:hidden;flex-shrink:0"><img src="'+s.image+'" style="width:100%;height:100%;object-fit:cover"></div>';return false}
 function openCustomSvc(sid){
-  var s=_csCache?_csCache[sid]:null;if(!s)return;
-  var isSub=s.type==='subscription';var _hIc=_detectSvcIcon(s.name);
+  window._csCurSid=sid;var s=_csCache?_csCache[sid]:null;if(!s)return;
+  document.getElementById('customSvcsPage').classList.add('show');
+  var isGame=s.type==='game';var isSub=s.type==='subscription'||isGame;var _hIc=_detectSvcIcon(s.name);
   var h='<div class="csl-header"><div class="csl-back" onclick="showCustomSvcsPage()">→</div><div class="csl-title">'+esc(s.name)+'</div></div>';
   var iconHtml='';
   if(s.image)iconHtml='<img src="'+esc(s.image)+'">';else if(_hIc)iconHtml='<i class="'+_hIc+'" style="font-size:18px;color:var(--primary)"></i>';else iconHtml=(s.icon||'<i class="fa-solid fa-box" style="font-size:18px;color:var(--primary)"></i>');
-  var catTxt=isSub?'اشتراكات':'سوشيال ميديا';
+  var catTxt=isGame?'ألعاب':isSub?'اشتراكات':'سوشيال ميديا';
   var priceHtml='';
-  if(isSub&&s.packages&&s.packages.length)priceHtml='$'+parseFloat(s.packages[0].price||0).toFixed(2)+' <span>/ '+(s.packages[0].duration||'شهر')+'</span>';
+  if(isGame&&s.packages&&s.packages.length)priceHtml='من '+_csMinPrice(s);
+  else if(isSub&&s.packages&&s.packages.length)priceHtml='$'+parseFloat(s.packages[0].price||0).toFixed(2)+' <span>/ '+(s.packages[0].duration||'شهر')+'</span>';
   else if(!isSub)priceHtml='$'+s.rate+' <span>/ 1000</span>';
   h+='<div class="sv-hero"><div class="sv-ic">'+iconHtml+'</div><div style="flex:1"><div class="sv-name">'+esc(s.name)+'</div><div class="sv-cat">'+catTxt+'</div><div class="sv-price-v">'+priceHtml+'</div></div></div>';
   var _descTxt=s.desc||s.desc_text||'';var _nlAll=((s.name||'')+' '+_descTxt).toLowerCase();
@@ -6336,13 +6519,17 @@ function openCustomSvc(sid){
   if(_nlAll.includes('فوري')||_nlAll.includes('سريع'))h+='<div class="sv-chip b"><i class="fa-solid fa-bolt"></i> بدء فوري</div>';
   if(_nlAll.includes('حقيقي')||_nlAll.includes('real'))h+='<div class="sv-chip g"><i class="fa-solid fa-user-check"></i> حقيقي</div>';
   if(guaranteeTxt)h+='<div class="sv-chip y"><i class="fa-solid fa-shield-alt"></i> ضمان'+(guaranteeTxt!=='متوفر'?' '+guaranteeTxt:'')+'</div>';
-  if(isSub)h+='<div class="sv-chip b"><i class="fa-solid fa-crown"></i> اشتراك كامل</div>';
+  if(isGame)h+='<div class="sv-chip b"><i class="fa-solid fa-gamepad"></i> تسليم يدوي عبر محادثة</div>';else if(isSub)h+='<div class="sv-chip b"><i class="fa-solid fa-crown"></i> اشتراك كامل</div>';
   if(!isSub)h+='<div class="sv-chip b"><i class="fa-solid fa-sort-numeric-up"></i> '+(s.min||s.min_qty||100)+' - '+Number(s.max||s.max_qty||100000).toLocaleString()+'</div>';
   h+='</div>';
   if(_descTxt&&_descTxt.trim()){
     h+='<div style="margin:0 14px 10px;padding:12px 14px;background:var(--card);border:1px solid var(--card-border);border-radius:12px;display:flex;align-items:flex-start;gap:10px"><div style="width:30px;height:30px;border-radius:9px;background:var(--primary-bg);color:var(--primary);display:flex;align-items:center;justify-content:center;font-size:13px;flex-shrink:0"><i class="fa-solid fa-circle-info"></i></div><div style="flex:1;min-width:0"><div style="font-size:11px;font-weight:800;color:var(--text);margin-bottom:4px">وصف الخدمة</div><div style="font-size:10px;color:var(--text2);line-height:1.7;font-weight:500;white-space:pre-wrap">'+esc(_descTxt)+'</div></div></div>';
   }
-  if(isSub&&s.packages&&s.packages.length){
+  if(isGame&&s.packages&&s.packages.length){
+    h+='<div class="sv-pkg-label">اختر الباقة</div><div class="gm-pkgs">';
+    s.packages.forEach(function(p,i){h+='<div class="gm-pkg'+(i===0?' sel':'')+'" onclick="selectCSPkg('+i+',this)"><b>'+esc(p.name||'')+'</b><span>'+(p.duration&&p.duration!=='شهر'?esc(p.duration):'&nbsp;')+'</span><em>$'+parseFloat(p.price||0).toFixed(2)+'</em></div>'});
+    h+='</div>';_selectedCSPkg=0;
+  }else if(isSub&&s.packages&&s.packages.length){
     h+='<div class="sv-pkg-label">اختر الباقة</div><div class="sv-pkgs">';
     (s.packages||[]).forEach(function(p,i){
       h+='<div class="sv-pk'+(i===0?' sel':'')+'" onclick="selectCSPkg('+i+',this)"><div class="sv-pk-n">'+esc(p.name||'')+'</div><div class="sv-pk-p">$'+parseFloat(p.price||0).toFixed(2)+'</div><div class="sv-pk-d">'+(p.duration||'')+'</div></div>';
@@ -6352,7 +6539,9 @@ function openCustomSvc(sid){
   }
   h+='<div class="sv-divider"></div>';
   h+='<div class="sv-form-wrap">';
-  if(isSub){
+  if(isGame){
+    h+='<div class="sv-field"><div class="sv-label"><i class="fa-solid fa-id-card"></i> معرّف اللاعب (ID)</div><input class="sv-input" id="csLink" inputmode="text" autocomplete="off" placeholder="اكتب الـ ID بدقة — لا يمكن التراجع بعد التسليم" style="font-weight:700;letter-spacing:.04em"></div>';
+  }else if(isSub){
     h+='<div class="sv-field"><div class="sv-label"><i class="fa-solid fa-envelope"></i> الإيميل</div><input class="sv-input" id="csLink" type="email" placeholder="example@email.com"></div>';
   } else {
     h+='<div class="sv-field"><div class="sv-label"><i class="fa-solid fa-link"></i> الرابط</div><input class="sv-input" id="csLink" placeholder="https://..."></div>';
@@ -6401,17 +6590,50 @@ function openCustomSvc(sid){
     }
   }
   h+='<div class="sv-field"><div class="sv-label"><i class="fa-solid fa-comment"></i> ملاحظات (اختياري)</div><input class="sv-input" id="csNotes" placeholder="أي ملاحظة للإدارة..."></div>';
+  if(isGame)h+='<div class="gm-sum" style="margin:0 0 12px"><div><span>رصيدك الحالي</span><b id="csBalNow">—</b></div><div class="tot"><span>رصيدك بعد الخصم</span><b id="csBalAfter">—</b></div></div>';
   h+='<div class="sv-total"><span>المجموع</span><span class="sv-total-v" id="csCost">'+(isSub&&s.packages?'$'+parseFloat(s.packages[0].price||0).toFixed(2):'$0.00')+'</span></div>';
-  if(isSub)h+='<button class="sv-submit" id="csOrderBtn" onclick="submitCSOrder(\''+sid+'\')"><i class="fa-solid fa-paper-plane"></i> اشترك الآن</button>';
+  if(isSub)h+='<button class="sv-submit" id="csOrderBtn" onclick="submitCSOrder(\''+sid+'\')"><i class="fa-solid fa-paper-plane"></i> '+(isGame?'اطلب الآن':'اشترك الآن')+'</button>';
   else h+='<button class="sv-submit" id="csOrderBtn" onclick="submitCSSocialOrder(\''+sid+'\')" disabled><i class="fa-solid fa-paper-plane"></i> إرسال الطلب</button>';
   h+='</div>';
   document.getElementById('csPageContent').innerHTML=h;window.scrollTo(0,0);
+  if(isGame)_csUpdAfter(sid);
+}
+function _csUpdAfter(sid){
+  var s=_csCache?_csCache[sid]:null;if(!s||s.type!=='game')return;
+  var hb=document.getElementById('hudBalVal');var bal=hb?parseFloat(hb.dataset.usd||0):0;
+  var pk=(s.packages||[])[_selectedCSPkg<0?0:_selectedCSPkg];var price=pk?parseFloat(pk.price||0):0;
+  var a=document.getElementById('csBalNow'),b=document.getElementById('csBalAfter');
+  if(a)a.textContent='$'+bal.toFixed(2);
+  if(b){b.textContent='$'+(bal-price).toFixed(2);b.style.color=(bal-price)<0?'var(--red)':'';}
 }
 function csdSwitchTab(i){document.querySelectorAll('.csd-tab').forEach(function(t,j){t.classList.toggle('on',j===i)});document.querySelectorAll('.csd-tpane').forEach(function(p,j){p.classList.toggle('on',j===i)})}
 var _selectedCSPkg=-1;
-function selectCSPkg(i,el){_selectedCSPkg=i;document.querySelectorAll('.sv-pk,.csd-pkg2').forEach(function(p){p.classList.remove('sel')});el.classList.add('sel');var btn=document.getElementById('csOrderBtn');if(btn)btn.disabled=false;var s=_csCache;if(s){var pkgs=null;Object.values(s).forEach(function(sv){if(sv.packages&&sv.packages[i])pkgs=sv.packages});if(pkgs&&pkgs[i]){var ce=document.getElementById('csCost');if(ce)ce.textContent='$'+parseFloat(pkgs[i].price||0).toFixed(2)}}}
+function selectCSPkg(i,el){_selectedCSPkg=i;document.querySelectorAll('.sv-pk,.csd-pkg2,.gm-pkg').forEach(function(p){p.classList.remove('sel')});el.classList.add('sel');if(window._csCurSid)_csUpdAfter(window._csCurSid);var btn=document.getElementById('csOrderBtn');if(btn)btn.disabled=false;var s=_csCache;if(s){var pkgs=null;Object.values(s).forEach(function(sv){if(sv.packages&&sv.packages[i])pkgs=sv.packages});if(pkgs&&pkgs[i]){var ce=document.getElementById('csCost');if(ce)ce.textContent='$'+parseFloat(pkgs[i].price||0).toFixed(2)}}}
 function calcCSCost(sid){var s=_csCache?_csCache[sid]:null;if(!s)return;var qty=parseInt(document.getElementById('csQty').value||0);if(!qty){document.getElementById('csCost').textContent='$0.00';document.getElementById('csOrderBtn').disabled=true;return}var cost=((s.rate*qty)/1000).toFixed(4);document.getElementById('csCost').textContent='$'+cost;var mn=s.min||s.min_qty||0,mx=s.max||s.max_qty||999999;document.getElementById('csOrderBtn').disabled=!(qty>=mn&&qty<=mx)}
-async function submitCSOrder(sid){if(_selectedCSPkg<0){toast('اختر باقة','error');return}var btn=document.getElementById('csOrderBtn');btn.disabled=true;btn.innerHTML='<i class="fa-solid fa-spinner fa-spin"></i>';try{var r=await fetch('/api/custom_order',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({service_id:sid,package_index:_selectedCSPkg})});var d=await r.json();if(d.ok){toast('تم الطلب بنجاح!','success');_selectedCSPkg=-1;if(d.balance!==undefined){var b=document.getElementById('hudBalVal');if(b){b.dataset.usd=d.balance;b.textContent='$'+parseFloat(d.balance).toFixed(2)}}if(d.ticket_id){setTimeout(function(){document.getElementById('customSvcsPage').classList.remove('show')},1500)}}else toast(d.error==='insufficient_balance'?'رصيد غير كافي':(d.error||'خطأ'),'error')}catch(e){toast('خطأ','error')}btn.disabled=false;btn.innerHTML='<i class="fa-solid fa-shopping-cart"></i> اطلب'}
+async function submitCSOrder(sid){
+  if(_selectedCSPkg<0){toast('اختر باقة','error');return}
+  var sv=_csCache?_csCache[sid]:null;var isGame=!!(sv&&sv.type==='game');
+  var body={service_id:sid,package_index:_selectedCSPkg};
+  if(isGame){
+    var pid=((document.getElementById('csLink')||{}).value||'').trim();
+    if(pid.length<2){toast('اكتب معرّف اللاعب (ID)','error');return}
+    body.link=pid;body.comments=((document.getElementById('csNotes')||{}).value||'').trim();
+  }
+  var btn=document.getElementById('csOrderBtn');btn.disabled=true;btn.innerHTML='<i class="fa-solid fa-spinner fa-spin"></i>';
+  try{
+    var r=await fetch('/api/custom_order',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});var d=await r.json();
+    if(d.ok){
+      toast(isGame?'تم الطلب — فُتحت محادثة مع الإدارة':'تم الطلب بنجاح!','success');_selectedCSPkg=-1;
+      if(d.balance!==undefined){var b=document.getElementById('hudBalVal');if(b){b.dataset.usd=d.balance;b.textContent='$'+parseFloat(d.balance).toFixed(2)}}
+      if(d.ticket_id){
+        document.getElementById('customSvcsPage').classList.remove('show');
+        if(isGame&&typeof openTicket==='function')setTimeout(function(){openTicket(d.ticket_id)},350);
+      }
+      if(typeof loadCustomOrders==='function')loadCustomOrders();
+    }else toast(d.error==='insufficient_balance'?'رصيد غير كافي':(d.error==='invalid_player_id'?'معرّف اللاعب غير صالح':(d.error||'خطأ')),'error');
+  }catch(e){toast('خطأ','error')}
+  btn.disabled=false;btn.innerHTML='<i class="fa-solid fa-shopping-cart"></i> '+(isGame?'اطلب الآن':'اطلب');
+}
 async function submitCSSocialOrder(sid){var link=(document.getElementById('csLink').value||'').trim();var qty=parseInt(document.getElementById('csQty').value||0);var cmts=(document.getElementById('csComments')||{}).value||'';if(!link||!qty){toast('عبّي الحقول','error');return}var btn=document.getElementById('csOrderBtn');btn.disabled=true;btn.innerHTML='<i class="fa-solid fa-spinner fa-spin"></i>';try{var r=await fetch('/api/custom_order',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({service_id:sid,link:link,quantity:qty,comments:cmts.trim()})});var d=await r.json();if(d.ok){toast('تم الطلب #'+d.order.id,'success');document.getElementById('customSvcsPage').classList.remove('show');if(d.balance!==undefined){var b=document.getElementById('hudBalVal');if(b){b.dataset.usd=d.balance;b.textContent='$'+parseFloat(d.balance).toFixed(2)}}if(d.ticket_id){setTimeout(function(){openTicket(d.ticket_id)},1500)}}else toast(d.error==='insufficient_balance'?'رصيد غير كافي':(d.error||'خطأ'),'error')}catch(e){toast('خطأ','error')}btn.disabled=false;btn.innerHTML='<i class="fa-solid fa-shopping-cart"></i> اطلب'}
 
 var _smmAllOrders=[],_smmFilter='all',_smmSearch='';
@@ -6571,13 +6793,22 @@ async function saveOrderStatusChange(){
   }catch(e){msg.textContent='خطأ بالاتصال';msg.style.display='block'}
   btn.disabled=false;btn.innerHTML='حفظ';
 }
-async function loadAdminCS(){var el=document.getElementById('adminCSBody');el.innerHTML='<div class="loading">جاري التحميل...</div>';try{var r=await fetch('/api/admin/custom_services',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({})});var d=await r.json();if(!d.ok){el.innerHTML='غير مصرح';return}var svcs=Object.values(d.services||{});var h='<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px"><div><div style="font-size:15px;font-weight:900;color:var(--text)"><i class="fa-solid fa-box"></i> الخدمات المخصصة</div><div style="font-size:11px;color:var(--text3)">'+svcs.length+' خدمة</div></div><button onclick="showAddCSForm()" class="btn-sm-green"><i class="fa-solid fa-plus"></i> إضافة</button></div>';h+='<div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:14px"><div style="background:var(--card);border:1px solid var(--card-border);border-radius:12px;padding:10px;text-align:center"><div style="font-size:17px;font-weight:900;color:#eab308">'+svcs.filter(function(s){return s.type==='subscription'}).length+'</div><div style="font-size:9px;color:var(--text3)"><i class="fa-solid fa-box"></i> اشتراكات</div></div><div style="background:var(--card);border:1px solid var(--card-border);border-radius:12px;padding:10px;text-align:center"><div style="font-size:17px;font-weight:900;color:#ec4899">'+svcs.filter(function(s){return s.type==='social'}).length+'</div><div style="font-size:9px;color:var(--text3)"><i class="fa-solid fa-mobile-screen"></i> سوشيال</div></div></div>';h+='<div id="csList">';if(!svcs.length)h+='<div style="text-align:center;padding:20px;color:var(--text3)">لا توجد خدمات — اضغط + إضافة</div>';svcs.forEach(function(s){var info=s.type==='subscription'?(s.packages||[]).length+' باقات':'$'+s.rate+'/1K';var _aI=_detectSvcIcon(s.name);var icHtml=_aI?'<div style="width:38px;height:38px;border-radius:10px;display:flex;align-items:center;justify-content:center;background:var(--primary-bg);border:1px solid var(--card-border)"><i class="'+_aI+'" style="font-size:16px;color:var(--primary)"></i></div>':s.image?'<div style="width:38px;height:38px;border-radius:10px;overflow:hidden"><img src="'+esc(s.image)+'" style="width:100%;height:100%;object-fit:cover"></div>':'<div style="font-size:1.2rem;width:38px;text-align:center">'+(s.icon||'')+'</div>';h+='<div style="background:var(--card);border:1px solid var(--card-border);border-radius:14px;padding:12px;margin-bottom:8px"><div style="display:flex;align-items:center;gap:10px">'+icHtml+'<div style="flex:1"><div style="font-size:13px;font-weight:700;color:var(--text)">'+esc(s.name)+' <span style="font-size:9px;padding:2px 6px;border-radius:4px;background:'+(s.type==='subscription'?'rgba(234,179,8,.1);color:#eab308':'rgba(236,72,153,.1);color:#ec4899')+'">'+(s.type==='subscription'?'اشتراك':'سوشيال')+'</span></div><div style="font-size:10px;color:var(--text3)">'+info+'</div></div><button onclick="deleteCS(\''+s.id+'\')" style="padding:6px 10px;background:rgba(239,68,68,.1);color:var(--red);border:none;border-radius:8px;font-size:12px;cursor:pointer"><i class="fa-solid fa-trash"></i></button></div></div>'});h+='</div>';el.innerHTML=h}catch(e){el.innerHTML='خطأ'}}
+async function loadAdminCS(){var el=document.getElementById('adminCSBody');el.innerHTML='<div class="loading">جاري التحميل...</div>';try{var r=await fetch('/api/admin/custom_services',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({})});var d=await r.json();if(!d.ok){el.innerHTML='غير مصرح';return}var svcs=Object.values(d.services||{});var h='<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px"><div><div style="font-size:15px;font-weight:900;color:var(--text)"><i class="fa-solid fa-box"></i> الخدمات المخصصة</div><div style="font-size:11px;color:var(--text3)">'+svcs.length+' خدمة</div></div><button onclick="showAddCSForm()" class="btn-sm-green"><i class="fa-solid fa-plus"></i> إضافة</button></div>';h+='<div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:14px"><div style="background:var(--card);border:1px solid var(--card-border);border-radius:12px;padding:10px;text-align:center"><div style="font-size:17px;font-weight:900;color:#eab308">'+svcs.filter(function(s){return s.type==='subscription'}).length+'</div><div style="font-size:9px;color:var(--text3)"><i class="fa-solid fa-box"></i> اشتراكات</div></div><div style="background:var(--card);border:1px solid var(--card-border);border-radius:12px;padding:10px;text-align:center"><div style="font-size:17px;font-weight:900;color:#ec4899">'+svcs.filter(function(s){return s.type==='social'}).length+'</div><div style="font-size:9px;color:var(--text3)"><i class="fa-solid fa-mobile-screen"></i> سوشيال</div></div></div>';h+='<div id="csList">';if(!svcs.length)h+='<div style="text-align:center;padding:20px;color:var(--text3)">لا توجد خدمات — اضغط + إضافة</div>';svcs.forEach(function(s){var info=(s.type==='subscription'||s.type==='game')?(s.packages||[]).length+' باقات':'$'+s.rate+'/1K';var _aI=_detectSvcIcon(s.name);var icHtml=_aI?'<div style="width:38px;height:38px;border-radius:10px;display:flex;align-items:center;justify-content:center;background:var(--primary-bg);border:1px solid var(--card-border)"><i class="'+_aI+'" style="font-size:16px;color:var(--primary)"></i></div>':s.image?'<div style="width:38px;height:38px;border-radius:10px;overflow:hidden"><img src="'+esc(s.image)+'" style="width:100%;height:100%;object-fit:cover"></div>':'<div style="font-size:1.2rem;width:38px;text-align:center">'+(s.icon||'')+'</div>';h+='<div style="background:var(--card);border:1px solid var(--card-border);border-radius:14px;padding:12px;margin-bottom:8px"><div style="display:flex;align-items:center;gap:10px">'+icHtml+'<div style="flex:1"><div style="font-size:13px;font-weight:700;color:var(--text)">'+esc(s.name)+' <span style="font-size:9px;padding:2px 6px;border-radius:4px;background:'+(s.type==='game'?'rgba(37,99,235,.1);color:#2563eb':s.type==='subscription'?'rgba(234,179,8,.1);color:#eab308':'rgba(236,72,153,.1);color:#ec4899')+'">'+(s.type==='game'?'لعبة':s.type==='subscription'?'اشتراك':'سوشيال')+'</span></div><div style="font-size:10px;color:var(--text3)">'+info+'</div></div><button onclick="deleteCS(\''+s.id+'\')" style="padding:6px 10px;background:rgba(239,68,68,.1);color:var(--red);border:none;border-radius:8px;font-size:12px;cursor:pointer"><i class="fa-solid fa-trash"></i></button></div></div>'});h+='</div>';el.innerHTML=h}catch(e){el.innerHTML='خطأ'}}
 var _csAddType='';
-function showAddCSForm(){var el=document.getElementById('csList');var h='<div style="background:var(--card);border:2px solid var(--primary);border-radius:16px;padding:16px;margin-bottom:10px"><div style="font-size:14px;font-weight:800;margin-bottom:12px"><i class="fa-solid fa-plus"></i> إضافة خدمة جديدة</div><div style="font-size:11px;font-weight:700;color:var(--text3);margin-bottom:4px">نوع الخدمة</div><div style="display:flex;gap:6px;margin-bottom:10px"><button id="csTypeSub" onclick="setCSType(\'subscription\')" style="flex:1;padding:10px;border-radius:10px;border:2px solid var(--card-border);background:transparent;color:var(--text2);font-size:12px;font-weight:700;cursor:pointer;font-family:var(--font)"><i class="fa-solid fa-box"></i> اشتراك</button><button id="csTypeSoc" onclick="setCSType(\'social\')" style="flex:1;padding:10px;border-radius:10px;border:2px solid var(--card-border);background:transparent;color:var(--text2);font-size:12px;font-weight:700;cursor:pointer;font-family:var(--font)"><i class="fa-solid fa-mobile-screen"></i> سوشيال</button></div><div style="font-size:11px;font-weight:700;color:var(--text3);margin-bottom:4px"><i class="fa-solid fa-camera"></i> صورة الخدمة (اختياري)</div><div style="display:flex;align-items:center;gap:8px;margin-bottom:10px"><div id="csImgPrev" style="width:44px;height:44px;border-radius:10px;background:var(--input-bg);border:2px dashed var(--card-border);display:flex;align-items:center;justify-content:center;overflow:hidden"><i class="fa-solid fa-box"></i></div><label style="padding:6px 14px;background:var(--primary-bg);border:1px solid var(--primary);border-radius:8px;color:var(--primary);font-size:10px;font-weight:700;cursor:pointer"><i class="fa-solid fa-upload"></i> رفع صورة<input type="file" accept="image/*" onchange="handleCSImg(this)" style="display:none"></label></div><input type="hidden" id="csImgVal" value=""><div style="font-size:11px;font-weight:700;color:var(--text3);margin-bottom:4px">اسم الخدمة</div><input class="text-input" id="csAddName" placeholder="مثال: اشتراك Netflix شهري" style="margin-bottom:10px"><div style="font-size:11px;font-weight:700;color:var(--text3);margin-bottom:4px">الوصف</div><textarea class="text-input" id="csAddDesc" rows="2" placeholder="وصف مختصر..." style="margin-bottom:10px;height:auto;resize:none"></textarea><div id="csTypeFields"></div><button onclick="submitAddCS()" class="btn-primary" style="margin-top:8px"><i class="fa-solid fa-save"></i> حفظ الخدمة</button></div>';el.insertAdjacentHTML('afterbegin',h)}
-function setCSType(t){_csAddType=t;document.getElementById('csTypeSub').style.borderColor=t==='subscription'?'var(--primary)':'var(--card-border)';document.getElementById('csTypeSub').style.background=t==='subscription'?'var(--primary-bg)':'transparent';document.getElementById('csTypeSoc').style.borderColor=t==='social'?'var(--primary)':'var(--card-border)';document.getElementById('csTypeSoc').style.background=t==='social'?'var(--primary-bg)':'transparent';var fd=document.getElementById('csTypeFields');if(t==='subscription'){fd.innerHTML='<div style="font-size:11px;font-weight:700;color:var(--text3);margin-bottom:4px"><i class="fa-solid fa-box"></i> الباقات</div><div id="csPkgList"><div class="cs-pkg-row" style="background:var(--input-bg);border:1px solid var(--card-border);border-radius:10px;padding:10px;margin-bottom:6px"><div style="display:grid;grid-template-columns:1fr 1fr;gap:6px"><input class="text-input" placeholder="اسم الباقة" style="height:38px"><input class="text-input" placeholder="السعر $" type="number" style="height:38px"></div><select class="text-input" style="height:38px;margin-top:6px"><option>شهر</option><option>3 أشهر</option><option>6 أشهر</option><option>سنة</option></select></div></div><button onclick="addCSPkgRow()" style="width:100%;padding:8px;background:rgba(16,185,129,.08);border:1px dashed rgba(16,185,129,.3);border-radius:10px;color:var(--green);font-size:12px;font-weight:700;cursor:pointer;font-family:var(--font);margin-top:4px">+ إضافة باقة</button>'}else{fd.innerHTML='<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px"><div><div style="font-size:10px;color:var(--text3);margin-bottom:3px">السعر/1K ($)</div><input class="text-input" id="csAddRate" type="number" placeholder="0.85" style="height:38px"></div><div><div style="font-size:10px;color:var(--text3);margin-bottom:3px">الحد الأدنى</div><input class="text-input" id="csAddMin" type="number" placeholder="100" style="height:38px"></div><div><div style="font-size:10px;color:var(--text3);margin-bottom:3px">الحد الأقصى</div><input class="text-input" id="csAddMax" type="number" placeholder="50000" style="height:38px"></div></div>'}}
-function addCSPkgRow(){document.getElementById('csPkgList').insertAdjacentHTML('beforeend','<div class="cs-pkg-row" style="background:var(--input-bg);border:1px solid var(--card-border);border-radius:10px;padding:10px;margin-bottom:6px"><div style="display:grid;grid-template-columns:1fr 1fr;gap:6px"><input class="text-input" placeholder="اسم الباقة" style="height:38px"><input class="text-input" placeholder="السعر $" type="number" style="height:38px"></div><select class="text-input" style="height:38px;margin-top:6px"><option>شهر</option><option>3 أشهر</option><option>6 أشهر</option><option>سنة</option></select></div>')}
+function showAddCSForm(){var el=document.getElementById('csList');var h='<div style="background:var(--card);border:2px solid var(--primary);border-radius:16px;padding:16px;margin-bottom:10px"><div style="font-size:14px;font-weight:800;margin-bottom:12px"><i class="fa-solid fa-plus"></i> إضافة خدمة جديدة</div><div style="font-size:11px;font-weight:700;color:var(--text3);margin-bottom:4px">نوع الخدمة</div><div style="display:flex;gap:6px;margin-bottom:10px"><button id="csTypeSub" onclick="setCSType(\'subscription\')" style="flex:1;padding:10px;border-radius:10px;border:2px solid var(--card-border);background:transparent;color:var(--text2);font-size:12px;font-weight:700;cursor:pointer;font-family:var(--font)"><i class="fa-solid fa-box"></i> اشتراك</button><button id="csTypeSoc" onclick="setCSType(\'social\')" style="flex:1;padding:10px;border-radius:10px;border:2px solid var(--card-border);background:transparent;color:var(--text2);font-size:12px;font-weight:700;cursor:pointer;font-family:var(--font)"><i class="fa-solid fa-mobile-screen"></i> سوشيال</button><button id="csTypeGame" onclick="setCSType(\'game\')" style="flex:1;padding:10px;border-radius:10px;border:2px solid var(--card-border);background:transparent;color:var(--text2);font-size:12px;font-weight:700;cursor:pointer;font-family:var(--font)"><i class="fa-solid fa-gamepad"></i> لعبة</button></div><div style="font-size:11px;font-weight:700;color:var(--text3);margin-bottom:4px"><i class="fa-solid fa-camera"></i> صورة الخدمة (اختياري)</div><div style="display:flex;align-items:center;gap:8px;margin-bottom:10px"><div id="csImgPrev" style="width:44px;height:44px;border-radius:10px;background:var(--input-bg);border:2px dashed var(--card-border);display:flex;align-items:center;justify-content:center;overflow:hidden"><i class="fa-solid fa-box"></i></div><label style="padding:6px 14px;background:var(--primary-bg);border:1px solid var(--primary);border-radius:8px;color:var(--primary);font-size:10px;font-weight:700;cursor:pointer"><i class="fa-solid fa-upload"></i> رفع صورة<input type="file" accept="image/*" onchange="handleCSImg(this)" style="display:none"></label></div><input type="hidden" id="csImgVal" value=""><div style="font-size:11px;font-weight:700;color:var(--text3);margin-bottom:4px">اسم الخدمة</div><input class="text-input" id="csAddName" placeholder="مثال: اشتراك Netflix شهري" style="margin-bottom:10px"><div style="font-size:11px;font-weight:700;color:var(--text3);margin-bottom:4px">الوصف</div><textarea class="text-input" id="csAddDesc" rows="2" placeholder="وصف مختصر..." style="margin-bottom:10px;height:auto;resize:none"></textarea><div id="csTypeFields"></div><button onclick="submitAddCS()" class="btn-primary" style="margin-top:8px"><i class="fa-solid fa-save"></i> حفظ الخدمة</button></div>';el.insertAdjacentHTML('afterbegin',h)}
+function setCSType(t){
+  var legacy=(t==='game')?'subscription':t;_setCSTypeOrig(legacy);_csAddType=t;
+  var g=document.getElementById('csTypeGame');if(g){g.style.borderColor=t==='game'?'var(--primary)':'var(--card-border)';g.style.background=t==='game'?'var(--primary-bg)':'transparent'}
+  if(t==='game'){
+    var sb=document.getElementById('csTypeSub');if(sb){sb.style.borderColor='var(--card-border)';sb.style.background='transparent'}
+    _csGameRows();
+  }
+}
+function _csGameRows(){document.querySelectorAll('#csPkgList .cs-pkg-row').forEach(function(r){var i=r.querySelectorAll('input');if(i[0])i[0].placeholder='اسم الباقة (مثال: 325 UC)';var sel=r.querySelector('select');if(sel)sel.style.display='none'})}
+function _setCSTypeOrig(t){_csAddType=t;document.getElementById('csTypeSub').style.borderColor=t==='subscription'?'var(--primary)':'var(--card-border)';document.getElementById('csTypeSub').style.background=t==='subscription'?'var(--primary-bg)':'transparent';document.getElementById('csTypeSoc').style.borderColor=t==='social'?'var(--primary)':'var(--card-border)';document.getElementById('csTypeSoc').style.background=t==='social'?'var(--primary-bg)':'transparent';var fd=document.getElementById('csTypeFields');if(t==='subscription'){fd.innerHTML='<div style="font-size:11px;font-weight:700;color:var(--text3);margin-bottom:4px"><i class="fa-solid fa-box"></i> الباقات</div><div id="csPkgList"><div class="cs-pkg-row" style="background:var(--input-bg);border:1px solid var(--card-border);border-radius:10px;padding:10px;margin-bottom:6px"><div style="display:grid;grid-template-columns:1fr 1fr;gap:6px"><input class="text-input" placeholder="اسم الباقة" style="height:38px"><input class="text-input" placeholder="السعر $" type="number" style="height:38px"></div><select class="text-input" style="height:38px;margin-top:6px"><option>شهر</option><option>3 أشهر</option><option>6 أشهر</option><option>سنة</option></select></div></div><button onclick="addCSPkgRow()" style="width:100%;padding:8px;background:rgba(16,185,129,.08);border:1px dashed rgba(16,185,129,.3);border-radius:10px;color:var(--green);font-size:12px;font-weight:700;cursor:pointer;font-family:var(--font);margin-top:4px">+ إضافة باقة</button>'}else{fd.innerHTML='<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px"><div><div style="font-size:10px;color:var(--text3);margin-bottom:3px">السعر/1K ($)</div><input class="text-input" id="csAddRate" type="number" placeholder="0.85" style="height:38px"></div><div><div style="font-size:10px;color:var(--text3);margin-bottom:3px">الحد الأدنى</div><input class="text-input" id="csAddMin" type="number" placeholder="100" style="height:38px"></div><div><div style="font-size:10px;color:var(--text3);margin-bottom:3px">الحد الأقصى</div><input class="text-input" id="csAddMax" type="number" placeholder="50000" style="height:38px"></div></div>'}}
+function addCSPkgRow(){setTimeout(function(){if(_csAddType==='game')_csGameRows()},0);document.getElementById('csPkgList').insertAdjacentHTML('beforeend','<div class="cs-pkg-row" style="background:var(--input-bg);border:1px solid var(--card-border);border-radius:10px;padding:10px;margin-bottom:6px"><div style="display:grid;grid-template-columns:1fr 1fr;gap:6px"><input class="text-input" placeholder="اسم الباقة" style="height:38px"><input class="text-input" placeholder="السعر $" type="number" style="height:38px"></div><select class="text-input" style="height:38px;margin-top:6px"><option>شهر</option><option>3 أشهر</option><option>6 أشهر</option><option>سنة</option></select></div>')}
 function handleCSImg(inp){if(!inp.files||!inp.files[0])return;var f=inp.files[0];if(f.size>2000000){toast('2MB max','error');return}var r=new FileReader();r.onload=function(e){document.getElementById('csImgVal').value=e.target.result;document.getElementById('csImgPrev').innerHTML='<img src="'+e.target.result+'" style="width:100%;height:100%;object-fit:cover">'};r.readAsDataURL(f)}
-async function submitAddCS(){var name=(document.getElementById('csAddName').value||'').trim();var desc=(document.getElementById('csAddDesc').value||'').trim();var csImage=(document.getElementById('csImgVal')||{}).value||'';if(!name||!_csAddType){toast('عبّي الحقول','error');return}var body={type:_csAddType,name:name,desc:desc,icon:'',image:csImage};if(_csAddType==='subscription'){var rows=document.querySelectorAll('.cs-pkg-row');var pkgs=[];rows.forEach(function(r){var inputs=r.querySelectorAll('input');var sel=r.querySelector('select');if(inputs[0]&&inputs[0].value&&inputs[1]&&inputs[1].value)pkgs.push({name:inputs[0].value,price:parseFloat(inputs[1].value),duration:sel?sel.value:'شهر'})});if(!pkgs.length){toast('أضف باقة','error');return}body.packages=pkgs}else{body.rate=parseFloat((document.getElementById('csAddRate')||{}).value||0);body.min=parseInt((document.getElementById('csAddMin')||{}).value||100);body.max=parseInt((document.getElementById('csAddMax')||{}).value||100000);if(!body.rate){toast('أدخل السعر','error');return}}try{var r=await fetch('/api/admin/custom_services/add',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});var d=await r.json();if(d.ok){toast('تم إضافة الخدمة','success');loadAdminCS();loadCustomServices(true)}else toast(d.error||'خطأ','error')}catch(e){toast('خطأ','error')}}
+async function submitAddCS(){var name=(document.getElementById('csAddName').value||'').trim();var desc=(document.getElementById('csAddDesc').value||'').trim();var csImage=(document.getElementById('csImgVal')||{}).value||'';if(!name||!_csAddType){toast('عبّي الحقول','error');return}var body={type:_csAddType,name:name,desc:desc,icon:'',image:csImage};if(_csAddType==='subscription'||_csAddType==='game'){var rows=document.querySelectorAll('.cs-pkg-row');var pkgs=[];rows.forEach(function(r){var inputs=r.querySelectorAll('input');var sel=r.querySelector('select');if(inputs[0]&&inputs[0].value&&inputs[1]&&inputs[1].value)pkgs.push({name:inputs[0].value,price:parseFloat(inputs[1].value),duration:sel?sel.value:'شهر'})});if(!pkgs.length){toast('أضف باقة','error');return}body.packages=pkgs}else{body.rate=parseFloat((document.getElementById('csAddRate')||{}).value||0);body.min=parseInt((document.getElementById('csAddMin')||{}).value||100);body.max=parseInt((document.getElementById('csAddMax')||{}).value||100000);if(!body.rate){toast('أدخل السعر','error');return}}try{var r=await fetch('/api/admin/custom_services/add',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});var d=await r.json();if(d.ok){toast('تم إضافة الخدمة','success');loadAdminCS();loadCustomServices(true)}else toast(d.error||'خطأ','error')}catch(e){toast('خطأ','error')}}
 async function deleteCS(sid){customConfirm('حذف الخدمة','هل تريد حذف هذه الخدمة؟','trash','red',async function(){try{var r=await fetch('/api/admin/custom_services/delete',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:sid})});var d=await r.json();if(d.ok){toast('تم الحذف','success');loadAdminCS();loadCustomServices(true)}}catch(e){toast('خطأ','error')}})}
 async function loadAdminCO(){var el=document.getElementById('adminCOBody');el.innerHTML='<div class="loading">جاري التحميل...</div>';try{var r=await fetch('/api/admin/custom_orders',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({})});var d=await r.json();if(!d.ok){el.innerHTML='غير مصرح';return}var orders=d.orders||[];var stCls={pending:'co-pend',processing:'co-proc',completed:'co-comp',canceled:'co-canc'};var stL={pending:'معلّق',processing:'قيد التنفيذ',completed:'مكتمل',canceled:'ملغي'};var stIc={pending:'fa-clock',processing:'fa-spinner fa-spin',completed:'fa-check-double',canceled:'fa-xmark'};var h='<div class="co-count"><span>'+orders.length+'</span> طلب</div>';if(!orders.length)h+='<div style="text-align:center;padding:40px 16px"><div style="font-size:2rem;opacity:.15;margin-bottom:8px"><i class="fa-solid fa-inbox"></i></div><div style="font-size:12px;color:var(--text3);font-weight:700">لا توجد طلبات</div></div>';orders.forEach(function(o){var cls=stCls[o.status]||'co-pend';var label=stL[o.status]||o.status;var ic=stIc[o.status]||'fa-clock';h+='<div class="co-card"><div class="co-r1"><div class="co-badge '+cls+'"><i class="fa-solid '+ic+'"></i> '+label+'</div><div class="co-nm">'+esc(o.service_name||'')+'</div></div><div class="co-meta"><div class="co-mt"><i class="fa-solid fa-hashtag"></i> <span class="co-id">'+esc(o.id)+'</span></div><div class="co-mt"><i class="fa-solid fa-user"></i> '+(o.user_name||'#'+o.user_id)+'</div><div class="co-mt"><i class="fa-solid fa-dollar-sign"></i> $'+parseFloat(o.cost||0).toFixed(2)+'</div>'+(o.type==='subscription'?'<div class="co-mt"><i class="fa-solid fa-box-open"></i> '+esc(o.package||'')+'</div>':'<div class="co-mt"><i class="fa-solid fa-cubes"></i> '+(o.quantity||0)+' كمية</div>')+'</div>';if(o.link)h+='<div class="co-link"><i class="fa-solid fa-link"></i><span>'+esc(o.link)+'</span></div>';if(o.status!=='completed'&&o.status!=='canceled'){h+='<div class="co-pills"><button class="co-pb co-cn" onclick="updateCO(\''+o.id+'\',\'canceled\')"><i class="fa-solid fa-xmark"></i> إلغاء</button><button class="co-pb co-dn" onclick="updateCO(\''+o.id+'\',\'completed\')"><i class="fa-solid fa-check"></i> مكتمل</button><button class="co-pb co-ex" onclick="updateCO(\''+o.id+'\',\'processing\')"><i class="fa-solid fa-gear"></i> تنفيذ</button></div>'}h+='</div>'});el.innerHTML=h}catch(e){el.innerHTML='خطأ'}}
 async function updateCO(oid,status){try{var r=await fetch('/api/admin/custom_orders/update',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({order_id:oid,status:status})});var d=await r.json();if(d.ok){toast('تم التحديث','success');loadAdminCO()}else toast(d.error||'خطأ','error')}catch(e){toast('خطأ','error')}}
@@ -9042,6 +9273,127 @@ function cmtRecountCS(sid){
   else{box.classList.add('ok');if(ic)ic.className='fa-solid fa-check-circle';msg.textContent='ضمن النطاق المسموح ✓'}
 }
 try{var mkSt=document.createElement('style');mkSt.textContent='@keyframes mkPulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.5;transform:scale(.8)}}.slider{position:absolute;inset:0;background:var(--input-border);border-radius:26px;cursor:pointer;transition:all .25s}.slider::before{content:\"\";position:absolute;width:20px;height:20px;border-radius:50%;background:#fff;top:3px;right:3px;transition:all .25s;box-shadow:0 1px 4px rgba(0,0,0,.15)}input:checked+.slider{background:var(--primary)}input:checked+.slider::before{transform:translateX(-18px)}';document.head.appendChild(mkSt)}catch(e){}
+
+/* ===================== الأمان: 2FA + الأجهزة والجلسات ===================== */
+var _secState=null;
+function _secAgo(ts){var d=Date.now()/1000-ts;if(d<90)return 'الآن';if(d<3600)return 'قبل '+Math.floor(d/60)+' دقيقة';if(d<86400)return 'قبل '+Math.floor(d/3600)+' ساعة';return 'قبل '+Math.floor(d/86400)+' يوم'}
+function _secDevCount(n){return n===1?'جهاز واحد مسجّل':(n===2?'جهازان مسجّلان':n+' أجهزة مسجّلة')}
+function _secIc(k){return k==='phone'?'fa-mobile-screen-button':'fa-laptop'}
+async function _secPost(url,body){var r=await fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body||{})});var d={};try{d=await r.json()}catch(e){}d._status=r.status;return d}
+async function loadAccSecurity(){
+  try{
+    var r=await fetch('/api/account/security');if(!r.ok)return;var d=await r.json();if(!d.ok)return;_secState=d;
+    var tf=d.twofa.enabled,sub=document.getElementById('accTwofaSub'),btn=document.getElementById('accTwofaBtn');
+    if(sub)sub.textContent=tf?('مفعّلة — '+d.twofa.recovery_left+' رموز احتياطية'):'غير مفعّلة — موصى بها';
+    if(btn){btn.textContent=tf?'مفعّلة ✓':'تفعيل';btn.className='acc-pill'+(tf?' on':'')}
+    var ss=document.getElementById('accSessSub');if(ss)ss.textContent=_secDevCount(d.sessions.length);
+    var cur=d.sessions.filter(function(x){return x.current})[0],card=document.getElementById('accNowCard');
+    if(card){
+      if(cur){card.style.display='flex';card.innerHTML='<div class="sess-ic"><i class="fa-solid '+_secIc(cur.kind)+'"></i></div><div class="sess-tx"><div class="sess-t">'+esc(cur.device)+'</div><div class="sess-d">الجلسة الحالية · '+esc(cur.ip)+' · '+_secAgo(cur.last_seen)+'</div></div><span class="v2-chip g">● متصل</span>'}
+      else card.style.display='none';
+    }
+  }catch(e){}
+}
+window.loadAccSecurity=loadAccSecurity;
+function openSessionsPage(){document.getElementById('sessionsPage').classList.add('show');renderSessionsPage()}
+async function renderSessionsPage(){
+  var el=document.getElementById('sessionsBody');el.innerHTML='<div class="loading" style="padding:30px;text-align:center"><i class="fa-solid fa-spinner fa-spin"></i></div>';
+  await loadAccSecurity();var d=_secState;if(!d){el.innerHTML='<div style="text-align:center;padding:30px;color:var(--text3)">تعذّر التحميل</div>';return}
+  var cur=d.sessions.filter(function(x){return x.current})[0],others=d.sessions.filter(function(x){return !x.current});
+  var h='';
+  if(cur)h+='<div class="ss-card" style="border-color:rgba(16,185,129,.4);background:rgba(16,185,129,.06)"><div class="ss-row"><div class="ss-ic cur"><i class="fa-solid '+_secIc(cur.kind)+'"></i></div><div class="ss-tx"><div class="ss-t">'+esc(cur.device)+'</div><div class="ss-d">'+esc(cur.ip)+' · دخلتَ '+_secAgo(cur.created_at)+'</div></div><span class="v2-chip g">هذا الجهاز</span></div></div>';
+  h+='<div class="sec-sep" style="margin-top:6px">أجهزة أخرى</div>';
+  if(!others.length)h+='<div class="ss-card"><div class="ss-row"><div class="ss-tx" style="text-align:center;color:var(--text3);font-size:12.5px;padding:8px 0">لا توجد أجهزة أخرى مسجّلة الدخول</div></div></div>';
+  else{
+    h+='<div class="ss-card">';
+    others.forEach(function(x){h+='<div class="ss-row"><div class="ss-ic"><i class="fa-solid '+_secIc(x.kind)+'"></i></div><div class="ss-tx"><div class="ss-t">'+esc(x.device)+'</div><div class="ss-d">'+esc(x.ip)+' · آخر نشاط '+_secAgo(x.last_seen)+'</div></div><button class="v2-btn danger xs" onclick="revokeSession('+x.id+')">إنهاء</button></div>'});
+    h+='</div><button class="v2-btn danger full" onclick="revokeOthers()"><i class="fa-solid fa-right-from-bracket"></i> إنهاء كل الجلسات الأخرى</button>';
+  }
+  h+='<div style="font-size:11.5px;color:var(--text3);line-height:1.8;margin-top:14px;padding:0 4px">إن رأيتَ جهازاً لا تعرفه أنهِ جلسته فوراً، ثم غيّر كلمة المرور وفعّل المصادقة الثنائية.</div>';
+  el.innerHTML=h;
+}
+async function revokeSession(id){var d=await _secPost('/api/account/sessions/revoke',{id:id});if(d.ok){toast(d.msg,'success');if(d.self){location.href='/';return}renderSessionsPage()}else toast(d.msg||'خطأ','error')}
+async function revokeOthers(){
+  if(!confirm('سيُخرَج كل جهاز آخر من حسابك. متابعة؟'))return;
+  var d=await _secPost('/api/account/sessions/revoke-others');if(d.ok){toast(d.msg,'success');renderSessionsPage()}else toast(d.msg||'خطأ','error')
+}
+window.openSessionsPage=openSessionsPage;window.revokeSession=revokeSession;window.revokeOthers=revokeOthers;
+
+function _loadQrLib(){return new Promise(function(res,rej){if(window.qrcode)return res();var sc=document.createElement('script');sc.src='/assets/qrcode.js';sc.onload=res;sc.onerror=rej;document.head.appendChild(sc)})}
+async function openTwofaPage(){
+  document.getElementById('twofaPage').classList.add('show');
+  var el=document.getElementById('twofaBody');el.innerHTML='<div class="loading" style="padding:30px;text-align:center"><i class="fa-solid fa-spinner fa-spin"></i></div>';
+  await loadAccSecurity();var d=_secState;if(!d){el.innerHTML='<div style="text-align:center;padding:30px;color:var(--text3)">تعذّر التحميل</div>';return}
+  if(d.twofa.enabled)return renderTwofaOn(d);
+  var st=await _secPost('/api/account/2fa/setup');if(!st.ok){el.innerHTML='<div style="text-align:center;padding:30px;color:var(--text3)">'+esc(st.msg||'خطأ')+'</div>';return}
+  var qr='';try{await _loadQrLib();var q=qrcode(0,'M');q.addData(st.uri);q.make();qr='<img alt="QR" src="'+q.createDataURL(6,2)+'">'}catch(e){qr='<div style="font-size:12px;color:var(--text3);padding:20px">تعذّر رسم الرمز — استعمل المفتاح اليدوي</div>'}
+  var sp=st.secret.replace(/(.{4})/g,'$1 ').trim();
+  el.innerHTML='<div class="tf-steps"><div class="s d"><b>✓</b>حمّل التطبيق</div><div class="s a"><b>2</b>امسح الرمز</div><div class="s"><b>3</b>أدخل الرمز</div></div>'+
+   '<div style="font-size:12px;color:var(--text2);line-height:1.8;margin-bottom:10px">ثبّت تطبيق مصادقة مثل <b>Google Authenticator</b> أو <b>Authy</b>، ثم امسح الرمز أو أدخل المفتاح يدوياً.</div>'+
+   '<div class="tf-qr">'+qr+'<div class="tf-key"><span id="tfSecret">'+esc(sp)+'</span><button class="v2-btn tonal xs" onclick="navigator.clipboard&&navigator.clipboard.writeText(\''+st.secret+'\');toast(\'تم نسخ المفتاح\',\'success\')"><i class="fa-solid fa-copy"></i> نسخ</button></div></div>'+
+   '<div class="sv-label" style="margin:14px 0 0;font-size:12px;font-weight:700;color:var(--text2)">رمز التحقق (6 أرقام من التطبيق)</div>'+
+   '<div class="tf-code"><input id="tfCode" inputmode="numeric" maxlength="7" autocomplete="one-time-code" placeholder="000 000" style="letter-spacing:.3em"></div>'+
+   '<button class="v2-btn solid lg full" id="tfEnableBtn" onclick="twofaEnable()"><i class="fa-solid fa-shield-halved"></i> تفعيل المصادقة الثنائية</button>'+
+   '<div class="tf-note"><i class="fa-solid fa-triangle-exclamation" style="margin-top:3px"></i><span>بعد التفعيل تحصل على <b>8 رموز احتياطية</b> — احفظها: يُستعمل كل رمز مرة واحدة إن ضاع هاتفك.</span></div>';
+  var inp=document.getElementById('tfCode');if(inp)inp.addEventListener('keydown',function(e){if(e.key==='Enter')twofaEnable()});
+}
+async function twofaEnable(){
+  var code=(document.getElementById('tfCode').value||'').replace(/\s+/g,'');
+  if(!/^\d{6}$/.test(code)){toast('أدخل الرمز المكوّن من 6 أرقام','error');return}
+  var b=document.getElementById('tfEnableBtn');b.disabled=true;
+  var d=await _secPost('/api/account/2fa/enable',{code:code});b.disabled=false;
+  if(!d.ok){toast(d.msg||'خطأ','error');return}
+  toast('تم تفعيل المصادقة الثنائية','success');showRecoveryCodes(d.recovery);loadAccSecurity();
+}
+function showRecoveryCodes(codes){
+  var el=document.getElementById('twofaBody');
+  el.innerHTML='<div style="text-align:center;margin:6px 0 14px"><div style="width:64px;height:64px;border-radius:20px;background:rgba(16,185,129,.14);color:#059669;display:flex;align-items:center;justify-content:center;font-size:28px;margin:0 auto 10px"><i class="fa-solid fa-shield-halved"></i></div><div style="font-size:16px;font-weight:800">حسابك محمي الآن</div></div>'+
+  '<div style="font-size:12px;color:var(--text2);line-height:1.8">احفظ هذه الرموز الاحتياطية في مكان آمن. <b>لن تظهر مرة أخرى</b>. كل رمز يعمل مرة واحدة عند فقدان هاتفك.</div>'+
+  '<div class="tf-rec">'+codes.map(function(c){return '<div>'+esc(c)+'</div>'}).join('')+'</div>'+
+  '<div style="display:flex;gap:8px;margin-bottom:10px"><button class="v2-btn tonal" style="flex:1" onclick="navigator.clipboard&&navigator.clipboard.writeText(\''+codes.join('\\n')+'\');toast(\'تم النسخ\',\'success\')"><i class="fa-solid fa-copy"></i> نسخ</button><button class="v2-btn outline" style="flex:1" onclick="_dlRecovery(\''+codes.join(',')+'\')"><i class="fa-solid fa-download"></i> تنزيل</button></div>'+
+  '<button class="v2-btn solid lg full" onclick="document.getElementById(\'twofaPage\').classList.remove(\'show\')">حفظتها — تم</button>';
+}
+function _dlRecovery(c){var a=document.createElement('a');a.href=URL.createObjectURL(new Blob([c.split(',').join('\n')+'\n'],{type:'text/plain'}));a.download='recovery-codes.txt';document.body.appendChild(a);a.click();a.remove()}
+function renderTwofaOn(d){
+  var el=document.getElementById('twofaBody');
+  el.innerHTML='<div class="ss-card" style="border-color:rgba(16,185,129,.4);background:rgba(16,185,129,.06)"><div class="ss-row"><div class="ss-ic cur"><i class="fa-solid fa-shield-halved"></i></div><div class="ss-tx"><div class="ss-t">المصادقة الثنائية مفعّلة</div><div class="ss-d">يُطلب رمز من التطبيق عند كل تسجيل دخول جديد · '+d.twofa.recovery_left+' رموز احتياطية متبقية</div></div></div></div>'+
+  '<div class="ss-card" style="padding:14px"><div style="font-size:13px;font-weight:800;margin-bottom:8px">تأكيد العملية</div>'+(d.has_password?'<input class="text-input" type="password" id="tfPw" placeholder="كلمة مرور حسابك" autocomplete="current-password" style="margin-bottom:8px">':'')+'<input class="text-input" id="tfCode2" inputmode="text" placeholder="رمز التطبيق (6 أرقام) أو رمز احتياطي" autocomplete="off" style="margin-bottom:10px">'+
+  '<div style="display:flex;gap:8px"><button class="v2-btn tonal" style="flex:1" onclick="twofaRegen()"><i class="fa-solid fa-rotate"></i> رموز احتياطية جديدة</button><button class="v2-btn danger" style="flex:1" onclick="twofaDisable()"><i class="fa-solid fa-ban"></i> إيقاف 2FA</button></div></div>';
+}
+function _tfAuth(){return {password:(document.getElementById('tfPw')||{}).value||'',code:(document.getElementById('tfCode2')||{}).value||''}}
+async function twofaRegen(){var d=await _secPost('/api/account/2fa/recovery',_tfAuth());if(!d.ok){toast(d.msg||'خطأ','error');return}showRecoveryCodes(d.recovery);loadAccSecurity()}
+async function twofaDisable(){if(!confirm('إيقاف المصادقة الثنائية سيُضعف حماية حسابك. متابعة؟'))return;var d=await _secPost('/api/account/2fa/disable',_tfAuth());if(!d.ok){toast(d.msg||'خطأ','error');return}toast(d.msg,'success');loadAccSecurity();openTwofaPage()}
+window.openTwofaPage=openTwofaPage;window.twofaEnable=twofaEnable;window.twofaRegen=twofaRegen;window.twofaDisable=twofaDisable;window._dlRecovery=_dlRecovery;
+(function(){
+  var sw=window.switchPage;
+  if(typeof sw==='function'){window.switchPage=function(id){var r=sw.apply(this,arguments);if(id==='pageAccount')loadAccSecurity();return r}}
+  setTimeout(loadAccSecurity,1500);
+})();
+
+/* ===================== الشعار المتحرك (أدمن) ===================== */
+async function loadBrandMedia(){
+  var el=document.getElementById('brandMediaStatus');if(!el)return;
+  try{
+    var r=await fetch('/api/admin/brand-media');var d=await r.json();if(!d.ok)return;
+    var a=d.media.a,b=d.media.b;
+    if(!a&&!b){el.innerHTML='<div style="font-size:12px;color:var(--text3);padding:10px;border:1px dashed var(--card-border);border-radius:12px;text-align:center">لا يوجد شعار متحرك — يظهر اسم الموقع</div>';return}
+    var pv=a?((a.ext==='webm'||a.ext==='mp4')?'<video src="/brand-media/a?v='+d.v+'" autoplay muted loop playsinline style="height:44px;max-width:100%"></video>':'<img src="/brand-media/a?v='+d.v+'" style="height:44px;max-width:100%">'):'<video src="/brand-media/b?v='+d.v+'" autoplay muted loop playsinline style="height:44px;max-width:100%"></video>';
+    el.innerHTML='<div style="display:flex;align-items:center;gap:12px;padding:10px;border-radius:12px;background:repeating-conic-gradient(rgba(120,110,100,.12) 0% 25%,transparent 0% 50%) 0 0/14px 14px;border:1px solid var(--card-border)"><div style="flex:1">'+pv+'</div><div style="font-size:11px;color:var(--text2);text-align:left;direction:ltr">'+(a?'A: .'+a.ext+' · '+Math.round(a.size/1024)+'KB':'')+(b?'<br>B: .'+b.ext+' · '+Math.round(b.size/1024)+'KB':'')+'</div></div>';
+  }catch(e){}
+}
+async function uploadBrandMedia(slot,inp){
+  if(!inp.files||!inp.files[0])return;var f=inp.files[0];
+  if(f.size>8*1024*1024){toast('الحجم الأقصى 8MB','error');inp.value='';return}
+  var fd=new FormData();fd.append('media',f);fd.append('slot',slot);
+  try{var r=await fetch('/api/admin/upload-brand-media',{method:'POST',body:fd});var d=await r.json();toast(d.msg||(d.ok?'تم':'خطأ'),d.ok?'success':'error');if(d.ok)loadBrandMedia()}catch(e){toast('خطأ بالاتصال','error')}
+  inp.value='';
+}
+async function deleteBrandMedia(){
+  if(!confirm('إزالة الشعار المتحرك والعودة لاسم الموقع؟'))return;
+  try{var r=await fetch('/api/admin/delete-brand-media',{method:'POST'});var d=await r.json();if(d.ok){toast('تمت الإزالة','success');loadBrandMedia()}}catch(e){}
+}
+window.loadBrandMedia=loadBrandMedia;window.uploadBrandMedia=uploadBrandMedia;window.deleteBrandMedia=deleteBrandMedia;
+(function(){var l=window.loadSiteSettings;if(typeof l==='function')window.loadSiteSettings=function(){loadBrandMedia();return l.apply(this,arguments)}})();
 </script>
 <div class="cmodal-ov" id="cmodal" onclick="if(event.target===this)cmNo()">
   <div class="cmodal-box">
