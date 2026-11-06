@@ -175,6 +175,12 @@ function get_all_smm_services(): array {
     return $mem = ($c !== null && is_array($c['data']) ? $c['data'] : []);
 }
 
+/** تفريغ كاش الخدمات (بديل _services_cache['data']=None / _all_services_cache['data']=None بالأصل) */
+function clear_services_cache(bool $default = true, bool $all = true): void {
+    if ($default) @unlink(svc_cache_file());
+    if ($all) { @unlink(all_svc_cache_file()); unset($GLOBALS['__all_svc_mem']); }
+}
+
 /** _bump_svc_version  (app.py:3010): يغيّر رقم نسخة الخدمات ويمسح الكاش */
 function _bump_svc_version(): void {
     $v = py_int(py_or(get_setting('svc_version', '0'), 0)) + 1;

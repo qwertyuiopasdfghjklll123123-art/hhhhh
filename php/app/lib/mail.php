@@ -5,21 +5,83 @@
  * تعطيل التحقق من الشهادة مقصود: smtplib.SMTP_SSL / starttls ببايثون يستعملان _create_stdlib_context (غير موثَّق).
  */
 
-final class SmtpClient {
-    /** @var resource */
-    private $fp;
-    public array $features = [];
+class SmtpError extends RuntimeException {}
 
+/** تنسيق (code, b'msg') كما يطبعه str(e) لاستثناءات smtplib */
+function smtp_resp_text(int $code, string $msg): string { return '(' . $code . ', ' . py_bytes_repr($msg) . ')'; }
+
+/** رسالة فشل الاتصال بصيغة بايثون (socket.gaierror / ConnectionRefusedError / timeout / ssl.SSLError) */
+function smtp_conn_error_text(int $errno, string $errstr): string {
+    $l = strtolower($errstr);
+    if (strpos($l, 'name or service not known') !== false) return '[Errno -2] Name or service not known';
+    if (strpos($l, 'temporary failure in name resolution') !== false) return '[Errno -3] Temporary failure in name resolution';
+    if (strpos($l, 'no address associated') !== false) return '[Errno -5] No address associated with hostname';
+    if (strpos($l, 'wrong version number') !== false) return '[SSL: WRONG_VERSION_NUMBER] wrong version number (_ssl.c:1007)';
+    if (strpos($l, 'ssl') !== false && strpos($l, 'handshake') !== false) return '[SSL: SSLV3_ALERT_HANDSHAKE_FAILURE] sslv3 alert handshake failure (_ssl.c:1007)';
+    if ($errno === 110 || strpos($l, 'timed out') !== false) return 'timed out';
+    if ($errno === 111) return '[Errno 111] Connection refused';
+    if ($errno === 113) return '[Errno 113] No route to host';
+    if ($errno === 101) return '[Errno 101] Network is unreachable';
+    return $errstr !== '' ? "[Errno $errno] $errstr" : 'Connection failed';
+}
+
+/** smtplib: socket.getfqdn() إن احتوى نقطة وإلا العنوان بين أقواس مربعة [127.0.0.1] */
+function smtp_local_hostname(): string {
+    static $h = null;
+    if ($h !== null) return $h;
+    $name = gethostname() ?: 'localhost';
+    $fq = $name;
+    $ip = @gethostbyname($name);
+    if ($ip && $ip !== $name) {
+        $rev = @gethostbyaddr($ip);
+        if ($rev && strpos($rev, '.') !== false) $fq = $rev;
+    }
+    if (strpos($fq, '.') !== false) return $h = $fq;
+    $addr = ($ip && $ip !== $name) ? $ip : '127.0.0.1';
+    return $h = '[' . $addr . ']';
+}
+
+final class SmtpClient {
+    /** @var resource|null */
+    private $fp = null;
+    public array $features = [];
+    private float $timeout;
+
+    /** مثل smtplib.SMTP(host, port, timeout) / SMTP_SSL: host فارغ = بلا اتصال (والأوامر التالية تفشل بـ "please run connect() first") */
     public function __construct(string $host, int $port, string $mode, float $timeout = 10.0) {
+        $this->timeout = $timeout;
+        if ($host === '') return;
+        if (!$port && substr_count($host, ':') <= 1) {          // smtplib.connect: host:port أو المنفذ الافتراضي
+            $i = strrpos($host, ':');
+            if ($i !== false) {
+                $pp = substr($host, $i + 1);
+                $host = substr($host, 0, $i);
+                if (!preg_match('/^\s*[+-]?\d+\s*$/', $pp)) throw new RuntimeException('nonnumeric port');
+                $port = (int)$pp;
+            }
+            if (!$port) $port = $mode === 'SSL' ? 465 : 25;
+        }
         $ctx = stream_context_create(['ssl' => ['verify_peer' => false, 'verify_peer_name' => false, 'allow_self_signed' => true]]);
-        $remote = ($mode === 'SSL' ? 'ssl://' : 'tcp://') . $host . ':' . $port;
+        $remote = 'tcp://' . $host . ':' . $port;
         $errno = 0; $errstr = '';
         $fp = @stream_socket_client($remote, $errno, $errstr, $timeout, STREAM_CLIENT_CONNECT, $ctx);
-        if (!$fp) throw new RuntimeException($errstr !== '' ? "[Errno $errno] $errstr" : "Connection failed to $host:$port");
+        if (!$fp) throw new RuntimeException(smtp_conn_error_text($errno, $errstr));
+        if ($mode === 'SSL') {            // SMTP_SSL: مصافحة TLS قبل قراءة الترحيب (نفصلها لنلتقط سبب فشل OpenSSL)
+            stream_set_timeout($fp, (int)ceil($timeout));
+            if (!@stream_socket_enable_crypto($fp, true, STREAM_CRYPTO_METHOD_TLS_CLIENT)) {
+                $why = (string)(error_get_last()['message'] ?? '');
+                @fclose($fp);
+                throw new RuntimeException(smtp_conn_error_text(0, $why !== '' ? $why : 'ssl handshake failed'));
+            }
+        }
         $this->fp = $fp;
         stream_set_timeout($this->fp, (int)ceil($timeout));
         [$code, $msg] = $this->read();
-        if ($code !== 220) throw new RuntimeException("Server not ready ($code $msg)");
+        if ($code !== 220) { @fclose($this->fp); $this->fp = null; throw new SmtpError(smtp_resp_text($code, $msg)); }
+    }
+
+    private function needConn(): void {
+        if (!$this->fp) throw new RuntimeException('please run connect() first');
     }
 
     /** @return array [int code, string message] */
@@ -32,23 +94,38 @@ final class SmtpClient {
                 throw new RuntimeException(!empty($meta['timed_out']) ? 'timed out' : 'Connection unexpectedly closed');
             }
             $code = (int)substr($line, 0, 3);
-            $msgs[] = rtrim(substr($line, 4));
+            $msgs[] = trim(substr($line, 4), " \t\r\n");
             if (strlen($line) < 4 || $line[3] !== '-') break;
         }
         return [$code, implode("\n", $msgs)];
     }
 
-    private function cmd(string $line, array $okCodes): array {
+    /** يرسل أمراً ويقرأ الرد؛ $kind يحدد صيغة الاستثناء عند رمز غير متوقع: resp | sender | recipient */
+    private function cmd(string $line, array $okCodes, string $kind = 'resp', ?string $addr = null): array {
+        $this->needConn();
         fwrite($this->fp, $line . "\r\n");
         [$code, $msg] = $this->read();
-        if (!in_array($code, $okCodes, true)) throw new RuntimeException("($code, $msg)");
+        if (!in_array($code, $okCodes, true)) {
+            if ($kind === 'sender') throw new SmtpError('(' . $code . ', ' . py_bytes_repr($msg) . ', ' . py_repr((string)$addr) . ')');
+            if ($kind === 'recipient') throw new SmtpError('{' . py_repr((string)$addr) . ': (' . $code . ', ' . py_bytes_repr($msg) . ')}');
+            throw new SmtpError(smtp_resp_text($code, $msg));
+        }
         return [$code, $msg];
     }
 
+    /** ehlo_or_helo_if_needed: EHLO ثم HELO عند رفضه */
     public function ehlo(): void {
-        $host = gethostname() ?: 'localhost';
-        [, $msg] = $this->cmd('EHLO ' . $host, [250]);
+        $this->needConn();
+        $host = smtp_local_hostname();
+        fwrite($this->fp, 'EHLO ' . $host . "\r\n");
+        [$code, $msg] = $this->read();
         $this->features = [];
+        if ($code < 200 || $code > 299) {
+            fwrite($this->fp, 'HELO ' . $host . "\r\n");
+            [$code, $msg] = $this->read();
+            if ($code < 200 || $code > 299) throw new SmtpError(smtp_resp_text($code, $msg));
+            return;
+        }
         foreach (explode("\n", $msg) as $i => $l) {
             if ($i === 0) continue;
             $parts = preg_split('/\s+/', trim($l), 2);
@@ -57,48 +134,101 @@ final class SmtpClient {
     }
 
     public function starttls(): void {
+        $this->needConn();
         if (!isset($this->features['starttls'])) throw new RuntimeException('STARTTLS extension not supported by server.');
         $this->cmd('STARTTLS', [220]);
-        if (!@stream_socket_enable_crypto($this->fp, true, STREAM_CRYPTO_METHOD_TLS_CLIENT)) throw new RuntimeException('TLS negotiation failed');
+        if (!@stream_socket_enable_crypto($this->fp, true, STREAM_CRYPTO_METHOD_TLS_CLIENT)) throw new RuntimeException('[SSL: WRONG_VERSION_NUMBER] wrong version number (_ssl.c:1007)');
         $this->features = [];
     }
 
+    /** smtplib.login: يجرّب CRAM-MD5 ثم PLAIN ثم LOGIN (المعلَنة فقط) وينتقل للتالي عند الرفض */
     public function login(string $user, string $pass): void {
+        $this->needConn();
         if (!isset($this->features['auth'])) throw new RuntimeException('SMTP AUTH extension not supported by server.');
         $adv = preg_split('/\s+/', strtoupper($this->features['auth']));
+        $last = null;
+        $tried = false;
         foreach (['CRAM-MD5', 'PLAIN', 'LOGIN'] as $m) {
             if (!in_array($m, $adv, true)) continue;
-            if ($m === 'CRAM-MD5') {
-                [, $ch] = $this->cmd('AUTH CRAM-MD5', [334]);
-                $digest = hash_hmac('md5', (string)base64_decode($ch), $pass);
-                $this->cmd(base64_encode($user . ' ' . $digest), [235]);
-            } elseif ($m === 'PLAIN') {
-                $this->cmd('AUTH PLAIN ' . base64_encode("\0" . $user . "\0" . $pass), [235]);
-            } else {
-                $this->cmd('AUTH LOGIN', [334]);
-                $this->cmd(base64_encode($user), [334]);
-                $this->cmd(base64_encode($pass), [235]);
+            $tried = true;
+            try {
+                $count = 0;
+                if ($m === 'CRAM-MD5') {
+                    [$code, $resp] = $this->cmdAny('AUTH CRAM-MD5');
+                } elseif ($m === 'PLAIN') {
+                    [$code, $resp] = $this->cmdAny('AUTH PLAIN ' . base64_encode("\0" . $user . "\0" . $pass));
+                    $count = 1;
+                } else {
+                    [$code, $resp] = $this->cmdAny('AUTH LOGIN ' . base64_encode($user));
+                    $count = 1;
+                }
+                while ($code === 334) {
+                    $count++;
+                    $challenge = (string)base64_decode($resp);
+                    if ($m === 'CRAM-MD5') $answer = $user . ' ' . hash_hmac('md5', $challenge, $pass);
+                    elseif ($m === 'PLAIN') $answer = "\0" . $user . "\0" . $pass;
+                    else $answer = $count < 2 ? $user : $pass;
+                    [$code, $resp] = $this->cmdAny(base64_encode($answer));
+                    if ($count > 5) throw new RuntimeException('Server AUTH mechanism infinite loop. Last response: ' . smtp_resp_text($code, $resp));
+                }
+                if ($code === 235 || $code === 503) return;
+                throw new SmtpError(smtp_resp_text($code, $resp));
+            } catch (SmtpError $e) {
+                $last = $e;
             }
-            return;
         }
-        throw new RuntimeException('No suitable authentication method found.');
+        if (!$tried) throw new RuntimeException('No suitable authentication method found.');
+        throw $last;
     }
 
+    /** يرسل سطراً ويرجع [code, msg] بلا تحقق */
+    private function cmdAny(string $line): array {
+        fwrite($this->fp, $line . "\r\n");
+        return $this->read();
+    }
+
+    /** _rset(): يتجاهل أي خطأ */
+    private function rset(): void {
+        try { $this->cmdAny('RSET'); } catch (Throwable $e) {}
+    }
+
+    /** smtplib.sendmail لمستلم واحد: عند رفض المرسل/المستلم/البيانات يُرسَل RSET ثم يُرمى الاستثناء بصيغة بايثون */
     public function send(string $from, string $to, string $data): void {
-        $this->cmd('MAIL FROM:<' . $from . '>', [250]);
-        $this->cmd('RCPT TO:<' . $to . '>', [250, 251]);
-        $this->cmd('DATA', [354]);
-        // dot-stuffing + CRLF
+        $this->needConn();
+        [$code, $msg] = $this->cmdAny('MAIL FROM:<' . $from . '>');
+        if ($code !== 250) {
+            if ($code === 421) $this->close(); else $this->rset();
+            throw new SmtpError('(' . $code . ', ' . py_bytes_repr($msg) . ', ' . py_repr($from) . ')');
+        }
+        [$code, $msg] = $this->cmdAny('RCPT TO:<' . $to . '>');
+        if ($code !== 250 && $code !== 251) {
+            if ($code === 421) $this->close(); else $this->rset();
+            throw new SmtpError('{' . py_repr($to) . ': (' . $code . ', ' . py_bytes_repr($msg) . ')}');
+        }
+        [$code, $msg] = $this->cmdAny('DATA');
+        if ($code !== 354) throw new SmtpError(smtp_resp_text($code, $msg));
+        // dot-stuffing + CRLF (بدون إضافة سطر فارغ إن كانت الرسالة تنتهي أصلاً بـ CRLF)
         $data = preg_replace('/\r\n|\r|\n/', "\r\n", $data);
         $data = preg_replace('/^\./m', '..', $data);
-        fwrite($this->fp, $data . "\r\n.\r\n");
+        if (substr($data, -2) !== "\r\n") $data .= "\r\n";
+        fwrite($this->fp, $data . ".\r\n");
         [$code, $msg] = $this->read();
-        if ($code !== 250) throw new RuntimeException("($code, $msg)");
+        if ($code !== 250) {
+            if ($code === 421) $this->close(); else $this->rset();
+            throw new SmtpError(smtp_resp_text($code, $msg));
+        }
+    }
+
+    /** إغلاق بدون QUIT (مثل ترك الكائن بعد استثناء في smtplib) */
+    public function close(): void {
+        if ($this->fp) { @fclose($this->fp); $this->fp = null; }
     }
 
     public function quit(): void {
+        if (!$this->fp) return;
         try { fwrite($this->fp, "QUIT\r\n"); $this->read(); } catch (Throwable $e) {}
         @fclose($this->fp);
+        $this->fp = null;
     }
 }
 
@@ -109,24 +239,39 @@ function mime_encode_header(string $v): string {
 }
 
 /**
- * يبني رسالة multipart/alternative فيها جزء HTML واحد (مثل MIMEMultipart('alternative') + MIMEText(html,'html')).
+ * يبني رسالة multipart/alternative فيها جزء HTML واحد كما يولّدها email.generator ببايثون
+ * (MIMEMultipart('alternative') + MIMEText(html,'html')): بلا Date/Message-ID، وسطر فارغ قبل delimiter الإغلاق.
  */
 function build_html_mail(string $fromName, string $fromEmail, string $to, string $subject, string $html): string {
-    $boundary = '===============' . bin2hex(random_bytes(10)) . '==';
+    $boundary = '===============' . random_int(1000000000000000000, 9223372036854775806) . '==';
     $fromHdr = (preg_match('/[^\x20-\x7e]/', $fromName) ? mime_encode_header($fromName) : $fromName) . ' <' . $fromEmail . '>';
-    $host = gethostname() ?: 'localhost';
     $h = [
         'Content-Type: multipart/alternative; boundary="' . $boundary . '"',
         'MIME-Version: 1.0',
         'From: ' . $fromHdr,
         'To: ' . $to,
         'Subject: ' . mime_encode_header($subject),
-        'Date: ' . date('r'),
-        'Message-ID: <' . bin2hex(random_bytes(12)) . '@' . $host . '>',
     ];
     $body = "--$boundary\r\nContent-Type: text/html; charset=\"utf-8\"\r\nMIME-Version: 1.0\r\nContent-Transfer-Encoding: base64\r\n\r\n"
           . chunk_split(base64_encode($html), 76, "\r\n")
-          . "--$boundary--\r\n";
+          . "\r\n--$boundary--\r\n";
+    return implode("\r\n", $h) . "\r\n\r\n" . $body;
+}
+
+/** رسالة multipart/mixed بجزء نصي واحد (MIMEMultipart() + MIMEText(text,'plain','utf-8')) بلا Date/Message-ID كما بـ smtplib.send_message */
+function build_plain_mail(string $fromHeader, string $to, string $subject, string $text): string {
+    $boundary = '===============' . random_int(1000000000000000000, 9223372036854775806) . '==';
+    $enc = fn(string $v) => preg_match('/[^\x20-\x7e]/', $v) ? mime_encode_header($v) : $v;
+    $h = [
+        'Content-Type: multipart/mixed; boundary="' . $boundary . '"',
+        'MIME-Version: 1.0',
+        'From: ' . $enc($fromHeader),
+        'To: ' . $to,
+        'Subject: ' . $enc($subject),
+    ];
+    $body = "--$boundary\r\nContent-Type: text/plain; charset=\"utf-8\"\r\nMIME-Version: 1.0\r\nContent-Transfer-Encoding: base64\r\n\r\n"
+          . chunk_split(base64_encode($text), 76, "\r\n")
+          . "\r\n--$boundary--\r\n";
     return implode("\r\n", $h) . "\r\n\r\n" . $body;
 }
 
@@ -140,7 +285,7 @@ function smtp_send(string $host, int $port, string $tls, string $login, string $
         $c->send($fromEmail ?? $login, $to, build_html_mail($fromName, $fromEmail ?? $login, $to, $subject, $html));
         $c->quit();
     } catch (Throwable $e) {
-        $c->quit();
+        $c->close();
         throw $e;
     }
 }

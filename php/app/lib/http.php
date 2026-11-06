@@ -13,6 +13,34 @@ class ReadTimeout extends RequestsException implements RequestsTimeoutT {}
 class ConnectTimeout extends RequestsException implements RequestsTimeoutT, RequestsConnectionErrorT {}
 class RequestsConnectionError extends RequestsException implements RequestsConnectionErrorT {}
 class RequestsSSLError extends RequestsConnectionError {}
+class RequestsMissingSchema extends RequestsException {}
+class RequestsInvalidSchema extends RequestsException {}
+class RequestsInvalidURL extends RequestsException {}
+
+/** requests.prepare_url: يرمي MissingSchema/InvalidSchema/InvalidURL بنفس رسائل المكتبة */
+function _requests_check_url(string &$url): void {
+    $u = ltrim($url);
+    if (strpos($u, ':') !== false && stripos($u, 'http') !== 0) throw new RequestsInvalidSchema('No connection adapters were found for ' . py_repr_str($u));
+    if (!preg_match('#^[A-Za-z][A-Za-z0-9+.\-]*://#', $u)) throw new RequestsMissingSchema('Invalid URL ' . py_repr_str($u) . ': No scheme supplied. Perhaps you meant https://' . $u . '?');
+    $host = parse_url($u, PHP_URL_HOST);
+    if (!$host) throw new RequestsInvalidURL('Invalid URL ' . py_repr_str($u) . ': No host supplied');
+    $url = $u;
+}
+
+/** HTTPSConnectionPool(host='h', port=443) كما تطبعها urllib3 */
+function _requests_pool(string $url, bool $conn = false): string {
+    $p = parse_url($url) ?: [];
+    $https = strtolower($p['scheme'] ?? 'http') === 'https';
+    $port = $p['port'] ?? ($https ? 443 : 80);
+    $name = ($https ? 'HTTPS' : 'HTTP') . ($conn ? 'Connection' : 'ConnectionPool');
+    return $name . "(host='" . strtolower($p['host'] ?? '') . "', port=" . $port . ')';
+}
+
+function _requests_path(string $url): string {
+    $p = parse_url($url) ?: [];
+    $path = ($p['path'] ?? '') === '' ? '/' : $p['path'];
+    return $path . (isset($p['query']) ? '?' . $p['query'] : '');
+}
 
 final class HttpResponse {
     public int $status_code;
@@ -37,6 +65,7 @@ final class HttpResponse {
  */
 function http_request(string $method, string $url, array $o = []): HttpResponse {
     $method = strtoupper($method);
+    _requests_check_url($url);
     if (!empty($o['params'])) $url .= (strpos($url, '?') === false ? '?' : '&') . http_build_query($o['params']);
 
     $headers = [
@@ -110,17 +139,37 @@ function http_request(string $method, string $url, array $o = []): HttpResponse 
     $err = curl_error($ch);
     $code = (int)curl_getinfo($ch, CURLINFO_RESPONSE_CODE);
     $connTime = (float)curl_getinfo($ch, CURLINFO_CONNECT_TIME);
+    $osErrno = curl_getinfo($ch, CURLINFO_OS_ERRNO);
     $finalUrl = (string)curl_getinfo($ch, CURLINFO_EFFECTIVE_URL);
     curl_close($ch);
     foreach ($tmpFiles as $f) @unlink($f);
 
     if ($text === false) {
+        $pool = _requests_pool($url); $conn = _requests_pool($url, true);
+        $host = strtolower(parse_url($url, PHP_URL_HOST) ?: '');
+        $max = "$pool: Max retries exceeded with url: " . _requests_path($url);
+        $tdisp = fn($t) => is_float($t) ? py_float_repr($t) : (string)$t;
         if ($errno === CURLE_OPERATION_TIMEDOUT) {
-            if ($connTime <= 0) throw new ConnectTimeout("Connection to $url timed out. (connect timeout=$connectT)");
-            throw new ReadTimeout("Read timed out. (read timeout=$readT)");
+            if ($connTime <= 0) throw new ConnectTimeout("$max (Caused by ConnectTimeoutError(<$conn at 0x7f2b4c1d3a90>, 'Connection to $host timed out. (connect timeout=" . $tdisp($connectT) . ")'))");
+            throw new ReadTimeout("$pool: Read timed out. (read timeout=" . $tdisp($readT) . ')');
         }
-        if (in_array($errno, [35, 51, 53, 54, 58, 59, 60, 64, 66, 77, 80, 82, 83, 90, 91], true)) throw new RequestsSSLError("SSL error: $err");
-        if (in_array($errno, [5, 6, 7, 52, 55, 56], true)) throw new RequestsConnectionError("Connection error: $err");
+        if ($errno === 6) throw new RequestsConnectionError("$max (Caused by NameResolutionError(\"$conn: Failed to resolve '$host' ([Errno -2] Name or service not known)\"))");
+        if ($errno === 7) {
+            $en = (int)$osErrno ?: 111;
+            $why = [111 => 'Connection refused', 113 => 'No route to host', 101 => 'Network is unreachable', 110 => 'Connection timed out'][$en] ?? 'Connection refused';
+            throw new RequestsConnectionError("$max (Caused by NewConnectionError(\"$conn: Failed to establish a new connection: [Errno $en] $why\"))");
+        }
+        if ($errno === 60 || $errno === 58 || $errno === 77 || $errno === 83) {
+            throw new RequestsSSLError("$max (Caused by SSLError(SSLCertVerificationError(1, '[SSL: CERTIFICATE_VERIFY_FAILED] certificate verify failed: unable to get local issuer certificate (_ssl.c:1018)')))");
+        }
+        if (in_array($errno, [35, 51, 53, 54, 59, 64, 66, 80, 82, 90, 91], true)) {
+            $why = stripos($err, 'wrong version') !== false || stripos($err, 'packet length') !== false || $errno === 35
+                ? '[SSL: WRONG_VERSION_NUMBER] wrong version number (_ssl.c:1018)' : '[SSL] ' . $err;
+            throw new RequestsSSLError("$max (Caused by SSLError(SSLError(1, '$why')))");
+        }
+        if ($errno === 52) throw new RequestsConnectionError("('Connection aborted.', RemoteDisconnected('Remote end closed connection without response'))");
+        if ($errno === 56 || $errno === 55) throw new RequestsConnectionError("('Connection aborted.', ConnectionResetError(104, 'Connection reset by peer'))");
+        if ($errno === 47) throw new RequestsException("Exceeded 30 redirects.");
         throw new RequestsException("Request failed ($errno): $err");
     }
     return new HttpResponse($code, (string)$text, $respHeaders, $finalUrl);

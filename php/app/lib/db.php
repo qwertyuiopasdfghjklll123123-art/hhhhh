@@ -180,6 +180,8 @@ final class Conn {
                 $stmt = $this->pdo->prepare($t);
                 $i = 1;
                 foreach ($params as $p) {
+                    // sqlite3 يرفض ربط قائمة/قاموس (InterfaceError) — لا نحوّلها إلى 'Array' بصمت
+                    if (is_array($p) || is_object($p)) throw new DBError('Error binding parameter ' . ($i - 1) . ' - probably unsupported type.');
                     if ($p === null) $stmt->bindValue($i, null, PDO::PARAM_NULL);
                     elseif (is_int($p)) $stmt->bindValue($i, $p, PDO::PARAM_INT);
                     elseif (is_bool($p)) $stmt->bindValue($i, $p ? 1 : 0, PDO::PARAM_INT);
@@ -237,6 +239,11 @@ final class Conn {
         $last = 0;
         if (preg_match('/^\s*(INSERT|REPLACE)\b/i', $t)) $last = (int)$this->pdo->lastInsertId();
         return new Cursor($rows, $last, $stmt->rowCount());
+    }
+
+    /** يبدأ معاملة صراحةً (للقراءة مع FOR UPDATE ثم الكتابة داخل نفس المعاملة) */
+    public function begin(): void {
+        if (!$this->inTx) { $this->pdo->beginTransaction(); $this->inTx = true; }
     }
 
     public function commit(): void {

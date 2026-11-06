@@ -184,9 +184,12 @@ function py_truthy($v): bool {
 /** a or b  (على طريقة بايثون: '0' نص صحيح = True) */
 function py_or($a, $b) { return py_truthy($a) ? $a : $b; }
 
+/** المحارف التي يعدّها بايثون مسافات بيضاء (str.isspace) — تُستعمل بـ strip() و split() */
+const PY_WS_CLASS = '\x{9}-\x{d}\x{1c}-\x{20}\x{85}\x{a0}\x{1680}\x{2000}-\x{200a}\x{2028}\x{2029}\x{202f}\x{205f}\x{3000}';
+
 /** str.strip() الافتراضي: يزيل كل المسافات البيضاء (بما فيها Unicode) */
 function py_strip($s): string {
-    return preg_replace('/^\s+|\s+$/u', '', (string)$s) ?? (string)$s;
+    return preg_replace('/^[' . PY_WS_CLASS . ']+|[' . PY_WS_CLASS . ']+$/u', '', (string)$s) ?? (string)$s;
 }
 
 /** len() لنص Unicode (عدد المحارف لا البايتات) */
@@ -393,3 +396,149 @@ function py_fmt_g($x): string {
 
 /** COALESCE(x, d) على طريقة SQLite: يستبدل NULL فقط (0.0 يبقى 0.0) */
 function py_or_null($v, $d) { return $v === null ? $d : $v; }
+
+
+/* ------------------------------------------------------------------------------------------------
+ * مساعدات إضافية (مسارات الأدمن): .strip()/.split()/.upper() الصارمة، التكرار، repr للبايتات، و random.Random
+ * ------------------------------------------------------------------------------------------------ */
+
+/** v.strip() حيث v قد لا يكون نصاً: بايثون يرمي AttributeError (→ 500) لغير النصوص */
+function py_strip_s($v): string {
+    if (!is_string($v)) throw new PyTypeError("'" . py_type_name($v) . "' object has no attribute 'strip'");
+    return py_strip($v);
+}
+
+/** v.upper() (صارمة) */
+function py_upper_s($v): string {
+    if (!is_string($v)) throw new PyTypeError("'" . py_type_name($v) . "' object has no attribute 'upper'");
+    return mb_strtoupper($v, 'UTF-8');
+}
+
+/** s.split() بلا وسيط: تقسيم على المسافات البيضاء وتجاهل الفارغ */
+function py_split_ws($s): array {
+    if (!is_string($s)) throw new PyTypeError("'" . py_type_name($s) . "' object has no attribute 'split'");
+    $t = py_strip($s);
+    if ($t === '') return [];
+    return preg_split('/[' . PY_WS_CLASS . ']+/u', $t);
+}
+
+/** for x in v: قائمة→عناصرها، قاموس→مفاتيحه، نص→محارفه، غير ذلك TypeError */
+function py_iter($v): array {
+    if (is_string($v)) return $v === '' ? [] : mb_str_split($v, 1, 'UTF-8');
+    if ($v instanceof stdClass) return [];
+    if (is_array($v)) return is_list_array($v) ? $v : array_map('strval', array_keys($v));
+    throw new PyTypeError("'" . py_type_name($v) . "' object is not iterable");
+}
+
+/** repr(bytes) ببايثون: b'...' */
+function py_bytes_repr(string $s): string {
+    $q = (strpos($s, "'") !== false && strpos($s, '"') === false) ? '"' : "'";
+    $out = '';
+    for ($i = 0, $n = strlen($s); $i < $n; $i++) {
+        $c = $s[$i]; $o = ord($c);
+        if ($c === '\\') $out .= '\\\\';
+        elseif ($c === $q) $out .= '\\' . $q;
+        elseif ($c === "\n") $out .= '\\n';
+        elseif ($c === "\r") $out .= '\\r';
+        elseif ($c === "\t") $out .= '\\t';
+        elseif ($o < 0x20 || $o >= 0x7f) $out .= sprintf('\\x%02x', $o);
+        else $out .= $c;
+    }
+    return 'b' . $q . $out . $q;
+}
+
+/**
+ * random.Random(seed) ببايثون (Mersenne Twister MT19937 + init_by_array) — يعطي نفس التسلسل تماماً،
+ * فيُنتج shuffle() نفس الترتيب الذي تنتجه نسخة بايثون لنفس البذرة (مطلوب لتقييمات "اليوم" العشوائية).
+ */
+final class PyRandom {
+    private array $mt = [];
+    private int $idx = 624;
+
+    public function __construct(int $seed) { $this->seed($seed); }
+
+    private function init_genrand(int $s): void {
+        $mt = [$s & 0xffffffff];
+        for ($i = 1; $i < 624; $i++) {
+            $p = $mt[$i - 1];
+            $mt[$i] = (1812433253 * ($p ^ ($p >> 30)) + $i) & 0xffffffff;
+        }
+        $this->mt = $mt;
+        $this->idx = 624;
+    }
+
+    public function seed(int $a): void {
+        $n = abs($a);
+        $key = [];
+        do { $key[] = $n & 0xffffffff; $n >>= 32; } while ($n > 0);
+        $this->init_by_array($key);
+    }
+
+    private function init_by_array(array $key): void {
+        $this->init_genrand(19650218);
+        $mt = $this->mt;
+        $klen = count($key);
+        $i = 1; $j = 0;
+        for ($k = max(624, $klen); $k > 0; $k--) {
+            $p = $mt[$i - 1];
+            $mt[$i] = (($mt[$i] ^ (($p ^ ($p >> 30)) * 1664525)) + $key[$j] + $j) & 0xffffffff;
+            $i++; $j++;
+            if ($i >= 624) { $mt[0] = $mt[623]; $i = 1; }
+            if ($j >= $klen) $j = 0;
+        }
+        for ($k = 623; $k > 0; $k--) {
+            $p = $mt[$i - 1];
+            $mt[$i] = (($mt[$i] ^ (($p ^ ($p >> 30)) * 1566083941)) - $i) & 0xffffffff;
+            $i++;
+            if ($i >= 624) { $mt[0] = $mt[623]; $i = 1; }
+        }
+        $mt[0] = 0x80000000;
+        $this->mt = $mt;
+        $this->idx = 624;
+    }
+
+    private function genrand(): int {
+        $mt = &$this->mt;
+        if ($this->idx >= 624) {
+            for ($kk = 0; $kk < 624; $kk++) {
+                $y = ($mt[$kk] & 0x80000000) | ($mt[($kk + 1) % 624] & 0x7fffffff);
+                $mt[$kk] = $mt[($kk + 397) % 624] ^ ($y >> 1) ^ (($y & 1) ? 0x9908b0df : 0);
+            }
+            $this->idx = 0;
+        }
+        $y = $mt[$this->idx++];
+        $y ^= ($y >> 11);
+        $y ^= ($y << 7) & 0x9d2c5680;
+        $y ^= ($y << 15) & 0xefc60000;
+        $y ^= ($y >> 18);
+        return $y & 0xffffffff;
+    }
+
+    public function getrandbits(int $k): int {
+        if ($k <= 0) return 0;
+        if ($k <= 32) return $this->genrand() >> (32 - $k);
+        $r = 0; $shift = 0;
+        for ($left = $k; $left > 0; $left -= 32, $shift += 32) {
+            $w = $this->genrand();
+            if ($left < 32) $w >>= (32 - $left);
+            $r |= $w << $shift;
+        }
+        return $r;
+    }
+
+    /** _randbelow(n) (n > 0) */
+    public function randbelow(int $n): int {
+        $k = 0; for ($t = $n; $t > 0; $t >>= 1) $k++;
+        $r = $this->getrandbits($k);
+        while ($r >= $n) $r = $this->getrandbits($k);
+        return $r;
+    }
+
+    /** random.shuffle(x) — يعدّل المصفوفة (قائمة) في مكانها */
+    public function shuffle(array &$x): void {
+        for ($i = count($x) - 1; $i >= 1; $i--) {
+            $j = $this->randbelow($i + 1);
+            $t = $x[$i]; $x[$i] = $x[$j]; $x[$j] = $t;
+        }
+    }
+}

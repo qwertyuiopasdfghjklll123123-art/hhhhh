@@ -85,6 +85,14 @@ function req_data(): array {
     return $d;
 }
 
+/** data = freq.get_json(force=True, silent=True) or {}  ثم data.get(...): JSON غير صالح → {} ؛ وغير القاموس الفارغ → 500 */
+function req_data_force(): array {
+    $d = req_json(true, true);
+    if ($d instanceof stdClass || !py_truthy($d)) return [];
+    if (!is_array($d) || Req::$jsonKind !== '{') throw new PyTypeError("'" . py_type_name($d) . "' object has no attribute 'get'");
+    return $d;
+}
+
 /** data = freq.get_json() ثم data.get(...) مباشرة (بدون or {}): null أو غير قاموس → 500 */
 function req_data_strict(): array {
     $d = req_json();
