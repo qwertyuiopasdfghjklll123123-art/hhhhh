@@ -89,6 +89,7 @@ function app_section_allowed(array $sec, bool $isAdmin): bool {
 function app_router_script(bool $isAdmin): string {
     $secs = [];
     foreach (app_sections() as $slug => $d) {
+        if (!$isAdmin && (string)$slug !== '') continue;   // المستخدم العادي: يبقى الرابط /app دائماً (روابط الأقسام للأدمن فقط)
         $secs[] = ['s' => (string)$slug, 'el' => $d[0], 'k' => $d[1], 'a' => $d[2], 'o' => $d[3]];
     }
     $json = json_encode($secs, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_HEX_TAG | JSON_HEX_AMP);

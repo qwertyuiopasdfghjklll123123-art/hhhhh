@@ -29,6 +29,7 @@ function create_schema(PDO $pdo): int {
 function init_db(): void {
     $conn = get_db();
     create_schema($conn->pdo);
+    ensure_schema_upgrade();
     // المزود الرئيسي يعرض خدماته تلقائياً
     try { $conn->execute('UPDATE providers SET show_in_store=1 WHERE is_default=1 AND show_in_store=0'); } catch (Throwable $e) {}
     $conn->commit();
@@ -98,6 +99,7 @@ function ensure_bootstrap_admin(): void {
     static $done = false;
     if ($done) return;
     $done = true;
+    ensure_schema_upgrade();   // أعمدة/جداول الإصدارات الأحدث للقواعد المستوردة من ملف قديم (مرة واحدة)
     if (!defined('ADMIN_EMAIL') || is_file(admin_bootstrap_flag())) return;
     try {
         bootstrap_admin_from_config();

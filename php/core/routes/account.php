@@ -14,6 +14,7 @@ function _session_login(Row $user, bool $withEmail = true, ?bool $isAdmin = null
     $_SESSION['user_name'] = $user['name'];
     if ($withEmail) $_SESSION['user_email'] = $user['email'];
     $_SESSION['is_admin'] = $isAdmin ?? (bool)$user['is_admin'];
+    usess_register((int)$user['id']);   // سجّل الجهاز بقائمة «الأجهزة والجلسات»
 }
 
 const WELCOME_NOTIF_TEXT = 'تم تفعيل حسابك بنجاح. ابدأ بشحن رصيدك وطلب خدماتك الأولى!';
@@ -175,6 +176,9 @@ route('/api/reset-password', function () {
     guess_ok('reset|' . $email);
     $conn->execute('UPDATE users SET password=?, verify_token=NULL, verified=1 WHERE id=?', [hash_pw($new_pw), $user['id']]);
     $conn->commit();
+    if (user_has_2fa($user)) {   // لا دخول تلقائي لحساب محمي بـ 2FA: يسجّل الدخول بالرمز
+        return jsonify(['ok' => true, 'msg' => 'تم تغيير كلمة المرور بنجاح! سجّل الدخول الآن', 'auto_login' => false]);
+    }
     _session_login($user, false);
     return jsonify(['ok' => true, 'msg' => 'تم تغيير كلمة المرور بنجاح!', 'auto_login' => true]);
 }, ['POST']);
@@ -240,6 +244,7 @@ route('/api/login', function () {
         return jsonify(['ok' => false, 'msg' => 'يرجى تأكيد بريدك الإلكتروني أولاً'], 403);
     }
 
+    if (user_has_2fa($user)) return twofa_begin($user);     // كلمة المرور صحيحة: اطلب رمز المصادقة الثنائية قبل فتح الجلسة
     _session_login($user);
     return jsonify(['ok' => true, 'msg' => 'تم تسجيل الدخول!', 'name' => $user['name']]);
 }, ['POST']);
@@ -286,6 +291,7 @@ route('/api/google-login', function () {
                 $conn->execute('UPDATE users SET google_id=?, verified=1, avatar=? WHERE id=?', [$gid, $picture, $user['id']]);
                 $conn->commit();
             }
+            if (user_has_2fa($user)) return twofa_begin($user);
             _session_login($user);
             return jsonify(['ok' => true, 'msg' => 'تم تسجيل الدخول!', 'name' => $user['name']]);
         } else {

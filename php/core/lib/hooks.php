@@ -30,6 +30,7 @@ function run_before_request_hooks(): ?Response {
                         '/api/google-login', '/api/verify-code', '/manifest.json',
                         '/pwa-icon-192.png', '/pwa-icon-512.png', '/sw.js', '/site-logo'];
         if (!in_array($path, $skip, true) && strncmp($path, '/static', 7) !== 0) {
+            if (($sr = usess_enforce($path)) !== null) return $sr;     // جلسة أُنهيت من «الأجهزة والجلسات» ⇒ خروج
             $nowTs = microtime(true);
             $lastCheck = $_SESSION['_ban_ts'] ?? 0;
             $cachedBan = $_SESSION['_ban'] ?? 0;

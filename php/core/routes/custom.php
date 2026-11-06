@@ -100,7 +100,7 @@ route('/api/admin/custom_services/add', function () {
     }
     $sid = 'cs_' . time() . '_' . bin2hex(random_bytes(3));
     $packages = '[]'; $rate = 0; $min_q = 100; $max_q = 100000;
-    if ($stype === 'subscription') {
+    if ($stype === 'subscription' || $stype === 'game') {     // game = خدمة ألعاب: باقات (UC/جواهر...) + معرّف اللاعب
         $packages = py_json_dumps(dget($data, 'packages', []), false);
     } else {
         $rate = py_float(dget($data, 'rate', 0));
@@ -128,7 +128,7 @@ route('/api/admin/custom_services/edit', function () {
     }
     if (array_key_exists('desc', $data)) { $sets[] = 'desc_text=?'; $vals[] = sql_text($data['desc']); }
     if (array_key_exists('active', $data)) { $sets[] = 'active=?'; $vals[] = py_truthy($data['active']) ? 1 : 0; }
-    if ($svc['type'] === 'subscription' && array_key_exists('packages', $data)) {
+    if (($svc['type'] === 'subscription' || $svc['type'] === 'game') && array_key_exists('packages', $data)) {
         $sets[] = 'packages=?';
         $vals[] = py_json_dumps($data['packages'], false);
     } elseif ($svc['type'] === 'social') {
@@ -175,7 +175,13 @@ route('/api/custom_order', function () {
     $user = $conn->execute('SELECT * FROM users WHERE id=?', [$uid])->fetchone();
     $oid = 'CO-' . time() . '-' . bin2hex(random_bytes(2));
 
-    if ($svc['type'] === 'subscription') {
+    if ($svc['type'] === 'subscription' || $svc['type'] === 'game') {
+        $is_game = $svc['type'] === 'game';
+        $player = py_strip(py_str(py_or(dget($data, 'link'), '')));
+        if ($is_game && (mb_strlen($player, 'UTF-8') < 2 || mb_strlen($player, 'UTF-8') > 100)) {
+            return jsonify(['ok' => false, 'error' => 'invalid_player_id']);
+        }
+        $comments = py_slice(py_strip(py_str(py_or(dget($data, 'comments'), ''))), null, 500);
         $pkg_index = py_int(dget($data, 'package_index', 0));
         $packages = py_or($svc['packages'] ?? null, []);
         if ($pkg_index < 0 || $pkg_index >= count($packages)) {
@@ -194,18 +200,27 @@ route('/api/custom_order', function () {
                 return jsonify(['ok' => false, 'error' => 'insufficient_balance', 'balance' => $bal, 'cost' => $cost]);
             }
         }
-        $conn->execute('INSERT INTO custom_orders(id,user_id,service_id,service_name,type,package,cost,status) VALUES(?,?,?,?,?,?,?,?)',
-            [$oid, $uid, sql_str($sid), $svc['name'], 'subscription', sql_str(dget($pkg, 'name', '')), $cost, 'pending']);
-        $tk_subject = 'طلب اشتراك: ' . $svc['name'] . ' — ' . py_str(dget($pkg, 'name', ''));
-        $conn->execute('INSERT INTO tickets(user_id,subject,category,status) VALUES(?,?,?,?)', [$uid, $tk_subject, ' طلب اشتراك', 'open']);
-        $tk_id = $conn->execute('SELECT last_insert_rowid()')->fetchone()[0];
-        $sys_msg = "🎫 طلب اشتراك جديد\n\n" . py_str(dget($svc, 'icon', '')) . ' ' . $svc['name'] . "\n الباقة: " . py_str(dget($pkg, 'name', '')) . "\n السعر: $" . py_fmt($cost) . "\n⏱ المدة: " . py_str(dget($pkg, 'duration', '')) . "\n\nبانتظار الإدارة لإرسال التفاصيل...";
+        $conn->execute('INSERT INTO custom_orders(id,user_id,service_id,service_name,type,package,link,comments,cost,status) VALUES(?,?,?,?,?,?,?,?,?,?)',
+            [$oid, $uid, sql_str($sid), $svc['name'], $is_game ? 'game' : 'subscription', sql_str(dget($pkg, 'name', '')), $is_game ? $player : '', $comments, $cost, 'pending']);
+        if ($is_game) {
+            $tk_subject = 'طلب لعبة: ' . $svc['name'] . ' — ' . py_str(dget($pkg, 'name', ''));
+            $conn->execute('INSERT INTO tickets(user_id,subject,category,status) VALUES(?,?,?,?)', [$uid, $tk_subject, 'طلب لعبة', 'open']);
+            $tk_id = $conn->execute('SELECT last_insert_rowid()')->fetchone()[0];
+            $sys_msg = "🎮 طلب شحن لعبة جديد\n\n" . $svc['name'] . "\n📦 الباقة: " . py_str(dget($pkg, 'name', '')) . "\n🆔 معرّف اللاعب: " . $player . "\n💰 تم خصم: $" . py_fmt($cost)
+                . ($comments !== '' ? "\n📝 ملاحظات: $comments" : '') . "\n\nبانتظار الإدارة لتنفيذ الشحن... ستصلك الردود هنا.";
+        } else {
+            $tk_subject = 'طلب اشتراك: ' . $svc['name'] . ' — ' . py_str(dget($pkg, 'name', ''));
+            $conn->execute('INSERT INTO tickets(user_id,subject,category,status) VALUES(?,?,?,?)', [$uid, $tk_subject, ' طلب اشتراك', 'open']);
+            $tk_id = $conn->execute('SELECT last_insert_rowid()')->fetchone()[0];
+            $sys_msg = "🎫 طلب اشتراك جديد\n\n" . py_str(dget($svc, 'icon', '')) . ' ' . $svc['name'] . "\n الباقة: " . py_str(dget($pkg, 'name', '')) . "\n السعر: $" . py_fmt($cost) . "\n⏱ المدة: " . py_str(dget($pkg, 'duration', '')) . "\n\nبانتظار الإدارة لإرسال التفاصيل...";
+        }
         $conn->execute('INSERT INTO ticket_messages(ticket_id,sender,text) VALUES(?,?,?)', [$tk_id, 'system', $sys_msg]);
+        $conn->execute('UPDATE custom_orders SET ticket_id=? WHERE id=?', [$tk_id, $oid]);
         $conn->commit();
         $new_bal = $conn->execute('SELECT balance FROM users WHERE id=?', [$uid])->fetchone()['balance'];
         $nid = uuid8();
         $conn->execute('INSERT INTO notifications(id,user_id,type,title,text,icon) VALUES(?,?,?,?,?,?)',
-            [$nid, $uid, 'order', 'تم تقديم طلب اشتراك! ', $svc['name'] . ' — ' . py_str(dget($pkg, 'name', '')) . ' — $' . py_fmt($cost), 'order']);
+            [$nid, $uid, 'order', $is_game ? 'تم تقديم طلب الشحن! ' : 'تم تقديم طلب اشتراك! ', $svc['name'] . ' — ' . py_str(dget($pkg, 'name', '')) . ' — $' . py_fmt($cost), 'order']);
         $conn->commit();
         return jsonify(['ok' => true, 'order' => ['id' => $oid, 'service_name' => $svc['name'], 'package' => py_str(dget($pkg, 'name', '')), 'cost' => $cost, 'status' => 'pending'],
             'ticket_id' => $tk_id, 'balance' => py_round($new_bal, 4)]);
@@ -244,6 +259,7 @@ route('/api/custom_order', function () {
         }
         $sys_msg .= "\n\nبانتظار الإدارة لتنفيذ الطلب...";
         $conn->execute('INSERT INTO ticket_messages(ticket_id,sender,text) VALUES(?,?,?)', [$tk_id, 'system', $sys_msg]);
+        $conn->execute('UPDATE custom_orders SET ticket_id=? WHERE id=?', [$tk_id, $oid]);
         $conn->commit();
         $new_bal = $conn->execute('SELECT balance FROM users WHERE id=?', [$uid])->fetchone()['balance'];
         $nid = uuid8();
@@ -276,6 +292,10 @@ route('/api/admin/custom_orders/update', function () {
     }
     $conn->execute('UPDATE custom_orders SET status=? WHERE id=?', [sql_str($status), sql_str($oid)]);
     $co_uid = $order['user_id'];
+    if ($order->has('ticket_id') && py_truthy($order['ticket_id'])) {   // أعلِم العميل داخل محادثة الطلب نفسها
+        $lbl = ['processing' => '⚙ قيد التنفيذ', 'completed' => '✅ اكتمل الطلب', 'canceled' => '❌ أُلغي الطلب وأُعيد المبلغ إلى رصيدك', 'pending' => '⏳ بانتظار التنفيذ'];
+        if (isset($lbl[$status])) $conn->execute('INSERT INTO ticket_messages(ticket_id,sender,text) VALUES(?,?,?)', [$order['ticket_id'], 'system', 'الحالة: ' . $lbl[$status]]);
+    }
     if ($status === 'canceled' && py_float($order['cost']) > 0 && !py_truthy($order['refunded'])) {
         $conn->execute('UPDATE users SET balance=balance+? WHERE id=?', [py_float($order['cost']), $co_uid]);
         $conn->execute('UPDATE custom_orders SET refunded=1 WHERE id=?', [sql_str($oid)]);
@@ -291,3 +311,16 @@ route('/api/admin/custom_orders/update', function () {
     $conn->commit();
     return jsonify(['ok' => true]);
 }, ['POST']);
+
+
+/* طلباتي المخصّصة (ألعاب/اشتراكات/خدمات مخصّصة) لصفحة «طلباتي» — مع رقم التذكرة (المحادثة مع الإدارة) وآخر مرسل فيها */
+route('/api/my_custom_orders', function () {
+    if (!array_key_exists('user_id', $_SESSION)) return jsonify(['ok' => false, 'error' => 'unauthorized'], 401);
+    $conn = get_db();
+    $rows = $conn->execute('SELECT co.id, co.service_id, co.service_name, co.type, co.package, co.link, co.quantity, co.cost, co.status, co.created_at, co.ticket_id,
+            t.status AS ticket_status,
+            (SELECT tm.sender FROM ticket_messages tm WHERE tm.ticket_id=co.ticket_id ORDER BY tm.id DESC LIMIT 1) AS last_sender
+        FROM custom_orders co LEFT JOIN tickets t ON t.id=co.ticket_id
+        WHERE co.user_id=? ORDER BY co.created_at DESC, co.__fc_seq DESC LIMIT 200', [$_SESSION['user_id']])->fetchall();
+    return jsonify(['ok' => true, 'orders' => rows_dicts($rows)]);
+});

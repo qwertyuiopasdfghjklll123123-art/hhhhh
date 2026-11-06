@@ -16,7 +16,7 @@
 SET NAMES utf8mb4;
 
 -- ----------------------------------------------------------------------------
--- الجداول (25 جدولاً — مطابقة لمخطط app.py الأصلي مع أعمدة داخلية __fc_* لثبات ترتيب الصفوف)
+-- الجداول (26 جدولاً — مطابقة لمخطط app.py الأصلي مع أعمدة داخلية __fc_* لثبات ترتيب الصفوف)
 -- ----------------------------------------------------------------------------
 
 CREATE TABLE IF NOT EXISTS `users` (
@@ -39,6 +39,9 @@ CREATE TABLE IF NOT EXISTS `users` (
   `telegram_chat_id` VARCHAR(64) DEFAULT '',
   `api_key` VARCHAR(255) DEFAULT '',
   `public_id` VARCHAR(64) DEFAULT '',
+  `totp_secret` VARCHAR(64) NULL,
+  `totp_enabled` INT NOT NULL DEFAULT 0,
+  `totp_recovery` LONGTEXT NULL,
   PRIMARY KEY (`id`),
   UNIQUE KEY `uq_users_email` (`email`),
   KEY `idx_users_api_key` (`api_key`),
@@ -252,10 +255,27 @@ CREATE TABLE IF NOT EXISTS `custom_orders` (
   `status` VARCHAR(32) DEFAULT 'pending',
   `refunded` INT DEFAULT 0,
   `created_at` DOUBLE DEFAULT (UNIX_TIMESTAMP()),
+  `ticket_id` INT NULL,
   `__fc_seq` BIGINT NOT NULL AUTO_INCREMENT,
   PRIMARY KEY (`id`),
   KEY `idx_co_user` (`user_id`),
   UNIQUE KEY `uq_fc_seq` (`__fc_seq`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin;
+
+-- جلسات الأجهزة (تسجيل الدخول): تُعرض في «حسابي ← الأجهزة والجلسات» وتُنهى فردياً. ليست جزءاً من النسخ الاحتياطي.
+CREATE TABLE IF NOT EXISTS `user_sessions` (
+  `id` INT NOT NULL AUTO_INCREMENT,
+  `user_id` INT NOT NULL,
+  `sid` VARCHAR(64) NOT NULL,
+  `ip` VARCHAR(64) DEFAULT '',
+  `ua` VARCHAR(255) DEFAULT '',
+  `device` VARCHAR(120) DEFAULT '',
+  `created_at` DOUBLE DEFAULT 0,
+  `last_seen` DOUBLE DEFAULT 0,
+  `revoked` INT NOT NULL DEFAULT 0,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uq_us_sid` (`sid`),
+  KEY `idx_us_user` (`user_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin;
 
 CREATE TABLE IF NOT EXISTS `favorites` (

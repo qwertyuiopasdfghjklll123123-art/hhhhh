@@ -119,7 +119,8 @@ route('/app', 'render_dash_page');
 route('/app/<path:section>', function ($section) {
     if (!array_key_exists('user_id', $_SESSION)) return redirect('/');
     $sec = app_section($section);
-    if ($sec === null || !app_section_allowed($sec, (bool)py_truthy($_SESSION['is_admin'] ?? false))) return redirect('/app');
+    if (!py_truthy($_SESSION['is_admin'] ?? false)) return redirect('/app');   // روابط الأقسام للأدمن فقط؛ المستخدم يرى /app فقط
+    if ($sec === null || !app_section_allowed($sec, true)) return redirect('/app');
     return render_dash_page();
 });
 
