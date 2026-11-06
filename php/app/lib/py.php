@@ -272,3 +272,25 @@ function py_b64decode($s): string {
     if ($r === false) throw new PyValueError('Invalid base64-encoded string');
     return $r;
 }
+
+/** تحويل SQLite لعدد عشري إلى نص عند تخزينه بعمود TEXT: صيغة %!.15g (15 رقماً معنوياً + فاصلة عشرية دائماً) */
+function py_sqlite_float_text(float $f): string {
+    if (is_nan($f)) return '';
+    if (is_infinite($f)) return $f > 0 ? 'Inf' : '-Inf';
+    if ($f == 0.0) return '0.0';
+    $e = sprintf('%.14e', abs($f));
+    [$mant, $exp] = explode('e', $e);
+    $exp = (int)$exp;
+    $digits = rtrim(str_replace('.', '', $mant), '0');
+    if ($digits === '') $digits = '0';
+    $neg = $f < 0 ? '-' : '';
+    if ($exp < -4 || $exp >= 15) {
+        return $neg . $digits[0] . '.' . (strlen($digits) > 1 ? substr($digits, 1) : '0') . 'e' . ($exp < 0 ? '-' : '+') . str_pad((string)abs($exp), 2, '0', STR_PAD_LEFT);
+    }
+    if ($exp >= 0) {
+        $int = str_pad(substr($digits, 0, $exp + 1), $exp + 1, '0');
+        $frac = strlen($digits) > $exp + 1 ? substr($digits, $exp + 1) : '';
+        return $neg . $int . '.' . ($frac === '' ? '0' : $frac);
+    }
+    return $neg . '0.' . str_repeat('0', -$exp - 1) . $digits;
+}

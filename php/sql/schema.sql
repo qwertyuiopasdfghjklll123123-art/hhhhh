@@ -162,8 +162,10 @@ CREATE TABLE IF NOT EXISTS `notifications` (
   `is_read` INT DEFAULT 0,
   `created_at` DOUBLE DEFAULT (UNIX_TIMESTAMP()),
   `goto` VARCHAR(512) DEFAULT '',
+  `__fc_seq` BIGINT NOT NULL AUTO_INCREMENT,
   PRIMARY KEY (`id`),
-  KEY `idx_notif_user` (`user_id`, `created_at`)
+  KEY `idx_notif_user` (`user_id`, `created_at`),
+  UNIQUE KEY `uq_fc_seq` (`__fc_seq`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin;
 
 CREATE TABLE IF NOT EXISTS `referrals` (
@@ -195,7 +197,9 @@ CREATE TABLE IF NOT EXISTS `announcements` (
   `text` LONGTEXT DEFAULT (''),
   `type` VARCHAR(32) DEFAULT 'info',
   `created_at` DOUBLE DEFAULT (UNIX_TIMESTAMP()),
-  PRIMARY KEY (`id`)
+  `__fc_seq` BIGINT NOT NULL AUTO_INCREMENT,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uq_fc_seq` (`__fc_seq`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin;
 
 CREATE TABLE IF NOT EXISTS `custom_services` (
@@ -212,7 +216,9 @@ CREATE TABLE IF NOT EXISTS `custom_services` (
   `packages` LONGTEXT DEFAULT ('[]'),
   `active` INT DEFAULT 1,
   `created_at` DOUBLE DEFAULT (UNIX_TIMESTAMP()),
-  PRIMARY KEY (`id`)
+  `__fc_seq` BIGINT NOT NULL AUTO_INCREMENT,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uq_fc_seq` (`__fc_seq`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin;
 
 CREATE TABLE IF NOT EXISTS `custom_orders` (
@@ -229,8 +235,10 @@ CREATE TABLE IF NOT EXISTS `custom_orders` (
   `status` VARCHAR(32) DEFAULT 'pending',
   `refunded` INT DEFAULT 0,
   `created_at` DOUBLE DEFAULT (UNIX_TIMESTAMP()),
+  `__fc_seq` BIGINT NOT NULL AUTO_INCREMENT,
   PRIMARY KEY (`id`),
-  KEY `idx_co_user` (`user_id`)
+  KEY `idx_co_user` (`user_id`),
+  UNIQUE KEY `uq_fc_seq` (`__fc_seq`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin;
 
 CREATE TABLE IF NOT EXISTS `favorites` (
@@ -278,8 +286,10 @@ CREATE TABLE IF NOT EXISTS `coupons` (
   `expires_at` VARCHAR(64) DEFAULT '',
   `active` INT DEFAULT 1,
   `created_at` DOUBLE DEFAULT (UNIX_TIMESTAMP()),
+  `__fc_seq` BIGINT NOT NULL AUTO_INCREMENT,
   PRIMARY KEY (`id`),
-  UNIQUE KEY `uq_coupons_code` (`code`)
+  UNIQUE KEY `uq_coupons_code` (`code`),
+  UNIQUE KEY `uq_fc_seq` (`__fc_seq`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin;
 
 CREATE TABLE IF NOT EXISTS `coupon_uses` (

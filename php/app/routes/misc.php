@@ -39,7 +39,7 @@ route('/api/recharge/history', function () {
     if (!array_key_exists('user_id', $_SESSION)) return jsonify(['ok' => false, 'error' => 'unauthorized'], 401);
     $uid = $_SESSION['user_id'];
     $conn = get_db();
-    $rows = $conn->execute('SELECT * FROM recharge_requests WHERE user_id=? ORDER BY created_at DESC LIMIT 50', [$uid])->fetchall();
+    $rows = $conn->execute('SELECT * FROM recharge_requests WHERE user_id=? ORDER BY created_at DESC, id ASC LIMIT 50', [$uid])->fetchall();
     $result = [];
     foreach ($rows as $r) {
         $receipt_val = py_or($r['receipt'], '');
@@ -88,7 +88,7 @@ route('/api/referral', function () {
     $uid = $_SESSION['user_id'];
     $ref = _get_or_create_referral($uid);
     $conn = get_db();
-    $history = $conn->execute('SELECT * FROM referral_history WHERE referrer_id=? ORDER BY created_at DESC LIMIT 10', [$uid])->fetchall();
+    $history = $conn->execute('SELECT * FROM referral_history WHERE referrer_id=? ORDER BY created_at DESC, id ASC LIMIT 10', [$uid])->fetchall();
     $hist = [];
     foreach ($history as $h) {
         $hist[] = ['amount' => py_round($h['amount'], 4), 'from_order' => $h['from_order'],
@@ -168,7 +168,7 @@ route('/api/admin/profits', function () {
 
 route('/api/announcements', function () {
     $conn = get_db();
-    $rows = $conn->execute('SELECT * FROM announcements ORDER BY created_at DESC')->fetchall();
+    $rows = $conn->execute('SELECT * FROM announcements ORDER BY created_at DESC, __fc_seq ASC')->fetchall();
     $anns = [];
     foreach ($rows as $r) {
         $anns[] = ['id' => $r['id'], 'text' => $r['text'], 'type' => $r['type'],
@@ -218,7 +218,7 @@ route('/api/notifications', function () {
     if (!array_key_exists('user_id', $_SESSION)) return jsonify(['ok' => false], 401);
     $uid = $_SESSION['user_id'];
     $conn = get_db();
-    $rows = $conn->execute('SELECT * FROM notifications WHERE user_id=? ORDER BY created_at DESC LIMIT 30', [$uid])->fetchall();
+    $rows = $conn->execute('SELECT * FROM notifications WHERE user_id=? ORDER BY created_at DESC, __fc_seq ASC LIMIT 30', [$uid])->fetchall();
     $unread = $conn->execute('SELECT COUNT(*) FROM notifications WHERE user_id=? AND is_read=0', [$uid])->fetchone()[0];
     $notifs = [];
     foreach ($rows as $r) {

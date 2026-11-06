@@ -12,7 +12,7 @@ function push_user_notif($user_id, $ntype, $title, $text, $icon = 'bell', $goto 
         $conn->commit();
         // الاحتفاظ بآخر 50 إشعاراً فقط لكل مستخدم (LIMIT -1 OFFSET 50 بصيغة MySQL)
         $conn->execute('DELETE FROM notifications WHERE id IN (
-            SELECT id FROM (SELECT id FROM notifications WHERE user_id=? ORDER BY created_at DESC LIMIT 18446744073709551615 OFFSET 50) AS _old
+            SELECT id FROM (SELECT id FROM notifications WHERE user_id=? ORDER BY created_at DESC, __fc_seq ASC LIMIT 18446744073709551615 OFFSET 50) AS _old
         )', [$user_id]);
         $conn->commit();
     } catch (Throwable $e) {

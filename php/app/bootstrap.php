@@ -53,7 +53,7 @@ foreach (['', '/logs', '/cache', '/fc_voices', '/fc_ticket_images', '/fc_avatars
     if (!is_dir(DATA_DIR . $d)) @mkdir(DATA_DIR . $d, 0775, true);
 }
 
-foreach (['py', 'error_handler', 'db', 'session', 'response', 'router', 'http', 'core', 'schema', 'hooks', 'mail', 'webpush', 'notify'] as $lib) {
+foreach (['py', 'error_handler', 'db', 'session', 'response', 'router', 'http', 'core', 'schema', 'hooks', 'mail', 'webpush', 'notify', 'payments'] as $lib) {
     require_once APP_DIR . "/lib/$lib.php";
 }
 install_error_handlers();

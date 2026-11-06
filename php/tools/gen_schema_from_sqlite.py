@@ -147,6 +147,12 @@ EXTRA_INDEXES = {
 EXTRA_COLUMNS = {
     'recharge_requests': ["`__fc_ext_uq` VARCHAR(255) GENERATED ALWAYS AS (NULLIF(`ext_ref`, '')) STORED"],
 }
+# جداول مفتاحها النصي: SQLite يحتفظ بترتيب الإدخال (rowid) عند تساوي قيم الفرز، فنضيف عموداً مخفياً
+# (يبدأ بـ __fc_ فيُخفى من الصفوف) لنستعمله كمعيار ثانوي ASC بالاستعلامات: ORDER BY created_at DESC, __fc_seq ASC
+SEQ_TABLES = ['notifications', 'announcements', 'custom_services', 'custom_orders', 'coupons']
+for _t in SEQ_TABLES:
+    EXTRA_COLUMNS.setdefault(_t, []).append('`__fc_seq` BIGINT NOT NULL AUTO_INCREMENT')
+    EXTRA_INDEXES.setdefault(_t, []).append('UNIQUE KEY `uq_fc_seq` (`__fc_seq`)')
 # ترتيب الإنشاء = ترتيب ظهور الجداول في init_db الأصلي
 ORDER = ['users', 'pending_email_changes', 'orders', 'payment_methods', 'tickets', 'ticket_messages',
          'recharge_requests', 'asiacell_flows', 'ai_conversations', 'ai_messages', 'notifications', 'referrals',

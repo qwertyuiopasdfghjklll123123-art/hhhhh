@@ -185,3 +185,11 @@ function run_deferred(): void {
         Conn::shutdown();
     }
 }
+
+/** _admin_check  (app.py:6299): يتحقق من صلاحية الأدمن من قاعدة البيانات */
+function _admin_check(): bool {
+    if (!array_key_exists('user_id', $_SESSION)) return false;
+    $conn = get_db();
+    $u = $conn->execute('SELECT is_admin FROM users WHERE id=?', [$_SESSION['user_id']])->fetchone();
+    return (bool)($u && py_truthy($u['is_admin']));
+}
