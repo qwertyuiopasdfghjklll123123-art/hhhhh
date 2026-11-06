@@ -73,19 +73,23 @@ function fc_session_load(): void {
     }
     $data = json_decode($json, true);
     if (!is_array($data)) return;
-    $_SESSION = $data;
     $GLOBALS['__session_had_cookie'] = true;
     $GLOBALS['__session_orig'] = json_encode($data);
+    // "تسجيل خروج كل الجلسات": جلسة مسجَّلة الدخول بلا رقم الحقبة الحالي تُهمَل (انظر security.php)
+    if (array_key_exists('user_id', $data) && (int)($data['_ep'] ?? 0) !== session_epoch()) { $_SESSION = []; return; }
+    $_SESSION = $data;
 }
 
 /** ترويسة Set-Cookie المناسبة للاستجابة (أو null) — مثل save_session بفلاسك */
 function fc_session_cookie_header(): ?string {
+    if (array_key_exists('user_id', $_SESSION) && !array_key_exists('_ep', $_SESSION)) $_SESSION['_ep'] = session_epoch();
     $now = json_encode($_SESSION, JSON_PRESERVE_ZERO_FRACTION);
+    $secure = req_scheme() === 'https' ? '; Secure' : '';
     $changed = $now !== ($GLOBALS['__session_orig'] ?? '[]');
     if (empty($_SESSION)) {
         if ($changed || ($GLOBALS['__session_had_cookie'] ?? false)) {
             // الجلسة فُرِّغت: احذف الكوكي (مثل Flask: delete_cookie عند session.clear())
-            return FC_SESSION_COOKIE . '=; Expires=Thu, 01 Jan 1970 00:00:00 GMT; Max-Age=0; Path=/; HttpOnly; SameSite=Lax';
+            return FC_SESSION_COOKIE . '=; Expires=Thu, 01 Jan 1970 00:00:00 GMT; Max-Age=0; Path=/; HttpOnly; SameSite=Lax' . $secure;
         }
         return null;
     }
@@ -95,5 +99,5 @@ function fc_session_cookie_header(): ?string {
     $val = $payload . '.' . $ts . '.' . fc_session_signature($payload . '.' . $ts);
     // جلسة دائمة (permanent): نجدّد الصلاحية مع كل استجابة كما يفعل Flask
     return FC_SESSION_COOKIE . '=' . $val . '; Expires=' . gmdate('D, d M Y H:i:s', time() + FC_SESSION_LIFETIME)
-        . ' GMT; Max-Age=' . FC_SESSION_LIFETIME . '; Path=/; HttpOnly; SameSite=Lax';
+        . ' GMT; Max-Age=' . FC_SESSION_LIFETIME . '; Path=/; HttpOnly; SameSite=Lax' . $secure;
 }

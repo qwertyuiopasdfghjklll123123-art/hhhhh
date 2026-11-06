@@ -34,7 +34,7 @@ function req_header(string $name, string $default = ''): string {
     return $default;
 }
 
-function req_remote_addr(): string { return (string)($_SERVER['REMOTE_ADDR'] ?? ''); }
+function req_remote_addr(): string { return function_exists('client_ip') ? client_ip() : (string)($_SERVER['REMOTE_ADDR'] ?? ''); }
 
 function req_scheme(): string {
     if (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') return 'https';
@@ -173,7 +173,20 @@ function dispatch(): void {
         $resp = http_error_page(500);
     }
     Conn::shutdown();
+    audit_admin_request($method, $path, $resp);
     emit_response($resp);
     finish_request();
     run_deferred();
+}
+
+/** سجل تدقيق: عمليات /api/admin المغيِّرة (بلا أجسام الطلبات) — يتخطى نقاط POST التي هي قراءة فقط */
+function audit_admin_request(string $method, string $path, Response $resp): void {
+    if (!admin_path($path) || in_array($method, ['GET', 'HEAD', 'OPTIONS'], true)) return;
+    if (preg_match('#^/api/admin/(tickets|tickets/chat|referral|custom_orders|custom_services|order_lookup|profits|providers/services|providers/test|smtp-test|ai/test-connection)$#', $path)) return;
+    $ctx = ['m' => $method, 'path' => $path, 'status' => $resp->status];
+    if (preg_match('#^/api/admin/users/\d+/balance$#', $path)) {            // عملية مالية: سجّل المبلغ
+        $j = json_decode(Req::body(), true);
+        if (is_array($j) && isset($j['amount']) && is_numeric($j['amount'])) $ctx['amount'] = $j['amount'];
+    }
+    try { audit_log('admin_api', $ctx); } catch (Throwable $e) {}
 }

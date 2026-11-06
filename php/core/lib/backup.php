@@ -45,6 +45,9 @@ function sql_dump_to_file(string $path): int {
         fwrite($fp, '-- fastcrand SQL backup — ' . date('Y-m-d H:i:s') . "\n");
         fwrite($fp, "SET NAMES utf8mb4;\nSET FOREIGN_KEY_CHECKS=0;\nSET SQL_MODE='NO_AUTO_VALUE_ON_ZERO,NO_ENGINE_SUBSTITUTION';\n\n");
         $tables = $pdo->query("SELECT table_name FROM information_schema.tables WHERE table_schema = DATABASE() AND table_type = 'BASE TABLE' ORDER BY table_name")->fetchAll(PDO::FETCH_COLUMN);
+        // جداول الموقع فقط (كما كانت النسخة تحوي ملف SQLite الخاص بالموقع): قاعدة مشتركة مع تطبيقات أخرى لا يجوز أن تتسرّب بياناتها
+        // إلى نسخ تلغرام/التصدير، ولا جداول __imp_/__old_ المؤقتة المتبقية من استيراد فشل.
+        $tables = array_values(array_filter($tables, fn($t) => in_array(strtolower((string)$t), TRANSFER_TABLES, true)));
         foreach ($tables as $t) {
             $row = $pdo->query('SHOW CREATE TABLE `' . str_replace('`', '``', $t) . '`')->fetch(PDO::FETCH_NUM);
             fwrite($fp, 'DROP TABLE IF EXISTS `' . $t . "`;\n" . $row[1] . ";\n\n");
@@ -234,8 +237,15 @@ function _create_telegram_backup(): bool {
             . '📦 حجم الـ ZIP: <b>' . py_str(py_round($zip_size / 1024, 1)) . " KB</b>\n━━━━━━━━━━━━━━━━━━━━\n"
             . '✅ لاسترجاع: نزّل الملف → فك الضغط → ارفع الملفات للسيرفر';
         $url = "https://api.telegram.org/bot{$bot_token}/sendDocument";
-        requests_post($url, ['data' => ['chat_id' => $chat_id, 'caption' => $report, 'parse_mode' => 'HTML'],
-                             'files' => ['document' => [$zip_name, $zip_path]], 'timeout' => 15]);
+        $tg_resp = requests_post($url, ['data' => ['chat_id' => $chat_id, 'caption' => $report, 'parse_mode' => 'HTML'],
+                                        'files' => ['document' => [$zip_name, $zip_path]], 'timeout' => 15]);
+        try {   // نتذكّر file_id كي يستطيع الأدمن جلب النسخة من تلغرام عبر البوت بقسم الاستيراد (انظر transfer.php)
+            $tg_j = $tg_resp->json();
+            $tg_doc = is_array($tg_j) ? ($tg_j['result']['document'] ?? null) : null;
+            if (is_array($tg_j) && !empty($tg_j['ok']) && is_array($tg_doc) && !empty($tg_doc['file_id'])) {
+                tg_backup_remember(['file_id' => (string)$tg_doc['file_id'], 'name' => $zip_name, 'size' => $zip_size, 'time' => time()]);
+            }
+        } catch (Throwable $e) {}
         _backup_log('Telegram Backup: sent ' . $zip_name . ' (' . py_str(py_round($zip_size / 1024, 1)) . ' KB)');
         @unlink($zip_path);
         return true;
@@ -263,4 +273,35 @@ function send_backup_telegram($backup_name = null): bool {
 function send_backup_telegram_blocking($backup_name = null): bool {
     try { return _create_telegram_backup(); }
     catch (Throwable $e) { return false; }
+}
+
+
+/* ------------------------------ سجل نسخ تلغرام المرسلة (لجلبها من البوت لاحقاً) ------------------------------ */
+
+function tg_backup_file(): string { return DATA_DIR . '/cache/tg_backups.json'; }
+
+/** آخر النسخ المرسلة لتلغرام (الأحدث أولاً): [file_id, name, size, time] */
+function tg_backup_list(): array {
+    $d = json_decode((string)@file_get_contents(tg_backup_file()), true);
+    if (!is_array($d)) return [];
+    $out = [];
+    foreach ($d as $x) {
+        if (is_array($x) && !empty($x['file_id']) && is_string($x['file_id'])) {
+            $out[] = ['file_id' => $x['file_id'], 'name' => (string)($x['name'] ?? ''), 'size' => (int)($x['size'] ?? 0), 'time' => (int)($x['time'] ?? 0)];
+        }
+    }
+    return $out;
+}
+function tg_backup_remember(array $entry): void {
+    $f = tg_backup_file();
+    $fp = @fopen($f, 'c+');
+    if (!$fp) return;
+    flock($fp, LOCK_EX);
+    $cur = json_decode((string)stream_get_contents($fp), true);
+    $cur = is_array($cur) ? $cur : [];
+    array_unshift($cur, $entry);
+    $cur = array_slice($cur, 0, 20);
+    ftruncate($fp, 0); rewind($fp);
+    fwrite($fp, json_encode($cur, JSON_UNESCAPED_UNICODE));
+    fflush($fp); flock($fp, LOCK_UN); fclose($fp);
 }

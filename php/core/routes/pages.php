@@ -52,8 +52,8 @@ route('/api/banned-contact', function () {
     return jsonify(['ok' => true, 'msg' => 'تم إرسال رسالتك بنجاح']);
 }, ['POST']);
 
-/* '/app'  (app.py:8080) */
-route('/app', function () {
+/* '/app'  (app.py:8080) — الجذر + روابط الأقسام /app/<slug> تعرض نفس الصفحة (انظر lib/app_routes.php) */
+function render_dash_page(): Response {
     if (!array_key_exists('user_id', $_SESSION)) return redirect('/');
     $conn = get_db();
     $_bu = $conn->execute('SELECT banned,name,email FROM users WHERE id=?', [$_SESSION['user_id']])->fetchone();
@@ -97,6 +97,7 @@ route('/app', function () {
     $html = str_replace('__BRAND_COLOR_BG__', $_brand_bg, $html);
     $html = str_replace('__PWA_ICON_VER__', get_setting('pwa_icon_version', '2'), $html);
     $html = str_replace('__AI_ICON__', get_ai_icon_data_uri(), $html);
+    $html = str_replace('__FC_ROUTER__', app_router_script((bool)py_truthy($is_admin)), $html);
     if (py_truthy($is_admin)) {
         $html = str_replace('__ADMIN_DISPLAY__', '', $html);
         $html = str_replace('__NONADMIN_DISPLAY__', 'display:none !important;', $html);
@@ -111,6 +112,15 @@ route('/app', function () {
     $resp->headers['Pragma'] = 'no-cache';
     $resp->headers['Expires'] = '0';
     return $resp;
+}
+route('/app', 'render_dash_page');
+
+/** /app/<قسم>: كل قسم من لوحة الإدارة/المستخدم له رابطه. رابط غير معروف أو غير مسموح لهذا الحساب ⇒ /app */
+route('/app/<path:section>', function ($section) {
+    if (!array_key_exists('user_id', $_SESSION)) return redirect('/');
+    $sec = app_section($section);
+    if ($sec === null || !app_section_allowed($sec, (bool)py_truthy($_SESSION['is_admin'] ?? false))) return redirect('/app');
+    return render_dash_page();
 });
 
 /* '/order/<platform>'  (app.py:17299) */

@@ -8,6 +8,21 @@
 function run_before_request_hooks(): ?Response {
     $path = req_path();
 
+    // ---- حماية (security.php): صيانة أثناء الاستيراد، CSRF، قائمة IP للأدمن ----
+    if (maintenance_active() && strncmp($path, '/api/admin/transfer/', 20) !== 0) {
+        $r = strncmp($path, '/api/', 5) === 0
+            ? jsonify(['ok' => false, 'msg' => 'الموقع قيد الصيانة لدقائق (استيراد بيانات). حاول بعد قليل'], 503)
+            : new Response('<!doctype html><html lang="ar" dir="rtl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="refresh" content="20"><title>صيانة</title></head><body style="font-family:Tahoma,Arial,sans-serif;background:#0f1220;color:#e8eaf6;text-align:center;padding:60px 20px"><h2>الموقع قيد الصيانة لدقائق</h2><p>نقوم بتحديث البيانات، تعود الخدمة قريباً.</p></body></html>', 503);
+        $r->headers['Retry-After'] = '30';
+        $r->headers['Cache-Control'] = 'no-store';
+        return $r;
+    }
+    if (($csrf = origin_check()) !== null) return $csrf;
+    if (admin_path($path) && !admin_ip_allowed()) {
+        audit_log('admin_ip_denied', ['path' => $path]);
+        return jsonify(['ok' => false, 'msg' => 'غير مسموح من هذا العنوان'], 403);
+    }
+
     // ---- _make_session_permanent ----
     $_SESSION['_permanent'] = true;      // session.permanent = True
     if (array_key_exists('user_id', $_SESSION)) {
@@ -28,7 +43,7 @@ function run_before_request_hooks(): ?Response {
                 } catch (Throwable $e) {}
             }
             if (py_truthy($cachedBan)) {
-                if ($path === '/app') {
+                if ($path === '/app' || strncmp($path, '/app/', 5) === 0) {
                     // مسموح: صفحة التطبيق تعرض شاشة الحظر
                 } elseif (strncmp($path, '/api/', 5) === 0) {
                     return jsonify(['ok' => false, 'msg' => 'حسابك محظور'], 403);

@@ -1884,10 +1884,27 @@ html:not([data-theme="dark"]) .rv-star-btn{color:rgba(0,0,0,.1)}
 .qty-compact{padding:9px 10px}
 .qty-compact .qc-v b{font-size:14px}
 }
+.trf-opt{display:flex;align-items:flex-start;gap:10px;padding:10px 12px;border-radius:10px;border:1px solid var(--card-border);background:var(--input-bg);margin-bottom:6px;cursor:pointer;font-size:12px}
+.trf-opt input{margin-top:3px;accent-color:var(--primary)}
+.trf-opt span{display:flex;flex-direction:column;gap:2px;flex:1}.trf-opt small{font-size:10px;color:var(--text3);font-weight:400}
+.trf-drop{display:flex;flex-direction:column;align-items:center;gap:6px;padding:22px 12px;border-radius:12px;border:2px dashed var(--input-border);background:var(--input-bg);color:var(--text2);font-size:12px;cursor:pointer;text-align:center}
+.trf-drop i{font-size:24px;color:var(--primary)}.trf-drop small{font-size:10px;color:var(--text3)}
+.trf-drop.on{border-color:var(--primary);background:var(--primary-bg)}
+.trf-comp{padding:10px 12px;border-radius:10px;background:var(--input-bg);border:1px solid var(--card-border);margin-bottom:6px;font-size:11px}
+.trf-comp b{font-size:12px}.trf-tags{display:flex;flex-wrap:wrap;gap:4px;margin-top:6px}
+.trf-tag{padding:2px 8px;border-radius:6px;background:rgba(99,102,241,.08);color:var(--primary);font-size:10px;font-family:var(--font-num)}
+.trf-warn{padding:8px 10px;border-radius:8px;background:rgba(245,158,11,.08);color:#b45309;font-size:10px;margin-top:6px;line-height:1.7}
+.trf-ok{padding:10px 12px;border-radius:10px;background:rgba(16,185,129,.08);color:var(--green);font-size:11px;line-height:1.8}
+.trf-bad{padding:10px 12px;border-radius:10px;background:rgba(239,68,68,.08);color:var(--red);font-size:11px;line-height:1.8}
+.sec-row{display:flex;gap:10px;align-items:flex-start;padding:11px 12px;border-radius:10px;background:var(--card);border:1px solid var(--card-border);margin-bottom:6px}
+.sec-row .si{width:28px;height:28px;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:12px;flex-shrink:0}
+.sec-row .si.ok{background:rgba(16,185,129,.1);color:var(--green)}.sec-row .si.warn{background:rgba(245,158,11,.12);color:#d97706}.sec-row .si.bad{background:rgba(239,68,68,.1);color:var(--red)}.sec-row .si.info{background:rgba(99,102,241,.1);color:var(--primary)}
+.sec-row .st{font-size:12px;font-weight:800}.sec-row .sd{font-size:10px;color:var(--text3);margin-top:2px;line-height:1.7}
+.aud-row{display:grid;grid-template-columns:96px 1fr;gap:2px 8px;padding:7px 4px;border-bottom:1px solid var(--card-border);font-size:10px}
+.aud-row .at{color:var(--text3);font-family:var(--font-num);direction:ltr;text-align:left}.aud-row .ae{font-weight:700;word-break:break-all}.aud-row .ai{grid-column:1/-1;color:var(--text3);font-family:var(--font-num);direction:ltr;text-align:left}
 </style>
 </head>
 <body>
-<script>(function(){history.replaceState({p:1},'','/app');history.pushState({p:2},'','/app');window.addEventListener('popstate',function(e){history.pushState({p:2},'','/app')});document.addEventListener('visibilitychange',function(){if(!document.hidden)history.pushState({p:2},'','/app')})})()</script>
 <div class="topbar">
   <div class="brand-wrap">
     <button class="mob-menu-btn admin-only" id="mobMenuBtn" onclick="toggleMobDrawer()"><i class="fa-solid fa-bars" id="mobMenuIcon"></i></button>
@@ -1928,6 +1945,8 @@ html:not([data-theme="dark"]) .rv-star-btn{color:rgba(0,0,0,.1)}
     <div class="md-item admin-only" onclick="toggleMobDrawer();document.getElementById('adminOrderLookupPage').classList.add('show')"><i class="fa-solid fa-magnifying-glass"></i> بحث عن طلب</div>
     <div class="md-item admin-only" onclick="toggleMobDrawer();document.getElementById('adminRefillPage').classList.add('show');if(typeof loadAdminRefill==='function')loadAdminRefill()"><i class="fa-solid fa-recycle"></i> التعويض التلقائي</div>
     <div class="md-item admin-only" onclick="toggleMobDrawer();document.getElementById('masterKeyPage').classList.add('show');if(typeof loadMasterKey==='function')loadMasterKey()"><i class="fa-solid fa-key"></i> المفتاح الرئيسي</div>
+    <div class="md-item admin-only" onclick="toggleMobDrawer();openAdmOV('transferPage');loadTransferPage()"><i class="fa-solid fa-right-left"></i> استيراد وتصدير</div>
+    <div class="md-item admin-only" onclick="toggleMobDrawer();openAdmOV('securityPage');loadSecurityPage()"><i class="fa-solid fa-shield-halved"></i> مركز الأمان</div>
     <div class="md-item" onclick="toggleMobDrawer();document.getElementById('apiPage').classList.add('show');document.getElementById('apiUrlDisplay').textContent=location.origin+'/api/v2';fetch('/api/get-key').then(function(r){return r.json()}).then(function(d){document.getElementById('apiKeyDisplay').textContent=d.key||'لم يتم توليد مفتاح بعد'})"><i class="fa-solid fa-plug"></i> API للريسيلر</div>
     <a class="md-item" href="#" onclick="event.preventDefault();openLogoutSheet()" style="color:var(--red);margin-top:8px"><i class="fa-solid fa-right-from-bracket"></i> تسجيل خروج</a>
   </div>
@@ -2225,6 +2244,16 @@ html:not([data-theme="dark"]) .rv-star-btn{color:rgba(0,0,0,.1)}
         <div class="mi-info"><div class="mi-title">المفتاح الرئيسي</div><div class="mi-desc">مفتاح وصول خارجي للتحكم عن بعد</div></div>
         <span class="arr"><i class="fa-solid fa-chevron-left"></i></span>
       </a>
+      <a class="acc-item" href="#" onclick="event.preventDefault();openAdmOV('transferPage');loadTransferPage()">
+        <div class="mi-ic" style="background:rgba(16,185,129,.1);color:#10b981"><i class="fa-solid fa-right-left"></i></div>
+        <div class="mi-info"><div class="mi-title">استيراد وتصدير</div><div class="mi-desc">نسخ تلغرام، قاعدة البيانات، ملفات JSON</div></div>
+        <span class="arr"><i class="fa-solid fa-chevron-left"></i></span>
+      </a>
+      <a class="acc-item" href="#" onclick="event.preventDefault();openAdmOV('securityPage');loadSecurityPage()">
+        <div class="mi-ic" style="background:rgba(99,102,241,.1);color:#6366f1"><i class="fa-solid fa-shield-halved"></i></div>
+        <div class="mi-info"><div class="mi-title">مركز الأمان</div><div class="mi-desc">حالة الحماية، سجل النشاط، إلغاء الجلسات</div></div>
+        <span class="arr"><i class="fa-solid fa-chevron-left"></i></span>
+      </a>
     </div>
 
     <div class="sec-sep nonadmin-only">الحساب</div>
@@ -2439,6 +2468,8 @@ html:not([data-theme="dark"]) .rv-star-btn{color:rgba(0,0,0,.1)}
       <div class="set-item" onclick="openAdmOV('pwaIconPage');loadPwaIcon()"><div class="set-ic" style="background:rgba(139,92,246,.1);color:#8b5cf6"><i class="fa-solid fa-mobile-screen-button"></i></div><div class="set-info"><div class="set-name">أيقونة تطبيق PWA</div><div class="set-desc">تغيير الأيقونة التي تظهر عند تثبيت التطبيق</div></div><i class="fa-solid fa-chevron-left set-arr"></i></div>
       <div class="set-item" onclick="openAdmOV('smtpPage');loadSiteSettings()"><div class="set-ic" style="background:rgba(6,182,212,.1);color:#06b6d4"><i class="fa-solid fa-envelope-open-text"></i></div><div class="set-info"><div class="set-name">إعدادات البريد (SMTP)</div><div class="set-desc">ربط بريد لإرسال رسائل استعادة كلمة المرور</div></div><i class="fa-solid fa-chevron-left set-arr"></i></div>
       <div class="set-item" onclick="openAdmOV('backupPage');loadSiteSettings();loadBackupList()"><div class="set-ic blue"><i class="fa-solid fa-cloud-arrow-up"></i></div><div class="set-info"><div class="set-name">النسخ الاحتياطي</div><div class="set-desc">نسخ تلقائي للقاعدة + إرسال للتلغرام</div></div><i class="fa-solid fa-chevron-left set-arr"></i></div>
+      <div class="set-item" onclick="openAdmOV('transferPage');loadTransferPage()"><div class="set-ic" style="background:rgba(16,185,129,.1);color:#10b981"><i class="fa-solid fa-right-left"></i></div><div class="set-info"><div class="set-name">استيراد وتصدير</div><div class="set-desc">استعادة نسخة وصلت من تلغرام أو تحميل نسخة من الموقع</div></div><i class="fa-solid fa-chevron-left set-arr"></i></div>
+      <div class="set-item" onclick="openAdmOV('securityPage');loadSecurityPage()"><div class="set-ic" style="background:rgba(99,102,241,.1);color:var(--primary)"><i class="fa-solid fa-shield-halved"></i></div><div class="set-info"><div class="set-name">مركز الأمان</div><div class="set-desc">حالة الحماية وسجل نشاط الأدمن</div></div><i class="fa-solid fa-chevron-left set-arr"></i></div>
       <div class="set-item" onclick="openAdmOV('providersPage');loadProviders()"><div class="set-ic" style="background:rgba(16,185,129,.1);color:#10b981"><i class="fa-solid fa-server"></i></div><div class="set-info"><div class="set-name">إدارة المزودين (API)</div><div class="set-desc">إضافة وإدارة مزودين متعددين — أرصدة وفلترة</div></div><i class="fa-solid fa-chevron-left set-arr"></i></div>
       <div class="set-item" onclick="openAdmOV('couponPage');loadCoupons();loadDailyGiftAdmin();loadDailyBonusSettings()"><div class="set-ic" style="background:rgba(236,72,153,.1);color:#ec4899"><i class="fa-solid fa-gift"></i></div><div class="set-info"><div class="set-name">كوبونات الهدية</div><div class="set-desc">إنشاء كوبونات مجانية للمستخدمين</div></div><i class="fa-solid fa-chevron-left set-arr"></i></div>
       <div class="set-item" onclick="openAdmOV('reviewsAdmPage');loadAdminReviews()"><div class="set-ic" style="background:rgba(245,158,11,.1);color:#f59e0b"><i class="fa-solid fa-star"></i></div><div class="set-info"><div class="set-name">إدارة التقييمات</div><div class="set-desc">عرض وإخفاء تقييمات العملاء</div></div><i class="fa-solid fa-chevron-left set-arr"></i></div>
@@ -2574,7 +2605,77 @@ html:not([data-theme="dark"]) .rv-star-btn{color:rgba(0,0,0,.1)}
     <button onclick="doBackupNow()" class="btn-outline" style="margin-bottom:6px"><i class="fa-solid fa-play"></i> نسخ احتياطي الآن</button>
     <button onclick="sendBackupTG()" class="btn-outline" style="margin-bottom:6px;border-color:rgba(0,136,204,.3);color:#0088cc"><i class="fa-brands fa-telegram"></i> إرسال الآن للتلغرام</button>
     <div id="tgSendStatus" style="display:none;padding:10px;border-radius:10px;font-size:11px;text-align:center;margin-bottom:6px"></div>
+    <button onclick="openAdmOV('transferPage');loadTransferPage()" class="btn-outline" style="margin-bottom:6px;border-color:rgba(16,185,129,.35);color:#10b981"><i class="fa-solid fa-right-left"></i> استيراد / تصدير ملفات النسخ</button>
     <button onclick="saveBackupSettings()" class="btn-primary"><i class="fa-solid fa-check"></i> حفظ الإعدادات</button>
+  </div>
+</div>
+<div class="overlay-page admin-only" id="transferPage">
+  <div class="ov-topbar"><button class="ov-back" onclick="document.getElementById('transferPage').classList.remove('show')"><i class="fa-solid fa-arrow-right"></i></button><div class="ov-title"><i class="fa-solid fa-right-left"></i> استيراد وتصدير البيانات</div></div>
+  <div class="ov-body">
+    <div style="text-align:center;padding:8px 0 16px"><div style="width:52px;height:52px;border-radius:14px;background:rgba(16,185,129,.1);display:inline-flex;align-items:center;justify-content:center;font-size:22px;color:#10b981;margin-bottom:8px"><i class="fa-solid fa-right-left"></i></div><div style="font-size:15px;font-weight:800">نقل قاعدة البيانات والملفات</div><div style="font-size:10px;color:var(--text3)">صدّر نسخة من موقعك، أو استورد نسخة وصلتك عبر بوت تلغرام</div></div>
+
+    <div style="background:var(--card);border:1px solid var(--card-border);border-radius:14px;padding:16px;margin-bottom:12px">
+      <div class="sec-label"><i class="fa-solid fa-file-export"></i> تصدير (تحميل نسخة)</div>
+      <label class="trf-opt"><input type="radio" name="trfKind" value="full" checked><span><b>نسخة كاملة (ZIP)</b><small>قاعدة البيانات + ملفات JSON (نفس صيغة نسخ تلغرام)</small></span></label>
+      <label class="trf-opt"><input type="radio" name="trfKind" value="sql"><span><b>قاعدة البيانات فقط (SQL)</b><small>ملف .sql يُستورد أيضاً من phpMyAdmin</small></span></label>
+      <label class="trf-opt"><input type="radio" name="trfKind" value="json"><span><b>ملفات JSON فقط</b><small>مفاتيح VAPID، اشتراكات الإشعارات، كاش الخدمات</small></span></label>
+      <div class="field-group" style="margin:10px 0 0"><div class="field-label"><i class="fa-solid fa-lock"></i> كلمة مرور حسابك (للتأكيد)</div><input type="password" class="text-input" id="trfExpPw" autocomplete="current-password" dir="ltr" style="text-align:left"></div>
+      <button class="btn-primary" id="trfExpBtn" onclick="trfExport()" style="margin-top:10px"><i class="fa-solid fa-download"></i> تحميل</button>
+      <div style="font-size:10px;color:var(--text3);margin-top:8px;line-height:1.7">النسخة تحوي بيانات حساسة (كلمات مرور مجزّأة، مفاتيح API، توكن البوت) فاحفظها بمكان آمن.</div>
+    </div>
+
+    <div style="background:var(--card);border:1px solid var(--card-border);border-radius:14px;padding:16px;margin-bottom:12px">
+      <div class="sec-label"><i class="fa-solid fa-file-import"></i> استيراد</div>
+      <div style="font-size:11px;color:var(--text2);line-height:1.8;margin-bottom:10px">ارفع الملف الذي وصلك من بوت تلغرام: <b>ZIP</b> (من هذا الموقع أو من موقع بايثون القديم)، أو ملف <b>.sql</b>، أو <b>.db</b> (قاعدة بايثون)، أو ملفات <b>.json</b>. يُنشأ نسخة أمان تلقائياً قبل أي تغيير، وإن فشل الاستيراد تبقى بياناتك كما هي.</div>
+      <label class="trf-drop" id="trfDrop"><input type="file" id="trfFile" accept=".zip,.sql,.db,.sqlite,.sqlite3,.json" style="display:none" onchange="trfPick(this.files&&this.files[0])"><i class="fa-solid fa-cloud-arrow-up"></i><span id="trfDropTxt">اضغط لاختيار ملف النسخة</span><small id="trfLimit"></small></label>
+      <div id="trfProg" style="display:none;margin-top:8px"><div style="height:6px;border-radius:6px;background:var(--input-bg);overflow:hidden"><div id="trfProgBar" style="height:100%;width:0;background:var(--primary);transition:width .2s"></div></div><div id="trfProgTxt" style="font-size:10px;color:var(--text3);margin-top:4px;text-align:center"></div></div>
+      <div id="trfAnalysis" style="display:none;margin-top:12px"></div>
+      <div id="trfApplyBox" style="display:none;margin-top:12px;padding-top:12px;border-top:1px dashed var(--card-border)">
+        <div id="trfOptRows"></div>
+        <div class="field-group" style="margin:10px 0 8px"><div class="field-label"><i class="fa-solid fa-lock"></i> كلمة مرور حسابك</div><input type="password" class="text-input" id="trfApplyPw" autocomplete="current-password" dir="ltr" style="text-align:left"></div>
+        <div class="field-group" style="margin:0 0 10px"><div class="field-label"><i class="fa-solid fa-triangle-exclamation" style="color:var(--red)"></i> اكتب <b>RESTORE</b> للتأكيد — سيُستبدل محتوى الجداول الموجودة بالنسخة، وتُلغى كل الجلسات (ستسجّل الدخول من جديد)</div><input type="text" class="text-input" id="trfConfirm" placeholder="RESTORE" dir="ltr" style="text-align:left" autocomplete="off"></div>
+        <div style="display:flex;gap:8px"><button class="btn-primary" id="trfApplyBtn" onclick="trfApply()" style="flex:1;background:linear-gradient(135deg,#ef4444,#f97316)"><i class="fa-solid fa-rotate-left"></i> ابدأ الاستيراد</button><button class="btn-outline" onclick="trfCancel()" style="width:auto;padding:0 16px">إلغاء</button></div>
+      </div>
+      <div id="trfReport" style="display:none;margin-top:12px"></div>
+    </div>
+
+    <div id="trfTgCard" style="display:none;background:var(--card);border:1px solid var(--card-border);border-radius:14px;padding:16px;margin-bottom:12px">
+      <div class="sec-label"><i class="fa-brands fa-telegram"></i> نسخ أرسلها البوت إلى تلغرام</div>
+      <div style="font-size:10px;color:var(--text3);margin-bottom:8px;line-height:1.7">اجلب النسخة مباشرة من تلغرام عبر البوت (حتى 20MB) دون تنزيلها ورفعها يدوياً.</div>
+      <div id="trfTgList"></div>
+    </div>
+
+    <div style="background:var(--card);border:1px solid var(--card-border);border-radius:14px;padding:16px;margin-bottom:12px">
+      <div class="sec-label"><i class="fa-solid fa-box-archive"></i> نسخ محفوظة على الخادم</div>
+      <div style="font-size:10px;color:var(--text3);margin-bottom:8px;line-height:1.7">النسخ التلقائية كل ساعة ونسخ الأمان التي تُنشأ قبل كل استيراد.</div>
+      <div id="trfLocalList"><div class="loading"><i class="fa-solid fa-spinner fa-spin"></i></div></div>
+    </div>
+  </div>
+</div>
+<div class="overlay-page admin-only" id="securityPage">
+  <div class="ov-topbar"><button class="ov-back" onclick="document.getElementById('securityPage').classList.remove('show')"><i class="fa-solid fa-arrow-right"></i></button><div class="ov-title"><i class="fa-solid fa-shield-halved"></i> مركز الأمان</div></div>
+  <div class="ov-body">
+    <div style="text-align:center;padding:8px 0 14px"><div style="width:52px;height:52px;border-radius:14px;background:rgba(99,102,241,.1);display:inline-flex;align-items:center;justify-content:center;font-size:22px;color:var(--primary);margin-bottom:8px"><i class="fa-solid fa-shield-halved"></i></div><div style="font-size:15px;font-weight:800">حماية لوحة الإدارة</div><div id="secSummary" style="font-size:11px;color:var(--text3);margin-top:4px"></div></div>
+    <div id="secChecks" style="margin-bottom:12px"><div class="loading"><i class="fa-solid fa-spinner fa-spin"></i></div></div>
+
+    <div style="background:var(--card);border:1px solid var(--card-border);border-radius:14px;padding:16px;margin-bottom:12px">
+      <div class="sec-label"><i class="fa-solid fa-magnifying-glass-chart"></i> فحص تعرّض الملفات الخاصة</div>
+      <div style="font-size:10px;color:var(--text3);margin-bottom:8px;line-height:1.7">يطلب الخادم من نفسه روابط ملف الإعدادات والقاعدة والسجلات، ويجب أن تُرفض كلها (403/404).</div>
+      <button class="btn-outline" id="secProbeBtn" onclick="secProbe()"><i class="fa-solid fa-play"></i> ابدأ الفحص</button>
+      <div id="secProbeRes" style="margin-top:8px"></div>
+    </div>
+
+    <div style="background:var(--card);border:1px solid var(--card-border);border-radius:14px;padding:16px;margin-bottom:12px">
+      <div class="sec-label"><i class="fa-solid fa-right-from-bracket"></i> إلغاء كل الجلسات</div>
+      <div style="font-size:10px;color:var(--text3);margin-bottom:8px;line-height:1.7">يُخرج كل المستخدمين والأدمن فوراً (مفيد عند الشك باختراق أو بعد تغيير كلمة المرور). ستسجّل الدخول من جديد.</div>
+      <div class="field-group" style="margin-bottom:8px"><div class="field-label"><i class="fa-solid fa-lock"></i> كلمة مرور حسابك</div><input type="password" class="text-input" id="secRevokePw" autocomplete="current-password" dir="ltr" style="text-align:left"></div>
+      <button class="btn-outline" onclick="secRevoke()" style="border-color:rgba(239,68,68,.35);color:var(--red)"><i class="fa-solid fa-ban"></i> إلغاء كل الجلسات</button>
+    </div>
+
+    <div style="background:var(--card);border:1px solid var(--card-border);border-radius:14px;padding:16px;margin-bottom:12px">
+      <div class="sec-label" style="justify-content:space-between"><span><i class="fa-solid fa-clipboard-list"></i> سجل نشاط الأدمن</span><button class="btn-outline" onclick="loadSecurityPage()" style="width:auto;padding:4px 10px;font-size:10px;margin:0"><i class="fa-solid fa-rotate"></i></button></div>
+      <div id="secAudit" style="max-height:340px;overflow:auto"></div>
+    </div>
   </div>
 </div>
 <div class="overlay-page admin-only" id="providerPage">
@@ -9030,4 +9131,5 @@ try{var mkSt=document.createElement('style');mkSt.textContent='@keyframes mkPuls
   <button class="rv-prompt-btn" onclick="dismissRvPrompt();openReviewModal()"><i class="fa-solid fa-star"></i> أكتب تقييم الآن</button>
   <div class="rv-prompt-skip" onclick="dismissRvPrompt()">لاحقاً</div>
 </div>
+__FC_ROUTER__
 </html>

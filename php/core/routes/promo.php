@@ -98,9 +98,9 @@ route('/api/redeem-coupon', function () {
 
 route('/api/admin/daily-gift', function () {
     if (!array_key_exists('user_id', $_SESSION)) return jsonify(['ok' => false], 401);
+    // الأصل كان يفحص عموداً غير موجود (users.role) فيرجع 500 لكل الحسابات حتى الأدمن؛ صُحّح ليستعمل is_admin كباقي لوحة الإدارة
+    if (!_admin_check()) return jsonify(['ok' => false], 403);
     $conn = get_db();
-    $u = $conn->execute('SELECT role FROM users WHERE id=?', [$_SESSION['user_id']])->fetchone();
-    if (!$u || $u['role'] !== 'admin') return jsonify(['ok' => false], 403);
     $dg_amount = get_setting('daily_gift_amount', '0');
     $dg_code = get_setting('daily_gift_code', '');
     $dg_date = get_setting('daily_gift_date', '');
@@ -111,9 +111,9 @@ route('/api/admin/daily-gift', function () {
 
 route('/api/admin/daily-gift', function () {
     if (!array_key_exists('user_id', $_SESSION)) return jsonify(['ok' => false], 401);
+    // الأصل كان يفحص عموداً غير موجود (users.role) فيرجع 500 لكل الحسابات حتى الأدمن؛ صُحّح ليستعمل is_admin كباقي لوحة الإدارة
+    if (!_admin_check()) return jsonify(['ok' => false], 403);
     $conn = get_db();
-    $u = $conn->execute('SELECT role FROM users WHERE id=?', [$_SESSION['user_id']])->fetchone();
-    if (!$u || $u['role'] !== 'admin') return jsonify(['ok' => false], 403);
     $data = req_data();
     $amount = py_float(dget($data, 'amount', 0));
     $max_uses = py_int(dget($data, 'max_uses', 100));
@@ -130,7 +130,7 @@ route('/api/admin/daily-gift', function () {
     set_setting('daily_gift_max_uses', py_str($max_uses));
     set_setting('daily_gift_active', '1');
     if (py_truthy($notify)) {
-        $users = $conn->execute("SELECT id FROM users WHERE role!='admin' ORDER BY id ASC")->fetchall();
+        $users = $conn->execute("SELECT id FROM users WHERE COALESCE(is_admin,0)=0 ORDER BY id ASC")->fetchall();
         foreach ($users as $usr) {
             $nid = uuid8();
             $conn->execute('INSERT INTO notifications(id,user_id,type,title,text,icon) VALUES(?,?,?,?,?,?)',

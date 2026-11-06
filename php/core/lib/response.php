@@ -143,6 +143,7 @@ function emit_response(Response $r): void {
     }
     // Flask يضيف Vary: Cookie بعد after_request (لأن الجلسة قُرئت بكل طلب)
     $r->headers['Vary'] = isset($r->headers['Vary']) ? $r->headers['Vary'] . ', Cookie' : 'Cookie';
+    security_headers($r);
 
     $cookie = fc_session_cookie_header();
     if (function_exists('header_remove')) @header_remove('X-Powered-By');

@@ -39,6 +39,8 @@ route('/api/register', function () {
     if (py_len($pw) < 6) {
         return jsonify(['ok' => false, 'msg' => 'كلمة المرور يجب أن تكون 6 أحرف على الأقل'], 400);
     }
+    $thr = request_throttle('register', client_ip(), defined('REGISTER_MAX_PER_HOUR') ? (int)REGISTER_MAX_PER_HOUR : 30, 1000, 3600);   // تسجيل آلي
+    if ($thr !== null) return $thr;
 
     $skip_verify = get_setting('skip_email_verify', '0') === '1';
     $token = $skip_verify ? null : _rand_code();
@@ -85,14 +87,21 @@ route('/api/verify-code', function () {
     if (!py_truthy($email) || !py_truthy($code)) {
         return jsonify(['ok' => false, 'msg' => 'أدخل الرمز']);
     }
+    $thr = guess_check('verify|' . $email);              // الرمز 6 أرقام: بلا حد يمكن تخمينه
+    if ($thr !== null) return $thr;
     $conn = get_db();
     $user = $conn->execute('SELECT * FROM users WHERE email=? AND verify_token=?', [$email, $code])->fetchone();
     if ($user) {
+        guess_ok('verify|' . $email);
         $conn->execute('UPDATE users SET verified=1, verify_token=NULL WHERE id=?', [$user['id']]);
         $conn->commit();
         _session_login($user, false);
         _welcome_notif($user['id']);
         return jsonify(['ok' => true, 'msg' => 'تم تفعيل حسابك بنجاح!', 'auto_login' => true]);
+    }
+    if (guess_fail('verify|' . $email)) {                // بلغ الحد: أبطل الرمز الحالي
+        $conn->execute('UPDATE users SET verify_token=NULL WHERE email=? AND verified=0', [$email]);
+        $conn->commit();
     }
     return jsonify(['ok' => false, 'msg' => 'الرمز غير صحيح أو منتهي الصلاحية']);
 }, ['POST']);
@@ -104,6 +113,8 @@ route('/api/resend-code', function () {
     if (!py_truthy($email)) {
         return jsonify(['ok' => false, 'msg' => 'البريد مطلوب']);
     }
+    $thr = request_throttle('mailcode', $email, 5, 25);   // لا إغراق لبريد الضحية
+    if ($thr !== null) return $thr;
     $conn = get_db();
     $user = $conn->execute('SELECT * FROM users WHERE email=? AND verified=0', [$email])->fetchone();
     if (!$user) {
@@ -123,6 +134,8 @@ route('/api/forgot-password', function () {
     if (!py_truthy($email)) {
         return jsonify(['ok' => false, 'msg' => 'أدخل البريد الإلكتروني']);
     }
+    $thr = request_throttle('mailcode', $email, 5, 25);   // لا إغراق لبريد الضحية
+    if ($thr !== null) return $thr;
     $conn = get_db();
     $user = $conn->execute('SELECT * FROM users WHERE email=?', [$email])->fetchone();
     if (!$user) {
@@ -147,11 +160,19 @@ route('/api/reset-password', function () {
     if (py_len($new_pw) < 6) {
         return jsonify(['ok' => false, 'msg' => 'كلمة المرور يجب أن تكون 6 أحرف على الأقل']);
     }
+    // الرمز 6 أرقام: كان بلا حد فيمكن تخمينه وسرقة أي حساب (ومنها حساب الأدمن) — الآن محدود ويُبطَل عند بلوغ الحد
+    $thr = guess_check('reset|' . $email);
+    if ($thr !== null) return $thr;
     $conn = get_db();
     $user = $conn->execute('SELECT * FROM users WHERE email=? AND verify_token=?', [$email, $code])->fetchone();
     if (!$user) {
+        if (guess_fail('reset|' . $email)) {
+            $conn->execute('UPDATE users SET verify_token=NULL WHERE email=?', [$email]);
+            $conn->commit();
+        }
         return jsonify(['ok' => false, 'msg' => 'الرمز غير صحيح أو منتهي']);
     }
+    guess_ok('reset|' . $email);
     $conn->execute('UPDATE users SET password=?, verify_token=NULL, verified=1 WHERE id=?', [hash_pw($new_pw), $user['id']]);
     $conn->commit();
     _session_login($user, false);
@@ -178,17 +199,24 @@ route('/api/login', function () {
     $identifier_lower = mb_strtolower($identifier, 'UTF-8');
     $pw = py_or(dget($data, 'password'), '');
 
+    $thr = login_throttle_check($identifier_lower);     // حماية من تخمين كلمات المرور
+    if ($thr !== null) return $thr;
     $conn = get_db();
     $user = $conn->execute('SELECT * FROM users WHERE LOWER(email)=? OR LOWER(username)=? ORDER BY id LIMIT 1',
         [$identifier_lower, $identifier_lower])->fetchone();
 
     if (!$user) {
+        login_throttle_fail($identifier_lower);
         return jsonify(['ok' => false, 'msg' => 'البريد أو كلمة المرور غير صحيحة'], 401);
     }
 
     $pw_valid = false;
-    if (py_truthy($user['password']) && hash_equals((string)$user['password'], hash_pw($pw))) {
+    if (py_truthy($user['password']) && verify_pw($pw, $user['password'])) {
         $pw_valid = true;
+        if (pw_needs_upgrade($user['password'])) {          // ترقية كلمة المرور القديمة (sha256) إلى bcrypt بصمت عند نجاح الدخول
+            $conn->execute('UPDATE users SET password=? WHERE id=?', [hash_pw($pw), $user['id']]);
+            $conn->commit();
+        }
     }
 
     if (!$pw_valid) {
@@ -204,8 +232,10 @@ route('/api/login', function () {
     }
 
     if (!$pw_valid) {
+        login_throttle_fail($identifier_lower);
         return jsonify(['ok' => false, 'msg' => 'البريد أو كلمة المرور غير صحيحة'], 401);
     }
+    login_throttle_ok($identifier_lower);
     if (!py_truthy($user['verified'])) {
         return jsonify(['ok' => false, 'msg' => 'يرجى تأكيد بريدك الإلكتروني أولاً'], 403);
     }
@@ -430,9 +460,13 @@ route('/api/change-password', function () {
     if (!$user) {
         return jsonify(['ok' => false, 'msg' => 'مستخدم غير موجود']);
     }
-    if (py_truthy($user['password']) && $user['password'] !== hash_pw($old_pw)) {
+    $thr = guess_check('chpw|' . $_SESSION['user_id']);
+    if ($thr !== null) return $thr;
+    if (py_truthy($user['password']) && !verify_pw($old_pw, $user['password'])) {
+        guess_fail('chpw|' . $_SESSION['user_id']);
         return jsonify(['ok' => false, 'msg' => 'كلمة المرور الحالية غير صحيحة']);
     }
+    guess_ok('chpw|' . $_SESSION['user_id']);
     $conn->execute('UPDATE users SET password=? WHERE id=?', [hash_pw($new_pw), $_SESSION['user_id']]);
     $conn->commit();
     return jsonify(['ok' => true, 'msg' => 'تم تغيير كلمة المرور بنجاح!']);

@@ -12,7 +12,9 @@
  *
  * يحافظ على: معرّفات الصفوف (id) وترتيب الإدراج (مهم لترتيب الإشعارات/الكوبونات المتساوية بالوقت)،
  * وكلمات المرور (نفس sha256)، ومفاتيح VAPID واشتراكات Web Push ليستمر المشتركون.
- * شغّله بعد install.php (أو tools/init_db.php) وقبل تحويل الدومين إلى نسخة PHP.
+ * شغّله بعد استيراد sql/database.sql (أو بعد tools/init_db.php) وقبل تحويل الدومين إلى نسخة PHP.
+ * الجداول التي يملؤها database.sql بقيم افتراضية (المستويات/طرق الدفع/المزوّد) لا تمنع النقل: يستبدلها بما في قاعدة بايثون.
+ * أي جدول آخر فيه صفوف (مثلاً بعد أن زرت الموقع فأُنشئ حساب الأدمن) يوقف النقل قبل أن يُكتب شيء؛ أضف --truncate لتفريغه.
  */
 if (PHP_SAPI !== 'cli') { http_response_code(403); exit("CLI only\n"); }
 require __DIR__ . '/../core/bootstrap.php';
@@ -74,6 +76,17 @@ $liteTables = $lite->query("SELECT name FROM sqlite_master WHERE type='table' AN
 $seqs = [];
 try { foreach ($lite->query('SELECT name, seq FROM sqlite_sequence')->fetchAll(PDO::FETCH_NUM) as [$n, $s]) $seqs[$n] = (int)$s; } catch (Throwable $e) {}
 
+// جداول يملؤها database.sql بقيم افتراضية: وجود صفوفها لا يعني أن للموقع بيانات حقيقية، فيستبدلها النقل دون --truncate
+$seedTables = ['levels', 'payment_methods', 'providers'];
+// فحص مسبق قبل أي كتابة (حتى لا يتوقف النقل في منتصفه بعد أن نُسخت جداول وبقيت أخرى)
+if (!$dry && !isset($o['truncate'])) {
+    foreach ($mysqlTables as $t) {
+        if (!in_array($t, $liteTables, true) || in_array($t, $seedTables, true)) continue;
+        $n = (int)$pdo->query("SELECT COUNT(*) FROM `$t`")->fetchColumn();
+        if ($n > 0) { fwrite(STDERR, "الجدول $t بـ MySQL يحوي $n صفاً. استعمل --truncate لتفريغه أولاً.\n"); exit(1); }
+    }
+}
+
 $report = []; $problems = 0;
 $pdo->exec('SET FOREIGN_KEY_CHECKS=0');
 foreach ($mysqlTables as $t) {
@@ -99,7 +112,7 @@ foreach ($mysqlTables as $t) {
     $srcCount = (int)$lite->query("SELECT COUNT(*) FROM `$t`")->fetchColumn();
     $dstBefore = (int)$pdo->query("SELECT COUNT(*) FROM `$t`")->fetchColumn();
     if ($dstBefore > 0 && !$dry) {
-        if (!isset($o['truncate'])) { fwrite(STDERR, "الجدول $t بـ MySQL يحوي $dstBefore صفاً. استعمل --truncate لتفريغه أولاً.\n"); exit(1); }
+        if (!isset($o['truncate']) && !in_array($t, $seedTables, true)) { fwrite(STDERR, "الجدول $t بـ MySQL يحوي $dstBefore صفاً. استعمل --truncate لتفريغه أولاً.\n"); exit(1); }
         $pdo->exec("DELETE FROM `$t`");
     }
     if ($dry) { $report[] = [$t, $srcCount, '-', 'dry-run']; continue; }

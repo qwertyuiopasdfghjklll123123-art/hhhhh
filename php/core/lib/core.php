@@ -24,7 +24,30 @@ function set_setting(string $key, $value): void {
 
 /* ---- hash_pw  (app.py:1289) ---- */
 
-function hash_pw($pw): string { return hash('sha256', (string)$pw); }
+/**
+ * تجزئة كلمات المرور.
+ * الأصل (بايثون) يخزّن sha256 بلا ملح: لو تسرّبت القاعدة/نسخة تلغرام يمكن تخمين كلمات المرور بسرعة هائلة.
+ * الافتراضي الآن bcrypt (مع تجزئة sha256 أولية كي لا تُقتطع كلمة المرور عند 72 بايت)، وكلمات المرور القديمة
+ * (64 خانة hex) تبقى صالحة وتُرقّى تلقائياً عند تسجيل دخول صاحبها. للإبقاء على صيغة الأصل (مثلاً لإمكانية الرجوع
+ * لنسخة بايثون): define('PASSWORD_HASH_UPGRADE', false) في config.php.
+ */
+function pw_upgrade_enabled(): bool { return !defined('PASSWORD_HASH_UPGRADE') || (bool)PASSWORD_HASH_UPGRADE; }
+function pw_legacy_hash($pw): string { return hash('sha256', (string)$pw); }
+function _pw_prehash($pw): string { return base64_encode(hash('sha256', (string)$pw, true)); }
+function hash_pw($pw): string {
+    if (!pw_upgrade_enabled()) return pw_legacy_hash($pw);
+    return password_hash(_pw_prehash($pw), PASSWORD_BCRYPT, ['cost' => 10]);
+}
+/** تحقق من كلمة مرور مقابل القيمة المخزّنة (صيغة قديمة sha256 أو bcrypt) */
+function verify_pw($pw, $stored): bool {
+    $stored = (string)$stored;
+    if ($stored === '') return false;
+    if (preg_match('/^[0-9a-f]{64}$/i', $stored)) return hash_equals(strtolower($stored), pw_legacy_hash($pw));
+    if ($stored[0] === '$') return password_verify(_pw_prehash($pw), $stored);
+    return false;
+}
+/** هل القيمة المخزّنة بالصيغة القديمة وتستحق الترقية الآن؟ */
+function pw_needs_upgrade($stored): bool { return pw_upgrade_enabled() && (bool)preg_match('/^[0-9a-f]{64}$/i', (string)$stored); }
 
 /* ---- المزوّدون  (app.py:1325-1366) ---- */
 
