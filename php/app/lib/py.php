@@ -52,7 +52,7 @@ function py_int($v): int {
 function py_float_repr(float $f): string {
     if (is_nan($f)) return 'nan';
     if (is_infinite($f)) return $f > 0 ? 'inf' : '-inf';
-    if ($f == 0.0) return (1 / $f) < 0 ? '-0.0' : '0.0';
+    if ($f == 0.0) return fdiv(1.0, $f) < 0 ? '-0.0' : '0.0';
     $s = var_export($f, true); // أقصر تمثيل round-trip (serialize_precision=-1)
     $sign = '';
     if ($s[0] === '-') { $sign = '-'; $s = substr($s, 1); }
@@ -86,27 +86,79 @@ function py_str($v): string {
     if (is_float($v)) return py_float_repr($v);
     if (is_int($v)) return (string)$v;
     if (is_string($v)) return $v;
-    if (is_array($v)) return py_repr($v);
+    if (is_array($v) || $v instanceof stdClass) return py_repr($v);
     return (string)$v;
 }
 
+function py_repr_str(string $s): string {
+    $q = (strpos($s, "'") !== false && strpos($s, '"') === false) ? '"' : "'";
+    $out = '';
+    $n = strlen($s);
+    for ($i = 0; $i < $n; $i++) {
+        $c = $s[$i];
+        $o = ord($c);
+        if ($c === '\\') $out .= '\\\\';
+        elseif ($c === $q) $out .= '\\' . $q;
+        elseif ($c === "\n") $out .= '\\n';
+        elseif ($c === "\r") $out .= '\\r';
+        elseif ($c === "\t") $out .= '\\t';
+        elseif ($o < 0x20 || $o === 0x7f) $out .= sprintf('\\x%02x', $o);
+        else $out .= $c;
+    }
+    return $q . $out . $q;
+}
+
+/** repr() ببايثون للأنواع الشائعة (نص/عدد/قاموس/قائمة) */
 function py_repr($v): string {
     if ($v === null) return 'None';
     if (is_bool($v)) return $v ? 'True' : 'False';
-    if (is_string($v)) return "'" . str_replace(["\\", "'"], ["\\\\", "\\'"], $v) . "'";
+    if (is_string($v)) return py_repr_str($v);
     if (is_float($v)) return py_float_repr($v);
     if (is_int($v)) return (string)$v;
+    if ($v instanceof stdClass) $v = ['__dict__' => get_object_vars($v)];
     if (is_array($v)) {
-        $isList = array_keys($v) === range(0, count($v) - 1) || $v === [];
+        if (isset($v['__dict__']) && count($v) === 1) { $dict = true; $v = $v['__dict__']; }
+        else $dict = !is_list_array($v);
         $parts = [];
-        foreach ($v as $k => $x) $parts[] = $isList ? py_repr($x) : py_repr((string)$k) . ': ' . py_repr($x);
-        return $isList ? '[' . implode(', ', $parts) . ']' : '{' . implode(', ', $parts) . '}';
+        foreach ($v as $k => $x) $parts[] = $dict ? py_repr_str((string)$k) . ': ' . py_repr($x) : py_repr($x);
+        return $dict ? '{' . implode(', ', $parts) . '}' : '[' . implode(', ', $parts) . ']';
     }
     return (string)$v;
 }
 
-/** Python round(x, nd): تقريب صحيح للقيمة الثنائية الدقيقة (half-even عند التعادل الحقيقي) */
+/** اسم نوع القيمة كما يظهر برسائل أخطاء بايثون */
+function py_type_name($v): string {
+    if ($v === null) return 'NoneType';
+    if (is_bool($v)) return 'bool';
+    if (is_int($v)) return 'int';
+    if (is_float($v)) return 'float';
+    if (is_string($v)) return 'str';
+    if ($v instanceof stdClass) return 'dict';
+    if (is_array($v)) return is_list_array($v) ? 'list' : 'dict';
+    return 'object';
+}
+
+/** AttributeError لاستدعاء .get على غير قاموس */
+function py_no_get_attr($v): PyTypeError { return new PyTypeError("'" . py_type_name($v) . "' object has no attribute 'get'"); }
+
+/** يحوّل ناتج json() إلى قاموس PHP؛ غير القاموس يرمي AttributeError كما يفعل data.get(...) ببايثون */
+function py_dict($v): array {
+    if ($v instanceof stdClass) return [];
+    if (is_array($v) && !is_list_array($v)) return $v;
+    throw py_no_get_attr($v);
+}
+
+/**
+ * Python round(x, nd): للأعداد الصحيحة يرجع int (مثل بايثون)، وللعشرية تقريب صحيح للقيمة الثنائية الدقيقة
+ * (half-even عند التعادل الحقيقي). round(x) بلا nd يرجع int دائماً.
+ */
 function py_round($x, ?int $nd = null) {
+    if (is_int($x) || is_bool($x)) {
+        $x = (int)$x;
+        if ($nd === null || $nd >= 0) return $x;
+        $f = 10 ** (-$nd);
+        return (int)(round($x / $f, 0, PHP_ROUND_HALF_EVEN) * $f);
+    }
     $x = py_float($x);
     if (is_nan($x) || is_infinite($x)) return $nd === null ? 0 : $x;
     if ($nd === null) return (int)(float)sprintf('%.0f', $x);
@@ -124,6 +176,7 @@ function py_fmt($x, int $nd = 2): string {
 function py_truthy($v): bool {
     if ($v === null || $v === false || $v === 0 || $v === 0.0 || $v === '') return false;
     if (is_array($v)) return count($v) > 0;
+    if ($v instanceof stdClass) return count(get_object_vars($v)) > 0;
     if ($v instanceof Countable) return count($v) > 0;
     return true;
 }
@@ -236,12 +289,39 @@ function py_json_dumps($v, bool $ensure_ascii = true, bool $sort_keys = false, ?
     return $enc($v);
 }
 
-/** json.loads — يرمي PyValueError عند فشل التحليل */
-function json_loads($s) {
-    if ($s === null || $s === '') throw new PyValueError('Expecting value: line 1 column 1 (char 0)');
-    $v = json_decode((string)$s, true, 512, JSON_BIGINT_AS_STRING);
-    if ($v === null && json_last_error() !== JSON_ERROR_NONE) throw new PyValueError(json_last_error_msg());
+/**
+ * تحويل ناتج json_decode(assoc=false) إلى مصفوفات PHP مع الإبقاء على القاموس الفارغ {} ككائن stdClass
+ * (حتى لا يتحول إلى [] عند إعادة التصدير كما يحدث مع assoc=true)
+ */
+function _json_to_php($v) {
+    if ($v instanceof stdClass) {
+        $arr = get_object_vars($v);
+        if (!$arr) return $v;
+        foreach ($arr as $k => $x) $arr[$k] = _json_to_php($x);
+        return $arr;
+    }
+    if (is_array($v)) {
+        foreach ($v as $k => $x) $v[$k] = _json_to_php($x);
+        return $v;
+    }
     return $v;
+}
+
+/** json.loads — يرمي PyValueError عند فشل التحليل (برسالة شبيهة ببايثون) */
+function json_loads($s) {
+    $s = (string)$s;
+    $trim = ltrim($s, " \t\n\r");
+    $off = strlen($s) - strlen($trim);
+    if ($trim === '') throw new PyValueError('Expecting value: line 1 column 1 (char 0)');
+    $v = json_decode($s, false, 512, JSON_BIGINT_AS_STRING);
+    if ($v === null && json_last_error() !== JSON_ERROR_NONE) {
+        $pre = substr($s, 0, $off);
+        $line = substr_count($pre, "\n") + 1;
+        $nl = strrpos($pre, "\n");
+        $col = mb_strlen($nl === false ? $pre : substr($pre, $nl + 1), 'UTF-8') + 1;
+        throw new PyValueError('Expecting value: line ' . $line . ' column ' . $col . ' (char ' . mb_strlen($pre, 'UTF-8') . ')');
+    }
+    return _json_to_php($v);
 }
 
 /** تحويل كائن أو مصفوفة إلى كائن JSON فارغ {} بدل [] عند الحاجة */
@@ -294,3 +374,22 @@ function py_sqlite_float_text(float $f): string {
     }
     return $neg . '0.' . str_repeat('0', -$exp - 1) . $digits;
 }
+
+/** f"{x:g}" ببايثون (6 أرقام معنوية، بلا أصفار زائدة) */
+function py_fmt_g($x): string {
+    $x = py_float($x);
+    if ($x == 0.0) return '0';
+    $exp = (int)floor(log10(abs($x)));
+    if ($exp < -4 || $exp >= 6) {
+        $m = sprintf('%.5e', $x);
+        [$mant, $e] = explode('e', $m);
+        $mant = rtrim(rtrim($mant, '0'), '.');
+        return $mant . 'e' . ($e[0] === '-' ? '-' : '+') . str_pad(ltrim(substr($e, 1), '0'), 2, '0', STR_PAD_LEFT);
+    }
+    $s = sprintf('%.' . max(0, 5 - $exp) . 'f', $x);
+    if (strpos($s, '.') !== false) $s = rtrim(rtrim($s, '0'), '.');
+    return $s;
+}
+
+/** COALESCE(x, d) على طريقة SQLite: يستبدل NULL فقط (0.0 يبقى 0.0) */
+function py_or_null($v, $d) { return $v === null ? $d : $v; }

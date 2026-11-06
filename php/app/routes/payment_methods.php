@@ -130,7 +130,8 @@ route('/api/admin/order/resend', function () {
             'key' => $_api_key, 'action' => 'add',
             'service' => py_str($row['service']), 'link' => py_str($row['link']), 'quantity' => py_int($row['quantity']),
         ], 'timeout' => 30]);
-        $result = $r->json();
+        $result0 = $r->json();
+        $result = ($result0 instanceof stdClass) ? [] : $result0;
         if (is_array($result) && !is_list_array($result) && array_key_exists('order', $result)) {
             $new_oid = py_str($result['order']);
             $conn->execute('UPDATE orders SET order_id=?, status=? WHERE order_id=?', [$new_oid, 'Processing', $order_id]);
@@ -140,9 +141,8 @@ route('/api/admin/order/resend', function () {
             } catch (Throwable $e) {}
             return jsonify(['ok' => true, 'msg' => "تم إعادة الإرسال — طلب جديد #$new_oid", 'new_order_id' => $new_oid]);
         } else {
-            if (!is_array($result)) throw new PyTypeError("'" . (is_string($result) ? 'str' : (is_null($result) ? 'NoneType' : 'int')) . "' object has no attribute 'get'");
-            if (is_list_array($result) && $result !== []) throw new PyTypeError("'list' object has no attribute 'get'");
-            $err_msg = py_or(py_or(dget($result, 'error', ''), dget($result, 'message', '')), py_repr($result === [] ? new stdClass() : $result));
+            $result = py_dict($result0);
+            $err_msg = py_or(py_or(dget($result, 'error', ''), dget($result, 'message', '')), py_repr($result0));
             return jsonify(['ok' => false, 'msg' => 'خطأ من المزود: ' . py_str($err_msg)]);
         }
     } catch (Throwable $e) {

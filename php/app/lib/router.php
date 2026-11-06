@@ -57,9 +57,9 @@ function req_json(bool $force = false, bool $silent = false) {
     if (Req::$json === false) {
         $body = Req::body();
         $trim = ltrim($body);
-        $v = json_decode($body, true, 512, JSON_BIGINT_AS_STRING);
+        $v = json_decode($body, false, 512, JSON_BIGINT_AS_STRING);
         Req::$jsonValid = ($body !== '' && json_last_error() === JSON_ERROR_NONE);
-        Req::$json = Req::$jsonValid ? $v : null;
+        Req::$json = Req::$jsonValid ? _json_to_php($v) : null;
         Req::$jsonKind = $trim === '' ? '' : $trim[0];
     }
     if (!$force && !req_is_json()) {
@@ -79,6 +79,7 @@ function req_json(bool $force = false, bool $silent = false) {
  */
 function req_data(): array {
     $d = req_json();
+    if ($d instanceof stdClass) return [];
     if (!py_truthy($d)) return [];
     if (!is_array($d) || Req::$jsonKind !== '{') throw new PyTypeError("object has no attribute 'get'");
     return $d;
@@ -87,6 +88,7 @@ function req_data(): array {
 /** data = freq.get_json() ثم data.get(...) مباشرة (بدون or {}): null أو غير قاموس → 500 */
 function req_data_strict(): array {
     $d = req_json();
+    if ($d instanceof stdClass) return [];
     if (!is_array($d) || Req::$jsonKind !== '{') throw new PyTypeError("'NoneType' object has no attribute 'get'");
     return $d;
 }

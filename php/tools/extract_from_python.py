@@ -62,6 +62,23 @@ def main(src_path, out_dir):
             parts.append('__FC_%s__' % expr.upper())
     write('banned.html', ''.join(parts))
 
+    # 4) جداول البيانات: PLATFORM_MAP (كشف المنصات) → app/lib/platform_data.php
+    pm = None
+    for node in tree.body:
+        if isinstance(node, ast.Assign) and any(isinstance(t, ast.Name) and t.id == 'PLATFORM_MAP' for t in node.targets):
+            pm = ast.literal_eval(node.value)
+    if pm is not None:
+        def q(x):
+            return "'" + x.replace('\\', '\\\\').replace("'", "\\'") + "'"
+        lines = ['<?php', '/** مولَّد تلقائياً من PLATFORM_MAP بـ app.py عبر tools/extract_from_python.py — لا تعدّله يدوياً */', 'const PLATFORM_MAP = [']
+        for name, kws in pm.items():
+            lines.append('    %s => [%s],' % (q(name), ', '.join(q(k) for k in kws)))
+        lines.append('];')
+        php_path = os.path.join(out_dir, '..', 'lib', 'platform_data.php')
+        with open(php_path, 'w', encoding='utf-8') as f:
+            f.write('\n'.join(lines) + '\n')
+        written['../lib/platform_data.php'] = (len(pm), 'PLATFORM_MAP entries')
+
     for k, (n, h) in sorted(written.items()):
         print('%-24s %9d chars  sha256:%s' % (k, n, h))
 

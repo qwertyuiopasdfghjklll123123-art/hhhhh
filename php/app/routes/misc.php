@@ -152,9 +152,9 @@ const MARKUP_RATE = 1.5;
 route('/api/admin/profits', function () {
     if (!array_key_exists('user_id', $_SESSION) || !py_truthy($_SESSION['is_admin'] ?? false)) return jsonify(['ok' => false], 403);
     $conn = get_db();
-    $row = $conn->execute('SELECT COUNT(*) AS cnt, COALESCE(SUM(CAST(charge AS REAL)),0) AS rev FROM orders')->fetchone();
+    $row = $conn->execute('SELECT COUNT(*) AS cnt, SUM(CAST(charge AS REAL)) AS rev FROM orders')->fetchone();
     $total_orders = $row['cnt'];
-    $total_revenue = $row['rev'];
+    $total_revenue = py_or_null($row['rev'], 0);   // COALESCE(..., 0) بنوع SQLite: int 0 لجدول فارغ
     $total_provider = MARKUP_RATE > 0 ? py_round($total_revenue / MARKUP_RATE, 4) : $total_revenue;
     $profit = py_round($total_revenue - $total_provider, 2);
     $margin = $total_revenue > 0 ? py_round(($profit / $total_revenue * 100), 1) : 0;
