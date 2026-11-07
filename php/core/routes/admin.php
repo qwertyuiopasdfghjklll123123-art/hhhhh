@@ -162,7 +162,7 @@ route('/api/admin/upload-logo', function () {
 route('/api/admin/logo', function () {
     foreach (['png', 'jpg', 'jpeg', 'svg', 'webp'] as $ext) {
         $path = LOGO_DIR . "/logo.$ext";
-        if (file_exists($path)) return send_file($path);
+        if (file_exists($path)) { $r = send_file($path, null, false, null, 86400); $r->headers['X-Content-Type-Options'] = 'nosniff'; return $r; }
     }
     return new Response('', 404);
 });

@@ -323,22 +323,43 @@ body{font-family:IBM Plex Sans Arabic,'Tajawal',sans-serif;background:var(--bg);
 @keyframes authBg{from{opacity:0}to{opacity:1}}@keyframes authUp{from{opacity:0;transform:translateY(40px) scale(.97)}to{opacity:1;transform:none}}
 .auth-x{position:fixed;top:14px;left:14px;width:40px;height:40px;border-radius:50%;border:none;cursor:pointer;background:var(--card);color:var(--text);font-size:16px;box-shadow:0 6px 16px rgba(0,0,0,.2);z-index:2}
 @media(prefers-reduced-motion:reduce){.start-btn,.start-btn i,.start-shine{animation:none!important}}
+
+/* ===== صفحة تسجيل الدخول كاملة الشاشة (بدل البطاقة المنبثقة) ===== */
+.theme-float{position:fixed;top:max(14px,env(safe-area-inset-top));left:14px;z-index:60}
+.hero{padding-top:56px!important}
+.hero-logo{display:flex;flex-direction:column;align-items:center;gap:10px;margin-bottom:18px;animation:fadeUp .6s ease both}
+.hero-logo img{width:86px;height:86px;border-radius:26px;filter:drop-shadow(0 14px 22px rgba(30,49,87,.35))}
+.hero-logo-name{font-family:IBM Plex Sans Arabic,sans-serif;font-weight:900;font-size:22px;background:linear-gradient(135deg,var(--primary),var(--primary-light));-webkit-background-clip:text;-webkit-text-fill-color:transparent}
+.auth-section{background:var(--bg)!important;backdrop-filter:none!important;align-items:stretch!important;justify-content:center!important;padding:0!important;overflow-y:auto}
+.auth-section.show{display:flex!important;animation:authPage .35s cubic-bezier(.2,.9,.3,1) both}
+@keyframes authPage{from{opacity:0;transform:translateX(-24px)}to{opacity:1;transform:none}}
+.auth-section::before{content:'';position:fixed;inset:0 0 auto 0;height:300px;background:linear-gradient(135deg,#1e3a8a,#2563eb 65%,#3b82f6);border-radius:0 0 42px 42px;z-index:0}
+.auth-section::after{content:'';position:fixed;width:200px;height:200px;border-radius:50%;border:2px solid rgba(255,255,255,.14);left:-60px;top:-70px;z-index:0;pointer-events:none}
+.auth-section .auth-card{position:relative;z-index:1;margin:0 auto!important;max-width:460px!important;width:100%;background:transparent!important;border:none!important;box-shadow:none!important;border-radius:0!important;padding:84px 20px 40px!important;overflow:visible}
+.auth-section .auth-card::before{display:none!important}
+.auth-brand{display:flex;align-items:center;gap:14px;color:#fff;margin-bottom:22px;animation:fadeUp .5s ease both}
+.auth-brand img{width:72px;height:72px;border-radius:22px;box-shadow:0 12px 24px -10px rgba(0,0,0,.55)}
+.auth-brand-n{font-family:IBM Plex Sans Arabic,sans-serif;font-size:24px;font-weight:900}.auth-brand-s{font-size:12px;font-weight:600;opacity:.85;margin-top:3px}
+.auth-section .tabs{background:var(--card)!important;border-radius:16px!important;padding:5px!important;box-shadow:0 10px 26px -14px rgba(0,0,0,.35);margin-bottom:0!important}
+.auth-section #loginForm,.auth-section #registerForm,.auth-section #forgotForm,.auth-section [id$="Form"]{background:var(--card);border:1px solid var(--card-border);border-radius:22px;padding:20px 18px 18px;margin-top:14px;box-shadow:0 14px 34px -20px rgba(0,0,0,.35);animation:fadeUp .45s ease both}
+.auth-section .input-wrap input{padding:15px 46px!important;font-size:15px!important;border-radius:15px!important;border-width:1.5px!important;background:var(--input-bg)}
+.auth-section .input-wrap i.fi{right:16px!important;font-size:16px!important}
+.auth-section .input-wrap input:focus{box-shadow:0 0 0 4px var(--primary-glow)!important}
+.auth-section .form-group label{font-weight:800!important;font-size:12px!important;margin-bottom:7px!important}
+.auth-section .btn-primary{padding:16px!important;font-size:16px!important;border-radius:16px!important;font-weight:900!important;box-shadow:0 14px 26px -12px var(--primary)}
+.auth-x{top:max(14px,env(safe-area-inset-top))!important;right:14px;left:auto!important;background:rgba(255,255,255,.2)!important;color:#fff!important;box-shadow:none!important;z-index:3}
+@media(min-width:700px){.auth-section::before{height:340px}.auth-section .auth-card{padding-top:110px!important}}
 </style>
 </head>
 <body>
 
 <div class="floating-icons" id="floatingIcons"></div>
 
-<div class="topbar">
-  <span class="logo-text">__SITE_NAME__</span>
-  <div class="topbar-actions">
-    <button class="btn-login-top" id="btnScrollAuth"><i class="fa-solid fa-rocket"></i> ابدأ</button>
-    <button class="theme-toggle" id="btnTheme" title="تبديل الثيم"><i class="fa-solid fa-sun" id="themeIcon"></i></button>
-  </div>
-</div>
+<button class="theme-toggle theme-float" id="btnTheme" title="تبديل الثيم" type="button"><i class="fa-solid fa-sun" id="themeIcon"></i></button>
 
 <section class="hero">
   <div class="hero-inner">
+    <div class="hero-logo"><img src="/brand-default.svg?v=3" alt="__SITE_NAME__" width="86" height="86"><div class="hero-logo-name">__SITE_NAME__</div></div>
     <div class="hero-badge"><i class="fa-solid fa-bolt"></i> المنصة #1 لخدمات التواصل الاجتماعي <i class="fa-solid fa-bolt"></i></div>
     <div class="platforms-strip">
       <span>ندعم جميع المنصات</span>
@@ -358,9 +379,9 @@ body{font-family:IBM Plex Sans Arabic,'Tajawal',sans-serif;background:var(--bg);
 </section>
 
 <section class="auth-section" id="authSection" aria-hidden="true">
-  <button class="auth-x" id="authClose" type="button" aria-label="إغلاق"><i class="fa-solid fa-xmark"></i></button>
+  <button class="auth-x" id="authClose" type="button" aria-label="رجوع"><i class="fa-solid fa-arrow-right"></i></button>
   <div class="auth-card">
-    <div class="smm-badge"><i class="fa-solid fa-rocket"></i> ابدأ رحلتك الآن مع __SITE_NAME__ <i class="fa-solid fa-star"></i></div>
+    <div class="auth-brand"><img src="/brand-default.svg?v=3" alt="" width="72" height="72"><div><div class="auth-brand-n">__SITE_NAME__</div><div class="auth-brand-s">منصتك لخدمات التواصل الاجتماعي</div></div></div>
     <div class="tabs">
       <button class="tab active" id="tabLogin"><i class="fa-solid fa-right-to-bracket"></i> تسجيل الدخول</button>
       <button class="tab" id="tabRegister"><i class="fa-solid fa-user-plus"></i> إنشاء حساب</button>
@@ -534,7 +555,6 @@ body{font-family:IBM Plex Sans Arabic,'Tajawal',sans-serif;background:var(--bg);
   function openAuth(tab){_auth.classList.add('show');_auth.setAttribute('aria-hidden','false');document.body.style.overflow='hidden';if(tab==='register'){var t=document.getElementById('tabRegister');if(t)t.click()}setTimeout(function(){var f=_auth.querySelector('input:not([type=hidden])');if(f&&!('ontouchstart' in window))f.focus()},350)}
   function closeAuth(){_auth.classList.remove('show');_auth.setAttribute('aria-hidden','true');document.body.style.overflow=''}
   window.openAuth=openAuth;window.closeAuth=closeAuth;
-  document.getElementById('btnScrollAuth').addEventListener('click',function(){openAuth()});
   document.getElementById('btnStart').addEventListener('click',function(){openAuth()});
   document.getElementById('authClose').addEventListener('click',closeAuth);
   _auth.addEventListener('click',function(e){if(e.target===_auth)closeAuth()});

@@ -10,6 +10,8 @@ const BRAND_MAX_BYTES = 8388608;   // 8MB
 const BRAND_EXT_A = ['webm', 'mp4', 'gif', 'webp', 'png', 'svg'];
 const BRAND_EXT_B = ['mov', 'mp4'];
 
+/** وضع شعار الشريط العلوي: default (الشعار المتحرك الافتراضي أو المرفوع) | name (اسم الموقع فقط) */
+function brand_mode(): string { return get_setting('brand_mode', 'default') === 'name' ? 'name' : 'default'; }
 function brand_files(string $slot): array { return glob(LOGO_DIR . '/brand_' . $slot . '.*') ?: []; }
 function brand_file(string $slot): ?string { $f = brand_files($slot); return $f ? $f[0] : null; }
 
@@ -35,8 +37,12 @@ function brand_sniff(string $tmp, string $ext): ?array {
 
 /** وسوم الشعار المتحرك لتُوضع مكان اسم الموقع (أو null إن لم يُرفع شيء) */
 function brand_media_html(string $site_name): ?string {
+    if (brand_mode() === 'name') return null;
     $a = brand_file('a'); $b = brand_file('b');
-    if (!$a && !$b) return null;
+    if (!$a && !$b) {   // لا شعار مرفوع: الشعار المتحرك الافتراضي (FC) يتشكّل بـ 5 ثوانٍ
+        $alt0 = htmlspecialchars($site_name, ENT_QUOTES, 'UTF-8');
+        return '<div class="brand-name" id="brandNameDisplay" style="display:none">' . $alt0 . '</div><img class="brand-media brand-default" src="/brand-default.svg?v=3" alt="' . $alt0 . '" width="38" height="38">';
+    }
     $v = max($a ? (int)@filemtime($a) : 0, $b ? (int)@filemtime($b) : 0);
     $alt = htmlspecialchars($site_name, ENT_QUOTES, 'UTF-8');
     $extA = $a ? strtolower(pathinfo($a, PATHINFO_EXTENSION)) : '';
@@ -62,11 +68,33 @@ route('/brand-media/<slot>', function ($slot) {
     return $r;
 });
 
+/* الشعار المتحرك الافتراضي: SVG شفاف (يتشكّل بـ 5 ثوانٍ) + نسخة فيديو webm بقناة ألفا قابلة للرفع من الأدمن */
+foreach (['svg' => 'image/svg+xml', 'webm' => 'video/webm'] as $_bx => $_bm) {
+    route('/brand-default.' . $_bx, function () use ($_bx, $_bm) {
+        $f = APP_DIR . '/templates/brand_default.' . $_bx;
+        if (!is_file($f)) return new Response('', 404);
+        $r = send_file($f, $_bm, false, null, 604800);
+        $r->headers['X-Content-Type-Options'] = 'nosniff';
+        $r->headers['Content-Security-Policy'] = "default-src 'none'; style-src 'unsafe-inline'; sandbox";
+        if ($_bx === 'webm' && isset($_GET['dl'])) $r->headers['Content-Disposition'] = 'attachment; filename="fc_logo_animation.webm"';
+        return $r;
+    });
+}
+
+route('/api/admin/brand-mode', function () {
+    if (!_admin_check()) return jsonify(['ok' => false], 403);
+    $m = (string)py_or(dget(req_data(), 'mode'), '');
+    if (!in_array($m, ['default', 'name'], true)) return jsonify(['ok' => false, 'msg' => 'وضع غير صالح']);
+    set_setting('brand_mode', $m);
+    audit_log('brand_mode', ['mode' => $m]);
+    return jsonify(['ok' => true, 'mode' => $m]);
+}, ['POST']);
+
 route('/api/admin/brand-media', function () {
     if (!_admin_check()) return jsonify(['ok' => false], 403);
     $out = [];
     foreach (['a', 'b'] as $slot) { $f = brand_file($slot); $out[$slot] = $f ? ['ext' => strtolower(pathinfo($f, PATHINFO_EXTENSION)), 'size' => (int)@filesize($f)] : null; }
-    return jsonify(['ok' => true, 'media' => $out, 'v' => time()]);
+    return jsonify(['ok' => true, 'media' => $out, 'v' => time(), 'mode' => brand_mode()]);
 });
 
 route('/api/admin/upload-brand-media', function () {

@@ -26,7 +26,7 @@ route('/dev-avatar', function () {
     $f = dev_avatar_file();
     if (!$f) return new Response('', 404);
     $ext = strtolower(pathinfo($f, PATHINFO_EXTENSION));
-    $r = send_file($f, ['png' => 'image/png', 'jpg' => 'image/jpeg', 'webp' => 'image/webp', 'gif' => 'image/gif'][$ext] ?? 'application/octet-stream', false, null, 3600);
+    $r = send_file($f, ['png' => 'image/png', 'jpg' => 'image/jpeg', 'webp' => 'image/webp', 'gif' => 'image/gif'][$ext] ?? 'application/octet-stream', false, null, 604800);
     $r->headers['X-Content-Type-Options'] = 'nosniff';
     return $r;
 });

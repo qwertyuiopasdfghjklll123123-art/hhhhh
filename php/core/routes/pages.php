@@ -188,7 +188,28 @@ $_serve_pwa_icon = function () {
     $custom_path = PWA_ICON_DIR . "/icon-$size.png";
     if (file_exists($custom_path)) {
         $resp = send_file($custom_path, 'image/png');
-        $resp->headers['Cache-Control'] = 'public, max-age=3600';
+        $resp->headers['Cache-Control'] = 'public, max-age=604800';
+        return $resp;
+    }
+    // الأيقونة الافتراضية: شعار FC المرفق (يُصغَّر بـ GD ويُخزَّن مؤقتاً)، وإلا نُرجع الأصل 1024
+    $src = APP_DIR . '/templates/pwa_default_1024.png';
+    if (is_file($src)) {
+        $cache = DATA_DIR . "/cache/pwa_default_$size.png";
+        if (!is_file($cache) || filemtime($cache) < filemtime($src)) {
+            if (function_exists('imagecreatefrompng')) {
+                $im = @imagecreatefrompng($src);
+                if ($im) {
+                    $dst = imagecreatetruecolor($size, $size);
+                    imagealphablending($dst, false); imagesavealpha($dst, true);
+                    imagefill($dst, 0, 0, imagecolorallocatealpha($dst, 0, 0, 0, 127));
+                    imagecopyresampled($dst, $im, 0, 0, 0, 0, $size, $size, imagesx($im), imagesy($im));
+                    @imagepng($dst, $cache, 9);
+                }
+            }
+        }
+        $f = is_file($cache) ? $cache : $src;
+        $resp = send_file($f, 'image/png');
+        $resp->headers['Cache-Control'] = 'public, max-age=604800';
         return $resp;
     }
     $svg = pwa_icon_svg($size);
