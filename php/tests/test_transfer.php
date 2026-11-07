@@ -150,6 +150,25 @@ if (extension_loaded('pdo_sqlite')) {
     throws(fn() => transfer_analyze($nd, 'other.db', 7), 'foreign sqlite db rejected', 'ليس قاعدة موقع');
 } else { echo "(pdo_sqlite غير متوفر: تخطّي اختبارات SQLite)\n"; }
 
+/* ---------- ملف JSON الشامل (format=fastcrand-db) ---------- */
+function dbjson(array $o): string { return json_encode(array_merge(['format' => 'fastcrand-db', 'version' => 1], $o), JSON_UNESCAPED_UNICODE); }
+function tmpf(string $c): string { $f = tempnam(sys_get_temp_dir(), 'tfj'); file_put_contents($f, $c); return $f; }
+$good = ['tables' => ['users' => ['columns' => ['id', 'email', 'is_admin'], 'rows' => [[1, 'a@x.com', 1], [2, 'b@x.com', 0]]], 'site_settings' => ['columns' => ['key', 'value'], 'rows' => [['k', 'v']]], 'foreign' => ['columns' => ['x'], 'rows' => [[1]]]],
+         'files' => ['fc_vapid.json' => json_decode($vapid, true), 'fc_push_subs.json' => [], 'evil.php' => ['x' => 1], 'fc_services_cache.json' => ['nope' => 1]]];
+$m6 = transfer_analyze(tmpf(dbjson($good)), 'fastcrand_db.json', 7);
+$types = array_column($m6['components'], 'type');
+ok($types[0] === 'dbjson' && in_array('vapid', $types, true) && in_array('push_subs', $types, true), 'dbjson + embedded json components', $types);
+ok($m6['components'][0]['tables']['users']['rows'] === 2 && $m6['components'][0]['unknown_tables'] === ['foreign'], 'dbjson summary', $m6['components'][0]);
+ok(count(array_filter($m6['warnings'], fn($w) => strpos($w, 'evil.php') !== false)) === 1 && count(array_filter($m6['warnings'], fn($w) => strpos($w, 'fc_services_cache') !== false)) === 1, 'unknown/invalid embedded files only warn', $m6['warnings']);
+throws(fn() => transfer_analyze(tmpf(dbjson(['tables' => ['users' => ['columns' => ['id', 'email'], 'rows' => [[1]]]]])), 'x.json', 7), 'row width mismatch rejected', 'عدد أعمدة');
+throws(fn() => transfer_analyze(tmpf(dbjson(['tables' => ['logs' => ['columns' => ['x'], 'rows' => [[1]]]]])), 'x.json', 7), 'dbjson without users/site_settings rejected', 'users/site_settings');
+throws(fn() => transfer_analyze(tmpf(dbjson(['version' => 9, 'tables' => ['users' => ['columns' => ['id'], 'rows' => []]]])), 'x.json', 7), 'newer format version rejected', 'أحدث');
+throws(fn() => transfer_analyze(tmpf('{"format":"fastcrand-db","tables":'), 'x.json', 7), 'truncated dbjson rejected', 'تالف');
+$mz = transfer_analyze(mkzip(['all.json' => dbjson($good)]), 'wrapped.zip', 7);
+ok(array_column($mz['components'], 'type')[0] === 'dbjson', 'dbjson inside a zip (any .json name)', array_column($mz['components'], 'type'));
+$mz2 = transfer_analyze(mkzip(['notes.json' => '{"a":1}', 'fc_vapid.json' => $vapid]), 'z2.zip', 7);
+ok(array_column($mz2['components'], 'type') === ['vapid'] && count($mz2['warnings']) === 1, 'other unknown json in zip still ignored', $mz2);
+
 // قائمة الجداول الثابتة تطابق sql/database.sql بالضبط
 $fromSql = [];
 SqlSplitter::eachStatement(__DIR__ . '/../sql/database.sql', function ($st) use (&$fromSql) { if (preg_match('/^CREATE TABLE IF NOT EXISTS `(\w+)`/', $st, $m) && $m[1] !== 'user_sessions') $fromSql[] = $m[1]; });   // user_sessions: جلسات أجهزة مرتبطة بكوكيات هذا الموقع، لا تدخل في النسخ/الاستيراد

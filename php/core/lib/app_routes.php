@@ -45,7 +45,8 @@ function app_sections(): array {
         'custom-services'   => ['adminCSPage',           'ov', 'admin', $add('adminCSPage') . ';loadAdminCS()'],
         'service-orders'    => ['adminCOPage',           'ov', 'admin', $add('adminCOPage') . ';loadAdminCO()'],
         'filters'           => ['adminFilterPage',       'ov', 'admin', $add('adminFilterPage') . ';loadAdminFilters()'],
-        'services'          => ['adminSvcMgmtPage',      'ov', 'admin', $add('adminSvcMgmtPage') . ';loadSvcMgmt()'],
+        'services'          => ['adminSvcCtlPage',       'ov', 'admin', $add('adminSvcCtlPage') . ';loadSvcCtl()'],
+        'services-advanced' => ['adminSvcMgmtPage',      'ov', 'admin', $add('adminSvcMgmtPage') . ';loadSvcMgmt()'],
         'levels'            => ['adminLevelsPage',       'ov', 'admin', $add('adminLevelsPage') . ';loadAdminLevels()'],
         'auto-refill'       => ['adminRefillPage',       'ov', 'admin', $add('adminRefillPage') . ';loadAdminRefill()'],
         'order-lookup'      => ['adminOrderLookupPage',  'ov', 'admin', $add('adminOrderLookupPage')],
@@ -94,6 +95,6 @@ function app_router_script(bool $isAdmin): string {
     }
     $json = json_encode($secs, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_HEX_TAG | JSON_HEX_AMP);
     $js = (string)@file_get_contents(APP_DIR . '/templates/dash_router.js');
-    $tools = $isAdmin ? (string)@file_get_contents(APP_DIR . '/templates/dash_admin_tools.js') : '';   // صفحتا الاستيراد/التصدير والأمان: للأدمن فقط
+    $tools = $isAdmin ? (string)@file_get_contents(APP_DIR . '/templates/dash_admin_tools.js') . "\n" . (string)@file_get_contents(APP_DIR . '/templates/dash_svcctl.js') : '';   // صفحتا الاستيراد/التصدير والأمان: للأدمن فقط
     return '<script>window.__FC_ADMIN=' . ($isAdmin ? 'true' : 'false') . ';window.__FC_SECTIONS=' . $json . ";\n" . $tools . "\n" . $js . "\n</script>";
 }

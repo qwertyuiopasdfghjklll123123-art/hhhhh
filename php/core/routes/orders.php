@@ -106,10 +106,8 @@ route('/api/order', function () {
             if ($__msg !== null) return jsonify(['ok' => false, 'msg' => $__msg]);
         }
     }
-    $_lv_disc = _get_user_level_discount($uid);
-    if ($_lv_disc > 0 && $site_price > 0) {
-        $site_price = py_round($site_price * (1 - $_lv_disc / 100.0), 4);
-    }
+    // خصم المستوى تحسبه الواجهة أصلاً ضمن `price` (ويتحقق منه _strict_price_check): تطبيقه هنا ثانيةً كان يمنح المستخدم خصماً مضاعفاً
+    // (نسخة بايثون الأصلية تكرّره؛ صُحّح هنا لأنه خسارة مالية مباشرة).
     try {
         foreach (get_smm_services() ?: [] as $_sc) {
             if (py_str(dget($_sc, 'service', '')) === py_str($service)) {
@@ -139,18 +137,7 @@ route('/api/order', function () {
     if (!py_truthy($user['is_admin']) && $site_price > 0 && $bal < $site_price) {
         return jsonify(['ok' => false, 'msg' => 'رصيد غير كافي. المطلوب: $' . py_fmt($site_price) . ' — رصيدك: $' . py_fmt($bal)]);
     }
-    $_refill_days = '';
-    try {
-        foreach (get_smm_services() ?: [] as $_sv) {
-            if (py_str(dget($_sv, 'service', '')) === py_str($service)) {
-                $_rf = py_str(dget($_sv, 'refill', ''));
-                if (py_truthy($_rf) && !in_array($_rf, ['0', 'False', 'false'], true)) {
-                    $_refill_days = $_rf;
-                }
-                break;
-            }
-        }
-    } catch (Throwable $e) {}
+    $_refill_days = ''; $_cancel_ok = 0;
     if (!py_truthy($user['is_admin']) && $site_price > 0) {
         // خصم الرصيد ذرّياً (يمنع الإنفاق المزدوج عند طلبين متزامنين) ثم commit قبل نداءات المزوّد البطيئة
         $cur = $conn->execute('UPDATE users SET balance=balance-? WHERE id=? AND balance>=?', [$site_price, $uid, $site_price]);
@@ -161,6 +148,13 @@ route('/api/order', function () {
         $conn->commit();
     }
     [$_api_url, $_api_key, $_prov_id] = _find_service_provider($service);
+    // كشف تلقائي لدعم التعويض/الإلغاء من حقلي refill/cancel عند مزوّد الخدمة (يُحفظان مع الطلب)
+    $_fl = svc_flags_for($service, $_prov_id);
+    if ($_fl) {
+        $_rf = $_fl['refill_raw'];
+        if (py_truthy($_rf) && !in_array($_rf, ['0', 'False', 'false'], true)) $_refill_days = $_rf;
+        $_cancel_ok = $_fl['cancel'] ? 1 : 0;
+    }
     $provider_has_balance = false;
     try {
         $_br = requests_post($_api_url, ['data' => ['key' => $_api_key, 'action' => 'balance'], 'timeout' => 10]);
@@ -193,8 +187,8 @@ route('/api/order', function () {
             if (array_key_exists('order', $result)) {
                 $provider_charge = py_float(dget($result, 'charge', 0));
                 $_did = _next_display_id();
-                $conn->execute('INSERT INTO orders(user_id,order_id,service,service_name,link,quantity,charge,site_charge,status,refill_days,display_id,provider_id) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)',
-                    [$uid, py_str($result['order']), sql_str($service), sql_str($svc_name), sql_str($link), $quantity, py_str($provider_charge), $site_price, 'Processing', $_refill_days, $_did, $_prov_id]);
+                $conn->execute('INSERT INTO orders(user_id,order_id,service,service_name,link,quantity,charge,site_charge,status,refill_days,display_id,provider_id,cancel_ok) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)',
+                    [$uid, py_str($result['order']), sql_str($service), sql_str($svc_name), sql_str($link), $quantity, py_str($provider_charge), $site_price, 'Processing', $_refill_days, $_did, $_prov_id, $_cancel_ok]);
                 $conn->commit();
                 $new_bal = $conn->execute('SELECT balance FROM users WHERE id=?', [$uid])->fetchone()['balance'];
                 try { _add_referral_commission($uid, py_str($result['order']), $provider_charge); } catch (Throwable $e) {}
@@ -237,8 +231,8 @@ route('/api/order', function () {
 
     if (!$provider_has_balance) {
         $_did = _next_display_id();
-        $conn->execute('INSERT INTO orders(user_id,order_id,service,service_name,link,quantity,charge,site_charge,status,refill_days,display_id,provider_id,comments) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)',
-            [$uid, '', sql_str($service), sql_str($svc_name), sql_str($link), $quantity, '0', $site_price, 'Queued', $_refill_days, $_did, $_prov_id, py_or($comments, '')]);
+        $conn->execute('INSERT INTO orders(user_id,order_id,service,service_name,link,quantity,charge,site_charge,status,refill_days,display_id,provider_id,comments,cancel_ok) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
+            [$uid, '', sql_str($service), sql_str($svc_name), sql_str($link), $quantity, '0', $site_price, 'Queued', $_refill_days, $_did, $_prov_id, py_or($comments, ''), $_cancel_ok]);
         $conn->commit();
         $new_bal = $conn->execute('SELECT balance FROM users WHERE id=?', [$uid])->fetchone()['balance'];
         push_user_notif($uid, 'order', 'تم استلام طلبك بنجاح', py_str($svc_name) . ' — طلبك قيد التنفيذ وسيتم معالجته قريباً', 'order');
@@ -273,7 +267,7 @@ route('/api/orders', function () {
             'refill_days' => $r->has('refill_days') ? $r['refill_days'] : '',
             'created_at' => py_or($r['created_at'], 0),
             'last_refill_at' => $r->has('last_refill_at') ? $r['last_refill_at'] : 0,
-        ];
+        ] + order_caps($r);                       // can_refill/refill_state/refill_wait/can_cancel/cancel_state (كشف تلقائي)
     }
     return jsonify(['ok' => true, 'orders' => $orders]);
 });
@@ -367,14 +361,14 @@ route('/api/order-status/<order_id>', function ($order_id) {
                 $qty = py_int(py_or($old['quantity'], 0));
                 $remains = py_int(dget($result, 'remains', 0));
                 if ($new_status === 'Canceled' && $site_charge > 0) {
-                    $conn->execute('UPDATE users SET balance=balance+? WHERE id=?', [$site_charge, $uid]);
-                    $conn->execute('UPDATE orders SET refunded=1 WHERE order_id=? AND user_id=?', [$provider_oid, $uid]);
-                    push_user_notif($uid, 'system', 'تم استرجاع $' . py_fmt($site_charge), "طلب #$order_id تم إلغاؤه — تم إرجاع المبلغ لرصيدك", 'wallet', 'wallet:');
+                    if (order_claim_refund($conn, $old['id'])) {
+                        $conn->execute('UPDATE users SET balance=balance+? WHERE id=?', [$site_charge, $uid]);
+                        push_user_notif($uid, 'system', 'تم استرجاع $' . py_fmt($site_charge), "طلب #$order_id تم إلغاؤه — تم إرجاع المبلغ لرصيدك", 'wallet', 'wallet:');
+                    }
                 } elseif ($new_status === 'Partial' && $site_charge > 0 && $qty > 0 && $remains > 0) {
                     $refund_amount = py_round($site_charge * ($remains / $qty), 2);
-                    if ($refund_amount > 0) {
+                    if ($refund_amount > 0 && order_claim_refund($conn, $old['id'])) {
                         $conn->execute('UPDATE users SET balance=balance+? WHERE id=?', [$refund_amount, $uid]);
-                        $conn->execute('UPDATE orders SET refunded=1 WHERE order_id=? AND user_id=?', [$provider_oid, $uid]);
                         push_user_notif($uid, 'system', 'استرجاع جزئي $' . py_fmt($refund_amount), "طلب #$order_id مكتمل جزئياً — تم إرجاع الفرق", 'wallet', 'wallet:');
                     }
                 }
@@ -430,7 +424,8 @@ route('/api/refill', function () {
         try { $_ord_pid = py_int(py_or($o['provider_id'], 0)); } catch (Throwable $e) { $_ord_pid = 0; }
         if ($_ord_pid) { [$_api_url, $_api_key, $_prov_id] = get_provider_api($_ord_pid); }
         else { [$_api_url, $_api_key, $_prov_id] = get_provider_api(); }
-        $r = requests_post($_api_url, ['data' => ['key' => $_api_key, 'action' => 'refill', 'order' => py_str($order_id)], 'timeout' => 15]);
+        if (!py_truthy($o['order_id'])) return jsonify(['ok' => false, 'msg' => 'الطلب لم يصل للمزوّد بعد']);
+        $r = requests_post($_api_url, ['data' => ['key' => $_api_key, 'action' => 'refill', 'order' => py_str($o['order_id'])], 'timeout' => 15]);   // رقم الطلب عند المزوّد (لا رقم العرض)
         $res0 = $r->json();
         $res = py_dict($res0);
         if (array_key_exists('refill', $res)) {
@@ -441,6 +436,73 @@ route('/api/refill', function () {
         return jsonify(['ok' => false, 'msg' => dget($res, 'error', py_repr($res0))]);
     } catch (Throwable $e) {
         return jsonify(['ok' => false, 'msg' => $e->getMessage()]);
+    }
+}, ['POST']);
+
+/* '/api/cancel-order' — إلغاء طلب (يظهر زره بجانب الطلب إن كانت خدمته تدعم الإلغاء عند المزوّد) */
+route('/api/cancel-order', function () {
+    if (!array_key_exists('user_id', $_SESSION)) return jsonify(['ok' => false, 'msg' => 'يرجى تسجيل الدخول'], 401);
+    $uid = (int)$_SESSION['user_id'];
+    $data = req_data_strict();
+    $order_id = py_str(dget($data, 'order_id', ''));
+    if ($order_id === '') return jsonify(['ok' => false, 'msg' => 'order_id مطلوب']);
+    [$okRate, $wait] = rate_limit_hit('cancel|' . $uid, 20, 600);
+    if (!$okRate) return jsonify(['ok' => false, 'msg' => 'محاولات كثيرة، انتظر قليلاً'], 429);
+    $conn = get_db();
+    $o = $conn->execute('SELECT * FROM orders WHERE display_id=? AND user_id=?', [$order_id, $uid])->fetchone();
+    if (!$o) $o = $conn->execute('SELECT * FROM orders WHERE order_id=? AND user_id=?', [$order_id, $uid])->fetchone();
+    if (!$o) return jsonify(['ok' => false, 'msg' => 'الطلب غير موجود']);
+    $caps = order_caps($o);
+    $disp = py_or(py_or($o['display_id'], $o['order_id']), (string)$o['id']);
+    if (!$caps['can_cancel']) {
+        $why = ['unsupported' => 'هذه الخدمة لا تدعم الإلغاء', 'requested' => 'طلب الإلغاء قيد المعالجة عند المزوّد، انتظر قليلاً', 'none' => 'لا يمكن إلغاء هذا الطلب في حالته الحالية'][$caps['cancel_state']] ?? 'لا يمكن إلغاء هذا الطلب';
+        return jsonify(['ok' => false, 'msg' => $why]);
+    }
+    $site = py_float(py_or($o['site_charge'], 0));
+    if ($caps['cancel_state'] === 'local') {
+        // لم يُرسَل للمزوّد بعد: إلغاء محلي فوري + استرجاع كامل (UPDATE مشروط يمنع التكرار)
+        $cur = $conn->execute("UPDATE orders SET status='Canceled' WHERE id=? AND status='Queued' AND order_id='' AND refunded=0", [$o['id']]);
+        if ($cur->rowcount !== 1) { $conn->rollback(); return jsonify(['ok' => false, 'msg' => 'تغيّرت حالة الطلب، حدّث الصفحة']); }
+        if ($site > 0 && order_claim_refund($conn, $o['id'])) {
+            $conn->execute('UPDATE users SET balance=balance+? WHERE id=?', [$site, $uid]);
+            push_user_notif($uid, 'system', 'تم استرجاع $' . py_fmt($site), "طلب #$disp أُلغي — تم إرجاع المبلغ لرصيدك", 'wallet', 'wallet:');
+        }
+        $conn->commit();
+        $bal = $conn->execute('SELECT balance FROM users WHERE id=?', [$uid])->fetchone()['balance'];
+        return jsonify(['ok' => true, 'msg' => 'تم إلغاء الطلب وإرجاع المبلغ لرصيدك', 'status' => 'Canceled', 'balance' => py_round($bal, 2)]);
+    }
+    try {
+        try { $pid = py_int(py_or($o['provider_id'], 0)); } catch (Throwable $e) { $pid = 0; }
+        [$api_url, $api_key] = $pid ? get_provider_api($pid) : get_provider_api();
+        $r = requests_post($api_url, ['data' => ['key' => $api_key, 'action' => 'cancel', 'orders' => py_str($o['order_id'])], 'timeout' => 15]);
+        $res = $r->json();
+        $entry = (is_array($res) && is_list_array($res) && $res) ? $res[0] : $res;           // القياسي: [{"order":1,"cancel":1}] أو {"order":1,"cancel":{"error":".."}}
+        $c = is_array($entry) ? ($entry['cancel'] ?? null) : null;
+        if (is_array($c) && isset($c['error'])) return jsonify(['ok' => false, 'msg' => 'رفض المزوّد الإلغاء: ' . mb_substr(py_str($c['error']), 0, 160, 'UTF-8')]);
+        if (is_array($entry) && isset($entry['error'])) return jsonify(['ok' => false, 'msg' => 'رفض المزوّد الإلغاء: ' . mb_substr(py_str($entry['error']), 0, 160, 'UTF-8')]);
+        if ($c === null || $c === false || $c === 0 || $c === '0') return jsonify(['ok' => false, 'msg' => 'لم يقبل المزوّد طلب الإلغاء']);
+        $conn->execute('UPDATE orders SET cancel_req_at=? WHERE id=?', [microtime(true), $o['id']]);
+        $conn->commit();
+        // يعيد المزوّد عادةً الحالة Canceled فوراً: نزامنها الآن ليُسترجع المبلغ مباشرة (وإلا يتولاها فحص الكرون)
+        $status = 'قيد المعالجة';
+        try {
+            $sr = requests_post($api_url, ['data' => ['key' => $api_key, 'action' => 'status', 'order' => py_str($o['order_id'])], 'timeout' => 15]);
+            $sj = $sr->json();
+            if (is_array($sj) && !is_list_array($sj) && dget($sj, 'status', '') === 'Canceled') {
+                $conn->execute("UPDATE orders SET status='Canceled', charge=? WHERE id=?", [sql_str(dget($sj, 'charge', '0')), $o['id']]);
+                if ($site > 0 && order_claim_refund($conn, $o['id'])) {
+                    $conn->execute('UPDATE users SET balance=balance+? WHERE id=?', [$site, $uid]);
+                    push_user_notif($uid, 'system', 'تم استرجاع $' . py_fmt($site), "طلب #$disp أُلغي — تم إرجاع المبلغ لرصيدك", 'wallet', 'wallet:');
+                }
+                $conn->commit();
+                $status = 'Canceled';
+            }
+        } catch (Throwable $e) {}
+        audit_log('order_cancel', ['order' => $disp, 'status' => $status]);
+        return jsonify(['ok' => true, 'msg' => $status === 'Canceled' ? 'تم إلغاء الطلب وإرجاع المبلغ لرصيدك' : 'أُرسل طلب الإلغاء للمزوّد، وسيُرجَع المبلغ تلقائياً عند تأكيده', 'status' => $status]);
+    } catch (Throwable $e) {
+        log_app_error('HANDLED', 'cancel-order: ' . $e->getMessage(), $e->getFile(), $e->getLine());
+        return jsonify(['ok' => false, 'msg' => 'تعذّر الاتصال بالمزوّد، حاول لاحقاً']);
     }
 }, ['POST']);
 
@@ -632,13 +694,14 @@ route('/api/v2', function () {
             if (!(is_array($rec) && !is_list_array($rec) && array_key_exists('order', $rec))) return jsonify(['error' => 'provider_error'], 500);
             $_rf = py_str(dget($svc, 'refill', ''));
             if (in_array($_rf, ['0', 'False', 'false'], true)) $_rf = '';
+            $_cok = svc_flag(dget($svc, 'cancel', false)) ? 1 : 0;
             $conn3 = get_db();
             if (!py_truthy($user['is_admin'])) {
                 $conn3->execute('UPDATE users SET balance=balance-? WHERE id=?', [$cost, $uid]);
             }
             $_did = _next_display_id();
-            $conn3->execute('INSERT INTO orders(user_id,order_id,service,service_name,link,quantity,charge,site_charge,status,refill_days,display_id,provider_id) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)',
-                [$uid, py_str($rec['order']), $sid, sql_str(dget($svc, 'name', '')), $link, $qty, py_str(dget($rec, 'charge', 0)), $cost, 'Processing', $_rf, $_did, $_prov_id]);
+            $conn3->execute('INSERT INTO orders(user_id,order_id,service,service_name,link,quantity,charge,site_charge,status,refill_days,display_id,provider_id,cancel_ok) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)',
+                [$uid, py_str($rec['order']), $sid, sql_str(dget($svc, 'name', '')), $link, $qty, py_str(dget($rec, 'charge', 0)), $cost, 'Processing', $_rf, $_did, $_prov_id, $_cok]);
             $conn3->commit();
             $new_bal = $conn3->execute('SELECT balance FROM users WHERE id=?', [$uid])->fetchone()['balance'];
             return jsonify(['order' => $_did, 'cost' => $cost, 'balance' => py_round($new_bal, 4)]);

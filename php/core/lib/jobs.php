@@ -276,6 +276,9 @@ function job_process_queued(): void {
             $cur_bal = $bal_for($ord_pid);
             if ($cur_bal < 0) continue;
             if ($cur_bal <= 0) continue;
+            // قفل الصف قبل الإرسال: لو ألغاه المستخدم (إلغاء محلي + استرجاع) أثناء الدورة لا نُرسله للمزوّد
+            $fresh = $conn->execute('SELECT status, order_id FROM orders WHERE id=? FOR UPDATE', [$order['id']])->fetchone();
+            if (!$fresh || $fresh['status'] !== 'Queued' || py_truthy($fresh['order_id'])) { $conn->rollback(); continue; }
             [$api_url, $api_key, $_prov_id] = $ord_pid ? get_provider_api($ord_pid) : get_provider_api();
             $payload = ['key' => $api_key, 'action' => 'add', 'service' => $order['service'], 'link' => $order['link'], 'quantity' => py_int($order['quantity'])];
             try {
@@ -325,6 +328,7 @@ function job_process_queued(): void {
                     } catch (Throwable $e) { $conn->rollback(); }
                 }
             }
+            $conn->commit();                       // يحرّر قفل الصف في المسارات التي لم تكتب شيئاً
         } catch (Throwable $e) {
             $conn->rollback();
             job_log('[QUEUE] Exception while processing order: ' . $e->getMessage());
@@ -366,14 +370,14 @@ function job_check_orders(): void {
             $remains = py_int(dget($result, 'remains', 0));
             $oid = py_or(py_or($order['display_id'], $order['order_id']), $order['id']);
             if ($new_status === 'Canceled' && $site_charge > 0 && !py_truthy($order['refunded'])) {
-                $conn->execute('UPDATE users SET balance=balance+? WHERE id=?', [$site_charge, $uid]);
-                $conn->execute('UPDATE orders SET refunded=1 WHERE id=?', [$order['id']]);
-                $notifs[] = [$uid, 'system', 'استرجاع $' . py_fmt($site_charge, 2), 'طلب #' . py_str($oid) . ' تم إلغاؤه تلقائياً — تم إرجاع المبلغ', 'wallet', 'wallet:'];
+                if (order_claim_refund($conn, $order['id'])) {
+                    $conn->execute('UPDATE users SET balance=balance+? WHERE id=?', [$site_charge, $uid]);
+                    $notifs[] = [$uid, 'system', 'استرجاع $' . py_fmt($site_charge, 2), 'طلب #' . py_str($oid) . ' تم إلغاؤه تلقائياً — تم إرجاع المبلغ', 'wallet', 'wallet:'];
+                }
             } elseif ($new_status === 'Partial' && $site_charge > 0 && $qty > 0 && $remains > 0 && !py_truthy($order['refunded'])) {
                 $refund = py_round($site_charge * ($remains / $qty), 2);
-                if ($refund > 0) {
+                if ($refund > 0 && order_claim_refund($conn, $order['id'])) {
                     $conn->execute('UPDATE users SET balance=balance+? WHERE id=?', [$refund, $uid]);
-                    $conn->execute('UPDATE orders SET refunded=1 WHERE id=?', [$order['id']]);
                     $notifs[] = [$uid, 'system', 'استرجاع جزئي $' . py_fmt($refund, 2), 'طلب #' . py_str($oid) . ' جزئي — تم إرجاع المتبقي', 'wallet', ''];
                 }
             } elseif ($new_status === 'Completed' && $order['status'] !== 'Completed') {

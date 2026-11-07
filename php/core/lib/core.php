@@ -96,6 +96,12 @@ function _find_service_provider($service_id): array {
     return get_provider_api();
 }
 
+/** يحجز استرجاع طلب ذرّياً (UPDATE مشروط): يمنع إرجاع المبلغ مرتين عند تزامن فحص حالة المستخدم مع مهمة الكرون أو الأدمن */
+function order_claim_refund($conn, $row_id): bool {
+    $cur = $conn->execute('UPDATE orders SET refunded=1 WHERE id=? AND refunded=0', [$row_id]);
+    return $cur->rowcount === 1;
+}
+
 /* ---- أرقام العرض للطلبات  (app.py:1368-1403) ---- */
 
 const DISPLAY_ID_START = 2700;

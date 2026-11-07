@@ -8,6 +8,7 @@
  *   • ملف .sql مفرد (نسخة هذا الموقع أو تصدير phpMyAdmin/mysqldump) — يُفحص بصرامة: INSERT بقيم حرفية فقط
  *   • ملف SQLite .db مفرد (قاعدة موقع بايثون)
  *   • ملفات JSON مفردة: fc_vapid.json / fc_push_subs.json / fc_services_cache.json
+ *   • ملف JSON واحد شامل (format=fastcrand-db): كل الجداول + ملفات JSON الثلاثة داخل ملف واحد (أنسب للنقل بين الأنظمة)
  *
  * سلامة الاستيراد:
  *   1) لا يُنفَّذ أي CREATE/DROP/ALTER من الملف المرفوع؛ نستخرج منه صفوف INSERT فقط إلى جداول مؤقتة __imp_<جدول>
@@ -30,6 +31,8 @@ const TRANSFER_MAX_ZIP_ENTRIES = 200;
 const TRANSFER_MAX_ENTRY_BYTES = 1073741824;       // 1GB لكل ملف بعد فك الضغط
 const TRANSFER_MAX_TOTAL_BYTES = 2147483648;       // 2GB للمجموع
 const TRANSFER_JOB_TTL = 7200;
+const TRANSFER_DBJSON_FORMAT = 'fastcrand-db';
+const TRANSFER_DBJSON_MAX_BYTES = 536870912;     // 512MB لملف JSON الشامل
 
 /* ------------------------------ مجلدات المهام ------------------------------ */
 
@@ -306,11 +309,13 @@ function tf_register_component(string $file, string $kind, string $name, string 
         return;
     }
     if ($kind === 'json') {
+        $headTxt = (string)file_get_contents($file, false, null, 0, 400);
+        if (preg_match('/"format"\s*:\s*"' . TRANSFER_DBJSON_FORMAT . '"/', $headTxt)) { tf_register_dbjson($file, $base, $size, $dir, $meta); return; }
         $raw = (string)file_get_contents($file, false, null, 0, 20971521);
         if (strlen($raw) > 20971520) throw new TransferError('ملف JSON أكبر من 20MB');
         $d = json_decode(ltrim($raw, "\xEF\xBB\xBF"), true);
         $type = json_last_error() === JSON_ERROR_NONE ? tf_classify_json($d) : null;
-        if ($type === null) throw new TransferError('ملف JSON غير معروف: ليس fc_vapid.json ولا fc_push_subs.json ولا fc_services_cache.json');
+        if ($type === null) throw new TransferError('ملف JSON غير معروف: ليس ملف قاعدة fastcrand الشامل ولا fc_vapid.json ولا fc_push_subs.json ولا fc_services_cache.json');
         $info = $type === 'push_subs' ? ['users' => count($d), 'subscriptions' => array_sum(array_map(fn($x) => is_array($x) && is_list_array($x) ? count($x) : 1, $d))]
               : ($type === 'services_cache' ? ['services' => count($d['data'])] : []);
         $meta['components'][] = ['type' => $type, 'file' => basename($file), 'name' => $base, 'size' => $size] + $info;
@@ -322,6 +327,40 @@ function tf_register_component(string $file, string $kind, string $name, string 
     finally { fclose($fp); }
     if (!$scan['tables']) throw new TransferError('ملف SQL لا يحوي أي INSERT لجداول الموقع المعروفة');
     $meta['components'][] = ['type' => 'sql', 'file' => basename($file), 'name' => $base, 'size' => $size, 'tables' => $scan['tables'], 'unknown_tables' => $scan['unknown_tables'], 'ignored' => $scan['ignored']];
+}
+
+/** يسجّل ملف JSON الشامل (format=fastcrand-db): جداوله مكوّن dbjson، وملفات JSON المضمّنة مكوّنات مستقلة (تُستعاد مع الخيار نفسه) */
+function tf_register_dbjson(string $file, string $base, int $size, string $dir, array &$meta): void {
+    if ($size > TRANSFER_DBJSON_MAX_BYTES) throw new TransferError('ملف JSON الشامل أكبر من 512MB');
+    @ini_set('memory_limit', '1536M');
+    $d = json_decode(ltrim((string)file_get_contents($file), "\xEF\xBB\xBF"), true);
+    if (!is_array($d) || ($d['format'] ?? '') !== TRANSFER_DBJSON_FORMAT || !isset($d['tables']) || !is_array($d['tables'])) throw new TransferError('ملف JSON الشامل تالف أو ليس بصيغة fastcrand-db');
+    if ((int)($d['version'] ?? 1) > 1) throw new TransferError('نسخة صيغة الملف أحدث مما يدعمه هذا الموقع');
+    $tables = []; $unknown = [];
+    foreach ($d['tables'] as $t => $def) {
+        if (!is_array($def) || !isset($def['columns'], $def['rows']) || !is_array($def['columns']) || !is_array($def['rows'])) throw new TransferError("جدول «" . mb_substr((string)$t, 0, 40, 'UTF-8') . "» بصيغة غير صالحة داخل الملف");
+        if (in_array($t, TRANSFER_TABLES, true)) {
+            $w = count($def['columns']);
+            foreach ($def['rows'] as $r) if (!is_array($r) || count($r) !== $w) throw new TransferError("صف بعدد أعمدة مخالف داخل جدول «{$t}»");
+            $tables[$t] = ['rows' => count($def['rows'])];
+        } else $unknown[] = (string)$t;
+    }
+    if (!isset($tables['users']) && !isset($tables['site_settings'])) throw new TransferError('الملف لا يحوي جدولي users/site_settings — ليس قاعدة موقع fastcrand');
+    $meta['components'][] = ['type' => 'dbjson', 'file' => basename($file), 'name' => $base, 'size' => $size, 'tables' => $tables, 'unknown_tables' => $unknown,
+                             'created' => mb_substr((string)($d['created'] ?? ''), 0, 40, 'UTF-8'), 'origin' => mb_substr((string)($d['origin'] ?? ''), 0, 60, 'UTF-8')];
+    // الملفات المضمّنة → مكوّنات مستقلة بعد فحصها كل حسب نوعها
+    $n = 0;
+    foreach (is_array($d['files'] ?? null) ? $d['files'] : [] as $fname => $content) {
+        $lf = strtolower((string)$fname);
+        if (!isset(TRANSFER_JSON_FILES[$lf])) { $meta['warnings'][] = 'تم تجاهل ملف مضمّن غير معروف: ' . mb_substr((string)$fname, 0, 40, 'UTF-8'); continue; }
+        $type = tf_classify_json($content);
+        if ($type === null || $type !== TRANSFER_JSON_FILES[$lf]) { $meta['warnings'][] = 'ملف مضمّن غير صالح تم تجاهله: ' . $lf; continue; }
+        $dest = $dir . '/c_emb' . (++$n);
+        file_put_contents($dest, json_encode($content, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
+        $info = $type === 'push_subs' ? ['users' => count($content), 'subscriptions' => array_sum(array_map(fn($x) => is_array($x) && is_list_array($x) ? count($x) : 1, $content))]
+              : ($type === 'services_cache' ? ['services' => count($content['data'])] : []);
+        $meta['components'][] = ['type' => $type, 'file' => basename($dest), 'name' => $lf . ' (مضمّن)', 'size' => (int)filesize($dest)] + $info;
+    }
 }
 
 /** ZIP: نقرأ الأسماء المعروفة فقط من الأرشيف (لا استخراج بمسارات الأرشيف أبداً) بحدود ضد قنابل الضغط */
@@ -341,7 +380,8 @@ function tf_prepare_zip(string $zipPath, string $dir, array &$meta): void {
             $lb = strtolower($b);
             $isJson = isset(TRANSFER_JSON_FILES[$lb]);
             $isDb = (bool)preg_match('/\.(sql|db|sqlite|sqlite3)$/', $lb);
-            if (!$isJson && !$isDb) { $meta['warnings'][] = 'تم تجاهل الملف: ' . mb_substr($b, 0, 60, 'UTF-8'); continue; }
+            $maybeDbJson = !$isJson && substr($lb, -5) === '.json';                 // ملف JSON شامل باسم اختياري: يُفحص رأسه بعد الاستخراج
+            if (!$isJson && !$isDb && !$maybeDbJson) { $meta['warnings'][] = 'تم تجاهل الملف: ' . mb_substr($b, 0, 60, 'UTF-8'); continue; }
             if (isset($seen[$lb])) { $meta['warnings'][] = 'اسم مكرر داخل ZIP تم تجاهله: ' . mb_substr($b, 0, 60, 'UTF-8'); continue; }
             $seen[$lb] = true;
             $size = (int)$st['size']; $csize = max(1, (int)$st['comp_size']);
@@ -359,7 +399,10 @@ function tf_prepare_zip(string $zipPath, string $dir, array &$meta): void {
                 fwrite($out, $chunk);
             }
             fclose($out); fclose($stream);
-            $kind = $isJson ? 'json' : tf_sniff($dest);
+            if ($maybeDbJson && !preg_match('/"format"\s*:\s*"' . TRANSFER_DBJSON_FORMAT . '"/', (string)file_get_contents($dest, false, null, 0, 400))) {
+                @unlink($dest); $meta['warnings'][] = 'تم تجاهل الملف: ' . mb_substr($b, 0, 60, 'UTF-8'); continue;
+            }
+            $kind = ($isJson || $maybeDbJson) ? 'json' : tf_sniff($dest);
             if ($kind === 'zip') { @unlink($dest); $meta['warnings'][] = 'تم تجاهل ZIP متداخل: ' . mb_substr($b, 0, 60, 'UTF-8'); continue; }
             tf_register_component($dest, $kind, $b, $dir, $meta);
         }
@@ -382,18 +425,18 @@ function tf_drop_leftovers(PDO $pdo): void {
 
 /**
  * ينفّذ الاستيراد. يرجع تقريراً.
- * @param array $opts ['restore_db'=>bool (افتراضي true), 'restore_json'=>bool (افتراضي true), 'prefer'=>'sql'|'sqlite']
+ * @param array $opts ['restore_db'=>bool (افتراضي true), 'restore_json'=>bool (افتراضي true), 'prefer'=>'sql'|'sqlite'|'dbjson']
  */
 function transfer_apply(string $token, array $opts = []): array {
     $meta = transfer_read_meta($token);
     $dir = transfer_job_dir($token);
     $restoreDb = $opts['restore_db'] ?? true;
     $restoreJson = $opts['restore_json'] ?? true;
-    $sqlC = tf_component($meta, 'sql'); $liteC = tf_component($meta, 'sqlite');
+    $sqlC = tf_component($meta, 'sql'); $liteC = tf_component($meta, 'sqlite'); $djC = tf_component($meta, 'dbjson');
     $dbC = null;
     if ($restoreDb) {
-        $dbC = ($opts['prefer'] ?? '') === 'sql' ? ($sqlC ?: $liteC) : ($liteC ?: $sqlC);
-        if (($opts['prefer'] ?? '') === 'sqlite') $dbC = $liteC ?: $sqlC;
+        $order = ['dbjson' => [$djC, $liteC, $sqlC], 'sqlite' => [$liteC, $djC, $sqlC], 'sql' => [$sqlC, $djC, $liteC]][$opts['prefer'] ?? ''] ?? [$djC, $liteC, $sqlC];
+        foreach ($order as $c) if ($c) { $dbC = $c; break; }
     }
     $jsonCs = $restoreJson ? array_values(array_filter($meta['components'], fn($c) => isset(array_flip(array_values(TRANSFER_JSON_FILES))[$c['type']]))) : [];
     if ($dbC === null && !$jsonCs) throw new TransferError('لا يوجد ما يُستورد بالخيارات المحددة');
@@ -431,7 +474,8 @@ function transfer_apply(string $token, array $opts = []): array {
             try {
                 foreach ($targets as $t) $pdo->exec('CREATE TABLE ' . tf_q('__imp_' . $t) . ' LIKE ' . tf_q($t));
                 $path = $dir . '/' . $dbC['file'];
-                $loaded = $dbC['type'] === 'sqlite' ? tf_load_sqlite($pdo, $path, $targets, $report) : tf_load_sql($pdo, $path, $targets, $report);
+                $loaded = $dbC['type'] === 'sqlite' ? tf_load_sqlite($pdo, $path, $targets, $report)
+                        : ($dbC['type'] === 'dbjson' ? tf_load_dbjson($pdo, $path, $targets, $report) : tf_load_sql($pdo, $path, $targets, $report));
                 $report['steps'][] = 'حُمّلت الصفوف إلى جداول مؤقتة';
 
                 // فحوص سلامة قبل التبديل
@@ -568,6 +612,72 @@ function tf_load_sqlite(PDO $pdo, string $path, array $targets, array &$report):
     return $counts;
 }
 
+/** يحمّل ملف JSON الشامل إلى __imp_ — يتجاهل الأعمدة غير الموجودة بالمخطط الحالي ويترك الناقصة بقيمها الافتراضية */
+function tf_load_dbjson(PDO $pdo, string $path, array $targets, array &$report): array {
+    $d = json_decode((string)file_get_contents($path), true);
+    if (!is_array($d) || !is_array($d['tables'] ?? null)) throw new TransferError('ملف JSON الشامل تالف');
+    $counts = [];
+    foreach ($targets as $t) {
+        if (!isset($d['tables'][$t])) continue;
+        $def = $d['tables'][$t]; $stg = '__imp_' . $t;
+        $cols = tf_my_columns($pdo, $stg);
+        $fileCols = array_values($def['columns']);
+        $idx = [];                                            // أعمدة مشتركة: اسم => موضعه بالملف
+        foreach ($fileCols as $i => $c) if (is_string($c) && isset($cols[$c])) $idx[$c] = $i;
+        // أعمدة بالملف لا يعرفها المخطط الحالي (مثل md5_password القديم): تُضاف للجدول المؤقت فتبقى بياناتها بعد التبديل
+        $drop = [];
+        foreach ($fileCols as $i => $c) {
+            if (!is_string($c) || isset($cols[$c])) continue;
+            if (strncmp($c, '__fc_', 5) === 0 || !preg_match('/^[A-Za-z0-9_]{1,64}$/', $c)) { $drop[] = $c; continue; }
+            $hasF = false; $hasI = false; $hasS = false;                    // نوع العمود من كل قيمه: أي نص ⇒ LONGTEXT، أي عشري ⇒ DOUBLE
+            foreach ($def['rows'] as $r) {
+                $v = $r[$i];
+                if ($v === null) continue;
+                if (is_float($v)) $hasF = true; elseif (is_int($v) || is_bool($v)) $hasI = true; else { $hasS = true; break; }
+            }
+            $mt = $hasS ? 'LONGTEXT' : ($hasF ? 'DOUBLE' : ($hasI ? 'BIGINT' : 'LONGTEXT'));
+            $pdo->exec('ALTER TABLE ' . tf_q($stg) . ' ADD COLUMN ' . tf_q($c) . " $mt NULL");
+            $cols[$c] = strtolower($mt); $idx[$c] = $i;
+            $report['warnings'][] = "أُضيف عمود غير موجود بالمخطط: $t.$c";
+        }
+        if ($drop) $report['warnings'][] = "$t: أعمدة بأسماء غير صالحة تم تجاهلها";
+        if (!$idx) continue;
+        $common = array_keys($idx); $perRow = count($common);
+        $colList = implode(',', array_map('tf_q', $common));
+        $maxRows = max(1, (int)floor(60000 / max(1, $perRow)));
+        $warn = 0; $done = 0; $batch = [];
+        $flush = function () use (&$batch, $pdo, $stg, $colList, $perRow, &$done) {
+            if (!$batch) return;
+            $ph = '(' . implode(',', array_fill(0, $perRow, '?')) . ')';
+            $st = $pdo->prepare('INSERT INTO ' . tf_q($stg) . " ($colList) VALUES " . implode(',', array_fill(0, count($batch), $ph)));
+            $i = 1;
+            foreach ($batch as $row) foreach ($row as $v) {
+                if ($v === null) $st->bindValue($i, null, PDO::PARAM_NULL);
+                elseif (is_int($v)) $st->bindValue($i, $v, PDO::PARAM_INT);
+                elseif (is_float($v)) $st->bindValue($i, var_export($v, true), PDO::PARAM_STR);
+                else $st->bindValue($i, $v, PDO::PARAM_STR);
+                $i++;
+            }
+            $st->execute();
+            $done += count($batch); $batch = [];
+        };
+        foreach ($def['rows'] as $r) {
+            $row = [];
+            foreach ($idx as $c => $i) $row[] = tf_conv(is_bool($r[$i]) ? (int)$r[$i] : (is_array($r[$i]) ? json_encode($r[$i], JSON_UNESCAPED_UNICODE) : $r[$i]), $cols[$c], $warn);
+            $batch[] = $row;
+            if (count($batch) >= $maxRows) $flush();
+        }
+        $flush();
+        if (isset($idx['id'])) {                                // لا إعادة استعمال لمعرّفات صفوف حُذفت بالأصل
+            $max = (int)$pdo->query('SELECT COALESCE(MAX(id),0) FROM ' . tf_q($stg))->fetchColumn();
+            $pdo->exec('ALTER TABLE ' . tf_q($stg) . ' AUTO_INCREMENT = ' . (max((int)($def['autoinc'] ?? 0), $max + 1)));
+        }
+        if ($warn) $report['warnings'][] = "$t: $warn قيمة تم تحويلها/إهمالها";
+        $counts[$t] = $done;
+    }
+    return $counts;
+}
+
 /* ------------------------------ التصدير ------------------------------ */
 
 /** يبني ملف التصدير في مجلد مؤقت ويرجع [المسار، اسم التنزيل، نوع MIME] */
@@ -578,6 +688,10 @@ function transfer_export(string $kind): array {
     if ($kind === 'sql') {
         sql_dump_to_file($tmp);
         return [$tmp, "fastcrand_db_$ts.sql", 'application/sql'];
+    }
+    if ($kind === 'dbjson') {
+        tf_export_dbjson($tmp);
+        return [$tmp, "fastcrand_db_$ts.json", 'application/json'];
     }
     if (!class_exists('ZipArchive')) throw new TransferError('امتداد zip غير مفعّل بـ PHP');
     $z = new ZipArchive();
@@ -598,6 +712,56 @@ function transfer_export(string $kind): array {
     } catch (Throwable $e) { @$z->close(); @unlink($tmp); if ($sqlTmp) @unlink($sqlTmp); throw $e; }
     if ($sqlTmp) @unlink($sqlTmp);                  // الملف المؤقت بعد الإغلاق (الإضافة تقرأه عند close)
     return [$tmp, ($kind === 'full' ? "fastcrand_backup_$ts.zip" : "fastcrand_json_$ts.zip"), 'application/zip'];
+}
+
+/** يكتب كل الجداول + ملفات JSON في ملف JSON واحد (بثّ تدريجي بلا تحميل كل الصفوف بالذاكرة) */
+function tf_export_dbjson(string $path): void {
+    @set_time_limit(0);
+    $pdo = get_db_raw()->pdo;
+    $fp = fopen($path, 'wb'); if (!$fp) throw new TransferError('تعذّر إنشاء الملف');
+    $flags = JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE;
+    $live = array_map('strtolower', $pdo->query("SELECT table_name FROM information_schema.tables WHERE table_schema = DATABASE() AND table_type='BASE TABLE'")->fetchAll(PDO::FETCH_COLUMN));
+    try {
+        fwrite($fp, '{"format":' . json_encode(TRANSFER_DBJSON_FORMAT) . ',"version":1,"origin":"fastcrand-php","created":' . json_encode(date('c')) . ',"tables":{');
+        $firstT = true;
+        foreach (TRANSFER_TABLES as $t) {
+            if (!in_array($t, $live, true)) continue;
+            $cols = tf_my_columns($pdo, $t);
+            $names = array_keys($cols);
+            $auto = (int)$pdo->query("SELECT COALESCE(AUTO_INCREMENT,0) FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name = " . $pdo->quote($t))->fetchColumn();
+            fwrite($fp, ($firstT ? '' : ',') . "\n" . json_encode($t) . ':{"columns":' . json_encode($names, $flags) . ',"autoinc":' . $auto . ',"rows":[');
+            $firstT = false;
+            $pk = isset($cols['id']) ? ' ORDER BY ' . tf_q('id') : '';
+            $pdo->setAttribute(PDO::MYSQL_ATTR_USE_BUFFERED_QUERY, false);
+            try {
+                $st = $pdo->query('SELECT ' . implode(',', array_map('tf_q', $names)) . ' FROM ' . tf_q($t) . $pk);
+                $first = true;
+                while (($r = $st->fetch(PDO::FETCH_NUM)) !== false) {
+                    foreach ($names as $i => $c) {
+                        if ($r[$i] === null) continue;
+                        $ty = $cols[$c];
+                        if (in_array($ty, ['int', 'bigint', 'smallint', 'tinyint', 'mediumint'], true)) $r[$i] = (int)$r[$i];
+                        elseif (in_array($ty, ['double', 'float', 'decimal'], true)) $r[$i] = (float)$r[$i];
+                    }
+                    fwrite($fp, ($first ? "\n" : ",\n") . json_encode($r, $flags));
+                    $first = false;
+                }
+                $st->closeCursor();
+            } finally { $pdo->setAttribute(PDO::MYSQL_ATTR_USE_BUFFERED_QUERY, true); }
+            fwrite($fp, ']}');
+        }
+        fwrite($fp, "\n},\"files\":{");
+        $firstF = true;
+        foreach ([vapid_file(), push_subs_file(), svc_cache_file()] as $f) {
+            if (!is_file($f)) continue;
+            $c = json_decode((string)file_get_contents($f), true);
+            if ($c === null && json_last_error() !== JSON_ERROR_NONE) continue;
+            fwrite($fp, ($firstF ? '' : ',') . json_encode(basename($f)) . ':' . json_encode($c, $flags));
+            $firstF = false;
+        }
+        fwrite($fp, '}}');
+    } catch (Throwable $e) { fclose($fp); @unlink($path); throw $e; }
+    fclose($fp);
 }
 
 /** يجهّز استيراداً من نسخة محفوظة على الخادم (data/fc_backups/backup_*): الـ SQL + ملفات JSON الموجودة بجانبه */

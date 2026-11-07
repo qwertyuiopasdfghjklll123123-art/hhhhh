@@ -171,9 +171,8 @@ route('/api/admin/order/set-status', function () {
     $old_status = $row['status'];
     $conn->execute('UPDATE orders SET status=? WHERE id=?', [$new_status, $oid]);
     $display_ref = py_or(py_or($row['display_id'], $row['order_id']), (string)$oid);
-    if ($refund_amount > 0 && !py_truthy($row['refunded'])) {
+    if ($refund_amount > 0 && !py_truthy($row['refunded']) && order_claim_refund($conn, $oid)) {
         $conn->execute('UPDATE users SET balance=balance+? WHERE id=?', [$refund_amount, $row['user_id']]);
-        $conn->execute('UPDATE orders SET refunded=1 WHERE id=?', [$oid]);
         push_user_notif($row['user_id'], 'system', 'استرجاع $' . py_fmt($refund_amount),
             "طلب #$display_ref — تم إرجاع المبلغ إلى رصيدك", 'wallet', 'wallet:');
     }

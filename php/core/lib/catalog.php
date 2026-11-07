@@ -288,7 +288,7 @@ function _build_services_catalog(): array {
     $conn = get_db();
     $frows = $conn->execute('SELECT * FROM service_filters')->fetchall();
     $allowed_svcs = []; $hidden_svcs = []; $hidden_plats = []; $hidden_cats = [];
-    $cat_profits = []; $svc_profits = []; $custom_names = []; $custom_categories = []; $svc_platforms = [];
+    $cat_profits = []; $svc_profits = []; $custom_names = []; $custom_categories = []; $svc_platforms = []; $svc_rates = []; $svc_descs = [];
     foreach ($frows as $f) {
         $ft = $f['filter_type']; $fk = py_str($f['filter_key']); $fp = $f['platform'];
         $cname = $f->has('custom_name') ? $f['custom_name'] : '';
@@ -304,6 +304,10 @@ function _build_services_catalog(): array {
         if ($f['profit_pct'] !== null) {
             if ($ft === 'category') $cat_profits[py_str($fp) . '|||' . $fk] = $f['profit_pct'];
             elseif ($ft === 'service') $svc_profits[$fk] = $f['profit_pct'];
+        }
+        if ($ft === 'service' && !py_truthy($f['hidden'])) {                       // تعديلات الأدمن على الخدمة: سعر ثابت ووصف مخصّص
+            if ($f->has('custom_rate') && $f['custom_rate'] !== null && $f['custom_rate'] !== '') $svc_rates[$fk . '|' . $fpid] = py_float($f['custom_rate']);
+            if ($f->has('custom_desc') && py_truthy($f['custom_desc'])) $svc_descs[$fk . '|' . $fpid] = py_str($f['custom_desc']);
         }
         if (py_truthy($cname)) $custom_names[$ft . ':' . $fk . ':' . py_str($fp)] = $cname;
         if ($ft === 'service' && py_truthy($ccat)) {
@@ -331,7 +335,10 @@ function _build_services_catalog(): array {
         $pc = $platform . '|||' . py_str($cat);
         if (isset($hidden_cats[$pc])) continue;
         if (!(isset($allowed_svcs[$sid . '|' . $spid]) || isset($allowed_svcs[$sid . '|0']))) continue;
-        if (array_key_exists($sid, $svc_profits) && $svc_profits[$sid] > 0) {
+        $rk = isset($svc_rates[$sid . '|' . $spid]) ? $sid . '|' . $spid : (isset($svc_rates[$sid . '|0']) ? $sid . '|0' : null);
+        if ($rk !== null) {
+            $rate = py_round($svc_rates[$rk], 4);                                  // سعر ثابت حدّده الأدمن (لكل 1000)
+        } elseif (array_key_exists($sid, $svc_profits) && $svc_profits[$sid] > 0) {
             $rate = py_round($rate * (1 + $svc_profits[$sid] / 100.0), 4);
         } elseif (array_key_exists($pc, $cat_profits) && $cat_profits[$pc] > 0) {
             $rate = py_round($rate * (1 + $cat_profits[$pc] / 100.0), 4);
@@ -344,11 +351,83 @@ function _build_services_catalog(): array {
         $platforms[$platform]['categories'][$dc][] = [
             'id' => $sid, 'name' => $display_name, 'rate' => py_str($rate), 'min' => $min_q, 'max' => $max_q,
             'refill' => py_str(py_or(dget($s, 'refill', ''), '')),
-            'desc' => py_str(py_or(dget($s, 'description', ''), py_or(dget($s, 'desc', ''), ''))),
+            'desc' => $svc_descs[$sid . '|' . $spid] ?? $svc_descs[$sid . '|0'] ?? py_str(py_or(dget($s, 'description', ''), py_or(dget($s, 'desc', ''), ''))),
             'cancel' => dget($s, 'cancel', false), 'type' => py_str(py_or(dget($s, 'type', ''), '')),
         ];
     }
     return [$platforms, count($svcs)];
+}
+
+/* ------------------------------ دعم التعويض/الإلغاء (يُكتشف تلقائياً من حقول المزوّد) ------------------------------ */
+
+/** يحوّل علم المزوّد (true/false/1/"True"/عدد أيام) إلى منطقي */
+function svc_flag($v): bool {
+    if (is_bool($v)) return $v;
+    if (is_int($v) || is_float($v)) return $v != 0;
+    $s = strtolower(trim((string)$v));
+    return $s !== '' && !in_array($s, ['0', 'false', 'no', 'null', 'none', 'off'], true);
+}
+
+/** فهرس [sid|prov] => ['refill'=>bool,'cancel'=>bool,'refill_raw'=>string] من كاش كل المزوّدين (مرة واحدة بالطلب) */
+function svc_flag_index(): array {
+    static $idx = null;
+    if ($idx !== null) return $idx;
+    $idx = [];
+    try {
+        foreach (get_all_smm_services() as $s) {
+            if (!is_array($s)) continue;
+            $sid = py_str(dget($s, 'service', '')); $pid = py_str(dget($s, '_prov_id', 0));
+            $f = ['refill' => svc_flag(dget($s, 'refill', false)), 'cancel' => svc_flag(dget($s, 'cancel', false)), 'refill_raw' => py_str(dget($s, 'refill', ''))];
+            $idx[$sid . '|' . $pid] = $f;
+            if (!isset($idx[$sid . '|*'])) $idx[$sid . '|*'] = $f;
+        }
+    } catch (Throwable $e) {}
+    return $idx;
+}
+
+/** أعلام خدمة عند مزوّدها (أو عند أي مزوّد إن لم يُعرف) — null إن لم تعد الخدمة موجودة */
+function svc_flags_for($service, $prov_id = 0): ?array {
+    $idx = svc_flag_index();
+    $sid = py_str($service);
+    return $idx[$sid . '|' . py_str($prov_id)] ?? $idx[$sid . '|*'] ?? null;
+}
+
+/**
+ * قدرات طلب واحد (تعويض/إلغاء) بحسب حالته الآن وأعلام خدمته.
+ * @return array ['can_refill','refill_state','refill_wait','can_cancel','cancel_state']
+ */
+function order_caps($o, ?array $fl = null, ?float $now = null): array {
+    $now = $now ?? microtime(true);
+    $status = (string)$o['status'];
+    $fl = $fl ?? svc_flags_for($o['service'], $o->has('provider_id') ? $o['provider_id'] : 0);
+    $rf = $o->has('refill_days') ? py_str($o['refill_days']) : '';
+    $supRefill = ($fl && $fl['refill']) || (py_truthy($rf) && !in_array($rf, ['0', 'False', 'false'], true));
+    $storedCancel = $o->has('cancel_ok') && $o['cancel_ok'] !== null ? (int)$o['cancel_ok'] === 1 : false;
+    $supCancel = ($fl && $fl['cancel']) || $storedCancel;
+    $created = py_float(py_or($o['created_at'], 0));
+    $out = ['can_refill' => false, 'refill_state' => 'none', 'refill_wait' => 0, 'can_cancel' => false, 'cancel_state' => 'none'];
+    if ($supRefill) {
+        if (!in_array($status, ['Completed', 'Partial'], true)) $out['refill_state'] = 'notdone';
+        else {
+            $last = $o->has('last_refill_at') ? py_float(py_or($o['last_refill_at'], 0)) : 0.0;
+            $expired = false;
+            $days = strtolower($rf);
+            if ($days !== '' && !in_array($days, ['true', '∞'], true) && is_numeric($days) && $created && $now - $created > (int)$days * 86400) $expired = true;
+            if ($expired) $out['refill_state'] = 'expired';
+            elseif ($created && $now - $created < 24 * 3600) { $out['refill_state'] = 'wait'; $out['refill_wait'] = (int)ceil(24 * 3600 - ($now - $created)); }
+            elseif ($last && $now - $last < 23 * 3600) { $out['refill_state'] = 'recent'; $out['refill_wait'] = (int)ceil(23 * 3600 - ($now - $last)); }
+            else { $out['refill_state'] = 'ready'; $out['can_refill'] = true; }
+        }
+    }
+    $reqAt = $o->has('cancel_req_at') && $o['cancel_req_at'] !== null ? py_float($o['cancel_req_at']) : 0.0;
+    if (in_array($status, ['Queued', 'Pending', 'Processing', 'In progress'], true) && !py_truthy($o['refunded'] ?? 0)) {
+        $local = $status === 'Queued' && !py_truthy($o['order_id'] ?? '');           // لم يصل المزوّد بعد: يُلغى محلياً دائماً
+        if ($local) { $out['can_cancel'] = true; $out['cancel_state'] = 'local'; }
+        elseif (!$supCancel) $out['cancel_state'] = 'unsupported';
+        elseif ($reqAt && $now - $reqAt < 600) { $out['cancel_state'] = 'requested'; $out['refill_wait'] = $out['refill_wait']; }
+        else { $out['can_cancel'] = true; $out['cancel_state'] = 'ready'; }
+    }
+    return $out;
 }
 
 /** _get_user_level_discount  (app.py:3477) */

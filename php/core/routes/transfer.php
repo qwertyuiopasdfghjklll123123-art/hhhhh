@@ -41,10 +41,10 @@ function transfer_public_meta(array $m): array {
     $comps = [];
     foreach ($m['components'] as $c) {
         $x = ['type' => $c['type'], 'name' => $c['name'], 'size' => $c['size'], 'size_h' => tf_human_bytes((int)$c['size'])];
-        foreach (['tables', 'unknown_tables', 'users', 'subscriptions', 'services'] as $k) if (isset($c[$k])) $x[$k] = $c[$k];
+        foreach (['tables', 'unknown_tables', 'users', 'subscriptions', 'services', 'created', 'origin'] as $k) if (isset($c[$k])) $x[$k] = $c[$k];
         $comps[] = $x;
     }
-    $dbc = array_values(array_filter($m['components'], fn($c) => in_array($c['type'], ['sql', 'sqlite'], true)));
+    $dbc = array_values(array_filter($m['components'], fn($c) => in_array($c['type'], ['sql', 'sqlite', 'dbjson'], true)));
     return ['token' => $m['token'], 'source' => $m['source'], 'components' => $comps, 'warnings' => $m['warnings'],
             'has_db' => count($dbc) > 0, 'has_both_db' => count($dbc) > 1];
 }
@@ -84,7 +84,7 @@ route('/api/admin/transfer/export', function () {
     if (($g = transfer_guard()) !== null) return $g;
     $d = req_json(false, true);
     $kind = is_array($d) ? (string)($d['kind'] ?? '') : '';
-    if (!in_array($kind, ['sql', 'full', 'json'], true)) return tj(['ok' => false, 'msg' => 'نوع التصدير غير معروف'], 400);
+    if (!in_array($kind, ['sql', 'full', 'json', 'dbjson'], true)) return tj(['ok' => false, 'msg' => 'نوع التصدير غير معروف'], 400);
     if (($p = transfer_check_password($d['password'] ?? '')) !== null) return $p;
     [$okRate, $wait] = rate_limit_hit('export|' . $_SESSION['user_id'], 10, 600);
     if (!$okRate) return tj(['ok' => false, 'msg' => 'تصدير كثير خلال وقت قصير، انتظر ' . (int)ceil($wait / 60) . ' دقيقة'], 429);
@@ -153,7 +153,7 @@ route('/api/admin/transfer/apply', function () {
     if (($p = transfer_check_password($d['password'] ?? '')) !== null) return $p;
     $token = (string)($d['token'] ?? '');
     $opts = ['restore_db' => !empty($d['restore_db']), 'restore_json' => !empty($d['restore_json'])];
-    if (in_array($d['prefer'] ?? '', ['sql', 'sqlite'], true)) $opts['prefer'] = $d['prefer'];
+    if (in_array($d['prefer'] ?? '', ['sql', 'sqlite', 'dbjson'], true)) $opts['prefer'] = $d['prefer'];
     try {
         transfer_read_meta($token, (int)$_SESSION['user_id']);           // ملكية المهمة
         audit_log('import_started', ['token' => substr($token, 0, 8)] + $opts);

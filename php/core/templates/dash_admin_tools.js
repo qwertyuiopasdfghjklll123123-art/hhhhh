@@ -17,8 +17,8 @@
     var d = new Date(t * 1000), p = function (x) { return String(x).padStart(2, '0'); };
     return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate()) + ' ' + p(d.getHours()) + ':' + p(d.getMinutes());
   }
-  var TYPE_LABEL = { sql: 'قاعدة بيانات (SQL)', sqlite: 'قاعدة SQLite (موقع بايثون)', vapid: 'مفاتيح VAPID للإشعارات', push_subs: 'اشتراكات الإشعارات', services_cache: 'كاش الخدمات' };
-  var TYPE_ICON = { sql: 'fa-database', sqlite: 'fa-database', vapid: 'fa-key', push_subs: 'fa-bell', services_cache: 'fa-list' };
+  var TYPE_LABEL = { dbjson: 'قاعدة بيانات (ملف JSON واحد)', sql: 'قاعدة بيانات (SQL)', sqlite: 'قاعدة SQLite (موقع بايثون)', vapid: 'مفاتيح VAPID للإشعارات', push_subs: 'اشتراكات الإشعارات', services_cache: 'كاش الخدمات' };
+  var TYPE_ICON = { dbjson: 'fa-file-code', sql: 'fa-database', sqlite: 'fa-database', vapid: 'fa-key', push_subs: 'fa-bell', services_cache: 'fa-list' };
 
   /* ------------------------------ استيراد وتصدير ------------------------------ */
 
@@ -115,7 +115,11 @@
     var o = '';
     if (d.has_db) o += '<label class="trf-opt"><input type="checkbox" id="trfOptDb" checked><span><b>استعادة قاعدة البيانات</b><small>تُستبدل الجداول الموجودة بالنسخة (الجداول غير الموجودة بالنسخة تبقى كما هي)</small></span></label>';
     if (hasJson) o += '<label class="trf-opt"><input type="checkbox" id="trfOptJson" checked><span><b>استعادة ملفات JSON</b><small>مفاتيح VAPID واشتراكات الإشعارات وكاش الخدمات</small></span></label>';
-    if (d.has_both_db) o += '<div class="field-group" style="margin:6px 0 0"><div class="field-label">المصدر عند وجود أكثر من قاعدة</div><select class="text-input" id="trfPrefer"><option value="sqlite">قاعدة SQLite (موقع بايثون)</option><option value="sql">ملف SQL</option></select></div>';
+    if (d.has_both_db) {
+      var dbOpts = { dbjson: 'ملف JSON الشامل', sqlite: 'قاعدة SQLite (موقع بايثون)', sql: 'ملف SQL' }, os = '';
+      ['dbjson', 'sqlite', 'sql'].forEach(function (t) { if (d.components.some(function (c) { return c.type === t; })) os += '<option value="' + t + '">' + dbOpts[t] + '</option>'; });
+      o += '<div class="field-group" style="margin:6px 0 0"><div class="field-label">المصدر عند وجود أكثر من قاعدة</div><select class="text-input" id="trfPrefer">' + os + '</select></div>';
+    }
     $('trfOptRows').innerHTML = o;
     $('trfApplyBox').style.display = '';
   }

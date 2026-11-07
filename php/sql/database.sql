@@ -79,6 +79,8 @@ CREATE TABLE IF NOT EXISTS `orders` (
   `last_refill_at` DOUBLE DEFAULT 0,
   `refill_count` INT DEFAULT 0,
   `display_id` VARCHAR(64) DEFAULT '',
+  `cancel_ok` INT NULL,
+  `cancel_req_at` DOUBLE NULL,
   PRIMARY KEY (`id`),
   KEY `idx_orders_user` (`user_id`, `created_at` DESC),
   KEY `idx_orders_status` (`status`),
@@ -304,6 +306,8 @@ CREATE TABLE IF NOT EXISTS `service_filters` (
   `prov_id` INT DEFAULT 0,
   `custom_name` VARCHAR(1024) DEFAULT '',
   `custom_category` VARCHAR(1024) DEFAULT '',
+  `custom_desc` LONGTEXT NULL,
+  `custom_rate` DOUBLE NULL,
   PRIMARY KEY (`id`),
   UNIQUE KEY `uq_service_filters_filter_type_filter_key_platform` (`filter_type`, `filter_key`, `platform`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin;
