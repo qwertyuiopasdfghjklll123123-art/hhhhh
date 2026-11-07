@@ -96,7 +96,8 @@ define('PM_IMG_DIR', DATA_DIR . '/fc_pm_images');
 define('BACKUP_DIR', DATA_DIR . '/fc_backups');
 define('PWA_ICON_DIR', DATA_DIR . '/fc_pwa_icon');
 define('LOGO_DIR', DATA_DIR . '/fc_logo');
-foreach (['', '/logs', '/cache', '/fc_voices', '/fc_ticket_images', '/fc_avatars', '/fc_pm_images', '/fc_backups', '/fc_pwa_icon', '/fc_logo'] as $d) {
+define('CS_IMG_DIR', DATA_DIR . '/fc_cs_images');   // لوغوهات الألعاب/الخدمات المخصصة
+foreach (['', '/logs', '/cache', '/fc_voices', '/fc_ticket_images', '/fc_avatars', '/fc_pm_images', '/fc_backups', '/fc_pwa_icon', '/fc_logo', '/fc_cs_images'] as $d) {
     if (!is_dir(DATA_DIR . $d)) @mkdir(DATA_DIR . $d, 0775, true);
 }
 

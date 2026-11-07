@@ -101,6 +101,7 @@ function render_dash_page(): Response {
     $html = str_replace('__AI_ICON__', get_ai_icon_data_uri(), $html);
     $html = str_replace('__FC_ROUTER__', app_router_script((bool)py_truthy($is_admin)), $html);
     if (py_truthy($is_admin)) {
+        $html = preg_replace('/<body>/', '<body class="is-admin">', $html, 1);   // الأدمن: منيو سفلي مثل المستخدم (بلا قائمة جانبية)
         $html = str_replace('__ADMIN_DISPLAY__', '', $html);
         $html = str_replace('__NONADMIN_DISPLAY__', 'display:none !important;', $html);
         $html = str_replace('__ADMIN_CLASS__', '', $html);

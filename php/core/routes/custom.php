@@ -124,7 +124,10 @@ route('/api/admin/custom_services/edit', function () {
     }
     $sets = []; $vals = [];
     foreach (['name', 'icon', 'color', 'image'] as $k) {
-        if (array_key_exists($k, $data)) { $sets[] = "$k=?"; $vals[] = sql_text($data[$k]); }
+        if (array_key_exists($k, $data)) {
+            if ($k === 'image' && (string)$svc['image'] !== sql_text($data[$k])) cs_image_remove((string)$svc['image']);
+            $sets[] = "$k=?"; $vals[] = sql_text($data[$k]);
+        }
     }
     if (array_key_exists('desc', $data)) { $sets[] = 'desc_text=?'; $vals[] = sql_text($data['desc']); }
     if (array_key_exists('active', $data)) { $sets[] = 'active=?'; $vals[] = py_truthy($data['active']) ? 1 : 0; }
@@ -153,6 +156,8 @@ route('/api/admin/custom_services/delete', function () {
     $conn = get_db();
     $data = req_data();
     $sid = dget($data, 'id', '');
+    $old = $conn->execute('SELECT image FROM custom_services WHERE id=?', [sql_str($sid)])->fetchone();
+    if ($old) cs_image_remove((string)$old['image']);
     $conn->execute('DELETE FROM custom_services WHERE id=?', [sql_str($sid)]);
     $conn->commit();
     return jsonify(['ok' => true]);
@@ -323,4 +328,44 @@ route('/api/my_custom_orders', function () {
         FROM custom_orders co LEFT JOIN tickets t ON t.id=co.ticket_id
         WHERE co.user_id=? ORDER BY co.created_at DESC, co.__fc_seq DESC LIMIT 200', [$_SESSION['user_id']])->fetchall();
     return jsonify(['ok' => true, 'orders' => rows_dicts($rows)]);
+});
+
+
+/* ------------------------------ لوغو اللعبة / الخدمة المخصصة ------------------------------ */
+
+function cs_image_remove(string $url): void {
+    if (preg_match('#^/api/cs-image/(cs_[0-9a-f]{16}\.(?:png|jpg|webp|gif))$#', $url, $m)) @unlink(CS_IMG_DIR . '/' . $m[1]);
+}
+
+/** رفع لوغو (png/jpg/webp/gif حتى 2MB، يُفحص محتواه). مع id يُربط بالخدمة فوراً ويحذف القديم؛ بدونه يرجع الرابط لنموذج الإضافة */
+route('/api/admin/custom_services/image', function () {
+    if ($g = _admin_db_gate()) return $g;
+    $f = _upload_file('image');
+    if (!$f) return jsonify(['ok' => false, 'msg' => 'اختر صورة']);
+    if ((int)($f['error'] ?? 0) === UPLOAD_ERR_INI_SIZE || (int)($f['size'] ?? 0) > 2097152) return jsonify(['ok' => false, 'msg' => 'الحجم الأقصى 2MB']);
+    $tmp = (string)($f['tmp_name'] ?? '');
+    $info = $tmp !== '' ? @getimagesize($tmp) : false;
+    $ext = $info ? ([IMAGETYPE_PNG => 'png', IMAGETYPE_JPEG => 'jpg', IMAGETYPE_WEBP => 'webp', IMAGETYPE_GIF => 'gif'][$info[2]] ?? null) : null;
+    if (!$ext) return jsonify(['ok' => false, 'msg' => 'الصيغ المسموحة: png, jpg, webp, gif']);
+    if (!is_dir(CS_IMG_DIR)) @mkdir(CS_IMG_DIR, 0775, true);
+    $name = 'cs_' . bin2hex(random_bytes(8)) . '.' . $ext;
+    if (!_upload_save($f, CS_IMG_DIR . '/' . $name)) throw new RuntimeException('upload failed — تحقق من upload_max_filesize/post_max_size');
+    $url = '/api/cs-image/' . $name;
+    $sid = (string)($_POST['id'] ?? '');
+    if ($sid !== '') {
+        $conn = get_db();
+        $svc = $conn->execute('SELECT image FROM custom_services WHERE id=?', [sql_str($sid)])->fetchone();
+        if (!$svc) { @unlink(CS_IMG_DIR . '/' . $name); return jsonify(['ok' => false, 'msg' => 'الخدمة غير موجودة']); }
+        cs_image_remove((string)$svc['image']);
+        $conn->execute('UPDATE custom_services SET image=? WHERE id=?', [$url, sql_str($sid)]);
+        $conn->commit();
+    }
+    return jsonify(['ok' => true, 'url' => $url]);
+}, ['POST']);
+
+route('/api/cs-image/<fname>', function ($fname) {
+    if (!preg_match('/^cs_[0-9a-f]{16}\.(png|jpg|webp|gif)$/', (string)$fname)) return new Response('', 404);
+    $r = send_file(CS_IMG_DIR . '/' . $fname, null, false, null, 86400);
+    $r->headers['X-Content-Type-Options'] = 'nosniff';
+    return $r;
 });
