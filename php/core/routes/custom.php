@@ -348,8 +348,7 @@ route('/api/admin/custom_services/image', function () {
     if (!$f) return jsonify(['ok' => false, 'msg' => 'اختر صورة']);
     if ((int)($f['error'] ?? 0) === UPLOAD_ERR_INI_SIZE || (int)($f['size'] ?? 0) > 2097152) return jsonify(['ok' => false, 'msg' => 'الحجم الأقصى 2MB']);
     $tmp = (string)($f['tmp_name'] ?? '');
-    $info = $tmp !== '' ? @getimagesize($tmp) : false;
-    $ext = $info ? ([IMAGETYPE_PNG => 'png', IMAGETYPE_JPEG => 'jpg', IMAGETYPE_WEBP => 'webp', IMAGETYPE_GIF => 'gif'][$info[2]] ?? null) : null;
+    $ext = $tmp !== '' ? img_sniff_ext($tmp) : null;
     if (!$ext) return jsonify(['ok' => false, 'msg' => 'الصيغ المسموحة: png, jpg, webp, gif']);
     if (!is_dir(CS_IMG_DIR)) @mkdir(CS_IMG_DIR, 0775, true);
     $name = 'cs_' . bin2hex(random_bytes(8)) . '.' . $ext;

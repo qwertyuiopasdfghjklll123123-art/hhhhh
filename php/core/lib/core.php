@@ -242,3 +242,14 @@ function sql_str($v) {
     if (is_float($v)) return py_sqlite_float_text($v);
     return py_str($v);
 }
+
+/** نوع صورة مرفوعة بتحقق صارم من البصمة (png/jpg/webp/gif فقط) — يرجع الامتداد أو null. getimagesize وحدها متساهلة مع GIF */
+function img_sniff_ext(string $tmp): ?string {
+    $h = (string)@file_get_contents($tmp, false, null, 0, 16);
+    if ($h === '' || !@getimagesize($tmp)) return null;
+    if (strncmp($h, "\x89PNG\r\n\x1a\n", 8) === 0) return 'png';
+    if (strncmp($h, "\xFF\xD8\xFF", 3) === 0) return 'jpg';
+    if (strncmp($h, 'GIF87a', 6) === 0 || strncmp($h, 'GIF89a', 6) === 0) return 'gif';
+    if (strncmp($h, 'RIFF', 4) === 0 && substr($h, 8, 4) === 'WEBP') return 'webp';
+    return null;
+}
