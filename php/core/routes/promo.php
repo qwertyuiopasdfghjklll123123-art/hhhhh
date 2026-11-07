@@ -266,7 +266,7 @@ route('/api/reviews', function () {
 route('/api/admin/reviews', function () {
     if (!_is_admin_session()) return jsonify(['ok' => false], 403);
     $conn = get_db();
-    $rows = $conn->execute('SELECT * FROM reviews ORDER BY id DESC')->fetchall();
+    $rows = $conn->execute('SELECT id,user_id,user_name,stars,text,approved,created_at FROM reviews ORDER BY id DESC')->fetchall();
     return jsonify(['ok' => true, 'reviews' => rows_dicts($rows)]);
 });
 
@@ -293,3 +293,54 @@ route('/api/admin/reviews/<int:rid>/delete', function ($rid) {
     $conn->commit();
     return jsonify(['ok' => true]);
 }, ['DELETE']);
+
+/* ------------------------------ قائمة التقييمات الكاملة + الإعجاب (جديد) ------------------------------ */
+
+/** كل التقييمات المعتمدة مع عدد الإعجابات وهل أعجبني (مرتبة الأحدث) + ملخص النجوم. ?limit=&offset= */
+route('/api/reviews/all', function () {
+    $conn = get_db();
+    $limit = max(1, min(50, py_int(py_or($_GET['limit'] ?? 20, 20))));
+    $offset = max(0, py_int(py_or($_GET['offset'] ?? 0, 0)));
+    $uid = array_key_exists('user_id', $_SESSION) ? (int)$_SESSION['user_id'] : 0;
+    $rows = $conn->execute('SELECT id,user_name,stars,text,created_at,likes,liked_by FROM reviews WHERE approved=1 ORDER BY id DESC LIMIT ? OFFSET ?', [$limit, $offset])->fetchall();
+    $out = [];
+    foreach ($rows as $r) {
+        $lb = json_decode((string)($r['liked_by'] ?? ''), true);
+        $out[] = ['id' => (int)$r['id'], 'user_name' => (string)$r['user_name'], 'stars' => (int)$r['stars'], 'text' => (string)$r['text'],
+            'created_at' => $r['created_at'], 'likes' => (int)$r['likes'], 'liked' => $uid > 0 && is_array($lb) && in_array($uid, $lb, true)];
+    }
+    $st = $conn->execute('SELECT COUNT(*) as cnt, AVG(stars) as avg_stars FROM reviews WHERE approved=1')->fetchone();
+    $total = $st ? (int)$st['cnt'] : 0;
+    $avg = ($st && py_truthy($st['avg_stars'])) ? py_round($st['avg_stars'], 1) : 0;
+    $dist = [5 => 0, 4 => 0, 3 => 0, 2 => 0, 1 => 0];
+    if ($total > 0) foreach ($dist as $s => $_) {
+        $c = $conn->execute('SELECT COUNT(*) as c FROM reviews WHERE approved=1 AND stars=?', [$s])->fetchone();
+        $dist[$s] = $c ? py_round(((int)$c['c'] / $total) * 100) : 0;
+    }
+    return jsonify(['ok' => true, 'reviews' => $out, 'total' => $total, 'avg' => $avg, 'dist' => $dist, 'has_more' => ($offset + count($out)) < $total]);
+});
+
+/** إعجاب/إلغاء إعجاب (تبديل). المستخدم المسجّل فقط، وإعجاب واحد لكل مستخدم، ولا إعجاب بتقييمك أنت */
+route('/api/reviews/<int:rid>/like', function ($rid) {
+    if (!array_key_exists('user_id', $_SESSION)) return jsonify(['ok' => false, 'msg' => 'سجّل دخول أولاً'], 401);
+    $uid = (int)$_SESSION['user_id'];
+    [$okRate] = rate_limit_hit('rv_like|' . $uid, 60, 600);
+    if (!$okRate) return jsonify(['ok' => false, 'msg' => 'محاولات كثيرة، انتظر قليلاً'], 429);
+    $conn = get_db();
+    try {
+        $conn->begin();
+        $r = $conn->execute('SELECT user_id,likes,liked_by FROM reviews WHERE id=? AND approved=1 FOR UPDATE', [$rid])->fetchone();
+        if (!$r) { $conn->rollback(); return jsonify(['ok' => false, 'msg' => 'التقييم غير موجود'], 404); }
+        if ((int)$r['user_id'] === $uid) { $conn->rollback(); return jsonify(['ok' => false, 'msg' => 'لا يمكنك الإعجاب بتقييمك'], 400); }
+        $lb = json_decode((string)($r['liked_by'] ?? ''), true);
+        if (!is_array($lb)) $lb = [];
+        $liked = in_array($uid, $lb, true);
+        $lb = $liked ? array_values(array_diff($lb, [$uid])) : array_merge($lb, [$uid]);
+        $conn->execute('UPDATE reviews SET likes=?, liked_by=? WHERE id=?', [count($lb), json_encode($lb), $rid]);
+        $conn->commit();
+        return jsonify(['ok' => true, 'liked' => !$liked, 'likes' => count($lb)]);
+    } catch (Throwable $e) {
+        try { $conn->rollback(); } catch (Throwable $e2) {}
+        throw $e;
+    }
+}, ['POST']);

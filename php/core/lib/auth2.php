@@ -9,11 +9,12 @@
 
 /* ------------------------------ ترقية المخطط للقواعد القديمة ------------------------------ */
 
-/** أعمدة أضيفت بعد النسخة الأولى: تُضاف تلقائياً مرة واحدة (علم schema_v3.done) إن كانت القاعدة مستوردة من ملف أقدم */
+/** أعمدة أضيفت بعد النسخة الأولى: تُضاف تلقائياً مرة واحدة (علم schema_v4.done) إن كانت القاعدة مستوردة من ملف أقدم */
 function schema_upgrade_columns(): array {
     return [
         'users' => ['totp_secret' => 'VARCHAR(255) NULL', 'totp_enabled' => 'INT NOT NULL DEFAULT 0', 'totp_recovery' => 'LONGTEXT NULL'],
         'custom_orders' => ['ticket_id' => 'INT NULL'],
+        'reviews' => ['likes' => 'INT NOT NULL DEFAULT 0', 'liked_by' => 'LONGTEXT NULL'],
     ];
 }
 
@@ -21,7 +22,7 @@ function ensure_schema_upgrade(): void {
     static $done = false;
     if ($done) return;
     $done = true;
-    $flag = DATA_DIR . '/cache/schema_v3.done';
+    $flag = DATA_DIR . '/cache/schema_v4.done';
     if (is_file($flag)) return;
     try {
         $pdo = get_db()->pdo;

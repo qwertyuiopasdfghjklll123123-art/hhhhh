@@ -297,6 +297,10 @@ route('/api/admin/custom_orders/update', function () {
     }
     $conn->execute('UPDATE custom_orders SET status=? WHERE id=?', [sql_str($status), sql_str($oid)]);
     $co_uid = $order['user_id'];
+    if ($order->has('ticket_id') && py_truthy($order['ticket_id'])) {      // اكتمل/أُلغي: أغلق المحادثة؛ رجع للتنفيذ: أعد فتحها
+        if (in_array($status, ['completed', 'canceled'], true)) $conn->execute('UPDATE tickets SET status=? WHERE id=?', ['closed', $order['ticket_id']]);
+        elseif (in_array($status, ['pending', 'processing'], true)) $conn->execute("UPDATE tickets SET status='open' WHERE id=? AND status='closed'", [$order['ticket_id']]);
+    }
     if ($order->has('ticket_id') && py_truthy($order['ticket_id'])) {   // أعلِم العميل داخل محادثة الطلب نفسها
         $lbl = ['processing' => '⚙ قيد التنفيذ', 'completed' => '✅ اكتمل الطلب', 'canceled' => '❌ أُلغي الطلب وأُعيد المبلغ إلى رصيدك', 'pending' => '⏳ بانتظار التنفيذ'];
         if (isset($lbl[$status])) $conn->execute('INSERT INTO ticket_messages(ticket_id,sender,text) VALUES(?,?,?)', [$order['ticket_id'], 'system', 'الحالة: ' . $lbl[$status]]);

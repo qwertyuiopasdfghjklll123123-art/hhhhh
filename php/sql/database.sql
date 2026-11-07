@@ -346,6 +346,8 @@ CREATE TABLE IF NOT EXISTS `reviews` (
   `text` LONGTEXT DEFAULT (''),
   `approved` INT DEFAULT 0,
   `created_at` DOUBLE DEFAULT (UNIX_TIMESTAMP()),
+  `likes` INT NOT NULL DEFAULT 0,
+  `liked_by` LONGTEXT NULL,
   PRIMARY KEY (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin;
 

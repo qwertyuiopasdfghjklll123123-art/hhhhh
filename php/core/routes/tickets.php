@@ -138,6 +138,14 @@ route('/api/tickets/create', function () {
     return jsonify(['ok' => true, 'ticket_id' => $tid]);
 }, ['POST']);
 
+/** تذكرة طلب لعبة/خدمة مخصصة انتهى طلبها (مكتمل/ملغي): تُقفل المحادثة على العميل (الأدمن يبقى يراها) */
+function _ticket_locked($conn, $tid): bool {
+    try {
+        return (bool)$conn->execute("SELECT 1 FROM custom_orders WHERE ticket_id=? AND status IN ('completed','canceled') LIMIT 1", [sql_int($tid)])->fetchone();
+    } catch (Throwable $e) { return false; }
+}
+const TICKET_LOCKED_MSG = 'اكتمل الطلب — المحادثة مغلقة';
+
 route('/api/tickets/chat', function () {
     if (!array_key_exists('user_id', $_SESSION)) return jsonify(['ok' => false, 'error' => 'unauthorized'], 401);
     $data = req_data();
@@ -147,6 +155,7 @@ route('/api/tickets/chat', function () {
     if (!$t) {
         return jsonify(['ok' => false, 'error' => 'not found']);
     }
+    if (_ticket_locked($conn, $tid)) return jsonify(['ok' => false, 'error' => 'order_closed', 'msg' => TICKET_LOCKED_MSG]);
     $result = ['id' => $t['id'], 'subject' => $t['subject'], 'category' => $t['category'], 'status' => $t['status'],
         'date' => fmt_time('%d/%m %H:%M', $t['created_at']), 'messages' => _clean_ticket_msgs(_ticket_msgs($conn, sql_int($tid)))];
     return jsonify(['ok' => true, 'ticket' => $result]);
@@ -165,6 +174,7 @@ route('/api/tickets/reply', function () {
     if (!$t) {
         return jsonify(['ok' => false, 'error' => 'not found']);
     }
+    if (_ticket_locked($conn, $tid)) return jsonify(['ok' => false, 'error' => 'order_closed', 'msg' => TICKET_LOCKED_MSG]);
     $conn->execute('INSERT INTO ticket_messages(ticket_id,sender,text) VALUES(?,?,?)', [sql_int($tid), 'user', $msg]);
     $conn->execute('UPDATE tickets SET status=? WHERE id=?', ['waiting', sql_int($tid)]);
     $conn->commit();
@@ -194,6 +204,7 @@ function _ticket_voice_common(bool $admin) {
     if (!$t) {
         return jsonify(['ok' => false, 'error' => 'not found']);
     }
+    if (!$admin && _ticket_locked($conn, $tid)) return jsonify(['ok' => false, 'error' => 'order_closed', 'msg' => TICKET_LOCKED_MSG]);
     $fname = 'v_' . py_str($tid) . '_' . substr(bin2hex(random_bytes(16)), 0, 8) . '.webm';
     try {
         file_put_contents(VOICE_DIR . '/' . $fname, py_b64decode($audio));
@@ -233,6 +244,7 @@ function _ticket_image_common(bool $admin) {
     if (!$t) {
         return jsonify(['ok' => false, 'error' => 'not found']);
     }
+    if (!$admin && _ticket_locked($conn, $tid)) return jsonify(['ok' => false, 'error' => 'order_closed', 'msg' => TICKET_LOCKED_MSG]);
     $ext = 'jpg';
     $head = py_slice((string)$image, null, 50);
     if (strpos($head, 'image/png') !== false) $ext = 'png';

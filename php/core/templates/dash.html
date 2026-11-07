@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <title>__SITE_NAME__ — لوحة التحكم</title>
 <script>try{if(localStorage.getItem('fc_theme')==='dark')document.documentElement.setAttribute('data-theme','dark')}catch(e){}</script>
+<script>try{if(localStorage.getItem('fc_lang')==='en'){document.documentElement.setAttribute('dir','ltr');document.documentElement.setAttribute('lang','en')}}catch(e){}</script>
 <link rel="manifest" href="/manifest.json">
 <meta name="theme-color" content="#2563eb">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -2065,6 +2066,91 @@ html:not([data-theme="dark"]) .rv-star-btn{color:rgba(0,0,0,.1)}
 .gm-ic.has-img{background:var(--input-bg)!important}
 .gm-card .gm-ic.has-img img{object-fit:contain;padding:7px}
 .gm-card .gm-ic.has-img::after{display:none}
+/* ===== v3: واجهة إنشاء الطلب ===== */
+#orderWizPage .ow-selected{padding:14px!important;border-radius:16px!important;background:var(--card)!important;border:1px solid var(--card-border)!important;box-shadow:0 1px 2px rgba(0,0,0,.04)}
+#orderWizPage .ow-badge-item{background:var(--card)!important;border-radius:14px!important;padding:12px 4px!important;gap:6px!important}
+#orderWizPage .ow-badge-lb{font-size:11px!important;font-weight:800}
+#orderWizPage .ow-badge-sub{font-size:9px!important}
+#orderWizPage .ow-badge-ic{width:34px!important;height:34px!important;border-radius:11px!important;font-size:14px!important}
+.ow3-box{background:var(--card);border:1px solid var(--card-border);border-radius:16px;padding:6px 14px;margin:10px 0}
+.ow3-f{padding:12px 0}.ow3-f+.ow3-f{border-top:1px solid var(--card-border)}
+.ow3-l{display:flex;align-items:center;gap:6px;font-size:12px;font-weight:800;color:var(--text);margin-bottom:8px}
+.ow3-l i{color:var(--primary);font-size:12px}
+.ow3-mm{margin-right:auto;display:flex;gap:10px;font-size:10px;font-weight:700;color:var(--text3)}
+#orderWizPage .ow-glass-input{font-size:14px!important;padding:12px 14px!important;border-radius:12px!important;background:var(--input-bg)!important;border:1.5px solid var(--input-border)!important}
+#orderWizPage .ow-qty-input{font-family:var(--font-num);font-weight:800;font-size:17px!important}
+.ow3-chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px}
+.ow3-chip{padding:7px 12px;border-radius:999px;border:1.5px solid var(--card-border);background:var(--card);color:var(--text2);font-family:var(--font-num);font-size:11px;font-weight:800;cursor:pointer;transition:.15s}
+.ow3-chip:hover{border-color:var(--primary);color:var(--primary)}.ow3-chip:active{transform:scale(.95);background:var(--primary-bg)}
+.ow3-sum{background:var(--primary-bg);border:1px solid rgba(37,99,235,.14);border-radius:16px;padding:14px 16px;margin-bottom:12px}
+.ow3-sum-r{display:flex;align-items:center;justify-content:space-between;font-size:13px;font-weight:700;color:var(--text2)}
+.ow3-sum-r .ow-total-amount{font-size:26px;font-weight:900;color:var(--primary);text-shadow:none}
+.ow3-sum-r.sm{margin-top:6px;padding-top:8px;border-top:1px dashed rgba(37,99,235,.2);font-size:11px;color:var(--text3)}
+.ow3-sum-r.sm b{font-family:var(--font-num);font-size:12px}.ow3-sum-r.sm b.neg{color:var(--red)}.ow3-sum-r.sm b.ok{color:var(--green)}
+.ow3-actions{display:flex;flex-direction:column;gap:8px;margin-bottom:6px}
+#orderWizPage .ow-submit{padding:15px!important;font-size:15px!important;border-radius:14px!important;box-shadow:none!important;min-height:52px}
+#orderWizPage .ow3-alt{background:var(--card)!important;color:var(--primary)!important;border:1.5px solid var(--primary)!important;min-height:46px;font-size:13px!important}
+#orderWizPage .ow-notice{background:var(--card)!important;border:1px solid var(--card-border)!important;font-size:11px!important;padding:11px 14px!important;border-radius:14px!important}
+/* ===== v3: الشريط العلوي، الإحصائيات، التقييمات، اللغة ===== */
+.tb-actions{display:flex;align-items:center;gap:8px}
+.tb-bal{display:flex;align-items:center;gap:6px;height:34px;padding:0 5px 0 10px;border-radius:999px;background:var(--card);border:1px solid var(--card-border);cursor:pointer;font-family:var(--font-num);font-size:12px;font-weight:800;color:var(--text);transition:.15s}
+.tb-bal:active{transform:scale(.96)}.tb-bal>i{color:var(--primary);font-size:12px}
+.tb-plus{width:24px;height:24px;border-radius:50%;background:var(--primary);color:#fff;display:flex;align-items:center;justify-content:center;font-size:10px}
+.topbar .bell-btn{margin:0}
+.st-host{padding:2px 0 0}
+.st-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.st-tile{border:1px solid var(--card-border);background:var(--card);border-radius:14px;padding:10px 6px 9px;display:flex;flex-direction:column;align-items:center;gap:4px;cursor:pointer;font-family:var(--font);transition:transform .15s,border-color .15s,box-shadow .15s;color:var(--text)}
+.st-tile:hover{border-color:var(--c,var(--primary));box-shadow:0 6px 14px -8px var(--c,var(--primary))}.st-tile:active{transform:scale(.95)}
+.st-ic{width:30px;height:30px;border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:13px;color:var(--c);background:color-mix(in srgb,var(--c) 14%,transparent)}
+.st-v{font-family:var(--font-num);font-size:15px;font-weight:900;line-height:1.1;color:var(--text)}
+.st-l{font-size:9px;font-weight:700;color:var(--text3)}
+.st-seg{margin-top:10px}
+.st-seg-bar{display:flex;height:9px;border-radius:99px;overflow:hidden;background:var(--input-bg);gap:2px}
+.st-seg-bar i{display:block;height:100%;min-width:0;cursor:pointer;transition:flex .6s ease,filter .15s}.st-seg-bar i:hover{filter:brightness(1.12)}
+.st-seg-lg{display:flex;justify-content:space-between;margin-top:7px;font-size:9px;font-weight:700;color:var(--text3)}
+.st-seg-lg span{display:flex;align-items:center;gap:4px;cursor:pointer}.st-seg-lg span::before{content:'';width:7px;height:7px;border-radius:50%;background:var(--c)}
+.st-seg-lg b{font-family:var(--font-num);color:var(--text)}
+.acc-desktop .mob-profile .acc-user{padding-bottom:10px}
+.mob-profile .st-host{padding:0 14px 14px}
+.more-row{margin:14px 0 4px}
+.lang-seg{display:flex;background:var(--input-bg);border-radius:10px;padding:3px;gap:2px;flex-shrink:0}
+.lang-seg button{border:none;background:transparent;font-family:var(--font);font-size:11px;font-weight:800;color:var(--text3);padding:6px 11px;border-radius:8px;cursor:pointer}
+.lang-seg button.on{background:var(--primary);color:#fff}
+.acc-legal{display:flex;justify-content:center;align-items:center;gap:10px;margin:18px 0 10px;flex-wrap:wrap}
+.acc-legal a{font-size:11px;font-weight:700;color:var(--text3);text-decoration:none;display:flex;align-items:center;gap:5px}.acc-legal a:hover{color:var(--primary)}
+.acc-legal .dot{width:3px;height:3px;border-radius:50%;background:var(--text3);opacity:.6}
+/* التقييمات: بلا بطاقة */
+.rv-flat{padding:0 2px}
+.rvf-sum{display:flex;align-items:center;gap:14px;padding:4px 0 12px;border-bottom:1px solid var(--card-border)}
+.rvf-big{font-family:var(--font-num);font-size:34px;font-weight:900;line-height:1;color:#f59e0b}
+.rvf-stars{color:#f59e0b;font-size:11px;display:flex;gap:2px}.rvf-stars .off{color:var(--text3);opacity:.35}
+.rvf-meta{font-size:10px;font-weight:700;color:var(--text3);margin-top:3px}
+.rvf-item{display:flex;gap:10px;padding:13px 0;border-bottom:1px solid var(--card-border)}
+.rvf-av{width:34px;height:34px;border-radius:50%;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-weight:900;font-size:13px;color:#fff;background:linear-gradient(135deg,#6366f1,#818cf8)}
+.rvf-av.c2{background:linear-gradient(135deg,#10b981,#34d399)}.rvf-av.c3{background:linear-gradient(135deg,#f59e0b,#fbbf24)}.rvf-av.c4{background:linear-gradient(135deg,#ec4899,#f472b6)}.rvf-av.c5{background:linear-gradient(135deg,#0891b2,#22d3ee)}
+.rvf-body{flex:1;min-width:0}
+.rvf-top{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.rvf-name{font-size:12px;font-weight:800;color:var(--text)}
+.rvf-txt{font-size:12px;line-height:1.7;color:var(--text2);margin-top:3px;word-break:break-word}
+.rvf-foot{display:flex;align-items:center;justify-content:space-between;margin-top:6px}
+.rvf-date{font-size:10px;color:var(--text3);font-weight:600}
+.rvf-like{display:inline-flex;align-items:center;gap:5px;border:1px solid var(--card-border);background:transparent;color:var(--text3);border-radius:999px;padding:4px 10px;font-family:var(--font-num);font-size:11px;font-weight:800;cursor:pointer;transition:.15s}
+.rvf-like:hover{border-color:#ef4444;color:#ef4444}.rvf-like:active{transform:scale(.92)}
+.rvf-like.on{color:#ef4444;border-color:rgba(239,68,68,.4);background:rgba(239,68,68,.08)}
+.rvf-like.pop i{animation:rvPop .35s}
+@keyframes rvPop{50%{transform:scale(1.5)}}
+.rvf-actions{display:flex;gap:8px;margin-top:14px}.rvf-actions .v2-btn{flex:1}
+.rvf-empty{text-align:center;padding:22px 0;font-size:11px;color:var(--text3)}
+.rvp-sum{display:flex;align-items:center;gap:18px;padding:6px 0 16px;border-bottom:1px solid var(--card-border)}
+.rvp-bars{flex:1}.rvp-row{display:flex;align-items:center;gap:6px;margin-bottom:4px;font-size:10px;font-weight:800;color:var(--text3)}
+.rvp-row .bg{flex:1;height:5px;border-radius:5px;background:var(--input-bg);overflow:hidden}.rvp-row .bg i{display:block;height:100%;background:#f59e0b;border-radius:5px}
+.rvp-row span{width:30px;text-align:left;font-family:var(--font-num)}
+.co-closed{flex:1;display:flex;align-items:center;justify-content:center;gap:7px;padding:10px;border-radius:12px;background:var(--input-bg);color:var(--text3);font-size:11px;font-weight:800}
+.ow3-chips{flex-wrap:nowrap!important;overflow-x:auto;scrollbar-width:none;padding-bottom:2px}.ow3-chips::-webkit-scrollbar{display:none}.ow3-chip{flex-shrink:0;padding:7px 11px!important}
+/* اتجاه الإنكليزية */
+html[dir="ltr"] .fa-chevron-left,html[dir="ltr"] .fa-arrow-right,html[dir="ltr"] .arr i,html[dir="ltr"] .curr-card-vps-chev{transform:scaleX(-1)}
+html[dir="ltr"] .csl-arrow{transform:scaleX(-1);display:inline-block}
+html[dir="ltr"] body{text-align:left}
 /* شعار طريقة الدفع */
 .rch-strip-ic{width:52px;height:52px;border-radius:14px}
 .rch-strip-ic img{object-fit:contain;background:#fff;padding:4px;border-radius:14px}
@@ -2076,7 +2162,10 @@ html:not([data-theme="dark"]) .rv-star-btn{color:rgba(0,0,0,.1)}
     <button class="mob-menu-btn admin-only" id="mobMenuBtn" onclick="toggleMobDrawer()"><i class="fa-solid fa-bars" id="mobMenuIcon"></i></button>
     <div class="brand-info"><div class="brand-name" id="brandNameDisplay">__SITE_NAME__</div></div>
   </div>
-  <div class="bell-btn" id="bellBtn" onclick="openNotifPage()"><i class="fa-solid fa-bell"></i><div class="bell-badge" id="bellBadge" style="display:none">0</div></div>
+  <div class="tb-actions">
+    <div class="tb-bal" onclick="switchPage('pageRecharge')" title="شحن الرصيد"><i class="fa-solid fa-wallet"></i><span class="sb-bal-val" data-usd="0">$0.00</span><span class="tb-plus"><i class="fa-solid fa-plus"></i></span></div>
+    <div class="bell-btn" id="bellBtn" onclick="openNotifPage()"><i class="fa-solid fa-bell"></i><div class="bell-badge" id="bellBadge" style="display:none">0</div></div>
+  </div>
 </div>
 <div class="mob-drawer-bg" id="mobDrawerBg" onclick="toggleMobDrawer()"></div>
 <div class="mob-drawer" id="mobDrawer">
@@ -2221,13 +2310,6 @@ html:not([data-theme="dark"]) .rv-star-btn{color:rgba(0,0,0,.1)}
         <div class="platforms-grid" id="pGrid"></div>
       </div>
     </div>
-    <div class="rv-sec nonadmin-only" id="rvSection">
-      <div class="rv-head">
-        <div class="rv-title"><i class="fa-solid fa-star"></i> آراء العملاء</div>
-        <button class="rv-write-btn" onclick="openReviewModal()"><i class="fa-solid fa-pen"></i> أكتب تقييم</button>
-      </div>
-      <div class="rv-grid" id="rvGrid"></div>
-    </div>
     <div id="refSection" class="nonadmin-only" style="display:none;margin-top:12px">
       <div class="ref4-card">
         <div class="ref4-row"><div class="ref4-ic"><i class="fa-solid fa-share-nodes"></i></div><div><div class="ref4-title">نظام الإحالة</div><div class="ref4-desc">ادعو أصدقاءك واحصل على عمولة من كل طلب</div></div></div>
@@ -2284,14 +2366,7 @@ html:not([data-theme="dark"]) .rv-star-btn{color:rgba(0,0,0,.1)}
         <div class="acc-av-big" onclick="document.getElementById('accAvInput').click()">__UINIT__<input type="file" accept="image/*" id="accAvInput" class="pc5-av-input" onchange="previewAvatar(this)"><div class="pc5-av-cam"><i class="fa-solid fa-camera"></i></div></div>
         <div class="acc-nm-big">__UNAME__</div>
         <div class="acc-div-desk"></div>
-        <div class="acc-stats-desk">
-          <div class="asd"><div class="asd-n" data-stat="balance">$0</div><div class="asd-l">الرصيد</div></div>
-          <div class="asd"><div class="asd-n" data-stat="spent">$0</div><div class="asd-l">إجمالي الإنفاق</div></div>
-          <div class="asd"><div class="asd-n" data-stat="completed">0</div><div class="asd-l">مكتملة</div></div>
-          <div class="asd"><div class="asd-n" data-stat="active">0</div><div class="asd-l">نشطة</div></div>
-          <div class="asd"><div class="asd-n" data-stat="pending">0</div><div class="asd-l">معلّقة</div></div>
-          <div class="asd"><div class="asd-n" data-stat="tickets">0</div><div class="asd-l">تذاكر</div></div>
-        </div>
+        <div class="st-host"></div>
         <a class="acc-logout-desk" href="#" onclick="event.preventDefault();openLogoutSheet()"><i class="fa-solid fa-right-from-bracket"></i> تسجيل الخروج</a>
       </div>
       <div class="qa-card">
@@ -2318,14 +2393,7 @@ html:not([data-theme="dark"]) .rv-star-btn{color:rgba(0,0,0,.1)}
           <div class="acc-name">__UNAME__</div>
         </div>
       </div>
-      <div class="acc-stats-mob">
-        <div class="asd"><div class="asd-n" data-stat="balance">$0</div><div class="asd-l">الرصيد</div></div>
-        <div class="asd"><div class="asd-n" data-stat="spent">$0</div><div class="asd-l">إجمالي الإنفاق</div></div>
-        <div class="asd"><div class="asd-n" data-stat="completed">0</div><div class="asd-l">مكتملة</div></div>
-        <div class="asd"><div class="asd-n" data-stat="active">0</div><div class="asd-l">نشطة</div></div>
-        <div class="asd"><div class="asd-n" data-stat="pending">0</div><div class="asd-l">معلّقة</div></div>
-        <div class="asd"><div class="asd-n" data-stat="tickets">0</div><div class="asd-l">تذاكر</div></div>
-      </div>
+      <div class="st-host"></div>
     </div>
 
     <div class="sec-sep">الأمان <span class="new-tag">جديد</span></div>
@@ -2343,45 +2411,11 @@ html:not([data-theme="dark"]) .rv-star-btn{color:rgba(0,0,0,.1)}
     </div>
     <div class="sess-now" id="accNowCard" style="display:none"></div>
 
-    <div class="sec-sep nonadmin-only">الإعدادات العامة</div>
-    <div class="curr-card-vps nonadmin-only" id="currBtn">
-      <div class="curr-card-vps-ic"><i class="fa-solid fa-coins" id="currIcon"></i></div>
-      <div class="curr-card-vps-text">
-        <div class="curr-card-vps-title">عملة عرض الأسعار</div>
-        <div class="curr-card-vps-sub">تُطبَّق على كل الأسعار المعروضة لك في التطبيق والموقع</div>
-        <div class="curr-card-vps-value" id="currBtnVal">USD</div>
-      </div>
-      <i class="fa-solid fa-chevron-left curr-card-vps-chev"></i>
-    </div>
-    <div class="curr-card-vps nonadmin-only" id="dailyBonusCard" style="display:none" onclick="claimDailyBonus()">
-      <div class="curr-card-vps-ic" style="background:rgba(16,185,129,.1);color:var(--green)"><i class="fa-solid fa-gift"></i></div>
-      <div class="curr-card-vps-text">
-        <div class="curr-card-vps-title">مكافأة يومية</div>
-        <div class="curr-card-vps-sub" id="dailyBonusSub">اضغط للحصول على مكافأتك اليومية</div>
-      </div>
-      <i class="fa-solid fa-chevron-left curr-card-vps-chev"></i>
-    </div>
-    <div class="more-set nonadmin-only" id="moreSet">
-    <div class="more-hd" onclick="document.getElementById('moreSet').classList.toggle('open')">
+    <div class="acc-card more-row"><a class="acc-item" href="#" onclick="event.preventDefault();openMoreSettings()">
       <div class="mi-ic blue"><i class="fa-solid fa-sliders"></i></div>
-      <div style="flex:1"><div class="more-t">المزيد من الإعدادات</div><div class="more-d">المظهر · الإشعارات</div></div>
-      <i class="fa-solid fa-chevron-down more-chev"></i>
-    </div>
-    <div class="more-bd">
-    <div class="acc-card nonadmin-only">
-      <div class="acc-item" id="btnTheme" style="cursor:pointer">
-        <div class="mi-ic" style="background:rgba(245,158,11,.1);color:#f59e0b"><i class="fa-solid fa-moon"></i></div>
-        <div class="mi-info"><div class="mi-title">المظهر الداكن</div><div class="mi-desc">الوضع الليلي للتطبيق</div></div>
-        <div class="theme-switch-vis"><i class="fa-solid fa-sun" id="themeIcon"></i></div>
-      </div>
-      <a class="acc-item" href="#" onclick="event.preventDefault();openNotifPage()">
-        <div class="mi-ic blue"><i class="fa-solid fa-bell"></i></div>
-        <div class="mi-info"><div class="mi-title">الإشعارات</div><div class="mi-desc" id="accNotifSub">لا توجد إشعارات جديدة</div></div>
-        <span class="arr"><i class="fa-solid fa-chevron-left"></i></span>
-      </a>
-    </div>
-    </div></div>
-
+      <div class="mi-info"><div class="mi-title">المزيد من الإعدادات</div><div class="mi-desc">اللغة · المظهر · الإشعارات · العملة · الهدايا</div></div>
+      <span class="arr"><i class="fa-solid fa-chevron-left"></i></span>
+    </a></div>
 
     <div class="sec-sep admin-only">الإدارة</div>
     <div class="acc-card admin-only">
@@ -2507,30 +2541,6 @@ html:not([data-theme="dark"]) .rv-star-btn{color:rgba(0,0,0,.1)}
       </a>
     </div>
 
-    <div class="sec-sep nonadmin-only">الهدية اليومية</div>
-    <div class="acc-card nonadmin-only cpn-collapse-card">
-      <div class="cpn-collapse-top" onclick="var b=this.parentElement.querySelector('.cpn-collapse-body');var a=this.querySelector('.cpn-collapse-arr');if(b.classList.contains('open')){b.classList.remove('open');a.classList.remove('open')}else{b.classList.add('open');a.classList.add('open')}">
-        <div class="cpn-collapse-ic"><i class="fa-solid fa-gift"></i></div>
-        <div class="cpn-collapse-info"><div class="cpn-collapse-title">كوبون هدية</div><div class="cpn-collapse-sub">أدخل كود الهدية واحصل على رصيد مجاني</div></div>
-        <button class="cpn-collapse-arr"><i class="fa-solid fa-chevron-down"></i></button>
-      </div>
-      <div class="cpn-collapse-body">
-        <div id="dailyGiftBanner" style="display:none;margin-bottom:10px;padding:14px;border-radius:12px;background:linear-gradient(135deg,rgba(236,72,153,.06),rgba(168,85,247,.06));border:1px solid rgba(236,72,153,.12);text-align:center">
-          <div style="font-size:10px;color:var(--text3);margin-bottom:4px"><i class="fa-solid fa-clock" style="color:#ec4899"></i> هدية اليوم — <span id="dailyGiftAmountUser">$0</span></div>
-          <div style="font-family:var(--font-num);font-size:20px;font-weight:900;color:#ec4899;letter-spacing:3px;margin:6px 0" id="dailyGiftCodeUser"></div>
-          <div style="display:flex;gap:8px;justify-content:center;margin-top:8px">
-            <button onclick="copyDailyGift()" class="btn-sm" style="border-color:rgba(236,72,153,.2);background:rgba(236,72,153,.06);color:#ec4899;font-size:10px"><i class="fa-solid fa-copy"></i> نسخ</button>
-            <button onclick="shareDailyGift()" class="btn-sm" style="border-color:rgba(168,85,247,.2);background:rgba(168,85,247,.06);color:#a855f7;font-size:10px"><i class="fa-solid fa-share-nodes"></i> مشاركة</button>
-          </div>
-        </div>
-        <div class="cpn-collapse-row">
-          <input type="text" class="cpn-collapse-input" id="userCouponIn2" placeholder="أدخل الكود هنا" dir="ltr">
-          <button onclick="redeemGift()" class="cpn-collapse-btn" id="giftBtn"><i class="fa-solid fa-check"></i> تفعيل</button>
-        </div>
-        <div id="giftResult" class="cpn-collapse-result" style="display:none"></div>
-      </div>
-    </div>
-
     <div class="ref-mini nonadmin-only" onclick="switchPage('pageHome')">
       <div class="ref-mini-ic"><i class="fa-solid fa-share-nodes"></i></div>
       <div class="ref-mini-info"><div class="ref-mini-t">نظام الإحالة</div><div class="ref-mini-d">ادعو أصدقاءك واحصل على عمولة من كل طلب</div></div>
@@ -2538,18 +2548,20 @@ html:not([data-theme="dark"]) .rv-star-btn{color:rgba(0,0,0,.1)}
     </div>
 
 
-    <div class="sec-sep nonadmin-only">حول التطبيق</div>
-    <div class="acc-card nonadmin-only">
-      <a class="acc-item" href="#" onclick="event.preventDefault();openPolicyPage('privacy')">
-        <div class="mi-ic blue"><i class="fa-solid fa-shield-halved"></i></div>
-        <div class="mi-info"><div class="mi-title">سياسة الخصوصية</div><div class="mi-desc">اطلع على سياسة الخصوصية</div></div>
-        <span class="arr"><i class="fa-solid fa-chevron-left"></i></span>
-      </a>
-      <a class="acc-item" href="#" onclick="event.preventDefault();openPolicyPage('terms')">
-        <div class="mi-ic" style="background:rgba(168,85,247,.1);color:#a855f7"><i class="fa-solid fa-file-contract"></i></div>
-        <div class="mi-info"><div class="mi-title">الشروط والأحكام</div><div class="mi-desc">اطلع على شروط الاستخدام</div></div>
-        <span class="arr"><i class="fa-solid fa-chevron-left"></i></span>
-      </a>
+    <div class="sec-sep">آراء العملاء</div>
+    <div class="rv-flat" id="accReviews">
+      <div class="rvf-sum" id="rvfSum"></div>
+      <div id="accRvList"></div>
+      <div class="rvf-actions">
+        <button class="v2-btn solid sm nonadmin-only" onclick="openReviewModal()"><i class="fa-solid fa-pen"></i> أكتب تقييم</button>
+        <button class="v2-btn sm" onclick="openReviewsPage()"><i class="fa-solid fa-comments"></i> كل التقييمات</button>
+      </div>
+    </div>
+
+    <div class="acc-legal">
+      <a href="#" onclick="event.preventDefault();openPolicyPage('privacy')"><i class="fa-solid fa-shield-halved"></i> سياسة الخصوصية</a>
+      <span class="dot"></span>
+      <a href="#" onclick="event.preventDefault();openPolicyPage('terms')"><i class="fa-solid fa-file-contract"></i> الشروط والأحكام</a>
     </div>
 
     <a class="logout-btn mob-logout" href="#" onclick="event.preventDefault();openLogoutSheet()"><i class="fa-solid fa-right-from-bracket"></i> تسجيل الخروج</a>
@@ -2596,6 +2608,80 @@ html:not([data-theme="dark"]) .rv-star-btn{color:rgba(0,0,0,.1)}
 <div class="overlay-page nonadmin-only" id="txDetailPage">
   <div class="ov-topbar"><button class="ov-back" onclick="document.getElementById('txDetailPage').classList.remove('show')"><i class="fa-solid fa-arrow-right"></i></button><div class="ov-title"><i class="fa-solid fa-receipt"></i> تفاصيل العملية</div></div>
   <div class="ov-body" id="txDetailBody"></div>
+</div>
+<div class="overlay-page" id="moreSetPage">
+  <div class="ov-topbar"><button class="ov-back" onclick="document.getElementById('moreSetPage').classList.remove('show')"><i class="fa-solid fa-arrow-right"></i></button><div class="ov-title"><i class="fa-solid fa-sliders"></i> المزيد من الإعدادات</div></div>
+  <div class="ov-body">
+    <div style="max-width:480px;margin:0 auto">
+    <div class="curr-card-vps nonadmin-only" id="currBtn">
+      <div class="curr-card-vps-ic"><i class="fa-solid fa-coins" id="currIcon"></i></div>
+      <div class="curr-card-vps-text">
+        <div class="curr-card-vps-title">عملة عرض الأسعار</div>
+        <div class="curr-card-vps-sub">تُطبَّق على كل الأسعار المعروضة لك في التطبيق والموقع</div>
+        <div class="curr-card-vps-value" id="currBtnVal">USD</div>
+      </div>
+      <i class="fa-solid fa-chevron-left curr-card-vps-chev"></i>
+    </div>
+    <div class="curr-card-vps nonadmin-only" id="dailyBonusCard" style="display:none" onclick="claimDailyBonus()">
+      <div class="curr-card-vps-ic" style="background:rgba(16,185,129,.1);color:var(--green)"><i class="fa-solid fa-gift"></i></div>
+      <div class="curr-card-vps-text">
+        <div class="curr-card-vps-title">مكافأة يومية</div>
+        <div class="curr-card-vps-sub" id="dailyBonusSub">اضغط للحصول على مكافأتك اليومية</div>
+      </div>
+      <i class="fa-solid fa-chevron-left curr-card-vps-chev"></i>
+    </div>
+<div class="acc-card">
+      <div class="acc-item" id="btnTheme" style="cursor:pointer">
+        <div class="mi-ic" style="background:rgba(245,158,11,.1);color:#f59e0b"><i class="fa-solid fa-moon"></i></div>
+        <div class="mi-info"><div class="mi-title">المظهر الداكن</div><div class="mi-desc">الوضع الليلي للتطبيق</div></div>
+        <div class="theme-switch-vis"><i class="fa-solid fa-sun" id="themeIcon"></i></div>
+      </div>
+      <div class="acc-item" id="langRow" style="cursor:default">
+        <div class="mi-ic" style="background:rgba(16,185,129,.1);color:#10b981"><i class="fa-solid fa-language"></i></div>
+        <div class="mi-info"><div class="mi-title">اللغة</div><div class="mi-desc">لغة واجهة التطبيق</div></div>
+        <div class="lang-seg" id="langSeg"><button type="button" data-lang="ar" class="on">عربي</button><button type="button" data-lang="en">English</button></div>
+      </div>
+      <a class="acc-item" href="#" onclick="event.preventDefault();openNotifPage()">
+        <div class="mi-ic blue"><i class="fa-solid fa-bell"></i></div>
+        <div class="mi-info"><div class="mi-title">الإشعارات</div><div class="mi-desc" id="accNotifSub">لا توجد إشعارات جديدة</div></div>
+        <span class="arr"><i class="fa-solid fa-chevron-left"></i></span>
+      </a>
+    </div>
+    <div class="sec-sep nonadmin-only">الهدية اليومية</div>
+    <div class="acc-card nonadmin-only cpn-collapse-card">
+      <div class="cpn-collapse-top" onclick="var b=this.parentElement.querySelector('.cpn-collapse-body');var a=this.querySelector('.cpn-collapse-arr');if(b.classList.contains('open')){b.classList.remove('open');a.classList.remove('open')}else{b.classList.add('open');a.classList.add('open')}">
+        <div class="cpn-collapse-ic"><i class="fa-solid fa-gift"></i></div>
+        <div class="cpn-collapse-info"><div class="cpn-collapse-title">كوبون هدية</div><div class="cpn-collapse-sub">أدخل كود الهدية واحصل على رصيد مجاني</div></div>
+        <button class="cpn-collapse-arr"><i class="fa-solid fa-chevron-down"></i></button>
+      </div>
+      <div class="cpn-collapse-body">
+        <div id="dailyGiftBanner" style="display:none;margin-bottom:10px;padding:14px;border-radius:12px;background:linear-gradient(135deg,rgba(236,72,153,.06),rgba(168,85,247,.06));border:1px solid rgba(236,72,153,.12);text-align:center">
+          <div style="font-size:10px;color:var(--text3);margin-bottom:4px"><i class="fa-solid fa-clock" style="color:#ec4899"></i> هدية اليوم — <span id="dailyGiftAmountUser">$0</span></div>
+          <div style="font-family:var(--font-num);font-size:20px;font-weight:900;color:#ec4899;letter-spacing:3px;margin:6px 0" id="dailyGiftCodeUser"></div>
+          <div style="display:flex;gap:8px;justify-content:center;margin-top:8px">
+            <button onclick="copyDailyGift()" class="btn-sm" style="border-color:rgba(236,72,153,.2);background:rgba(236,72,153,.06);color:#ec4899;font-size:10px"><i class="fa-solid fa-copy"></i> نسخ</button>
+            <button onclick="shareDailyGift()" class="btn-sm" style="border-color:rgba(168,85,247,.2);background:rgba(168,85,247,.06);color:#a855f7;font-size:10px"><i class="fa-solid fa-share-nodes"></i> مشاركة</button>
+          </div>
+        </div>
+        <div class="cpn-collapse-row">
+          <input type="text" class="cpn-collapse-input" id="userCouponIn2" placeholder="أدخل الكود هنا" dir="ltr">
+          <button onclick="redeemGift()" class="cpn-collapse-btn" id="giftBtn"><i class="fa-solid fa-check"></i> تفعيل</button>
+        </div>
+        <div id="giftResult" class="cpn-collapse-result" style="display:none"></div>
+      </div>
+    </div>
+    </div>
+  </div>
+</div>
+<div class="overlay-page" id="reviewsPage">
+  <div class="ov-topbar"><button class="ov-back" onclick="document.getElementById('reviewsPage').classList.remove('show')"><i class="fa-solid fa-arrow-right"></i></button><div class="ov-title"><i class="fa-solid fa-star"></i> آراء العملاء</div><button class="v2-btn solid sm nonadmin-only" style="margin-right:auto" onclick="openReviewModal()"><i class="fa-solid fa-pen"></i> أكتب تقييم</button></div>
+  <div class="ov-body">
+    <div style="max-width:560px;margin:0 auto">
+      <div class="rvp-sum" id="rvpSum"></div>
+      <div class="rv-flat" id="rvpList"></div>
+      <button class="v2-btn sm" id="rvpMore" style="display:none;margin:14px auto 0" onclick="rvLoadMore()">عرض المزيد</button>
+    </div>
+  </div>
 </div>
 <div class="overlay-page nonadmin-only" id="accSettingsPage">
   <div class="ov-topbar"><button class="ov-back" onclick="document.getElementById('accSettingsPage').classList.remove('show')"><i class="fa-solid fa-arrow-right"></i></button><div class="ov-title"><i class="fa-solid fa-user-gear"></i> إعدادات الحساب</div></div>
@@ -3241,13 +3327,18 @@ html:not([data-theme="dark"]) .rv-star-btn{color:rgba(0,0,0,.1)}
         </div>
       </div>
       <div class="ow-glass-card" id="owCommentsGroup" style="display:none;margin-top:10px;padding:14px"><div class="ow-glass-label" style="margin-bottom:8px"><i class="fa-solid fa-comments" style="color:var(--primary)"></i> التعليقات <span style="font-weight:400;color:var(--text3);font-size:10px">(تعليق واحد بكل سطر)</span></div><div class="cmt-wrap"><textarea class="cmt-ta" id="owComments" placeholder="اكتب تعليقاتك هنا... كل تعليق بسطر جديد&#10;مثال:&#10;ما شاء الله عليك&#10;تبارك الرحمن&#10;ذوقك عالي" oninput="cmtRecount()"></textarea><div class="cmt-tb"><button type="button" class="cmt-tb-btn primary" onclick="toggleGen()"><i class="fa-solid fa-wand-magic-sparkles"></i> توليد</button><button type="button" class="cmt-tb-btn" onclick="cmtDedupe()"><i class="fa-solid fa-clone"></i> مكرر</button><button type="button" class="cmt-tb-btn" onclick="cmtShuffle()" title="خلط الترتيب"><i class="fa-solid fa-shuffle"></i></button><button type="button" class="cmt-tb-btn danger" onclick="cmtClear()" title="مسح الكل"><i class="fa-solid fa-trash-can"></i></button><div class="cmt-tb-spacer"></div><div class="cmt-count" id="cmtCountLive"><i class="fa-solid fa-list-ol"></i><b id="cmtCountN">0</b><span id="cmtCountMax"></span></div></div><div class="gen-panel" id="genPanel"><div class="gen-inner"><div class="gen-sec-lbl">نوع التعليقات</div><div class="gen-chips" id="genChips"><div class="gen-chip active" data-k="praise" onclick="genChipClick(this)"><i class="fa-solid fa-star"></i> مدح</div><div class="gen-chip" data-k="sweet" onclick="genChipClick(this)"><i class="fa-solid fa-heart"></i> حلوة</div><div class="gen-chip" data-k="support" onclick="genChipClick(this)"><i class="fa-solid fa-hand-fist"></i> دعم</div><div class="gen-chip" data-k="emoji" onclick="genChipClick(this)"><i class="fa-solid fa-face-smile"></i> إيموجي</div><div class="gen-chip" data-k="blessing" onclick="genChipClick(this)"><i class="fa-solid fa-hands-praying"></i> دعاء</div><div class="gen-chip" data-k="congrats" onclick="genChipClick(this)"><i class="fa-solid fa-gift"></i> تهنئة</div><div class="gen-chip" data-k="question" onclick="genChipClick(this)"><i class="fa-solid fa-circle-question"></i> سؤال</div><div class="gen-chip" data-k="short" onclick="genChipClick(this)"><i class="fa-solid fa-bolt"></i> قصيرة</div></div><div class="gen-sec-lbl" id="genCntLbl">كم تعليق تريد؟</div><div class="gen-count-row"><span class="gcr-lbl">العدد</span><input type="range" class="gcr-slider" id="genCount" min="1" max="500" step="1" value="20" oninput="updGenCnt()"><span class="gcr-val" id="genCountVal">20</span></div><div class="gen-quick" id="genQuick"></div><div class="gen-opts"><label class="gen-opt active" onclick="setTimeout(genOptSync,0)"><input type="checkbox" id="cbMix" checked> خلط الستايلات</label><label class="gen-opt" onclick="setTimeout(genOptSync,0)"><input type="checkbox" id="cbUnique"> بدون تكرار</label><label class="gen-opt active" onclick="setTimeout(genOptSync,0)"><input type="checkbox" id="cbAppend" checked> إضافة للموجود</label></div><div class="gen-actions"><button type="button" class="gen-gen" onclick="generateComments()"><i class="fa-solid fa-wand-magic-sparkles"></i> توليد الآن</button><button type="button" class="gen-mini" onclick="previewComment()" title="معاينة سريعة"><i class="fa-solid fa-eye"></i></button><button type="button" class="gen-mini" onclick="toggleGen()" title="إغلاق"><i class="fa-solid fa-xmark"></i></button></div><div class="gen-note"><i class="fa-solid fa-lightbulb"></i> العدد يتبع حدود الخدمة تلقائياً — تعمل على كل المنصات</div></div></div></div><div style="margin-top:10px;font-size:11px;font-weight:700;color:var(--text3);margin-bottom:4px"><i class="fa-solid fa-sort-numeric-up"></i> الكمية <span style="font-weight:400;color:var(--text3);font-size:10px">(محسوبة تلقائياً)</span></div><div class="qty-compact" id="qtyBox"><div class="qc-ic"><i class="fa-solid fa-calculator" id="qtyIc"></i></div><div class="qc-b"><div class="qc-v"><b id="qtyLg">0</b> تعليق</div><div class="qc-s" id="qtyMsg">اكتب التعليقات وراح تنحسب هنا</div></div></div><div id="owCmtNum" style="display:none">0</div></div>
-      <div class="ow-glass-card" style="margin-top:10px"><div class="ow-glass-label"><i class="fa-solid fa-link" style="color:var(--primary)"></i> الرابط</div><input type="text" class="ow-glass-input" placeholder="أدخل رابط الحساب أو المنشور" id="owLink"></div>
-      <div class="ow-dual-row"><div class="ow-glass-card ow-dual-card" id="owQtyCard"><div class="ow-glass-label"><i class="fa-solid fa-hashtag"></i> الكمية</div><input type="number" class="ow-glass-input ow-qty-input" placeholder="1000" min="1" id="owQty"><span id="owMinH" style="display:none">10</span><span id="owMaxH" style="display:none">100000</span></div><div class="ow-glass-card ow-dual-card ow-total-card"><div class="ow-glass-label"><i class="fa-solid fa-tag"></i> المجموع</div><div class="ow-total-amount"><span id="owPriceVal" data-usd="0">$0.00</span></div></div></div>
-      <div style="display:flex;justify-content:space-between;margin:4px 4px 10px;font-size:10px;font-weight:700;color:var(--text3)" id="owMinMaxRow"><span id="owMinLabel"></span><span id="owMaxLabel"></span></div>
+      <div class="ow3-box">
+        <div class="ow3-f"><div class="ow3-l"><i class="fa-solid fa-link"></i> الرابط</div><input type="text" class="ow-glass-input" placeholder="أدخل رابط الحساب أو المنشور" id="owLink" autocomplete="off"></div>
+        <div class="ow3-f" id="owQtyCard"><div class="ow3-l"><i class="fa-solid fa-hashtag"></i> الكمية <span class="ow3-mm" id="owMinMaxRow"><span id="owMinLabel"></span><span id="owMaxLabel"></span></span></div><input type="number" class="ow-glass-input ow-qty-input" placeholder="1000" min="1" id="owQty"><span id="owMinH" style="display:none">10</span><span id="owMaxH" style="display:none">100000</span><div class="ow3-chips" id="owChips"></div></div>
+      </div>
+      <div class="ow3-sum">
+        <div class="ow3-sum-r"><span>المجموع</span><b class="ow-total-amount"><span id="owPriceVal" data-usd="0">$0.00</span></b></div>
+        <div class="ow3-sum-r sm"><span>رصيدك بعد الطلب</span><b id="owAfterBal">—</b></div>
+      </div>
       <div class="ow-notice"><i class="fa-solid fa-circle-info"></i><p>تأكد إن الحساب <b>عام (Public)</b> قبل الطلب. لا تطلب نفس الخدمة مرتين على نفس الرابط.</p></div>
-      <div style="display:flex;gap:8px">
-        <button class="ow-submit" id="owBtnAddCart" style="flex:1;background:var(--card);color:var(--primary);border:1.5px solid var(--primary);box-shadow:none"><i class="fa-solid fa-cart-plus"></i> أضف للسلة</button>
-        <button class="ow-submit" id="owBtnOrder" style="flex:1"><i class="fa-solid fa-paper-plane"></i> إرسال الطلب</button>
+      <div class="ow3-actions">
+        <button class="ow-submit" id="owBtnOrder"><i class="fa-solid fa-paper-plane"></i> إرسال الطلب</button>
+        <button class="ow-submit ow3-alt" id="owBtnAddCart"><i class="fa-solid fa-cart-plus"></i> أضف للسلة</button>
       </div>
     </div>
   </div>
@@ -4129,7 +4220,7 @@ print(r.json())</pre>
         document.getElementById('owBdgDrop').textContent='قليل';
         document.getElementById('owMinLabel').textContent='الأدنى: '+parseInt(s.min).toLocaleString();
         document.getElementById('owMaxLabel').textContent='الأقصى: '+parseInt(s.max).toLocaleString();
-        document.getElementById('owLink').value='';document.getElementById('owQty').value='';_owUpdatePrice();
+        document.getElementById('owLink').value='';document.getElementById('owQty').value='';_owChips(parseInt(s.min)||1,parseInt(s.max)||1000000);_owUpdatePrice();
         var _owCmtBox=document.getElementById('owCommentsGroup');var _owSn=(s.name||'').toLowerCase();var _owSt=(s.type||'').toLowerCase();var _owIsCmtKw=(_owSn.indexOf('comment')>-1||_owSn.indexOf('تعليق')>-1);var _owIsCust=(_owSn.indexOf('custom')>-1||_owSn.indexOf('مخصص')>-1||_owSt==='custom comments'||_owSt.indexOf('custom')>-1);var _owIsRand=(_owSn.indexOf('random')>-1||_owSn.indexOf('عشوائي')>-1);var _owHasCmt=_owIsCmtKw&&_owIsCust&&!_owIsRand;window._owIsComment=_owHasCmt;if(_owCmtBox){if(_owHasCmt){_owCmtBox.style.display='block';document.getElementById('owQtyCard').style.display='none';document.getElementById('owMinMaxRow').style.display='none';var _owDualRow=document.getElementById('owQtyCard').parentElement;if(_owDualRow){_owDualRow.style.gridTemplateColumns='1fr 1fr';var _owTotalCard=_owDualRow.querySelector('.ow-total-card');if(_owTotalCard){_owTotalCard.style.padding='10px 12px';var _owTotalLbl=_owTotalCard.querySelector('.ow-glass-label');if(_owTotalLbl)_owTotalLbl.style.fontSize='10px';var _owTotalAmt=_owTotalCard.querySelector('.ow-total-amount');if(_owTotalAmt)_owTotalAmt.style.fontSize='16px'}}var _sMin=parseInt(s.min)||1,_sMax=parseInt(s.max)||999999;document.getElementById('owMinH').textContent=_sMin;document.getElementById('owMaxH').textContent=_sMax;var _cmtMaxSpan=document.getElementById('cmtCountMax');if(_cmtMaxSpan)_cmtMaxSpan.textContent='/ '+_sMax.toLocaleString();var _cntLbl=document.getElementById('genCntLbl');if(_cntLbl)_cntLbl.innerHTML='كم تعليق تريد؟ <span style="color:var(--text3);font-weight:600;font-size:10px">(الحد: '+_sMin.toLocaleString()+' - '+_sMax.toLocaleString()+')</span>';var _sl=document.getElementById('genCount');if(_sl){var _slMax=Math.min(_sMax,500);_sl.min=_sMin;_sl.max=_slMax;var _slInit=Math.min(Math.max(20,_sMin),_slMax);_sl.value=_slInit;var _gcv=document.getElementById('genCountVal');if(_gcv)_gcv.textContent=_slInit.toLocaleString()}var _qk=document.getElementById('genQuick');if(_qk){var _qkArr=[_sMin,Math.max(_sMin,Math.ceil(_sMax*0.1)),Math.max(_sMin,Math.ceil(_sMax*0.25)),Math.max(_sMin,Math.ceil(_sMax*0.5))];var _qkSeen={},_qkOut=[];for(var _qi=0;_qi<_qkArr.length;_qi++){var _qv=_qkArr[_qi];if(_qv>=_sMin&&_qv<=Math.min(_sMax,500)&&!_qkSeen[_qv]){_qkSeen[_qv]=1;_qkOut.push(_qv)}}var _qkH='';for(var _qj=0;_qj<_qkOut.length;_qj++){_qkH+='<div class="gq'+(_qj===0?' active':'')+'" onclick="setGenCnt('+_qkOut[_qj]+')">'+_qkOut[_qj].toLocaleString()+'</div>'}_qk.innerHTML=_qkH}document.getElementById('owComments').value='';cmtRecount()}else{_owCmtBox.style.display='none';document.getElementById('owComments').value='';document.getElementById('owQtyCard').style.display='';document.getElementById('owMinMaxRow').style.display='';document.getElementById('owCmtNum').textContent='0';var _owDualRow2=document.getElementById('owQtyCard').parentElement;if(_owDualRow2){var _owTotalCard2=_owDualRow2.querySelector('.ow-total-card');if(_owTotalCard2){_owTotalCard2.style.padding='';var _owTotalLbl2=_owTotalCard2.querySelector('.ow-glass-label');if(_owTotalLbl2)_owTotalLbl2.style.fontSize='';var _owTotalAmt2=_owTotalCard2.querySelector('.ow-total-amount');if(_owTotalAmt2)_owTotalAmt2.style.fontSize=''}}}}
         owShowStep(3);
       });
@@ -4138,7 +4229,23 @@ print(r.json())</pre>
     });
     owShowStep(2);
   }
-  function _owUpdatePrice(){var q=parseInt(document.getElementById('owQty').value)||0;var p=(q*_owRate/1000);var disc=(window._statsData&&window._statsData.level_discount)?parseFloat(window._statsData.level_discount):0;if(disc>0)p=p*(1-disc/100);var el=document.getElementById('owPriceVal');el.dataset.usd=p.toFixed(4);el.textContent=fmtP(p)}
+  /* كميات سريعة داخل حدود الخدمة + رصيدك بعد الطلب */
+  function _owChips(mn,mx){
+    var box=document.getElementById('owChips');if(!box)return;
+    var pre=[100,500,1000,2500,5000,10000,50000,100000],vals=[mn];
+    pre.forEach(function(v){if(v>mn&&v<mx)vals.push(v)});
+    if(mx>mn)vals.push(mx);
+    if(vals.length>6){var mid=vals.slice(1,-1),pick=[];for(var q=0;q<4;q++)pick.push(mid[Math.round(q*(mid.length-1)/3)]);vals=[vals[0]].concat(pick,[mx])}
+    box.innerHTML=vals.map(function(v){return '<button type="button" class="ow3-chip" data-q="'+v+'">'+v.toLocaleString('en-US')+'</button>'}).join('');
+    box.querySelectorAll('.ow3-chip').forEach(function(b){b.addEventListener('click',function(){var q=document.getElementById('owQty');q.value=b.dataset.q;q.dispatchEvent(new Event('input',{bubbles:true}));_owUpdatePrice()})});
+  }
+  function _owAfterBal(){
+    var el=document.getElementById('owAfterBal'),pv=document.getElementById('owPriceVal'),bv=document.getElementById('hudBalVal');if(!el||!pv||!bv)return;
+    var total=parseFloat(pv.dataset.usd||0),bal=parseFloat(bv.dataset.usd||0);
+    if(!total){el.textContent='—';el.className='';return}
+    var after=bal-total;el.textContent=fmtP(after);el.className=after<0?'neg':'ok';
+  }
+  function _owUpdatePrice(){var q=parseInt(document.getElementById('owQty').value)||0;var p=(q*_owRate/1000);var disc=(window._statsData&&window._statsData.level_discount)?parseFloat(window._statsData.level_discount):0;if(disc>0)p=p*(1-disc/100);var el=document.getElementById('owPriceVal');el.dataset.usd=p.toFixed(4);el.textContent=fmtP(p);if(typeof _owAfterBal==='function')_owAfterBal()}
   document.getElementById('owQty').addEventListener('input',_owUpdatePrice);
   document.getElementById('owBtnOrder').addEventListener('click',function(){
     var btn=this;if(!_owSvcId){toast('اختر خدمة أولاً','error');return}
@@ -4273,7 +4380,10 @@ print(r.json())</pre>
     h+='<div class="co-tx"><div class="co-t">'+esc(o.service_name||'')+(o.package?' — '+esc(o.package):'')+'</div><div class="co-d">#'+esc(o.id)+(isGame&&o.link?' · ID <span style="font-family:var(--font-num,Inter);font-weight:700">'+esc(o.link)+'</span>':'')+'</div></div>';
     h+='<span class="v2-chip '+cls+'">'+lbl+'</span></div>';
     h+='<div class="co-m"><span>السعر <b data-usd="'+(o.cost||0)+'">'+fmtP(o.cost||0)+'</b></span>'+(date?'<span>'+date+'</span>':'')+'</div>';
-    if(o.ticket_id)h+='<div class="co-f"><button class="v2-btn solid sm" style="flex:1" onclick="openTicket('+parseInt(o.ticket_id)+')"><i class="fa-solid fa-comments"></i> فتح المحادثة'+(unread?' <span class="co-dot"></span>':'')+'</button></div>';
+    if(o.ticket_id){
+      if(st==='Completed'||st==='Canceled')h+='<div class="co-f"><div class="co-closed"><i class="fa-solid fa-lock"></i> '+(st==='Completed'?'اكتمل الطلب — المحادثة مغلقة':'أُلغي الطلب — المحادثة مغلقة')+'</div></div>';
+      else h+='<div class="co-f"><button class="v2-btn solid sm" style="flex:1" onclick="openTicket('+parseInt(o.ticket_id)+')"><i class="fa-solid fa-comments"></i> فتح المحادثة'+(unread?' <span class="co-dot"></span>':'')+'</button></div>';
+    }
     return h+'</div>';
   }
   function renderOrders(filter){
@@ -5584,7 +5694,7 @@ function _addWizUser(text){var conv=document.getElementById('wizConv');if(!conv)
 function _wizPick(el,val){el.closest('.wiz-pills').querySelectorAll('.wiz-pill').forEach(function(p){p.style.pointerEvents='none'});el.classList.add('sel');_addWizUser(val);if(_wizStep===0)_wizData.cat=val;else if(_wizStep===2){_wizData.pri=val;_wizSubmit();return}_wizStep++;setTimeout(function(){_showWizStep()},500)}
 function wizSendAction(){var inp=document.getElementById('wizMsg');var txt=inp.value.trim();if(!txt)return;_addWizUser(txt);inp.value='';inp.style.height='auto';if(_wizStep===1){_wizData.desc=txt;_wizStep++;setTimeout(function(){_showWizStep()},500)}}
 async function _wizSubmit(){var wd=_wizData;if(!wd.cat||!wd.desc)return;_addWizBot('جاري إرسال التذكرة...');try{var r=await fetch('/api/tickets/create',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({subject:wd.cat+(wd.pri?' — '+wd.pri:''),description:wd.desc,category:wd.cat})});var d=await r.json();if(d.ok){_addWizBot('تم إنشاء تذكرتك بنجاح! ');setTimeout(function(){exitChatMode();openTicket(d.ticket_id)},1200);_wizStep=99}else{_addWizBot(' '+(d.error||'خطأ'))}}catch(e){_addWizBot(' خطأ بالاتصال')}}
-async function openTicket(tid){try{var r=await fetch('/api/tickets/chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({ticket_id:tid})});var d=await r.json();if(!d.ok)return;var t=d.ticket;var stMap={'open':'بانتظار','replied':'تم الرد','closed':'مغلق','waiting':'بانتظار'};document.querySelectorAll('.tk-fullscreen').forEach(function(e){e.remove()});enterChatMode();
+async function openTicket(tid){try{var r=await fetch('/api/tickets/chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({ticket_id:tid})});var d=await r.json();if(!d.ok){if(d.msg)toast(d.msg,'error');return}var t=d.ticket;var stMap={'open':'بانتظار','replied':'تم الرد','closed':'مغلق','waiting':'بانتظار'};document.querySelectorAll('.tk-fullscreen').forEach(function(e){e.remove()});enterChatMode();
   var h='<div class="tk-fullscreen"><div class="tk-hdr" style="display:flex;align-items:center;gap:10px;padding:12px 16px"><div onclick="exitChatMode();stopPolling();loadMyTickets()" style="width:34px;height:34px;border-radius:50%;background:var(--primary-bg);display:flex;align-items:center;justify-content:center;cursor:pointer;flex-shrink:0"><i class="fa-solid fa-arrow-right" style="font-size:11px;color:var(--primary)"></i></div><div class="tk-av" style="width:42px;height:42px;border:2px solid var(--primary);flex-shrink:0;overflow:hidden"><img src="'+_SUPPORT_AV+'" style="width:100%;height:100%;object-fit:cover;border-radius:50%"></div><div class="tk-info" style="flex:1"><div class="tk-nm">'+_SITE_NAME+' الدعم</div><div class="tk-st" style="color:var(--green);font-size:10px">● فريق الدعم</div></div></div>';
   h+='<div class="tk-info-bar"><span class="tk-chip ch-id"><i class="fa-solid fa-hashtag"></i> TK-'+t.id+'</span><span class="tk-chip '+(t.status==='replied'?'ch-replied':t.status==='closed'?'ch-closed':'ch-waiting')+'"><i class="fa-solid fa-circle" style="font-size:5px"></i> '+(stMap[t.status]||t.status)+'</span><span class="tk-chip ch-cat"><i class="fa-solid fa-folder"></i> '+(t.category||'عام')+'</span></div>';
   h+='<div class="tk-chat" id="tkChatArea"><div class="tk-sys ev"><i class="fa-solid fa-ticket" style="font-size:8px"></i> تم فتح تذكرة #TK-'+t.id+'</div>';
@@ -6000,12 +6110,42 @@ function loadUserStats(){
     var pidEl=document.getElementById('pc5PubId');if(pidEl&&d.public_id)pidEl.textContent=d.public_id;
     var pctEl=document.getElementById('pc5Pct');if(pctEl)pctEl.textContent=d.progress+'%';
     var barEl=document.getElementById('pc5Bar');if(barEl)barEl.style.width=d.progress+'%';
+    try{_accRenderStats(d)}catch(e){}
     var _accStats={balance:fmtP(d.balance),spent:fmtP(d.total_spent),completed:(d.completed||0).toLocaleString(),active:(d.active||0).toLocaleString(),pending:(d.pending||0).toLocaleString(),tickets:(d.tickets||0).toLocaleString()};
     Object.keys(_accStats).forEach(function(k){
       document.querySelectorAll('[data-stat="'+k+'"]').forEach(function(el){el.textContent=_accStats[k]});
     });
     var custTkBadge=document.getElementById('accCustTkBadge');if(custTkBadge){var tkc=d.tickets||0;if(tkc>0){custTkBadge.textContent=tkc;custTkBadge.style.display=''}else{custTkBadge.style.display='none'}}
   }).catch(function(){});
+}
+
+
+/* ===== إحصائيات حسابي التفاعلية ===== */
+function _stGoOrders(f){switchPage('pageOrders');setTimeout(function(){var b=document.querySelector('#ordFilters .flt[data-f="'+f+'"]');if(b)b.click()},60)}
+function _stCount(el,to){
+  var from=0,t0=null,dur=700;if(!isFinite(to)||to<=0){el.textContent=String(to||0);return}
+  function step(ts){if(t0===null)t0=ts;var k=Math.min(1,(ts-t0)/dur);el.textContent=Math.round(from+(to-from)*(1-Math.pow(1-k,3))).toLocaleString('en-US');if(k<1)requestAnimationFrame(step)}
+  requestAnimationFrame(step);
+}
+function _accRenderStats(d){
+  var T=[
+    {ic:'fa-wallet',c:'#2563eb',l:'الرصيد',v:fmtP(d.balance),go:"switchPage('pageRecharge')"},
+    {ic:'fa-coins',c:'#f59e0b',l:'إجمالي الإنفاق',v:fmtP(d.total_spent),go:'loadRchHistory()'},
+    {ic:'fa-circle-check',c:'#10b981',l:'مكتملة',n:d.completed||0,go:"_stGoOrders('Completed')"},
+    {ic:'fa-bolt',c:'#6366f1',l:'نشطة',n:d.active||0,go:"_stGoOrders('Processing')"},
+    {ic:'fa-hourglass-half',c:'#f97316',l:'معلّقة',n:d.pending||0,go:"_stGoOrders('Pending')"},
+    {ic:'fa-ticket',c:'#a855f7',l:'تذاكر',n:d.tickets||0,go:'loadCustomerTicketsList()'}
+  ];
+  var h='<div class="st-grid">'+T.map(function(t){return '<button type="button" class="st-tile" style="--c:'+t.c+'" onclick="'+t.go+'"><span class="st-ic"><i class="fa-solid '+t.ic+'"></i></span><span class="st-v"'+(t.n!==undefined?' data-n="'+t.n+'"':'')+'>'+(t.v!==undefined?t.v:'0')+'</span><span class="st-l">'+t.l+'</span></button>'}).join('')+'</div>';
+  var c=d.completed||0,a=d.active||0,p=d.pending||0,tot=c+a+p;
+  if(tot>0){
+    h+='<div class="st-seg"><div class="st-seg-bar">'+[[c,'#10b981',"Completed"],[a,'#6366f1',"Processing"],[p,'#f97316',"Pending"]].filter(function(x){return x[0]>0}).map(function(x){return '<i style="flex:'+x[0]+';background:'+x[1]+'" onclick="_stGoOrders(\''+x[2]+'\')"></i>'}).join('')+'</div>'
+     +'<div class="st-seg-lg"><span style="--c:#10b981" onclick="_stGoOrders(\'Completed\')">مكتملة <b>'+c+'</b></span><span style="--c:#6366f1" onclick="_stGoOrders(\'Processing\')">نشطة <b>'+a+'</b></span><span style="--c:#f97316" onclick="_stGoOrders(\'Pending\')">معلّقة <b>'+p+'</b></span></div></div>';
+  }
+  document.querySelectorAll('.st-host').forEach(function(host){
+    var first=!host.firstChild;host.innerHTML=h;
+    host.querySelectorAll('.st-v[data-n]').forEach(function(el){_stCount(el,parseInt(el.dataset.n))});
+  });
 }
 
 async function loadDailyBonusStatus(){
@@ -6501,8 +6641,28 @@ function renderCustomServices(){
   var list=Object.values(_csCache);
   if(_csRotTimer){clearInterval(_csRotTimer);_csRotTimer=null}
   if(!list.length){el.innerHTML='';return}
+  /* شريط واحد للألعاب، والخدمات المخصصة تظهر ضمنه (الألعاب أولاً) */
   var games=list.filter(function(s){return s.type==='game'}),others=list.filter(function(s){return s.type!=='game'});
-  el.innerHTML=(games.length?_csStrip('خدمات الألعاب','fa-gamepad',games,'game'):'')+(others.length?_csStrip('خدمات مخصصة','fa-gem',others,'other'):'');
+  el.innerHTML=_csStrip('الألعاب','fa-gamepad',games.concat(others),'');
+  _csAutoScroll();
+}
+/* حركة تلقائية هادئة للشريط: بطاقة كل 3.2 ثانية، وتتوقف عند اللمس/المرور */
+function _csAutoScroll(){
+  var strip=document.querySelector('#customSvcsSec .gm-strip');if(!strip)return;
+  var idx=0,paused=false;
+  ['touchstart','mouseenter','focusin'].forEach(function(ev){strip.addEventListener(ev,function(){paused=true},{passive:true})});
+  ['touchend','mouseleave','focusout'].forEach(function(ev){strip.addEventListener(ev,function(){setTimeout(function(){paused=false},2500)},{passive:true})});
+  _csRotTimer=setInterval(function(){
+    if(paused||!document.body.contains(strip)||!strip.offsetParent)return;
+    var cards=strip.children;if(cards.length<2)return;
+    if(strip.scrollWidth<=strip.clientWidth+4)return;
+    idx=(idx+1)%cards.length;
+    var c=cards[idx];var sr=strip.getBoundingClientRect(),cr=c.getBoundingClientRect();
+    var rtl=getComputedStyle(strip).direction==='rtl';
+    var delta=rtl?(cr.right-sr.right):(cr.left-sr.left);
+    if(idx===0){strip.scrollTo({left:0,behavior:'smooth'});return}
+    strip.scrollBy({left:delta,behavior:'smooth'});
+  },3200);
 }
 function _csMinPrice(s){
   if((s.type==='subscription'||s.type==='game')&&s.packages&&s.packages.length)return '$'+Math.min.apply(null,s.packages.map(function(p){return parseFloat(p.price||0)})).toFixed(2);
@@ -6528,8 +6688,8 @@ window.aiQuick=aiQuick;
 function showCustomSvcsPage(){
   var el=document.getElementById('csPageContent');
   if(!_csCache||!Object.keys(_csCache).length){el.innerHTML='<div class="csl-header"><div class="csl-back" onclick="document.getElementById(\'customSvcsPage\').classList.remove(\'show\')">→</div><div class="csl-title"><i class="fa-solid fa-box"></i> الخدمات المخصصة</div></div><div style="text-align:center;padding:40px 16px"><div style="font-size:2rem;margin-bottom:8px;opacity:.3"><i class="fa-solid fa-box"></i></div><div style="font-size:13px;color:var(--text3);font-weight:600">لا توجد خدمات مخصصة حالياً</div></div>';return}
-  var svcs=Object.values(_csCache).filter(function(s){return !_csKind||(_csKind==='game'?s.type==='game':s.type!=='game')});var CLRS=['cp','cpk','cbl','cgn','cyl','ccy','crs'];
-  var h='<div class="csl-header"><div class="csl-back" onclick="document.getElementById(\'customSvcsPage\').classList.remove(\'show\')">→</div><div class="csl-title"><i class="fa-solid '+(_csKind==='game'?'fa-gamepad':'fa-gem')+'"></i> '+(_csKind==='game'?'خدمات الألعاب':'الخدمات المخصصة')+'</div><div class="csl-count">'+svcs.length+'</div></div>';
+  var svcs=Object.values(_csCache).filter(function(s){return !_csKind||(_csKind==='game'?s.type==='game':s.type!=='game')}).sort(function(a,b){return (b.type==='game')-(a.type==='game')});var CLRS=['cp','cpk','cbl','cgn','cyl','ccy','crs'];
+  var h='<div class="csl-header"><div class="csl-back" onclick="document.getElementById(\'customSvcsPage\').classList.remove(\'show\')">→</div><div class="csl-title"><i class="fa-solid '+(_csKind==='other'?'fa-gem':'fa-gamepad')+'"></i> '+(_csKind==='game'?'خدمات الألعاب':_csKind==='other'?'الخدمات المخصصة':'الألعاب والخدمات المخصصة')+'</div><div class="csl-count">'+svcs.length+'</div></div>';
   h+='<div class="csl-wrap"><div class="csl-orb1"></div><div class="csl-orb2"></div>';
   h+='<div class="csl-search"><i class="fa-solid fa-search"></i><input type="text" placeholder="ابحث عن خدمة..." oninput="_cslFilter(this.value)"></div>';
   svcs.forEach(function(s,i){var isSub=s.type==='subscription'||s.type==='game';var price=isSub&&s.packages?'$'+Math.min.apply(null,s.packages.map(function(p){return parseFloat(p.price||0)})).toFixed(2):s.rate?'$'+parseFloat(s.rate).toFixed(2):'';
@@ -8763,35 +8923,53 @@ var _rvStarLabels={1:'سيئة',2:'مقبولة',3:'جيدة',4:'ممتازة',5
 var _rvColors=['c1','c2','c3','c4','c5','c6'];
 
 var _rvReviews=[],_rvIdx=0,_rvTimer=null;
+var _rvColorsF=['','c2','c3','c4','c5'];
+function _rvItemHtml(r,i){
+  var init=r.user_name?r.user_name.charAt(0):'?';
+  var st='';for(var j=1;j<=5;j++)st+='<i class="fa-'+(j<=r.stars?'solid':'regular')+' fa-star"></i>';
+  return '<div class="rvf-item"><div class="rvf-av '+_rvColorsF[i%_rvColorsF.length]+'">'+_escHtml(init)+'</div><div class="rvf-body"><div class="rvf-top"><div class="rvf-name">'+_escHtml(r.user_name||'')+'</div><div class="rvf-stars">'+st+'</div></div><div class="rvf-txt">'+_escHtml(r.text)+'</div><div class="rvf-foot"><span class="rvf-date">'+_rvTimeAgo(r.created_at)+'</span><button type="button" class="rvf-like'+(r.liked?' on':'')+'" data-id="'+r.id+'" onclick="rvLike('+r.id+',this)"><i class="fa-'+(r.liked?'solid':'regular')+' fa-heart"></i><span>'+(r.likes||0)+'</span></button></div></div></div>';
+}
+function _rvSumHtml(d){
+  var st='';for(var j=1;j<=5;j++)st+='<i class="fa-solid fa-star'+(j<=Math.round(d.avg||0)?'':' off')+'"></i>';
+  return '<div><div class="rvf-big">'+(d.total?(d.avg||0).toFixed?d.avg.toFixed(1):d.avg:'—')+'</div><div class="rvf-stars" style="margin-top:4px">'+st+'</div><div class="rvf-meta">'+(d.total||0)+' تقييم</div></div>';
+}
 function loadReviews(){
-  fetch('/api/reviews').then(r=>r.json()).then(d=>{
+  fetch('/api/reviews/all?limit=3').then(function(r){return r.json()}).then(function(d){
     if(!d.ok)return;
-    _rvReviews=d.reviews||[];
-    _rvIdx=0;
-    _rvRenderOne();
-    _rvStartRotation();
+    var list=document.getElementById('accRvList'),sum=document.getElementById('rvfSum');if(!list)return;
+    if(sum)sum.innerHTML=d.total?_rvSumHtml(d):'';
+    list.innerHTML=(d.reviews||[]).length?d.reviews.map(_rvItemHtml).join(''):'<div class="rvf-empty"><i class="fa-regular fa-star" style="font-size:20px;opacity:.3;display:block;margin-bottom:6px"></i>لا توجد تقييمات حالياً — كن أول من يقيّم!</div>';
+    if(sum&&!d.total)sum.style.display='none';else if(sum)sum.style.display='';
+  }).catch(function(){});
+  var pg=document.getElementById('reviewsPage');if(pg&&pg.classList.contains('show'))rvReload();
+}
+var _rvpOff=0;
+function openMoreSettings(){document.getElementById('moreSetPage').classList.add('show')}
+function openReviewsPage(){document.getElementById('reviewsPage').classList.add('show');rvReload()}
+function rvReload(){_rvpOff=0;document.getElementById('rvpList').innerHTML='<div class="loading">جاري التحميل...</div>';rvLoadMore(true)}
+function rvLoadMore(first){
+  fetch('/api/reviews/all?limit=15&offset='+_rvpOff).then(function(r){return r.json()}).then(function(d){
+    if(!d.ok)return;var list=document.getElementById('rvpList');
+    if(first){
+      var bars='';for(var k=5;k>=1;k--)bars+='<div class="rvp-row"><b>'+k+'</b><div class="bg"><i style="width:'+((d.dist||{})[k]||0)+'%"></i></div><span>'+((d.dist||{})[k]||0)+'%</span></div>';
+      document.getElementById('rvpSum').innerHTML=d.total?_rvSumHtml(d)+'<div class="rvp-bars">'+bars+'</div>':'';
+      list.innerHTML='';
+    }
+    var rs=d.reviews||[];
+    if(first&&!rs.length)list.innerHTML='<div class="rvf-empty">لا توجد تقييمات حالياً — كن أول من يقيّم!</div>';
+    list.insertAdjacentHTML('beforeend',rs.map(function(r,i){return _rvItemHtml(r,_rvpOff+i)}).join(''));
+    _rvpOff+=rs.length;
+    document.getElementById('rvpMore').style.display=d.has_more?'flex':'none';
   }).catch(function(){});
 }
-function _rvRenderOne(){
-  var grid=document.getElementById('rvGrid');
-  if(!_rvReviews.length){
-    grid.innerHTML='<div style="text-align:center;padding:16px;font-size:10px;color:var(--text3)"><i class="fa-regular fa-star" style="font-size:18px;opacity:.3;display:block;margin-bottom:6px"></i>لا توجد تقييمات حالياً — كن أول من يقيّم!</div>';
-    return;
-  }
-  var r=_rvReviews[_rvIdx];
-  var init=r.user_name?r.user_name.charAt(0):'?';
-  var cc=_rvColors[_rvIdx%_rvColors.length];
-  var stH='';for(var j=1;j<=5;j++)stH+='<i class="fa-'+(j<=r.stars?'solid':'regular')+' fa-star"></i>';
-  var ago=_rvTimeAgo(r.created_at);
-  grid.innerHTML='<div class="rv-item rv-slide"><div class="rv-av '+cc+'">'+init+'</div><div class="rv-body"><div class="rv-top"><div class="rv-name">'+r.user_name+' <i class="fa-solid fa-circle-check rv-verified"></i></div><div class="rv-item-stars">'+stH+'</div></div><div class="rv-text">'+_escHtml(r.text)+'</div><div class="rv-footer"><div class="rv-date">'+ago+'</div></div></div></div>';
-}
-function _rvStartRotation(){
-  if(_rvTimer){clearInterval(_rvTimer);_rvTimer=null}
-  if(_rvReviews.length<=1)return;
-  _rvTimer=setInterval(function(){
-    _rvIdx=(_rvIdx+1)%_rvReviews.length;
-    _rvRenderOne();
-  },5000);
+function rvLike(id,btn){
+  fetch('/api/reviews/'+id+'/like',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'}).then(function(r){return r.json().catch(function(){return{ok:false}}).then(function(d){d._st=r.status;return d})}).then(function(d){
+    if(!d.ok){toast(d.msg||(d._st===401?'سجّل دخول أولاً':'تعذّر تنفيذ الإعجاب'),'error');return}
+    document.querySelectorAll('.rvf-like[data-id="'+id+'"]').forEach(function(b){
+      b.classList.toggle('on',d.liked);b.classList.add('pop');setTimeout(function(){b.classList.remove('pop')},400);
+      var ic=b.querySelector('i');ic.className='fa-'+(d.liked?'solid':'regular')+' fa-heart';b.querySelector('span').textContent=d.likes;
+    });
+  }).catch(function(){toast('تحقق من اتصالك بالإنترنت','error')});
 }
 function _rvTimeAgo(ts){
   if(!ts)return'';var d=Math.floor((Date.now()/1000)-ts);
@@ -9547,5 +9725,58 @@ window.loadBrandMedia=loadBrandMedia;window.uploadBrandMedia=uploadBrandMedia;wi
   <button class="rv-prompt-btn" onclick="dismissRvPrompt();openReviewModal()"><i class="fa-solid fa-star"></i> أكتب تقييم الآن</button>
   <div class="rv-prompt-skip" onclick="dismissRvPrompt()">لاحقاً</div>
 </div>
+<script>
+/* ===== اللغة: عربي / English (ترجمة الواجهة الأمامية — واجهات المستخدم الرئيسية) ===== */
+(function(){
+var EN={"الرصيد":"Balance","القائمة":"Menu","الرئيسية":"Home","طلباتي":"My Orders","شحن الرصيد":"Add Funds","الشحن":"Add Funds","المساعد الذكي":"AI Assistant","الحساب":"Account","حسابي":"Account","إعدادات الحساب":"Account Settings","سجل المعاملات":"Transactions","الدعم":"Support","إنشاء تذكرة":"Create Ticket","أخرى":"Other","نظام الإحالة":"Referrals","الإعدادات":"Settings","API للريسيلر":"Reseller API","تسجيل خروج":"Log out","تسجيل الخروج":"Log out","خروج":"Log out","اختر العملة":"Choose currency","USD — دولار أمريكي":"USD — US Dollar","IQD — دينار عراقي":"IQD — Iraqi Dinar","SAR — ريال سعودي":"SAR — Saudi Riyal","AED — درهم إماراتي":"AED — UAE Dirham","KWD — دينار كويتي":"KWD — Kuwaiti Dinar","QAR — ريال قطري":"QAR — Qatari Riyal","BHD — دينار بحريني":"BHD — Bahraini Dinar","OMR — ريال عماني":"OMR — Omani Rial","JOD — دينار أردني":"JOD — Jordanian Dinar","EGP — جنيه مصري":"EGP — Egyptian Pound","LBP — ليرة لبنانية":"LBP — Lebanese Pound","SYP — ليرة سورية":"SYP — Syrian Pound","YER — ريال يمني":"YER — Yemeni Rial","LYD — دينار ليبي":"LYD — Libyan Dinar","MAD — درهم مغربي":"MAD — Moroccan Dirham","TND — دينار تونسي":"TND — Tunisian Dinar","DZD — دينار جزائري":"DZD — Algerian Dinar","EUR — يورو":"EUR — Euro","GBP — جنيه إسترليني":"GBP — Pound Sterling","TRY — ليرة تركية":"TRY — Turkish Lira","INR — روبية هندية":"INR — Indian Rupee","PKR — روبية باكستانية":"PKR — Pakistani Rupee","CNY — يوان صيني":"CNY — Chinese Yuan","CAD — دولار كندي":"CAD — Canadian Dollar","AUD — دولار أسترالي":"AUD — Australian Dollar","CHF — فرنك سويسري":"CHF — Swiss Franc","ZAR — راند جنوب أفريقي":"ZAR — South African Rand","NGN — نايرا نيجيرية":"NGN — Nigerian Naira","MYR — رينغيت ماليزي":"MYR — Malaysian Ringgit","IDR — روبية إندونيسية":"IDR — Indonesian Rupiah","USD — الدولار الأمريكي":"USD — US Dollar","الإشعارات":"Notifications","تحديد الكل كمقروء":"Mark all as read","حذف الكل":"Delete all","رصيدك":"Your balance","المنفق":"Spent","مكتمل":"Completed","نشطة":"Active","تذاكر":"Tickets","الطلبات المكتملة":"Completed orders","إنفاق":"Spent","اسأله عن خدماتك وطلباتك ورصيدك — يجيبك فوراً":"Ask about your services, orders and balance — instant answers","💰 كم رصيدي؟":"💰 My balance?","📦 أين طلبي؟":"📦 Where is my order?","⭐ أرخص خدمة":"⭐ Cheapest service","💳 كيف أشحن؟":"💳 How do I add funds?","الألعاب":"Games","عرض الكل":"View all","تسليم يدوي":"Manual delivery","اشتراك":"Subscription","اختر المنصة":"Choose a platform","الألعاب والخدمات المخصصة":"Games & Custom Services","خدمات الألعاب":"Game Services","الخدمات المخصصة":"Custom Services","ابحث عن خدمة...":"Search for a service...","ادعو أصدقاءك واحصل على عمولة من كل طلب":"Invite friends and earn commission on every order","إحالة":"Referrals","الأرباح":"Earnings","معلّق":"Pending","نسخ":"Copy","سحب الأرباح":"Withdraw earnings","مشاركة":"Share","جاري":"In progress","ملغي":"Canceled","الكل":"All","الخدمات":"Services","قيد التنفيذ":"Processing","مكتملة":"Completed","معلّقة":"Pending","ملغاة":"Canceled","جزئي":"Partial","لا توجد طلبات حالياً":"No orders yet","لا توجد طلبات":"No orders","بانتظار التنفيذ":"Awaiting processing","فتح المحادثة":"Open chat","اكتمل الطلب — المحادثة مغلقة":"Order completed — chat closed","أُلغي الطلب — المحادثة مغلقة":"Order canceled — chat closed","السعر":"Price","ابحث في طلباتك...":"Search your orders...","رصيدك الحالي":"Your current balance","طرق الدفع":"Payment methods","جاري التحميل...":"Loading...","الدفع":"Payment","طلبات شحن الرصيد":"Top-up requests","بانتظار":"Pending","موافق":"Approved","مرفوض":"Rejected","لا توجد طلبات شحن":"No top-up requests","إجمالي الإنفاق":"Total spent","إجراءات سريعة":"Quick actions","طلب جديد":"New order","فتح تذكرة":"Open ticket","دعوة صديق":"Invite a friend","عضو منذ":"Member since","الأمان":"Security","جديد":"New","المصادقة الثنائية (2FA)":"Two-factor authentication (2FA)","غير مفعّلة — موصى بها":"Not enabled — recommended","تفعيل":"Enable","الأجهزة والجلسات":"Devices & sessions","● متصل":"● Online","المزيد من الإعدادات":"More settings","اللغة · المظهر · الإشعارات · العملة · الهدايا":"Language · Theme · Notifications · Currency · Gifts","الاسم، الايميل، كلمة المرور":"Name, email, password","عمليات الشحن والمدفوعات":"Top-ups and payments","تواصل مع فريق الدعم":"Contact the support team","تذاكري":"My Tickets","عرض جميع التذاكر المفتوحة والمغلقة":"View all open and closed tickets","الأسئلة الشائعة":"FAQ","إجابات على أكثر الأسئلة":"Answers to common questions","واتساب الدعم الفني":"WhatsApp support","تواصل مباشر مع فريق الدعم":"Chat directly with support","أرباح":"Earnings","آراء العملاء":"Customer reviews","أكتب تقييم":"Write a review","كل التقييمات":"All reviews","عرض المزيد":"Show more","سياسة الخصوصية":"Privacy Policy","الشروط والأحكام":"Terms & Conditions","تفاصيل الطلب":"Order details","محادثات سابقة":"Previous chats","مسح الكل":"Clear all","تفاصيل العملية":"Transaction details","عملة عرض الأسعار":"Display currency","تُطبَّق على كل الأسعار المعروضة لك في التطبيق والموقع":"Applied to all prices shown in the app and website","مكافأة يومية":"Daily bonus","اضغط للحصول على مكافأتك اليومية":"Tap to claim your daily bonus","المظهر الداكن":"Dark mode","الوضع الليلي للتطبيق":"Night mode for the app","اللغة":"Language","لغة واجهة التطبيق":"App interface language","عربي":"Arabic","الهدية اليومية":"Daily gift","كوبون هدية":"Gift coupon","أدخل كود الهدية واحصل على رصيد مجاني":"Enter a gift code and get free balance","هدية اليوم —":"Today's gift —","المعلومات الشخصية":"Personal information","الاسم":"Name","البريد الإلكتروني":"Email","حفظ التغييرات":"Save changes","تأكيد البريد الإلكتروني الجديد":"Confirm new email","تأكيد":"Confirm","إعادة إرسال":"Resend","إلغاء":"Cancel","تغيير كلمة المرور":"Change password","كلمة المرور الحالية":"Current password","كلمة المرور الجديدة":"New password","تأكيد كلمة المرور":"Confirm password","كيف أطلب خدمة؟":"How do I order a service?","كيف أشحن رصيدي؟":"How do I add funds?","كم يستغرق تنفيذ الطلب؟":"How long does an order take?","كيف أتواصل مع الدعم؟":"How do I contact support?","هل يمكنني استرجاع أموالي؟":"Can I get a refund?","يمكنك إنشاء تذكرة دعم من قسم الدعم وسيتم الرد عليك في أسرع وقت.":"You can create a support ticket from the Support section and we will reply as soon as possible.","اختر القسم":"Choose a category","اختر الخدمة":"Choose a service","ابحث عن قسم...":"Search for a category...","وصف الخدمة":"Service description","السرعة":"Speed","الجودة":"Quality","التعويض":"Refill","النقصان":"Drop","متوسط":"Medium","عادية":"Standard","قليل":"Low","تلقائي":"Auto","لا يوجد":"None","التعليقات":"Comments","(تعليق واحد بكل سطر)":"(one comment per line)","توليد":"Generate","مكرر":"Duplicates","الكمية":"Quantity","الرابط":"Link","المجموع":"Total","رصيدك بعد الطلب":"Balance after order","أدخل رابط الحساب أو المنشور":"Enter the account or post link","الأدنى:":"Min:","الأقصى:":"Max:","تأكد إن الحساب":"Make sure the account is","عام (Public)":"Public","قبل الطلب. لا تطلب نفس الخدمة مرتين على نفس الرابط.":"before ordering. Do not order the same service twice on the same link.","إرسال الطلب":"Place order","أضف للسلة":"Add to cart","الإجمالي":"Total","إرسال كل الطلبات":"Send all orders","السلة (":"Cart (","اختر الباقة":"Choose a package","معرّف اللاعب (ID)":"Player ID","ملاحظات (اختياري)":"Notes (optional)","رصيدك بعد الخصم":"Balance after deduction","اطلب الآن":"Order now","متوفر":"Available","لا توجد خدمات مخصصة حالياً":"No custom services yet","الأكثر طلباً":"Most requested","لعبة":"Game","سوشيال":"Social","من":"From","المصادقة الثنائية":"Two-factor authentication","الجلسة الحالية":"Current session","إنهاء":"End","إنهاء كل الجلسات الأخرى":"End all other sessions","تسجيل الخروج من هذا الجهاز":"Log out of this device","أضف fastcrand لشاشتك":"Add fastcrand to your home screen","تطبيق مجاني — إشعارات + فتح فوري":"Free app — notifications + instant open","لاحقاً":"Later","تثبيت التطبيق":"Install app","لا يفوتك شي!":"Don't miss a thing!","فعّل الإشعارات حتى توصلك تحديثات طلباتك وعروضنا الحصرية فوراً":"Enable notifications to get order updates and exclusive offers instantly","تحديث الطلبات":"Order updates","إشعار فوري لما يكتمل أو يتغير طلبك":"Instant alert when your order completes or changes","إضافة الرصيد":"Balance top-up","تنبيه فوري عند الموافقة على شحن رصيدك":"Instant alert when your top-up is approved","عروض وخصومات":"Offers & discounts","كن أول من يعرف عن العروض الجديدة":"Be the first to know about new offers","تفعيل الإشعارات":"Enable notifications","هل أنت متأكد من رغبتك في تسجيل الخروج من حسابك؟":"Are you sure you want to log out of your account?","تأكيد الخروج":"Confirm logout","شاركنا رأيك!":"Share your opinion!","تقييمك يساعدنا نتحسّن ويساعد الآخرين":"Your review helps us improve and helps others","تعليقك":"Your comment","تقييمك يظهر فوراً باسمك الأول فقط":"Your review appears instantly with your first name only","إرسال التقييم":"Submit review","شكراً لتقييمك!":"Thanks for your review!","تم نشر تقييمك بنجاح.":"Your review was published.","نقدّر وقتك ورأيك!":"We appreciate your time and opinion!","تم":"Done","كيف كانت تجربتك؟":"How was your experience?","شاركنا رأيك وساعد الآخرين يختارون":"Share your opinion and help others choose","أكتب تقييم الآن":"Write a review now","لا توجد تقييمات حالياً — كن أول من يقيّم!":"No reviews yet — be the first!","الآن":"Just now","جاري الإرسال...":"Sending...","سجّل دخول أولاً":"Please log in first","لا يمكنك الإعجاب بتقييمك":"You can't like your own review","ابحث عن عملة...":"Search currency...","بحث عن عملة...":"Search currency...","بحث بالاسم أو رقم الطلب...":"Search by name or order number...","اكتب سؤالك هنا...":"Type your question here...","أدخل الكود هنا":"Enter code here","ادخل كلمة المرور الحالية":"Enter current password","ادخل كلمة المرور الجديدة":"Enter new password","أعد كتابة كلمة المرور":"Re-enter password","أدخل المبلغ":"Enter amount","أي ملاحظة للإدارة...":"Any note for the admin...","اكتب الـ ID بدقة — لا يمكن التراجع بعد التسليم":"Enter the ID carefully — cannot be undone after delivery","اكتب تجربتك مع الموقع...":"Write your experience with the site...","اكتب رسالتك...":"Type your message...","رد على الزبون...":"Reply to the customer...","رقم الطلب...":"Order number...","رمز التطبيق (6 أرقام) أو رمز احتياطي":"App code (6 digits) or recovery code","اكتب سؤالك هنا":"Type your question here","إغلاق":"Close","رجوع":"Back","إظهار/إخفاء":"Show/Hide","معاينة سريعة":"Quick preview","ألعاب":"Games","تسليم يدوي عبر محادثة":"Manual delivery via chat","تسليم يدوي خلال دقائق":"Manual delivery within minutes","لا توجد طرق دفع متاحة حالياً":"No payment methods available","تم النسخ":"Copied","خطأ":"Error","حفظ":"Save"};
+var PAT=[["^مرحباً, (.+)$","Welcome, \\1"],["^(\\d+) تقييم$","\\1 reviews"],["^(\\d+) جديد$","\\1 new"],["^(\\d+) إشعار غير مقروء$","\\1 unread notifications"],["^(\\d+) إشعارات غير مقروءة$","\\1 unread notifications"],["^(\\d+) أجهزة مسجّلة$","\\1 signed-in devices"],["^(\\d+) خدمات$","\\1 services"],["^(\\d+) قسم$","\\1 categories"],["^(\\d+) باقات$","\\1 packages"],["^(?:قبل|منذ) (\\d+) د$","\\1 min ago"],["^منذ (\\d+) ساعة$","\\1 h ago"],["^منذ (\\d+) يوم$","\\1 d ago"],["^منذ (\\d+) أسبوع$","\\1 w ago"],["^الجلسة الحالية · (.+) · الآن$","Current session · \\1 · now"],["^الأدنى: (.+)$","Min: \\1"],["^الأقصى: (.+)$","Max: \\1"],["^من (\\$[\\d.,]+)$","From \\1"],["^تم خصم (.+)$","Deducted \\1"],["^بيع خدمات (.+) من موقعك$","Sell \\1 services from your site"]].map(function(p){return[new RegExp(p[0]),p[1].replace(/\\(\d)/g,'$$$1')]});
+var nodes=[],attrs=[],obs=null,cur='ar',busy=false;
+function tr(s){
+  var t=s.trim();if(!t)return s;
+  var m=EN[t];
+  if(m===undefined){for(var i=0;i<PAT.length;i++){if(PAT[i][0].test(t)){m=t.replace(PAT[i][0],PAT[i][1]);break}}}
+  return m===undefined?s:s.replace(t,m);
+}
+var SKIP=/^(SCRIPT|STYLE|TEXTAREA|NOSCRIPT)$/;
+function walk(root){
+  var w=document.createTreeWalker(root,NodeFilter.SHOW_TEXT,null),n,list=[];
+  while(n=w.nextNode()){if(!n.parentElement||SKIP.test(n.parentElement.tagName))continue;if(/[\u0600-\u06FF]/.test(n.nodeValue))list.push(n)}
+  list.forEach(function(n){var r=tr(n.nodeValue);if(r!==n.nodeValue){nodes.push([n,n.nodeValue]);n.nodeValue=r}});
+  if(root.querySelectorAll)root.querySelectorAll('[placeholder],[title],[aria-label]').forEach(function(e){
+    ['placeholder','title','aria-label'].forEach(function(a){var v=e.getAttribute(a);if(v&&/[\u0600-\u06FF]/.test(v)){var r=tr(v);if(r!==v){attrs.push([e,a,v]);e.setAttribute(a,r)}}});
+  });
+}
+function start(){
+  if(obs)return;
+  obs=new MutationObserver(function(ms){
+    if(busy)return;busy=true;
+    try{ms.forEach(function(m){
+      if(m.type==='characterData'){var n=m.target;if(n.parentElement&&!SKIP.test(n.parentElement.tagName)&&/[\u0600-\u06FF]/.test(n.nodeValue)){var r=tr(n.nodeValue);if(r!==n.nodeValue){nodes.push([n,n.nodeValue]);n.nodeValue=r}}}
+      else m.addedNodes.forEach(function(a){if(a.nodeType===1)walk(a);else if(a.nodeType===3&&a.parentElement&&/[\u0600-\u06FF]/.test(a.nodeValue)){var r=tr(a.nodeValue);if(r!==a.nodeValue){nodes.push([a,a.nodeValue]);a.nodeValue=r}}});
+    })}finally{busy=false}
+  });
+  obs.observe(document.body,{childList:true,subtree:true,characterData:true});
+}
+function setLang(l){
+  cur=l==='en'?'en':'ar';
+  try{localStorage.setItem('fc_lang',cur)}catch(e){}
+  var h=document.documentElement;h.lang=cur;h.dir=cur==='en'?'ltr':'rtl';
+  busy=true;
+  try{
+    if(cur==='en'){walk(document.body);start()}
+    else{
+      if(obs){obs.disconnect();obs=null}
+      nodes.forEach(function(p){if(p[0].parentNode)p[0].nodeValue=p[1]});nodes=[];
+      attrs.forEach(function(p){p[0].setAttribute(p[1],p[2])});attrs=[];
+    }
+  }finally{busy=false}
+  document.querySelectorAll('.lang-seg button').forEach(function(b){b.classList.toggle('on',b.dataset.lang===cur)});
+}
+window.fcSetLang=setLang;window.fcLang=function(){return cur};window.fcTr=function(s){return cur==='en'?tr(s):s};
+document.addEventListener('click',function(e){var b=e.target.closest&&e.target.closest('.lang-seg button');if(b)setLang(b.dataset.lang)});
+function init(){var l='ar';try{l=localStorage.getItem('fc_lang')||'ar'}catch(e){}document.querySelectorAll('.lang-seg button').forEach(function(b){b.classList.toggle('on',b.dataset.lang===l)});if(l==='en')setLang('en')}
+if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',function(){setTimeout(init,50)});else setTimeout(init,50);
+})();
+</script>
 __FC_ROUTER__
 </html>
