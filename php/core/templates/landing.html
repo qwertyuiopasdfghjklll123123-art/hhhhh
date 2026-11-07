@@ -306,6 +306,23 @@ body{font-family:IBM Plex Sans Arabic,'Tajawal',sans-serif;background:var(--bg);
   .input-wrap input{padding:8px 28px 8px 28px;font-size:11px}
   .btn-primary{padding:8px;font-size:12px}
 }
+
+/* ابدأ: زر بدل بطاقة الدخول، والبطاقة تفتح كصفحة */
+.start-wrap{margin-top:26px;display:flex;flex-direction:column;align-items:center;gap:10px;animation:fadeUp .7s ease .4s both}
+.start-btn{position:relative;overflow:hidden;border:none;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;gap:10px;min-width:230px;padding:17px 38px;border-radius:18px;font-family:IBM Plex Sans Arabic,'Tajawal',sans-serif;font-size:18px;font-weight:900;color:#fff;background:linear-gradient(135deg,var(--primary),var(--primary-light));box-shadow:0 14px 30px -12px var(--primary);animation:startPulse 2.6s ease-in-out infinite;transition:transform .15s}
+.start-btn:active{transform:scale(.96)}
+.start-btn i{font-size:19px;animation:startRocket 2.6s ease-in-out infinite}
+.start-shine{position:absolute;top:0;bottom:0;width:35%;left:-50%;background:linear-gradient(105deg,transparent,rgba(255,255,255,.45),transparent);transform:skewX(-20deg);animation:startSweep 3.2s ease-in-out infinite}
+@keyframes startPulse{50%{box-shadow:0 18px 38px -10px var(--primary);transform:translateY(-2px)}}
+@keyframes startRocket{50%{transform:translate(3px,-3px) rotate(-8deg)}}
+@keyframes startSweep{0%{left:-50%}60%,100%{left:140%}}
+.start-hint{font-size:12px;font-weight:600;color:var(--text3)}
+.auth-section{position:fixed!important;inset:0;z-index:400;display:none!important;align-items:center;justify-content:center;padding:20px!important;overflow-y:auto;background:rgba(15,23,42,.55);backdrop-filter:blur(3px)}
+.auth-section.show{display:flex!important;animation:authBg .25s ease both}
+.auth-section.show .auth-card{animation:authUp .4s cubic-bezier(.2,.9,.3,1) both;margin:auto}
+@keyframes authBg{from{opacity:0}to{opacity:1}}@keyframes authUp{from{opacity:0;transform:translateY(40px) scale(.97)}to{opacity:1;transform:none}}
+.auth-x{position:fixed;top:14px;left:14px;width:40px;height:40px;border-radius:50%;border:none;cursor:pointer;background:var(--card);color:var(--text);font-size:16px;box-shadow:0 6px 16px rgba(0,0,0,.2);z-index:2}
+@media(prefers-reduced-motion:reduce){.start-btn,.start-btn i,.start-shine{animation:none!important}}
 </style>
 </head>
 <body>
@@ -315,7 +332,7 @@ body{font-family:IBM Plex Sans Arabic,'Tajawal',sans-serif;background:var(--bg);
 <div class="topbar">
   <span class="logo-text">__SITE_NAME__</span>
   <div class="topbar-actions">
-    <button class="btn-login-top" id="btnScrollAuth"><i class="fa-solid fa-right-to-bracket"></i> تسجيل الدخول</button>
+    <button class="btn-login-top" id="btnScrollAuth"><i class="fa-solid fa-rocket"></i> ابدأ</button>
     <button class="theme-toggle" id="btnTheme" title="تبديل الثيم"><i class="fa-solid fa-sun" id="themeIcon"></i></button>
   </div>
 </div>
@@ -331,12 +348,17 @@ body{font-family:IBM Plex Sans Arabic,'Tajawal',sans-serif;background:var(--bg);
     </div>
     <div class="welcome-strip">
       <i class="fa-solid fa-hand-sparkles"></i>
-      <p>مرحباً بك في <b>__SITE_NAME__</b> — منصتك المتكاملة لتطوير حساباتك على مواقع التواصل الاجتماعي: متابعين، إعجابات، مشاهدات وتعليقات بأسعار تنافسية وتوصيل فوري، مع مساعد ذكي يرشدك لأنسب خدمة ومكافأة يومية مجانية. سجّل دخولك أو أنشئ حسابك بالأسفل وابدأ خلال دقيقة.</p>
+      <p>مرحباً بك في <b>__SITE_NAME__</b> — منصتك المتكاملة لتطوير حساباتك على مواقع التواصل الاجتماعي: متابعين، إعجابات، مشاهدات وتعليقات بأسعار تنافسية وتوصيل فوري، مع مساعد ذكي يرشدك لأنسب خدمة ومكافأة يومية مجانية. اضغط «ابدأ» لتسجيل الدخول أو إنشاء حسابك وابدأ خلال دقيقة.</p>
+    </div>
+    <div class="start-wrap">
+      <button class="start-btn" id="btnStart" type="button"><span class="start-shine"></span><i class="fa-solid fa-rocket"></i> ابدأ الآن</button>
+      <div class="start-hint">سجّل الدخول أو أنشئ حسابك في ثوانٍ</div>
     </div>
   </div>
 </section>
 
-<section class="auth-section" id="authSection">
+<section class="auth-section" id="authSection" aria-hidden="true">
+  <button class="auth-x" id="authClose" type="button" aria-label="إغلاق"><i class="fa-solid fa-xmark"></i></button>
   <div class="auth-card">
     <div class="smm-badge"><i class="fa-solid fa-rocket"></i> ابدأ رحلتك الآن مع __SITE_NAME__ <i class="fa-solid fa-star"></i></div>
     <div class="tabs">
@@ -508,7 +530,16 @@ body{font-family:IBM Plex Sans Arabic,'Tajawal',sans-serif;background:var(--bg);
   if(params.get('verified')==='0') toast('رابط التأكيد غير صالح','error');
 
   function scrollTo(id){document.getElementById(id).scrollIntoView({behavior:'smooth'});}
-  document.getElementById('btnScrollAuth').addEventListener('click',function(){scrollTo('authSection');});
+  var _auth=document.getElementById('authSection');
+  function openAuth(tab){_auth.classList.add('show');_auth.setAttribute('aria-hidden','false');document.body.style.overflow='hidden';if(tab==='register'){var t=document.getElementById('tabRegister');if(t)t.click()}setTimeout(function(){var f=_auth.querySelector('input:not([type=hidden])');if(f&&!('ontouchstart' in window))f.focus()},350)}
+  function closeAuth(){_auth.classList.remove('show');_auth.setAttribute('aria-hidden','true');document.body.style.overflow=''}
+  window.openAuth=openAuth;window.closeAuth=closeAuth;
+  document.getElementById('btnScrollAuth').addEventListener('click',function(){openAuth()});
+  document.getElementById('btnStart').addEventListener('click',function(){openAuth()});
+  document.getElementById('authClose').addEventListener('click',closeAuth);
+  _auth.addEventListener('click',function(e){if(e.target===_auth)closeAuth()});
+  document.addEventListener('keydown',function(e){if(e.key==='Escape')closeAuth()});
+  if(params.get('verified')==='1'||params.get('verified')==='0'||params.get('login')==='1')openAuth();
 
   (function(){
     var svcSamples=[

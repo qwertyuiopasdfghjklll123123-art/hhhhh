@@ -2298,6 +2298,144 @@ html[dir="ltr"] body{text-align:left}
 .nt-x:hover{background:rgba(239,68,68,.1);color:var(--red);opacity:1}
 .gm-from{font-size:10px;color:var(--text3);font-weight:700}
 @media(prefers-reduced-motion:reduce){.rch2-hero-ic,.rch2-geo.b,.rch2-line,.pc6-geo.g2,.pc6-add i{animation:none!important}}
+/* ===== v5: صفحات الدفع الموحّدة ===== */
+.pm-fp-body{counter-reset:rch3;max-width:560px}
+.rch3-head{display:flex;align-items:center;gap:12px;padding:14px;border-radius:20px;color:#fff;margin-bottom:12px;background:linear-gradient(135deg,#1e3a8a,#2563eb 70%,#3b82f6);position:relative;overflow:hidden}
+.rch3-head::after{content:'';position:absolute;width:120px;height:120px;border-radius:50%;border:2px solid rgba(255,255,255,.14);left:-36px;top:-48px}
+.rch3-logo{width:50px;height:50px;border-radius:16px;background:#fff;color:#1d4ed8;display:flex;align-items:center;justify-content:center;font-size:21px;flex-shrink:0;overflow:hidden;position:relative;z-index:1}
+.rch3-logo img{width:100%;height:100%;object-fit:contain;padding:5px}
+.rch3-ht{flex:1;min-width:0;position:relative;z-index:1}.rch3-name{font-size:15px;font-weight:900}.rch3-sub{font-size:10px;font-weight:600;opacity:.8;margin-top:3px;line-height:1.5}
+.rch3-chip{display:inline-flex;align-items:center;gap:4px;padding:5px 10px;border-radius:999px;font-size:10px;font-weight:900;flex-shrink:0;position:relative;z-index:1;background:#fff}
+.rch3-chip.a{color:#d97706}.rch3-chip.m{color:#6366f1}
+.rch3-steps{display:flex;align-items:flex-start;gap:4px;margin:0 2px 14px}
+.rch3-step{display:flex;flex-direction:column;align-items:center;gap:5px;font-size:9px;font-weight:800;color:var(--text3);text-align:center;flex:0 0 auto;max-width:74px}
+.rch3-step span{width:26px;height:26px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-family:var(--font-num);font-size:12px;font-weight:900;background:var(--input-bg);color:var(--text3);border:1.5px solid var(--card-border);transition:.3s}
+.rch3-step.on span{background:var(--primary);color:#fff;border-color:var(--primary);box-shadow:0 0 0 4px var(--primary-glow)}.rch3-step.on{color:var(--primary)}
+.rch3-step.done span{background:#10b981;border-color:#10b981;color:#fff;font-size:0}.rch3-step.done span::before{content:'\f00c';font-family:'Font Awesome 6 Free';font-weight:900;font-size:11px}.rch3-step.done{color:#10b981}
+.rch3-ln{flex:1;height:2px;margin-top:12px;border-radius:2px;background:var(--card-border)}
+.rch3-sec{position:relative;padding-top:18px!important;margin-bottom:12px;border-radius:18px!important}
+.rch3-sec::before{counter-increment:rch3;content:counter(rch3);position:absolute;top:-1px;right:16px;min-width:26px;height:22px;padding:0 8px;border-radius:0 0 10px 10px;background:var(--primary);color:#fff;font-family:var(--font-num);font-size:11px;font-weight:900;display:flex;align-items:center;justify-content:center}
+.rch3-sec .field-label{margin-top:4px}
+.rch3-sec .rch-det-row{padding:12px;border-radius:14px;background:var(--input-bg);border:1px dashed var(--card-border)}
+.rch3-sec .rch-det-val{font-family:var(--font-num);font-weight:900;font-size:14px;letter-spacing:.5px}
+.rch3-sec .rch-bot-msg{display:flex;align-items:center;gap:10px;text-align:right;margin-bottom:10px}
+.rch3-sec .rch-bot-ic{margin:0;flex-shrink:0}.rch3-sec .rch-bot-title{margin:0}
+/* ===== v5: شريط طرق الدفع (صف تحت صف) ===== */
+.rch4-list{display:flex;flex-direction:column;gap:0;background:var(--card);border:1px solid var(--card-border);border-radius:18px;overflow:hidden}
+.rch4-row{display:flex;align-items:center;gap:12px;padding:13px 14px;text-decoration:none;color:var(--text);border-bottom:1px solid var(--card-border);animation:rchUp .45s ease both;transition:background .2s;-webkit-tap-highlight-color:transparent}
+.rch4-row:last-child{border-bottom:none}
+.rch4-row:hover,.rch4-row.picked{background:var(--primary-bg)}.rch4-row:active{transform:scale(.99)}
+.rch4-logo{width:48px;height:48px;border-radius:15px;display:flex;align-items:center;justify-content:center;font-size:20px;color:#fff;flex-shrink:0;background:linear-gradient(135deg,var(--primary),var(--primary-light));box-shadow:inset 0 1px 0 rgba(255,255,255,.4);overflow:hidden}
+.rch4-logo img{width:100%;height:100%;object-fit:contain;background:#fff;padding:5px}
+.rch4-tx{flex:1;min-width:0}.rch4-name{font-size:14px;font-weight:900;display:flex;align-items:center;gap:6px}
+.rch4-desc{font-size:10px;font-weight:600;color:var(--text3);margin-top:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.rch4-tag{padding:2px 8px;border-radius:999px;font-size:9px;font-weight:800;background:rgba(245,158,11,.14);color:#d97706}
+.rch4-go{width:30px;height:30px;border-radius:50%;background:var(--primary-bg);color:var(--primary);display:flex;align-items:center;justify-content:center;font-size:11px;flex-shrink:0;transition:.25s}
+.rch4-row:hover .rch4-go{background:var(--primary);color:#fff;transform:translateX(-3px)}
+/* ===== v5: حالات فارغة + هياكل التحميل ===== */
+.empty-st{display:flex;flex-direction:column;align-items:center;text-align:center;padding:30px 20px 34px;animation:rchUp .5s ease both}
+.empty-art{width:150px;max-width:60%;animation:emptyFloat 4s ease-in-out infinite}
+.empty-art svg{width:100%;height:auto;display:block;overflow:visible}
+@keyframes emptyFloat{50%{transform:translateY(-6px)}}
+.e-bg{fill:var(--card);stroke:none}.e-ln{fill:none;stroke:var(--primary);stroke-width:3;stroke-linecap:round;stroke-linejoin:round;opacity:.85}
+.e-fill{fill:var(--primary)}.e-fill2{fill:var(--primary-bg);stroke:none}.e-bar{fill:var(--card-border)}.e-sh{fill:var(--primary);opacity:.1}
+.e-st{fill:none;stroke:var(--primary);stroke-width:5;stroke-linecap:round;opacity:.85}
+.empty-art .e-bg{filter:drop-shadow(0 6px 10px rgba(0,0,0,.06))}
+.empty-t{font-size:14px;font-weight:900;color:var(--text);margin-top:12px}
+.empty-s{font-size:11px;font-weight:600;color:var(--text3);margin-top:5px;line-height:1.7;max-width:260px}
+.skel-list{display:flex;flex-direction:column;gap:8px}
+.skel-row{display:flex;align-items:center;gap:12px;padding:13px;border-radius:16px;background:var(--card);border:1px solid var(--card-border);animation:skelPulse 1.3s ease-in-out infinite}
+.skel-ic{width:44px;height:44px;border-radius:14px;background:var(--input-bg);flex-shrink:0}
+.skel-ln{flex:1;display:flex;flex-direction:column;gap:8px}.skel-ln i{display:block;height:10px;border-radius:6px;background:var(--input-bg);width:80%}
+@keyframes skelPulse{50%{opacity:.55}}
+@media(prefers-reduced-motion:reduce){.empty-art,.skel-row{animation:none!important}}
+/* ===== v5: بطاقة الترحيب بنصف الحجم ===== */
+.pc6{padding:11px 12px 10px;border-radius:18px;margin-bottom:10px}
+.pc6-geo.g1{width:90px;height:90px;left:-30px;top:-38px}.pc6-geo.g2{width:56px;height:56px;border-radius:15px;left:60px;bottom:-30px}.pc6-geo.g3{width:44px;height:44px;right:-12px;top:30px}.pc6-geo.g4{display:none}
+.pc6 .pc6-av{width:38px;height:38px;border-radius:12px;font-size:15px;box-shadow:0 0 0 2px rgba(255,255,255,.28)}.pc6 .pc6-av img{border-radius:12px}
+.pc6 .pc5-av-cam{width:14px;height:14px;font-size:6px;right:-3px;bottom:-3px}
+.pc6-top{gap:9px}
+.pc6-name{font-size:12px;gap:4px}.pc6-name .pc5-check{font-size:9px}
+.pc6-chips{margin-top:3px;gap:5px}.pc6 .pc5-lvtag{padding:1px 7px;font-size:8px}.pc6-pid{font-size:9px}
+.pc6-bal{text-align:left;flex-shrink:0}
+.pc6-bal-v{font-size:19px;gap:5px;justify-content:flex-end}.pc6 .pc5-eye{font-size:10px}
+.pc6-bal-l{font-size:9px;margin-top:1px;text-align:left}
+.pc6-add{width:30px;height:30px;border-radius:10px;padding:0;justify-content:center;font-size:12px;flex-shrink:0;border:none;cursor:pointer;display:inline-flex;align-items:center;background:#fff;color:#1d4ed8;box-shadow:0 6px 12px -6px rgba(0,0,0,.5)}
+.pc6-foot{position:relative;z-index:2;display:flex;align-items:center;gap:10px;margin-top:9px;font-size:9px;font-weight:700;color:rgba(255,255,255,.8);flex-wrap:wrap}
+.pc6-m{display:inline-flex;align-items:center;gap:4px;white-space:nowrap}.pc6-m i{font-size:8px;opacity:.8}.pc6-m b{font-family:var(--font-num);font-size:10px;font-weight:900;color:#fff}
+.pc6-foot .pc6-lv{flex:1;min-width:110px;margin-top:0;gap:6px}
+.pc6 .pc5-lv-badge{padding:1px 7px;font-size:8px}.pc6-lvbar{height:5px}.pc6-lv b{font-size:9px}
+/* ===== v5: ورقة تفعيل الإشعارات (من الأسفل) ===== */
+.notif-popup-backdrop{padding:0!important;background:rgba(15,23,42,.45)!important;backdrop-filter:none!important;transition:opacity .25s;opacity:0}
+.notif-popup-backdrop.show{opacity:1}
+.notif-popup-box{max-width:520px!important;border-radius:26px 26px 0 0!important;border:none!important;border-top:1px solid var(--card-border)!important;padding:8px 18px calc(18px + env(safe-area-inset-bottom,0px));box-shadow:0 -14px 40px rgba(0,0,0,.25)!important;animation:npSheet .45s cubic-bezier(.2,.9,.3,1) both!important;touch-action:pan-y}
+@keyframes npSheet{from{transform:translateY(100%)}to{transform:none}}
+.notif-popup-box.closing{animation:npSheetOut .25s ease-in both!important}
+@keyframes npSheetOut{to{transform:translateY(100%)}}
+.np-handle{width:42px;height:5px;border-radius:5px;background:var(--card-border);margin:2px auto 14px}
+.np-hero{display:flex;align-items:center;gap:14px;text-align:right}
+.np-hero .np-bell{width:62px;height:62px;margin:0;border-radius:20px;background:linear-gradient(135deg,#2563eb,#3b82f6);position:relative;flex-shrink:0;display:flex;align-items:center;justify-content:center;box-shadow:0 10px 18px -8px rgba(37,99,235,.7)}
+.np-hero .np-bell i{font-size:26px;color:#fff;position:relative;z-index:2}
+.np-ring{position:absolute;inset:0;border-radius:20px;border:2px solid rgba(37,99,235,.55);animation:npRipple 2.4s ease-out infinite}.np-ring.r2{animation-delay:1.2s}
+@keyframes npRipple{0%{transform:scale(1);opacity:.8}100%{transform:scale(1.6);opacity:0}}
+.np-hero .np-dot{top:-4px;right:-4px;z-index:3}
+.np-tx{flex:1;min-width:0}.np-hero .np-title{font-size:17px;margin:0 0 4px}.np-hero .np-desc{margin:0;max-width:none;font-size:11px}
+.np-chips{display:flex;gap:8px;margin:16px 0 14px}
+.np-chip{flex:1;display:flex;flex-direction:column;align-items:center;gap:7px;padding:11px 4px;border-radius:16px;background:var(--bg);border:1px solid var(--card-border);animation:rchUp .5s ease both}
+.np-chip:nth-child(2){animation-delay:.08s}.np-chip:nth-child(3){animation-delay:.16s}
+.np-chip span{width:36px;height:36px;border-radius:12px;display:flex;align-items:center;justify-content:center;font-size:15px}
+.np-chip b{font-size:10px;font-weight:800;text-align:center;color:var(--text)}
+.notif-popup-box .np-btns{padding:0}
+.notif-popup-box .np-enable{padding:14px;border-radius:16px;font-size:14px;background:var(--primary);box-shadow:0 10px 18px -10px var(--primary)}
+.notif-popup-box .np-later{padding:12px;font-size:11px}
+@media(min-width:600px){.notif-popup-backdrop{align-items:center!important}.notif-popup-box{border-radius:26px!important;max-width:420px!important}}
+/* بطاقة الإشعار أصغر */
+.nt-card{padding:9px 10px;gap:9px;margin-bottom:6px;border-radius:13px}
+.nt-ic{width:34px!important;height:34px!important;border-radius:11px!important;font-size:13px!important}
+.nt-title{font-size:12px}.nt-text{font-size:10.5px;line-height:1.5;margin-top:1px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.nt-meta{margin-top:4px;font-size:9px}.nt-meta em{padding:1px 7px;font-size:8px}
+.nt-x{width:22px;height:22px;font-size:10px}
+.nt-sec{padding:10px 4px 6px;font-size:10px}
+.nt-hero{padding:11px 12px;border-radius:16px}.nt-hero-ic{width:40px;height:40px;border-radius:13px;font-size:17px}.nt-hero-n{font-size:22px}.nt-hero-l{font-size:10px}
+.nt-btn{padding:7px 10px;font-size:10px}
+.nt-tabs button{padding:6px 12px;font-size:10px}
+/* ===== v5: المستويات والمكافآت ===== */
+.lvx{max-width:560px;margin:0 auto}
+.lvx-hero{position:relative;overflow:hidden;border-radius:22px;padding:16px;color:#fff;background:linear-gradient(135deg,color-mix(in srgb,var(--c) 70%,#0f172a),var(--c));animation:rchUp .5s ease both}
+.lvx-geo{position:absolute;display:block;border:2px solid rgba(255,255,255,.16);pointer-events:none}.lvx-geo.a{width:140px;height:140px;border-radius:50%;left:-44px;top:-56px}.lvx-geo.b{width:80px;height:80px;border-radius:20px;transform:rotate(22deg);left:70px;bottom:-40px;animation:rchSpin 20s linear infinite}
+.lvx-top{position:relative;z-index:1;display:flex;align-items:center;gap:12px}
+.lvx-badge{width:56px;height:56px;border-radius:18px;background:#fff;color:var(--c);display:flex;align-items:center;justify-content:center;font-size:26px;flex-shrink:0;box-shadow:0 0 0 4px rgba(255,255,255,.25);animation:rchBob 3.4s ease-in-out infinite}
+.lvx-nm{flex:1;min-width:0}.lvx-ar{font-size:18px;font-weight:900}.lvx-en{font-size:10px;font-weight:700;opacity:.8;margin-top:3px}
+.lvx-disc{text-align:center;padding:8px 12px;border-radius:14px;background:rgba(255,255,255,.18)}.lvx-disc b{display:block;font-family:var(--font-num);font-size:20px;font-weight:900;line-height:1}.lvx-disc span{font-size:9px;font-weight:700;opacity:.85}
+.lvx-prog{position:relative;z-index:1;margin-top:16px}
+.lvx-pl{display:flex;justify-content:space-between;font-size:11px;font-weight:800;margin-bottom:6px}.lvx-pl b{font-family:var(--font-num)}
+.lvx-bar{height:9px;border-radius:9px;background:rgba(255,255,255,.25);overflow:hidden}.lvx-bar i{display:block;height:100%;border-radius:9px;background:#fff;transition:width 1s cubic-bezier(.2,.9,.3,1)}
+.lvx-pf{display:flex;justify-content:space-between;margin-top:6px;font-size:10px;font-weight:700;opacity:.85}
+.lvx-sec{display:flex;align-items:center;gap:7px;font-size:13px;font-weight:900;margin:20px 2px 10px;color:var(--text)}.lvx-sec i{color:var(--primary);font-size:12px}
+.lvx-bens{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.lvx-ben{display:flex;align-items:center;gap:9px;padding:11px;border-radius:14px;background:var(--card);border:1px solid var(--card-border);animation:rchUp .45s ease both}
+.lvx-ben span{width:32px;height:32px;border-radius:10px;background:rgba(16,185,129,.12);color:#10b981;display:flex;align-items:center;justify-content:center;font-size:13px;flex-shrink:0}
+.lvx-ben b{font-size:11px;font-weight:800;line-height:1.5;display:block}.lvx-ben small{font-size:9px;color:var(--text3);font-weight:600}
+.lvx-ben.main{grid-column:1/-1;background:var(--primary-bg);border-color:rgba(37,99,235,.25)}.lvx-ben.main span{background:var(--primary);color:#fff}
+.lvx-ben.soft{grid-column:1/-1}.lvx-ben.soft span{background:rgba(245,158,11,.14);color:#f59e0b}
+.lvx-tl{position:relative;padding-right:0}
+.lvx-node{position:relative;display:flex;gap:12px;padding-bottom:12px;animation:rchUp .5s ease both}
+.lvx-node::before{content:'';position:absolute;right:21px;top:44px;bottom:-2px;width:3px;border-radius:3px;background:var(--card-border)}
+.lvx-node:last-child::before{display:none}.lvx-node.done::before{background:var(--c)}
+.lvx-dot{width:44px;height:44px;border-radius:15px;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:17px;background:var(--input-bg);color:var(--text3);border:2px solid var(--card-border);z-index:1}
+.lvx-node.done .lvx-dot{background:var(--c);color:#fff;border-color:var(--c)}
+.lvx-node.cur .lvx-dot{background:#fff;color:var(--c);border-color:var(--c);box-shadow:0 0 0 5px color-mix(in srgb,var(--c) 22%,transparent);animation:rchBob 3s ease-in-out infinite}
+.lvx-card{flex:1;min-width:0;padding:11px 13px;border-radius:16px;background:var(--card);border:1px solid var(--card-border)}
+.lvx-node.cur .lvx-card{border:1.5px solid var(--c)}.lvx-node.lock .lvx-card{opacity:.6}
+.lvx-ct{display:flex;align-items:center;gap:6px}.lvx-ct b{font-size:13px;font-weight:900}.lvx-ct em{font-style:normal;font-size:9px;font-weight:700;color:var(--text3)}
+.lvx-pct{margin-right:auto;padding:2px 10px;border-radius:999px;background:color-mix(in srgb,var(--c) 14%,transparent);color:var(--c);font-family:var(--font-num);font-size:12px;font-weight:900}
+.lvx-cs{font-size:10px;font-weight:600;color:var(--text3);margin-top:4px}.lvx-cs u{text-decoration:none;color:var(--c);font-weight:900}
+.lvx-cb{display:flex;flex-wrap:wrap;gap:5px;margin-top:8px}.lvx-cb span{padding:4px 10px;border-radius:999px;font-size:10px;font-weight:700;background:color-mix(in srgb,var(--c) 12%,transparent);color:var(--c)}
+.lvx-next{display:flex;align-items:center;gap:11px;margin-top:6px;padding:13px;border-radius:18px;background:var(--card);border:1.5px dashed var(--c)}
+.lvx-nb{width:42px;height:42px;border-radius:14px;background:color-mix(in srgb,var(--c) 14%,transparent);color:var(--c);display:flex;align-items:center;justify-content:center;font-size:18px}
+.lvx-nt{flex:1}.lvx-nt b{font-size:12px;font-weight:900;display:block}.lvx-nt small{font-size:10px;color:var(--text3);font-weight:600}
+.lvx-np{font-family:var(--font-num);font-size:18px;font-weight:900;color:var(--c)}
+.lvx-foot{text-align:center;margin-top:14px;font-size:10px;font-weight:600;color:var(--text3)}
 /* شعار طريقة الدفع */
 .rch-strip-ic{width:52px;height:52px;border-radius:14px}
 .rch-strip-ic img{object-fit:contain;background:#fff;padding:4px;border-radius:14px}
@@ -2399,7 +2537,7 @@ html[dir="ltr"] body{text-align:left}
       <div class="nt-hero" id="ntHero"><div class="nt-hero-ic"><i class="fa-solid fa-bell"></i></div><div class="nt-hero-tx"><div class="nt-hero-n" id="ntHeroN">0</div><div class="nt-hero-l" id="ntHeroL">إشعار غير مقروء</div></div>
         <div class="nt-hero-acts"><button class="nt-btn" onclick="readAllNotifs()"><i class="fa-solid fa-check-double"></i> قراءة الكل</button><button class="nt-btn del" onclick="deleteAllNotifs()"><i class="fa-solid fa-trash-can"></i></button></div></div>
       <div class="nt-tabs" id="ntTabs"><button class="on" data-f="all">الكل</button><button data-f="unread">غير مقروء</button><button data-f="order">الطلبات</button><button data-f="wallet">المحفظة</button><button data-f="system">النظام</button></div>
-      <div class="noti-list" id="notiList" style="max-height:none;padding:0"><div class="noti-empty"><div class="noti-empty-ic"><i class="fa-solid fa-bell-slash"></i></div><div class="noti-empty-text">لا توجد إشعارات</div><div class="noti-empty-sub">ستظهر إشعاراتك هنا</div></div></div>
+      <div class="noti-list" id="notiList" style="max-height:none;padding:0"></div>
     </div>
   </div>
 </div>
@@ -2414,37 +2552,35 @@ html[dir="ltr"] body{text-align:left}
   <div class="snav nonadmin-only" data-page="pageRecharge"><i class="fa-solid fa-wallet"></i> شحن الرصيد</div>
   <div class="snav" data-page="pageAccount"><i class="fa-solid fa-user-gear"></i> حسابي</div>
   <div class="sb-spacer"></div>
-  <a class="snav" href="/api/logout" style="color:var(--red)"><i class="fa-solid fa-right-from-bracket"></i> خروج</a>
+  <a class="snav" href="/api/logout" onclick="fcClearCache()" style="color:var(--red)"><i class="fa-solid fa-right-from-bracket"></i> خروج</a>
   <div class="sb-footer">&copy; 2026 __SITE_NAME__</div>
 </aside>
 <div class="content">
   <div class="page active" id="pageHome">
     <div class="pc6">
-      <i class="pc6-geo g1"></i><i class="pc6-geo g2"></i><i class="pc6-geo g3"></i><i class="pc6-geo g4"></i>
+      <i class="pc6-geo g1"></i><i class="pc6-geo g2"></i><i class="pc6-geo g3"></i>
       <div class="pc6-top">
         <div class="pc5-avatar pc6-av" id="pc5Avatar" onclick="document.getElementById('pc5AvInput').click()">__UINIT__<input type="file" accept="image/*" id="pc5AvInput" class="pc5-av-input" onchange="previewAvatar(this)"><div class="pc5-av-cam"><i class="fa-solid fa-camera"></i></div></div>
         <div class="pc6-id">
           <div class="pc6-name">مرحباً, __UNAME__ <i class="fa-solid fa-circle-check pc5-check"></i></div>
           <div class="pc6-chips"><span class="pc5-lvtag" id="pc5SubLv">—</span><span id="pc5PubId" class="pc6-pid"></span></div>
         </div>
+        <div class="pc6-bal"><div class="pc6-bal-v"><span id="hudBalVal" data-usd="0">$0.00</span><i class="fa-solid fa-eye-slash pc5-eye" id="pc5EyeToggle"></i></div><div class="pc6-bal-l">الرصيد</div></div>
+        <button type="button" class="pc6-add" title="شحن الرصيد" onclick="switchPage('pageRecharge')"><i class="fa-solid fa-plus"></i></button>
       </div>
-      <div class="pc6-bal">
-        <div><div class="pc6-bal-l">الرصيد</div><div class="pc6-bal-v"><span id="hudBalVal" data-usd="0">$0.00</span><i class="fa-solid fa-eye-slash pc5-eye" id="pc5EyeToggle"></i></div></div>
-        <button type="button" class="pc6-add" onclick="switchPage('pageRecharge')"><i class="fa-solid fa-plus"></i> شحن الرصيد</button>
+      <div class="pc6-foot">
+        <span class="pc6-m"><i class="fa-solid fa-lock"></i><b class="mn-orders" id="pc5TotalOrders">0</b> الطلبات المكتملة</span>
+        <span class="pc6-m"><i class="fa-solid fa-coins"></i><b class="mn-spent" id="pc5TotalSpent">$0</b> إنفاق</span>
+        <div class="pc6-lv"><div class="pc5-lv-badge" id="pc5LvBadge">—</div><div class="pc6-lvbar"><div class="pc5-lv-fill" id="pc5Bar"></div></div><b id="pc5Pct">0%</b></div>
       </div>
-      <div class="pc6-grid">
-        <div class="pc6-t"><span class="pc6-ti"><i class="fa-solid fa-lock"></i></span><div><b class="mn-orders" id="pc5TotalOrders">0</b><span>الطلبات المكتملة</span></div></div>
-        <div class="pc6-t"><span class="pc6-ti"><i class="fa-solid fa-coins"></i></span><div><b class="mn-spent" id="pc5TotalSpent">$0</b><span>إنفاق</span></div></div>
-      </div>
-      <div class="pc6-lv"><div class="pc5-lv-badge" id="pc5LvBadge">—</div><div class="pc6-lvbar"><div class="pc5-lv-fill" id="pc5Bar"></div></div><b id="pc5Pct">0%</b></div>
     </div>
-    <div id="annBoxWrap" class="nonadmin-only" style="display:none"></div>
-    <div class="nonadmin-only ai-card" onclick="document.getElementById('aiChatPage').classList.add('show');openAiConversation(0)">
+    <div id="annBoxWrap" class="" style="display:none"></div>
+    <div class="ai-card" onclick="document.getElementById('aiChatPage').classList.add('show');openAiConversation(0)">
       <div class="ai-card-ic"><img src="__AI_ICON__" alt=""></div>
       <div class="ai-card-tx"><div class="ai-card-t">المساعد الذكي <span class="ai-card-badge">AI</span></div><div class="ai-card-d">اسأله عن خدماتك وطلباتك ورصيدك — يجيبك فوراً</div></div>
       <div class="ai-card-go"><i class="fa-solid fa-chevron-left"></i></div>
     </div>
-    <div class="nonadmin-only ai-chips"><span onclick="aiQuick('كم رصيدي الحالي؟')">💰 كم رصيدي؟</span><span onclick="aiQuick('أين طلبي الأخير؟')">📦 أين طلبي؟</span><span onclick="aiQuick('ما أرخص خدمة متابعين؟')">⭐ أرخص خدمة</span><span onclick="aiQuick('كيف أشحن رصيدي؟')">💳 كيف أشحن؟</span></div>
+    <div class="ai-chips"><span onclick="aiQuick('كم رصيدي الحالي؟')">💰 كم رصيدي؟</span><span onclick="aiQuick('أين طلبي الأخير؟')">📦 أين طلبي؟</span><span onclick="aiQuick('ما أرخص خدمة متابعين؟')">⭐ أرخص خدمة</span><span onclick="aiQuick('كيف أشحن رصيدي؟')">💳 كيف أشحن؟</span></div>
     <div style="margin-bottom:10px">
       <div id="customSvcsSec"></div>
       <div id="favSvcsSec" style="margin-top:10px"></div>
@@ -2453,7 +2589,7 @@ html[dir="ltr"] body{text-align:left}
         <div class="platforms-grid" id="pGrid"></div>
       </div>
     </div>
-    <div id="refSection" class="nonadmin-only" style="display:none;margin-top:12px">
+    <div id="refSection" class="" style="display:none;margin-top:12px">
       <div class="ref4-card">
         <div class="ref4-row"><div class="ref4-ic"><i class="fa-solid fa-share-nodes"></i></div><div><div class="ref4-title">نظام الإحالة</div><div class="ref4-desc">ادعو أصدقاءك واحصل على عمولة من كل طلب</div></div></div>
         <div class="ref4-divider"></div>
@@ -2473,7 +2609,7 @@ html[dir="ltr"] body{text-align:left}
     <div class="ord-tabs" id="ordTabs"><div class="on" data-t="all">الكل</div><div data-t="smm">الخدمات</div><div data-t="custom"><i class="fa-solid fa-gamepad"></i> الألعاب <span class="cnt" id="ordCoCnt"></span></div></div>
     <div class="ord-search"><i class="fa-solid fa-search"></i><input type="text" placeholder="بحث بالرقم، الرابط، أو الخدمة..." id="ordSearchInput" oninput="filterOrdersBySearch()"></div>
     <div class="filters" id="ordFilters"><div class="flt on" data-f="all">الكل</div><div class="flt" data-f="Processing">قيد التنفيذ</div><div class="flt" data-f="Completed">مكتملة</div><div class="flt" data-f="Pending">معلّقة</div><div class="flt" data-f="Canceled">ملغاة</div><div class="flt" data-f="Partial">جزئي</div></div>
-    <div id="ordList"><div class="ord-empty"><i class="fa-solid fa-inbox"></i><p>لا توجد طلبات حالياً</p></div></div>
+    <div id="ordList"></div>
   </div>
   <div class="page" id="pageRecharge">
     <div class="rch-layout rch2">
@@ -2506,7 +2642,7 @@ html[dir="ltr"] body{text-align:left}
     </div>
     <input type="text" class="ao-search" placeholder="بحث بالاسم أو الايميل..." id="aoSearch">
     <div class="filters" id="aoFilters"><div class="flt on" data-af="all">الكل</div><div class="flt" data-af="pending">بانتظار</div><div class="flt" data-af="approved">موافق</div><div class="flt" data-af="rejected">مرفوض</div></div>
-    <div id="aoList"><div class="ord-empty"><i class="fa-solid fa-inbox"></i><p>لا توجد طلبات شحن</p></div></div>
+    <div id="aoList"></div>
   </div>
   <div class="page" id="pageAccount">
     <div class="acc-desktop">
@@ -2653,7 +2789,7 @@ html[dir="ltr"] body{text-align:left}
       </a>
     </div>
 
-    <div class="ref-mini nonadmin-only" onclick="switchPage('pageHome')">
+    <div class="ref-mini" onclick="switchPage('pageHome')">
       <div class="ref-mini-ic"><i class="fa-solid fa-share-nodes"></i></div>
       <div class="ref-mini-info"><div class="ref-mini-t">نظام الإحالة</div><div class="ref-mini-d">ادعو أصدقاءك واحصل على عمولة من كل طلب</div></div>
       <div class="ref-mini-stats"><div class="rms"><div class="rms-n" id="accRefCount">0</div><div class="rms-l">إحالة</div></div><div class="rms"><div class="rms-n" id="accRefEarn">$0</div><div class="rms-l">أرباح</div></div></div>
@@ -2685,11 +2821,11 @@ html[dir="ltr"] body{text-align:left}
   <div class="ov-topbar"><button class="ov-back" onclick="document.getElementById('adminTicketsPage').classList.remove('show')"><i class="fa-solid fa-arrow-right"></i></button><div class="ov-title"><i class="fa-solid fa-ticket"></i> تذاكر الدعم</div></div>
   <div class="ov-body" id="atkContent"><div style="text-align:center;padding:30px;color:var(--text3)"><i class="fa-solid fa-spinner fa-spin"></i> جاري التحميل...</div></div>
 </div>
-<div class="overlay-page nonadmin-only" id="customerTicketsPage">
+<div class="overlay-page" id="customerTicketsPage">
   <div class="ov-topbar"><button class="ov-back" onclick="document.getElementById('customerTicketsPage').classList.remove('show')"><i class="fa-solid fa-arrow-right"></i></button><div class="ov-title"><i class="fa-solid fa-ticket"></i> تذاكري</div></div>
   <div class="ov-body" id="ctkContent"></div>
 </div>
-<div class="overlay-page nonadmin-only" id="aiChatPage">
+<div class="overlay-page" id="aiChatPage">
   <div class="ov-topbar"><button class="ov-back" onclick="document.getElementById('aiChatPage').classList.remove('show')"><i class="fa-solid fa-arrow-right"></i></button><div class="ov-title"><img src="__AI_ICON__" alt="" style="width:20px;height:20px;border-radius:50%"> المساعد الذكي</div><button class="ov-back" onclick="toggleAiHistory()" title="محادثات سابقة" style="margin-right:auto"><i class="fa-solid fa-clock-rotate-left"></i></button></div>
   <div style="display:flex;flex-direction:column;height:calc(100vh - 56px)">
     <div id="aiHistoryPanel" style="display:none;padding:12px;border-bottom:1px solid var(--card-border);max-height:220px;overflow-y:auto;flex-shrink:0">
@@ -2703,11 +2839,11 @@ html[dir="ltr"] body{text-align:left}
     </div>
   </div>
 </div>
-<div class="overlay-page nonadmin-only" id="rchHistPage">
+<div class="overlay-page" id="rchHistPage">
   <div class="ov-topbar"><button class="ov-back" onclick="document.getElementById('rchHistPage').classList.remove('show')"><i class="fa-solid fa-arrow-right"></i></button><div class="ov-title"><i class="fa-solid fa-money-bill-transfer"></i> سجل المعاملات</div></div>
   <div class="ov-body" id="rchHistContent"><div style="text-align:center;padding:30px;color:var(--text3)"><i class="fa-solid fa-spinner fa-spin"></i></div></div>
 </div>
-<div class="overlay-page nonadmin-only" id="txDetailPage">
+<div class="overlay-page" id="txDetailPage">
   <div class="ov-topbar"><button class="ov-back" onclick="document.getElementById('txDetailPage').classList.remove('show')"><i class="fa-solid fa-arrow-right"></i></button><div class="ov-title"><i class="fa-solid fa-receipt"></i> تفاصيل العملية</div></div>
   <div class="ov-body" id="txDetailBody"></div>
 </div>
@@ -2715,7 +2851,7 @@ html[dir="ltr"] body{text-align:left}
   <div class="ov-topbar"><button class="ov-back" onclick="document.getElementById('moreSetPage').classList.remove('show')"><i class="fa-solid fa-arrow-right"></i></button><div class="ov-title"><i class="fa-solid fa-sliders"></i> المزيد من الإعدادات</div></div>
   <div class="ov-body">
     <div style="max-width:480px;margin:0 auto">
-    <div class="curr-card-vps nonadmin-only" id="currBtn">
+    <div class="curr-card-vps" id="currBtn">
       <div class="curr-card-vps-ic"><i class="fa-solid fa-coins" id="currIcon"></i></div>
       <div class="curr-card-vps-text">
         <div class="curr-card-vps-title">عملة عرض الأسعار</div>
@@ -2724,7 +2860,7 @@ html[dir="ltr"] body{text-align:left}
       </div>
       <i class="fa-solid fa-chevron-left curr-card-vps-chev"></i>
     </div>
-    <div class="curr-card-vps nonadmin-only" id="dailyBonusCard" style="display:none" onclick="claimDailyBonus()">
+    <div class="curr-card-vps" id="dailyBonusCard" style="display:none" onclick="claimDailyBonus()">
       <div class="curr-card-vps-ic" style="background:rgba(16,185,129,.1);color:var(--green)"><i class="fa-solid fa-gift"></i></div>
       <div class="curr-card-vps-text">
         <div class="curr-card-vps-title">مكافأة يومية</div>
@@ -2768,8 +2904,8 @@ html[dir="ltr"] body{text-align:left}
       </a>
     </div>
 
-    <div class="sec-sep nonadmin-only">الدعم</div>
-    <div class="acc-card nonadmin-only">
+    <div class="sec-sep">الدعم</div>
+    <div class="acc-card">
       <a class="acc-item" href="#" onclick="event.preventDefault();loadNewTicket()">
         <div class="mi-ic orange"><i class="fa-solid fa-plus-circle"></i></div>
         <div class="mi-info"><div class="mi-title">إنشاء تذكرة</div><div class="mi-desc">تواصل مع فريق الدعم</div></div>
@@ -2778,7 +2914,7 @@ html[dir="ltr"] body{text-align:left}
       <a class="acc-item" href="#" onclick="event.preventDefault();loadCustomerTicketsList()">
         <div class="mi-ic" style="background:rgba(168,85,247,.1);color:#a855f7"><i class="fa-solid fa-ticket"></i></div>
         <div class="mi-info"><div class="mi-title">تذاكري</div><div class="mi-desc">عرض جميع التذاكر المفتوحة والمغلقة</div></div>
-        <span class="acc-badge nonadmin-only" id="accCustTkBadge" style="display:none">0</span>
+        <span class="acc-badge" id="accCustTkBadge" style="display:none">0</span>
         <span class="arr"><i class="fa-solid fa-chevron-left"></i></span>
       </a>
       <a class="acc-item" href="#" onclick="event.preventDefault();document.getElementById('faqPage').classList.add('show')">
@@ -2793,8 +2929,8 @@ html[dir="ltr"] body{text-align:left}
       </a>
     </div>
 
-    <div class="sec-sep nonadmin-only">الهدية اليومية</div>
-    <div class="acc-card nonadmin-only cpn-collapse-card">
+    <div class="sec-sep">الهدية اليومية</div>
+    <div class="acc-card cpn-collapse-card">
       <div class="cpn-collapse-top" onclick="var b=this.parentElement.querySelector('.cpn-collapse-body');var a=this.querySelector('.cpn-collapse-arr');if(b.classList.contains('open')){b.classList.remove('open');a.classList.remove('open')}else{b.classList.add('open');a.classList.add('open')}">
         <div class="cpn-collapse-ic"><i class="fa-solid fa-gift"></i></div>
         <div class="cpn-collapse-info"><div class="cpn-collapse-title">كوبون هدية</div><div class="cpn-collapse-sub">أدخل كود الهدية واحصل على رصيد مجاني</div></div>
@@ -2821,7 +2957,7 @@ html[dir="ltr"] body{text-align:left}
       <div class="rvf-sum" id="rvfSum"></div>
       <div id="accRvList"></div>
       <div class="rvf-actions">
-        <button class="v2-btn solid sm nonadmin-only" onclick="openReviewModal()"><i class="fa-solid fa-pen"></i> أكتب تقييم</button>
+        <button class="v2-btn solid sm" onclick="openReviewModal()"><i class="fa-solid fa-pen"></i> أكتب تقييم</button>
         <button class="v2-btn sm" onclick="openReviewsPage()"><i class="fa-solid fa-comments"></i> كل التقييمات</button>
       </div>
     </div>
@@ -2830,7 +2966,7 @@ html[dir="ltr"] body{text-align:left}
   </div>
 </div>
 <div class="overlay-page" id="reviewsPage">
-  <div class="ov-topbar"><button class="ov-back" onclick="document.getElementById('reviewsPage').classList.remove('show')"><i class="fa-solid fa-arrow-right"></i></button><div class="ov-title"><i class="fa-solid fa-star"></i> آراء العملاء</div><button class="v2-btn solid sm nonadmin-only" style="margin-right:auto" onclick="openReviewModal()"><i class="fa-solid fa-pen"></i> أكتب تقييم</button></div>
+  <div class="ov-topbar"><button class="ov-back" onclick="document.getElementById('reviewsPage').classList.remove('show')"><i class="fa-solid fa-arrow-right"></i></button><div class="ov-title"><i class="fa-solid fa-star"></i> آراء العملاء</div><button class="v2-btn solid sm" style="margin-right:auto" onclick="openReviewModal()"><i class="fa-solid fa-pen"></i> أكتب تقييم</button></div>
   <div class="ov-body">
     <div style="max-width:560px;margin:0 auto">
       <div class="rvp-sum" id="rvpSum"></div>
@@ -2839,7 +2975,7 @@ html[dir="ltr"] body{text-align:left}
     </div>
   </div>
 </div>
-<div class="overlay-page nonadmin-only" id="accSettingsPage">
+<div class="overlay-page" id="accSettingsPage">
   <div class="ov-topbar"><button class="ov-back" onclick="document.getElementById('accSettingsPage').classList.remove('show')"><i class="fa-solid fa-arrow-right"></i></button><div class="ov-title"><i class="fa-solid fa-user-gear"></i> إعدادات الحساب</div></div>
   <div class="ov-body" id="accSettingsBody">
     <div style="max-width:480px;margin:0 auto">
@@ -2879,7 +3015,7 @@ html[dir="ltr"] body{text-align:left}
   <div class="ov-topbar"><button class="ov-back" onclick="document.getElementById('sessionsPage').classList.remove('show')"><i class="fa-solid fa-arrow-right"></i></button><div class="ov-title"><i class="fa-solid fa-mobile-screen-button"></i> الأجهزة والجلسات</div></div>
   <div class="ov-body" id="sessionsBody"></div>
 </div>
-<div class="overlay-page nonadmin-only" id="faqPage">
+<div class="overlay-page" id="faqPage">
   <div class="ov-topbar"><button class="ov-back" onclick="document.getElementById('faqPage').classList.remove('show')"><i class="fa-solid fa-arrow-right"></i></button><div class="ov-title"><i class="fa-solid fa-circle-question"></i> الأسئلة الشائعة</div></div>
   <div class="ov-body" id="faqBody">
     <div style="max-width:480px;margin:0 auto">
@@ -2906,7 +3042,7 @@ html[dir="ltr"] body{text-align:left}
     </div>
   </div>
 </div>
-<div class="overlay-page nonadmin-only" id="policyPage">
+<div class="overlay-page" id="policyPage">
   <div class="ov-topbar"><button class="ov-back" onclick="document.getElementById('policyPage').classList.remove('show')"><i class="fa-solid fa-arrow-right"></i></button><div class="ov-title" id="policyPageTitle"><i class="fa-solid fa-file-contract"></i> الشروط والأحكام</div></div>
   <div class="ov-body"><div id="policyPageBody" style="font-size:13px;color:var(--text2);line-height:2;white-space:pre-wrap"></div></div>
 </div>
@@ -4161,22 +4297,22 @@ print(r.json())</pre>
 </div>
 </div>
 <div class="img-lightbox" id="imgLightbox" onclick="this.classList.remove('show')"><button class="img-lightbox-close"><i class="fa-solid fa-xmark"></i></button><img id="imgLightboxSrc" src=""></div>
-<div class="notif-popup-backdrop" id="notifPopup">
-<div class="notif-popup-box">
-<button class="np-close" onclick="dismissNotifPopup()"><i class="fa-solid fa-xmark"></i></button>
-<div class="np-top">
-<div class="np-bell"><i class="fa-solid fa-bell"></i><div class="np-dot"></div></div>
-<div class="np-title">لا يفوتك شي! </div>
-<div class="np-desc">فعّل الإشعارات حتى توصلك تحديثات طلباتك وعروضنا الحصرية فوراً</div>
+<div class="notif-popup-backdrop" id="notifPopup" onclick="if(event.target===this)dismissNotifPopup()">
+<div class="notif-popup-box" id="npSheet">
+<div class="np-handle"></div>
+<div class="np-hero">
+<div class="np-bell"><span class="np-ring r1"></span><span class="np-ring r2"></span><i class="fa-solid fa-bell"></i><div class="np-dot"></div></div>
+<div class="np-tx"><div class="np-title">لا يفوتك شي!</div>
+<div class="np-desc">فعّل الإشعارات حتى توصلك تحديثات طلباتك وعروضنا الحصرية فوراً</div></div>
 </div>
-<div class="np-benefits">
-<div class="np-bf"><div class="np-bf-ic" style="background:rgba(16,185,129,.1);color:#10b981"><i class="fa-solid fa-bag-shopping"></i></div><div class="np-bf-t"><div class="np-bf-h">تحديث الطلبات</div><div class="np-bf-d">إشعار فوري لما يكتمل أو يتغير طلبك</div></div></div>
-<div class="np-bf"><div class="np-bf-ic" style="background:rgba(99,102,241,.1);color:var(--primary-light)"><i class="fa-solid fa-wallet"></i></div><div class="np-bf-t"><div class="np-bf-h">إضافة الرصيد</div><div class="np-bf-d">تنبيه فوري عند الموافقة على شحن رصيدك</div></div></div>
-<div class="np-bf"><div class="np-bf-ic" style="background:rgba(245,158,11,.1);color:#f59e0b"><i class="fa-solid fa-bolt"></i></div><div class="np-bf-t"><div class="np-bf-h">عروض وخصومات</div><div class="np-bf-d">كن أول من يعرف عن العروض الجديدة</div></div></div>
+<div class="np-chips">
+<div class="np-chip"><span style="background:rgba(16,185,129,.12);color:#10b981"><i class="fa-solid fa-bag-shopping"></i></span><b>تحديث الطلبات</b></div>
+<div class="np-chip"><span style="background:rgba(37,99,235,.12);color:#2563eb"><i class="fa-solid fa-wallet"></i></span><b>إضافة الرصيد</b></div>
+<div class="np-chip"><span style="background:rgba(245,158,11,.14);color:#f59e0b"><i class="fa-solid fa-bolt"></i></span><b>عروض وخصومات</b></div>
 </div>
 <div class="np-btns">
 <button class="np-enable" onclick="enableNotifPopup()"><i class="fa-solid fa-bell"></i> تفعيل الإشعارات</button>
-<button class="np-later" onclick="dismissNotifPopup()">لاحقاً</button>
+<button class="np-later" onclick="dismissNotifPopup()">ليس الآن</button>
 </div>
 </div>
 </div>
@@ -4513,19 +4649,29 @@ print(r.json())</pre>
   window.submitCart=submitCart;
 
   var allOrders=[];
+  var _ordLoaded=false,_ordSig='';
   function loadOrders(attempt){
     attempt=attempt||1;
     var list=document.getElementById('ordList');
-    if(attempt===1)list.innerHTML='<div style="text-align:center;padding:16px"><div style="width:20px;height:20px;border:2px solid var(--input-border);border-top-color:var(--primary);border-radius:50%;animation:spin .6s linear infinite;margin:0 auto 6px"></div><div style="font-size:11px;color:var(--text3)">جاري تحميل الطلبات...</div></div>';
-    fetch('/api/orders').then(function(r){return r.json()}).then(function(d){
-      if(!d.ok){
+    if(attempt===1){
+      if(!_ordLoaded){var c=fcGet('ord');if(c){allOrders=c.o||[];customOrders=c.c||[];_ordLoaded=true}}
+      if(_ordLoaded)_ordRefresh();else list.innerHTML=skelRows(3);
+    }
+    Promise.all([fetch('/api/orders').then(function(r){return r.json()}),fetch('/api/my_custom_orders').then(function(r){return r.json()}).catch(function(){return null})]).then(function(res){
+      var d=res[0];
+      if(!d||!d.ok){
         if(attempt<3){setTimeout(function(){loadOrders(attempt+1)},2000);return}
-        list.innerHTML='<div style="text-align:center;padding:30px"><div style="font-size:1.5rem;margin-bottom:6px;opacity:.3"><i class="fa-solid fa-triangle-exclamation"></i></div><div style="font-size:12px;font-weight:700;color:var(--text)">خطأ بتحميل الطلبات</div><button onclick="loadOrders(1)" class="btn-sm" style="padding:8px 18px;margin-top:8px"><i class="fa-solid fa-rotate"></i> إعادة المحاولة</button></div>';return}
-      allOrders=d.orders||[];
-      loadCustomOrders();
+        if(!_ordLoaded)list.innerHTML='<div style="text-align:center;padding:30px"><div style="font-size:1.5rem;margin-bottom:6px;opacity:.3"><i class="fa-solid fa-triangle-exclamation"></i></div><div style="font-size:12px;font-weight:700;color:var(--text)">خطأ بتحميل الطلبات</div><button onclick="loadOrders(1)" class="btn-sm" style="margin-top:10px;padding:6px 14px"><i class="fa-solid fa-rotate"></i> إعادة المحاولة</button></div>';
+        return;
+      }
+      var nc=(res[1]&&res[1].ok&&res[1].orders)||[];
+      var sig=JSON.stringify([d.orders,nc]),changed=sig!==_ordSig;_ordSig=sig;
+      allOrders=d.orders||[];customOrders=nc;_ordLoaded=true;fcSet('ord',{o:allOrders,c:customOrders});
+      if(changed||attempt===1)_ordRefresh();
     }).catch(function(){
       if(attempt<3){setTimeout(function(){loadOrders(attempt+1)},2000);return}
-      list.innerHTML='<div style="text-align:center;padding:30px"><div style="font-size:1.5rem;margin-bottom:6px;opacity:.3"><i class="fa-solid fa-wifi"></i></div><div style="font-size:12px;font-weight:700;color:var(--text)">خطأ بالاتصال</div><div style="font-size:11px;color:var(--text3);margin:4px 0 8px">تأكد من اتصالك بالإنترنت</div><button onclick="loadOrders(1)" class="btn-sm" style="padding:8px 18px"><i class="fa-solid fa-rotate"></i> إعادة المحاولة</button></div>'});
+      if(!_ordLoaded)list.innerHTML='<div style="text-align:center;padding:30px"><div style="font-size:1.5rem;margin-bottom:6px;opacity:.3"><i class="fa-solid fa-wifi"></i></div><div style="font-size:12px;font-weight:700;color:var(--text)">خطأ بالاتصال</div><button onclick="loadOrders(1)" class="btn-sm" style="margin-top:10px;padding:6px 14px"><i class="fa-solid fa-rotate"></i> إعادة المحاولة</button></div>';
+    });
   }
   var customOrders=[];
   function _coSt(s){s=(s||'').toLowerCase();return s==='completed'?'Completed':(s==='canceled'||s==='cancelled')?'Canceled':s==='processing'?'Processing':'Pending'}
@@ -4575,7 +4721,7 @@ print(r.json())</pre>
       filtered=filtered.filter(function(o){return (o.service_name||'').toLowerCase().indexOf(q)!==-1||(o.order||'').toString().indexOf(q)!==-1||(o.link||'').toLowerCase().indexOf(q)!==-1});
       cust=cust.filter(function(o){return ((o.service_name||'')+' '+(o.package||'')+' '+(o.link||'')+' '+o.id).toLowerCase().indexOf(q)!==-1});
     }
-    if(!filtered.length&&!cust.length){list.innerHTML='<div class="ord-empty"><i class="fa-solid fa-inbox"></i><p>لا توجد طلبات</p></div>';return}
+    if(!filtered.length&&!cust.length){list.innerHTML=(sq.trim()||filter!=='all')?emptyState('search','لا توجد نتائج','جرّب تغيير الفلتر أو البحث'):emptyState('orders','لا توجد طلبات بعد','ابدأ بطلبك الأول من الصفحة الرئيسية');return}
     var statusAr={'Completed':'مكتمل','Pending':'معلّق','Processing':'قيد التنفيذ','In progress':'قيد التنفيذ','Canceled':'ملغاة','Partial':'جزئي','Queued':'بالانتظار'};
     var h=cust.map(_coCard).join('');
     filtered.forEach(function(o,idx){
@@ -4750,48 +4896,82 @@ print(r.json())</pre>
   function loadRecharge(attempt){
     attempt=attempt||1;
     var strips=document.getElementById('rchStrips');
-    if(attempt===1)strips.innerHTML='<div style="text-align:center;padding:16px"><div style="width:20px;height:20px;border:2px solid var(--input-border);border-top-color:var(--primary);border-radius:50%;animation:spin .6s linear infinite;margin:0 auto 6px"></div><div style="font-size:11px;color:var(--text3)">جاري تحميل طرق الدفع...</div></div>';
+    if(attempt===1){
+      if(!rchMethods.length){var cm=fcGet('pm');if(cm&&cm.length)rchMethods=cm}
+      if(rchMethods.length)_rchRender(strips);else strips.innerHTML=skelRows(3);
+    }
     fetch('/api/payment-methods').then(function(r){return r.json()}).then(function(d){
       if(!d.ok){
         if(attempt<3){setTimeout(function(){loadRecharge(attempt+1)},2000);return}
         strips.innerHTML='<div style="text-align:center;padding:16px"><div style="font-size:1.2rem;margin-bottom:6px;opacity:.3"><i class="fa-solid fa-triangle-exclamation"></i></div><div style="font-size:11px;color:var(--text3);margin-bottom:8px">فشل تحميل طرق الدفع</div><button onclick="loadRecharge(1)" class="btn-sm" style="padding:6px 14px"><i class="fa-solid fa-rotate"></i> إعادة المحاولة</button></div>';return}
-      rchMethods=d.methods||[];
-      if(!rchMethods.length){strips.innerHTML='<div class="rch-no-methods"><i class="fa-solid fa-credit-card"></i>لا توجد طرق دفع متاحة حالياً</div>';return}
-      strips.innerHTML='';
-      var isAutoM=function(m){return m.method_type==='binance'||m.method_type==='asiacell'||m.method_type==='telegram_stars'};
-      var autoL=[],manL=[];rchMethods.forEach(function(m,i){(isAutoM(m)?autoL:manL).push(i)});
-      var delay=0;
-      function group(title,sub,icon,cls,arr){
-        if(!arr.length)return;
-        var g=document.createElement('div');g.className='rch2-group';
-        g.innerHTML='<div class="rch2-gh"><span class="rch2-gi '+cls+'"><i class="'+icon+'"></i></span><div><div class="rch2-gt">'+title+'</div><div class="rch2-gs">'+sub+'</div></div><span class="rch2-gc">'+arr.length+'</span></div>';
-        var grid=document.createElement('div');grid.className='rch2-grid';
-        arr.forEach(function(i){
-          var m=rchMethods[i],auto=isAutoM(m);
-          var icHtml=m.image?'<img src="/api/pm-image/'+m.image+'" alt="'+esc(m.name)+'" onerror="this.outerHTML=\'<i class=&quot;'+(m.icon||'fa-solid fa-credit-card')+'&quot;></i>\'">':'<i class="'+(m.icon||'fa-solid fa-credit-card')+'"></i>';
-          var desc=auto?'تحقق تلقائي — يُضاف الرصيد فوراً':(m.exchange_rate?esc(m.exchange_rate):'تحويل يدوي مع إرفاق الوصل');
-          var c=document.createElement('a');c.href='#';c.className='rch2-card'+(auto?' auto':'');c.style.animationDelay=(delay++*0.07)+'s';
-          c.innerHTML='<span class="rch2-tag '+(auto?'a':'m')+'"><i class="fa-solid '+(auto?'fa-bolt':'fa-hand-holding-dollar')+'"></i> '+(auto?'فوري':'يدوي')+'</span><div class="rch2-logo">'+icHtml+'</div><div class="rch2-name">'+esc(m.name)+'</div><div class="rch2-desc">'+desc+'</div><span class="rch2-go"><i class="fa-solid fa-arrow-left"></i></span>';
-          c.addEventListener('click',function(e){e.preventDefault();c.classList.add('picked');setTimeout(function(){openRchPayPage(i);c.classList.remove('picked')},170)});
-          grid.appendChild(c);
-        });
-        g.appendChild(grid);strips.appendChild(g);
-      }
-      group('الدفع التلقائي','تحقق فوري وإضافة الرصيد بدون انتظار','fa-solid fa-bolt','a',autoL);
-      group('التحويل اليدوي','حوّل المبلغ وأرفق الوصل ثم تتم المراجعة','fa-solid fa-hand-holding-dollar','m',manL);
+      var _nm=d.methods||[];var _chg=JSON.stringify(_nm)!==JSON.stringify(rchMethods);rchMethods=_nm;fcSet('pm',_nm);
+      if(!_chg&&strips.querySelector('.rch4-list'))return;
+      _rchRender(strips);
     }).catch(function(){
       if(attempt<3){setTimeout(function(){loadRecharge(attempt+1)},2000);return}
       strips.innerHTML='<div style="text-align:center;padding:16px"><div style="font-size:1.2rem;margin-bottom:6px;opacity:.3"><i class="fa-solid fa-wifi"></i></div><div style="font-size:11px;color:var(--text3);margin-bottom:8px">خطأ بالاتصال — تحقق من الإنترنت</div><button onclick="loadRecharge(1)" class="btn-sm" style="padding:6px 14px"><i class="fa-solid fa-rotate"></i> إعادة المحاولة</button></div>'});
+  }
+
+  /* ===== شكل موحّد لصفحات الدفع (تلقائي ويدوي): ترويسة + خطوات + أقسام مرقّمة ===== */
+  var _RCH_STEPS={binance:['المبلغ','أرسل إلى المعرّف','تحقق من الدفع'],asiacell:['المبلغ','رقم الهاتف','رمز التحقق','تأكيد التحويل'],telegram_stars:['عدد النجوم','المتابعة عبر البوت'],manual:['المبلغ','حوّل المبلغ','أرفق الوصل']};
+  function rchStep(n){document.querySelectorAll('#rchPayBody .rch3-step').forEach(function(el,i){el.classList.toggle('done',i<n-1);el.classList.toggle('on',i===n-1)})}
+  function rchDecorate(m,kind){
+    var body=document.getElementById('rchPayBody');if(!body)return;
+    var auto=kind!=='manual',steps=_RCH_STEPS[kind]||[];
+    var ic=m.image?'<img src="/api/pm-image/'+m.image+'" alt="" onerror="this.outerHTML=\'<i class=&quot;'+(m.icon||'fa-solid fa-credit-card')+'&quot;></i>\'">':'<i class="'+(m.icon||'fa-solid fa-credit-card')+'"></i>';
+    var h='<div class="rch3-head"><div class="rch3-logo">'+ic+'</div><div class="rch3-ht"><div class="rch3-name">'+esc(m.name)+'</div><div class="rch3-sub">'+(auto?'تحقق تلقائي — يُضاف الرصيد فور نجاح العملية':'حوّل المبلغ وأرفق الوصل ثم تتم المراجعة')+'</div></div><span class="rch3-chip '+(auto?'a':'m')+'"><i class="fa-solid '+(auto?'fa-bolt':'fa-hourglass-half')+'"></i> '+(auto?'فوري':'مراجعة')+'</span></div>';
+    h+='<div class="rch3-steps">'+steps.map(function(t,i){return '<div class="rch3-step"><span>'+(i+1)+'</span><b>'+t+'</b></div>'}).join('<i class="rch3-ln"></i>')+'</div>';
+    body.insertAdjacentHTML('afterbegin',h);
+    body.querySelectorAll(':scope > .rch-card').forEach(function(c){c.classList.add('rch3-sec')});
+    rchStep(1);
+    var amt=document.getElementById('rchAmount'),file=document.getElementById('rchFileInput');
+    if(kind==='manual'){
+      rchStep(2);
+      if(file)file.addEventListener('change',function(){rchStep(file.files&&file.files.length?3:2)});
+    }else if(kind==='binance'){
+      var q=document.createElement('div');q.className='rch-quick';q.id='rchBnQuick';
+      q.innerHTML=[5,10,25,50,100].map(function(v){return '<div class="rq'+(v===10?' sel':'')+'" data-v="'+v+'">$'+v+'</div>'}).join('');
+      var wrap=amt&&amt.closest('.rch-amt-wrap');if(wrap)wrap.insertAdjacentElement('afterend',q);
+      q.querySelectorAll('.rq').forEach(function(b){b.addEventListener('click',function(){q.querySelectorAll('.rq').forEach(function(x){x.classList.remove('sel')});b.classList.add('sel');amt.value=b.dataset.v;rchStep(2)})});
+      var oid=document.getElementById('rchBinanceOrderId');
+      rchStep(2);
+      if(oid)oid.addEventListener('input',function(){rchStep(oid.value.trim()?3:2)});
+    }else if(kind==='telegram_stars'){
+      var si=document.getElementById('tgsStarsInput');
+      var up=function(){rchStep(parseInt(si.value)>0?2:1)};if(si)si.addEventListener('input',up);
+      document.querySelectorAll('#tgsQuick .rq').forEach(function(b){b.addEventListener('click',function(){setTimeout(up,0)})});
+      up();
+    }else if(kind==='asiacell'){
+      var ids=['rchAcStepPhone','rchAcStepSms1','rchAcStepSms2'];
+      var sync=function(){var n=2;ids.forEach(function(id,i){var e=document.getElementById(id);if(e&&e.style.display!=='none')n=i+2});rchStep(n)};
+      sync();
+      var mo=new MutationObserver(sync);ids.forEach(function(id){var e=document.getElementById(id);if(e)mo.observe(e,{attributes:true,attributeFilter:['style']})});
+    }
+  }
+  function _rchRender(strips){
+    if(!rchMethods.length){strips.innerHTML=emptyState('pay','لا توجد طرق دفع متاحة حالياً','سيتم إضافة طرق الدفع قريباً');return}
+    var list=document.createElement('div');list.className='rch4-list';
+    rchMethods.forEach(function(m,i){
+      var auto=(m.method_type==='binance'||m.method_type==='asiacell'||m.method_type==='telegram_stars');
+      var icHtml=m.image?'<img src="/api/pm-image/'+m.image+'" alt="'+esc(m.name)+'" onerror="this.outerHTML=\'<i class=&quot;'+(m.icon||'fa-solid fa-credit-card')+'&quot;></i>\'">':'<i class="'+(m.icon||'fa-solid fa-credit-card')+'"></i>';
+      var a=document.createElement('a');a.href='#';a.className='rch4-row';a.style.animationDelay=(i*0.05)+'s';
+      a.innerHTML='<div class="rch4-logo">'+icHtml+'</div><div class="rch4-tx"><div class="rch4-name">'+esc(m.name)+(auto?'<span class="rch4-tag"><i class="fa-solid fa-bolt"></i> فوري</span>':'')+'</div><div class="rch4-desc">'+(auto?'تحقق تلقائي — يُضاف الرصيد فوراً':(m.exchange_rate?esc(m.exchange_rate):'حوّل المبلغ وأرفق الوصل'))+'</div></div><span class="rch4-go"><i class="fa-solid fa-chevron-left"></i></span>';
+      a.addEventListener('click',function(e){e.preventDefault();a.classList.add('picked');setTimeout(function(){openRchPayPage(i);a.classList.remove('picked')},140)});
+      list.appendChild(a);
+    });
+    strips.innerHTML='';strips.appendChild(list);
   }
   function openRchPayPage(i){
     rchPayIdx=i;
     var m=rchMethods[i];
     document.getElementById('rchPayTitle').innerHTML='<i class="'+(m.icon||'fa-solid fa-credit-card')+'"></i> '+m.name;
     var body=document.getElementById('rchPayBody');
-    if(m.method_type==='binance'){body.innerHTML=rchBinancePageHtml(m);document.getElementById('rchPayPage').classList.add('show');wireBinancePage(m);}
-    else if(m.method_type==='asiacell'){body.innerHTML=rchAsiacellPageHtml(m);document.getElementById('rchPayPage').classList.add('show');wireAsiacellPage(m);}
-    else if(m.method_type==='telegram_stars'){body.innerHTML=rchTelegramStarsPageHtml(m);document.getElementById('rchPayPage').classList.add('show');wireTelegramStarsPage(m);}
+    var kind=(m.method_type==='binance'||m.method_type==='asiacell'||m.method_type==='telegram_stars')?m.method_type:'manual';
+    if(kind==='binance'){body.innerHTML=rchBinancePageHtml(m);document.getElementById('rchPayPage').classList.add('show');wireBinancePage(m);}
+    else if(kind==='asiacell'){body.innerHTML=rchAsiacellPageHtml(m);document.getElementById('rchPayPage').classList.add('show');wireAsiacellPage(m);}
+    else if(kind==='telegram_stars'){body.innerHTML=rchTelegramStarsPageHtml(m);document.getElementById('rchPayPage').classList.add('show');wireTelegramStarsPage(m);}
     else{body.innerHTML=rchManualPageHtml(m);document.getElementById('rchPayPage').classList.add('show');wireManualPage(m);}
+    try{rchDecorate(m,kind)}catch(e){}
   }
   document.getElementById('rchPayBack').addEventListener('click',function(){
     var m=rchMethods[rchPayIdx];
@@ -5126,7 +5306,7 @@ print(r.json())</pre>
         return (o.user_name||'').toLowerCase().indexOf(s)!==-1 || (o.user_email||'').toLowerCase().indexOf(s)!==-1;
       });
     }
-    if(!filtered.length){list.innerHTML='<div class="ord-empty"><i class="fa-solid fa-inbox"></i><p>لا توجد طلبات شحن</p></div>';return}
+    if(!filtered.length){list.innerHTML=emptyState('pay','لا توجد طلبات شحن','');return}
     list.innerHTML='';
     var statusAr={'pending':'بانتظار','approved':'موافق','rejected':'مرفوض'};
     var statusIcon={'pending':'fa-clock','approved':'fa-check','rejected':'fa-xmark'};
@@ -5803,7 +5983,7 @@ async function loadCustomerTicketsList(){
 }
 function _renderCtkList(){
   var tks=_ctkAllData;var el=document.getElementById('ctkContent');
-  if(!tks.length){el.innerHTML='<div style="text-align:center;padding:40px 16px"><div style="font-size:2.5rem;margin-bottom:10px;opacity:.25"><i class="fa-solid fa-ticket"></i></div><div style="font-size:13px;color:var(--text3);font-weight:600">لا توجد تذاكر حالياً</div></div>';return}
+  if(!tks.length){el.innerHTML=emptyState('ticket','لا توجد تذاكر حالياً','إن احتجت مساعدة أنشئ تذكرة وسنرد عليك');return}
   var openC=tks.filter(function(t){return t.status==='open'}).length;
   var waitC=tks.filter(function(t){return t.status==='waiting'}).length;
   var repC=tks.filter(function(t){return t.status==='replied'}).length;
@@ -5833,7 +6013,7 @@ function _renderCtkList(){
     h+='<div style="flex:1"><div style="font-size:10px;font-weight:700;color:var(--red)">حذف التذاكر المغلقة ('+closC+')</div><div style="font-size:8px;color:var(--text3);margin-top:1px">تنظيف التذاكر المنتهية</div></div>';
     h+='<i class="fa-solid fa-chevron-left" style="color:var(--red);font-size:9px"></i></div>';
   }
-  if(!filtered.length){h+='<div style="text-align:center;padding:30px;color:var(--text3);font-size:12px">لا توجد تذاكر بهذا التصنيف</div>'}
+  if(!filtered.length){h+=emptyState('search','لا توجد تذاكر بهذا التصنيف','')}
   filtered.forEach(function(t){
     var stLabel={'open':'مفتوحة','replied':'تم الرد','closed':'مغلقة','waiting':'بانتظار رد'}[t.status]||t.status;
     var stClass={'open':'ctk-open','replied':'ctk-replied','closed':'ctk-closed','waiting':'ctk-waiting'}[t.status]||'ctk-open';
@@ -5943,7 +6123,7 @@ async function loadAdminTickets(){document.getElementById('adminTicketsPage').cl
   var h='<div class="atk-stats"><div class="atk-stat"><div class="s-num" style="color:var(--primary)">'+open+'</div><div class="s-label">مفتوحة</div></div><div class="atk-stat"><div class="s-num" style="color:var(--green)">'+replied+'</div><div class="s-label">تم الرد</div></div><div class="atk-stat"><div class="s-num" style="color:var(--text3)">'+closed+'</div><div class="s-label">محلولة</div></div><div class="atk-stat"><div class="s-num" style="color:var(--red)">'+tks.length+'</div><div class="s-label">الكل</div></div></div>';
   h+='<div class="atk-filters">';[{k:'all',l:'الكل',c:tks.length},{k:'open',l:'مفتوحة',c:open},{k:'replied',l:'تم الرد',c:replied},{k:'closed',l:'محلولة',c:closed}].forEach(function(f){h+='<div class="atk-f'+(_adminFilter===f.k?' on':'')+'" onclick="_adminFilter=\''+f.k+'\';loadAdminTickets()">'+f.l+' <span class="fc">'+f.c+'</span></div>'});h+='</div>';
   if(closed>0)h+='<div onclick="purgeClosedTickets()" style="padding:6px 12px;border-radius:8px;font-size:10px;font-weight:700;background:rgba(239,68,68,.06);color:var(--red);border:1px solid rgba(239,68,68,.1);cursor:pointer;display:inline-flex;align-items:center;gap:4px;margin-bottom:8px"><i class="fa-solid fa-trash-can" style="font-size:9px"></i> تصفية '+closed+'</div>';
-  if(!filtered.length){h+='<div style="text-align:center;padding:30px"><div style="font-size:28px;opacity:.3"><i class="fa-solid fa-inbox"></i></div><div style="font-size:12px;color:var(--text3);margin-top:8px">لا توجد تذاكر</div></div>'}
+  if(!filtered.length){h+=emptyState('ticket','لا توجد تذاكر','')}
   else{filtered.forEach(function(t){var sa={'open':'مفتوحة','replied':'تم الرد','closed':'محلولة','waiting':'بانتظار'}[t.status]||t.status;var sc={'open':'t-open','replied':'t-replied','closed':'t-closed','waiting':'t-waiting'}[t.status]||'t-open';var lm=t.messages&&t.messages.length?t.messages[t.messages.length-1]:{};var isNew=lm.from==='user'&&t.status!=='closed';var initial=(t.user_name||'?').substring(0,1);
   h+='<div class="atk-item" onclick="openAdminTicket(\''+t.id+'\')">';if(isNew)h+='<div class="pri-line high"></div>';h+='<div class="t-av">'+initial+'</div><div class="t-body"><div style="display:flex;align-items:center;gap:4px"><span class="t-name">'+esc(t.subject)+'</span><span class="t-time">'+(t.date||'')+'</span></div><div style="display:flex;align-items:center;gap:4px;margin-top:2px"><span style="font-size:9px;color:var(--primary);font-weight:600">#TK-'+t.id+'</span><span class="t-tag '+sc+'">'+sa+'</span><span class="t-tag" style="background:var(--input-bg);color:var(--text3)"><i class="fa-solid fa-user" style="font-size:7px"></i> '+(t.user_name||t.uid)+'</span></div>';if(lm.text)h+='<div class="t-subj">'+(lm.from==='user'?'<i class="fa-solid fa-user" style="font-size:7px"></i> ':'<i class="fa-solid fa-shield" style="font-size:7px"></i> ')+esc(lm.text.substring(0,50))+'</div>';h+='</div>';if(isNew)h+='<div class="t-unread">!</div>';h+='</div>'})}
   document.getElementById('atkContent').innerHTML=h;var badge=document.getElementById('accTktBadge');if(badge){if(open>0){badge.textContent=open;badge.style.display=''}else{badge.style.display='none'}}}catch(e){}}
@@ -6087,7 +6267,7 @@ function clearAiConversations(){
   });
 }
 async function loadRchHistory(){document.getElementById('rchHistPage').classList.add('show');document.getElementById('rchHistContent').innerHTML='<div style="text-align:center;padding:30px;color:var(--text3)"><i class="fa-solid fa-spinner fa-spin"></i></div>';try{var r=await fetch('/api/recharge/history');var d=await r.json();if(!d.ok){document.getElementById('rchHistContent').innerHTML='<div style="text-align:center;padding:30px;color:var(--text3)"><i class="fa-solid fa-exclamation-triangle" style="font-size:24px;opacity:.4;display:block;margin-bottom:8px"></i><div style="font-size:12px">فشل تحميل السجل</div></div>';return}var hist=d.history||[];_rchTxCache=hist;var total=d.total||0;var h='<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:14px"><div style="padding:14px;border-radius:12px;background:var(--card);border:1px solid var(--card-border);text-align:center"><div style="font-family:IBM Plex Sans Arabic;font-size:18px;font-weight:900;color:var(--green)">'+fmtP(total)+'</div><div style="font-size:9px;color:var(--text3);margin-top:2px">إجمالي الشحن</div></div><div style="padding:14px;border-radius:12px;background:var(--card);border:1px solid var(--card-border);text-align:center"><div style="font-family:IBM Plex Sans Arabic;font-size:18px;font-weight:900;color:var(--primary)">'+hist.length+'</div><div style="font-size:9px;color:var(--text3);margin-top:2px">عدد العمليات</div></div></div>';
-  if(!hist.length){h+='<div style="text-align:center;padding:30px;color:var(--text3)"><i class="fa-solid fa-inbox" style="font-size:28px;opacity:.3;display:block;margin-bottom:8px"></i><div style="font-size:12px">لا توجد عمليات</div></div>'}
+  if(!hist.length){h+=emptyState('pay','لا توجد عمليات بعد','ستظهر هنا عمليات الشحن والمدفوعات')}
   else{h+='<div style="font-size:13px;font-weight:800;margin-bottom:8px;display:flex;align-items:center;gap:6px"><i class="fa-solid fa-clock-rotate-left" style="color:var(--primary);font-size:12px"></i> آخر العمليات</div>';hist.forEach(function(tx,idx){var st=tx.status||'pending';var icMap={'approved':'fa-circle-check','pending':'fa-clock','rejected':'fa-circle-xmark'};var colMap={'approved':'green','pending':'orange','rejected':'red'};var lblMap={'approved':'مقبول','pending':'قيد المراجعة','rejected':'مرفوض'};h+='<div class="rch-tx" onclick="openTxDetail('+idx+')"><div class="rch-tx-ic '+st+'"><i class="fa-solid '+(icMap[st]||'fa-clock')+'"></i></div><div class="rch-tx-info"><div class="rch-tx-method">شحن — '+(tx.method||'غير محدد')+'</div><div class="rch-tx-date">'+(tx.date||'')+'</div></div><div class="rch-tx-right"><div class="rch-tx-amount '+(colMap[st]||'orange')+'">+$'+tx.amount.toFixed(2)+'</div><div class="rch-tx-status '+st+'">'+(lblMap[st]||tx.status)+'</div></div><div class="rch-tx-chev"><i class="fa-solid fa-chevron-left"></i></div></div>'})}
   document.getElementById('rchHistContent').innerHTML=h}catch(e){document.getElementById('rchHistContent').innerHTML='<div style="text-align:center;padding:30px;color:var(--text3)"><i class="fa-solid fa-wifi"></i><br>خطأ بالاتصال</div>'}}
 function openTxDetail(idx){
@@ -6244,6 +6424,13 @@ async function loadAdminReferral(){
 }
 
 setTimeout(function(){loadReferral();loadUserNotifs();refreshAllPrices();loadUserStats()},1000);
+/* تحميل مسبق هادئ: الطلبات وطرق الدفع تجهز قبل فتح صفحتها */
+setTimeout(function(){
+  try{
+    fetch('/api/payment-methods').then(function(r){return r.json()}).then(function(d){if(d&&d.ok)fcSet('pm',d.methods||[])}).catch(function(){});
+    Promise.all([fetch('/api/orders').then(function(r){return r.json()}),fetch('/api/my_custom_orders').then(function(r){return r.json()})]).then(function(res){if(res[0]&&res[0].ok)fcSet('ord',{o:res[0].orders||[],c:(res[1]&&res[1].ok&&res[1].orders)||[]})}).catch(function(){});
+  }catch(e){}
+},1800);
 
 var _balHidden=false;
 (function(){
@@ -6429,6 +6616,7 @@ window.openPolicyPage=openPolicyPage;
 var _notiData=[];
 function openNotifPage(){
   document.getElementById('notifPage').classList.add('show');
+  if(_notiLoaded)_renderNotifs();else{var c=fcGet('noti');if(c){_notiData=c;_notiLoaded=true;_renderNotifs()}else document.getElementById('notiList').innerHTML=skelRows(3)}
   loadUserNotifs();
 }
 window.openNotifPage=openNotifPage;
@@ -6462,7 +6650,7 @@ function _notiDateSec(ts){
   var yest=new Date(today);yest.setDate(yest.getDate()-1);
   if(d>=today)return 'اليوم';if(d>=yest)return 'أمس';return 'أقدم';
 }
-var _lastNotiCount=0,_lastNotiIds=new Set();
+var _lastNotiCount=0,_lastNotiIds=new Set(),_notiLoaded=false;
 async function loadUserNotifs(){
   try{
     var r=await fetch('/api/notifications',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({})});
@@ -6483,7 +6671,7 @@ async function loadUserNotifs(){
     }
     _lastNotiIds=new Set(newNotifs.map(function(n){return n.id}));
     _lastNotiCount=d.unread||0;
-    _notiData=newNotifs;
+    _notiData=newNotifs;_notiLoaded=true;fcSet('noti',newNotifs);
     _renderNotifs();
   }catch(e){}
 }
@@ -6503,7 +6691,7 @@ function _renderNotifs(){
     if(_ntFilter==='all')return true;if(_ntFilter==='unread')return !n.read;return _ntCat(n)===_ntFilter;
   });
   if(!data.length){
-    list.innerHTML='<div class="noti-empty"><div class="noti-empty-ic"><i class="fa-solid fa-bell-slash"></i></div><div class="noti-empty-text">'+(_notiData.length?'لا توجد إشعارات في هذا القسم':'لا توجد إشعارات')+'</div><div class="noti-empty-sub">ستظهر إشعاراتك هنا</div></div>';
+    list.innerHTML=_notiData.length?emptyState('search','لا توجد إشعارات في هذا القسم','جرّب قسماً آخر'):emptyState('bell','لا توجد إشعارات','ستظهر هنا إشعارات طلباتك ورصيدك');
     return;
   }
   var h='',sec='',idx=0;
@@ -6892,7 +7080,7 @@ function aiQuick(q){document.getElementById('aiChatPage').classList.add('show');
 window.aiQuick=aiQuick;
 function showCustomSvcsPage(){
   var el=document.getElementById('csPageContent');
-  if(!_csCache||!Object.keys(_csCache).length){el.innerHTML='<div class="csl-header"><div class="csl-back" onclick="document.getElementById(\'customSvcsPage\').classList.remove(\'show\')">→</div><div class="csl-title"><i class="fa-solid fa-box"></i> الخدمات المخصصة</div></div><div style="text-align:center;padding:40px 16px"><div style="font-size:2rem;margin-bottom:8px;opacity:.3"><i class="fa-solid fa-box"></i></div><div style="font-size:13px;color:var(--text3);font-weight:600">لا توجد خدمات مخصصة حالياً</div></div>';return}
+  if(!_csCache||!Object.keys(_csCache).length){el.innerHTML='<div class="csl-header"><div class="csl-back" onclick="document.getElementById(\'customSvcsPage\').classList.remove(\'show\')">→</div><div class="csl-title"><i class="fa-solid fa-box"></i> الخدمات المخصصة</div></div>'+emptyState('box','لا توجد خدمات حالياً','ستظهر هنا الألعاب والخدمات عند إضافتها')+'';return}
   var svcs=Object.values(_csCache).filter(function(s){return !_csKind||(_csKind==='game'?s.type==='game':s.type!=='game')}).sort(function(a,b){return (b.type==='game')-(a.type==='game')});var CLRS=['cp','cpk','cbl','cgn','cyl','ccy','crs'];
   var h='<div class="csl-header"><div class="csl-back" onclick="document.getElementById(\'customSvcsPage\').classList.remove(\'show\')">→</div><div class="csl-title"><i class="fa-solid '+(_csKind==='other'?'fa-gem':'fa-gamepad')+'"></i> '+(_csKind==='game'?'خدمات الألعاب':_csKind==='other'?'الخدمات المخصصة':'الألعاب والخدمات المخصصة')+'</div><div class="csl-count">'+svcs.length+'</div></div>';
   h+='<div class="csl-wrap"><div class="csl-orb1"></div><div class="csl-orb2"></div>';
@@ -7287,7 +7475,7 @@ function renderFavListPage(){
   var favs=Object.values(_favData);
   var backBtn='<div class="csl-back" onclick="document.getElementById(\'favSvcsPage\').classList.remove(\'show\')">→</div>';
   if(!favs.length){
-    el.innerHTML='<div class="csl-header">'+backBtn+'<div class="csl-title"><i class="fa-solid fa-heart"></i> المفضلة</div></div><div style="text-align:center;padding:40px 16px"><div style="font-size:2rem;margin-bottom:8px;opacity:.3"><i class="fa-solid fa-heart"></i></div><div style="font-size:13px;color:var(--text3);font-weight:600">لا توجد خدمات في المفضلة بعد</div></div>';
+    el.innerHTML='<div class="csl-header">'+backBtn+'<div class="csl-title"><i class="fa-solid fa-heart"></i> المفضلة</div></div>'+emptyState('star','المفضلة فارغة','اضغط القلب على أي خدمة لتجدها هنا بسرعة')+'';
     return;
   }
   var h='<div class="csl-header">'+backBtn+'<div class="csl-title"><i class="fa-solid fa-heart"></i> المفضلة</div><div class="csl-count">'+favs.length+'</div></div>';
@@ -8542,63 +8730,41 @@ function renderUserLevels(){
 }
 function _buildUserLevels(d){
   var el=document.getElementById('userLevelsBody');
-  var lvs=d.all_levels||[];var spent=d.total_spent||0;var progress=d.progress||0;var remaining=d.remaining||0;
-  var curEn=d.level||'';var curAr=d.level_ar||'';var curColor=d.level_color||'#78716c';var curIcon=d.level_icon||'';
+  var lvs=d.all_levels||[];var spent=parseFloat(d.total_spent||0);var progress=d.progress||0;var remaining=d.remaining||0;
+  var curEn=d.level||'';var curAr=d.level_ar||'';var curColor=d.level_color||'#2563eb';var curIcon=d.level_icon||'fa-solid fa-medal';
   var curDisc=d.level_discount||0;var curBens=d.level_benefits||[];
-  var nextName=d.next_level||null;var nextEn=d.next_level_en||'';var nextColor=d.next_level_color||'';
+  var nextName=d.next_level||null;var nextColor=d.next_level_color||curColor;
   var curIdx=0;for(var i=0;i<lvs.length;i++){if(spent>=lvs[i].min)curIdx=i}
-  var h='<div style="padding:0 4px">';
-  h+='<div style="background:var(--card);border:1px solid var(--card-border);border-radius:18px;padding:20px 16px;margin-bottom:10px;position:relative;overflow:hidden">';
-  h+='<div style="position:absolute;top:-40%;right:-20%;width:140%;height:140%;border-radius:50%;background:radial-gradient(circle,'+curColor+',transparent);opacity:.04;pointer-events:none"></div>';
-  h+='<div style="position:relative;z-index:1">';
-  h+='<div style="display:flex;align-items:center;gap:12px;margin-bottom:14px">';
-  h+='<div style="width:52px;height:52px;border-radius:16px;background:'+curColor+'15;color:'+curColor+';display:flex;align-items:center;justify-content:center;font-size:24px;flex-shrink:0"><i class="'+curIcon+'"></i></div>';
-  h+='<div style="flex:1"><div style="font-size:16px;font-weight:900;display:flex;align-items:center;gap:6px">'+curAr+' <span style="font-family:IBM Plex Sans Arabic;font-size:9px;font-weight:700;padding:2px 8px;border-radius:6px;background:'+curColor+'18;color:'+curColor+'">'+curEn+'</span></div>';
-  h+='<div style="font-size:11px;color:var(--text3);margin-top:2px">المستوى '+(curIdx+1)+' من '+lvs.length+'</div></div></div>';
-  h+='<div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:6px"><span style="font-size:11px;color:var(--text3)"><i class="fa-solid fa-chart-line" style="font-size:9px"></i> '+(nextName?'التقدم نحو '+nextName:'أعلى مستوى!')+'</span><span style="font-family:IBM Plex Sans Arabic;font-size:13px;font-weight:800;color:'+curColor+'">'+progress+'%</span></div>';
-  h+='<div style="height:8px;border-radius:8px;background:var(--input-bg);overflow:hidden"><div style="height:100%;width:'+progress+'%;border-radius:8px;background:linear-gradient(90deg,'+curColor+','+(nextColor||curColor)+');position:relative"><div style="position:absolute;inset:0;background:linear-gradient(90deg,transparent,rgba(255,255,255,.2),transparent);background-size:200% 100%;animation:shimmer 2.5s infinite"></div></div></div>';
-  h+='<div style="display:flex;justify-content:space-between;margin-top:5px;font-size:10px;color:var(--text3)"><span>$'+spent.toLocaleString()+'</span>'+(nextName?'<span>باقي $'+remaining.toLocaleString()+'</span>':'<span>القمة! 🏆</span>')+'</div>';
-  h+='</div></div>';
-  h+='<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;margin-bottom:10px">';
-  h+='<div style="background:var(--card);border:1px solid var(--card-border);border-radius:12px;padding:12px 8px;text-align:center"><div style="font-family:IBM Plex Sans Arabic;font-size:18px;font-weight:800;color:'+curColor+'">'+curDisc+'%</div><div style="font-size:9px;color:var(--text3)">خصمك</div></div>';
-  h+='<div style="background:var(--card);border:1px solid var(--card-border);border-radius:12px;padding:12px 8px;text-align:center"><div style="font-family:IBM Plex Sans Arabic;font-size:18px;font-weight:800;color:'+curColor+'">'+curBens.length+'</div><div style="font-size:9px;color:var(--text3)">مزايا</div></div>';
-  h+='<div style="background:var(--card);border:1px solid var(--card-border);border-radius:12px;padding:12px 8px;text-align:center"><div style="font-family:IBM Plex Sans Arabic;font-size:18px;font-weight:800;color:'+curColor+'">$'+spent+'</div><div style="font-size:9px;color:var(--text3)">إنفاقك</div></div>';
+  var h='<div class="lvx">';
+  /* بطاقة المستوى الحالي */
+  h+='<div class="lvx-hero" style="--c:'+curColor+'"><i class="lvx-geo a"></i><i class="lvx-geo b"></i>';
+  h+='<div class="lvx-top"><div class="lvx-badge"><i class="'+curIcon+'"></i></div><div class="lvx-nm"><div class="lvx-ar">'+esc(curAr)+'</div><div class="lvx-en">'+esc(curEn)+' · المستوى '+(curIdx+1)+' من '+lvs.length+'</div></div>';
+  h+='<div class="lvx-disc"><b>'+curDisc+'%</b><span>خصم</span></div></div>';
+  h+='<div class="lvx-prog"><div class="lvx-pl"><span>'+(nextName?'التقدم نحو '+esc(nextName):'وصلت لأعلى مستوى 🏆')+'</span><b>'+progress+'%</b></div><div class="lvx-bar"><i style="width:'+progress+'%"></i></div>';
+  h+='<div class="lvx-pf"><span>$'+spent.toLocaleString()+' منفق</span>'+(nextName?'<span>باقي $'+Number(remaining).toLocaleString()+'</span>':'')+'</div></div>';
   h+='</div>';
-  if(curBens.length){
-    h+='<div style="font-size:12px;font-weight:800;margin-bottom:8px;display:flex;align-items:center;gap:5px"><i class="fa-solid fa-sparkles" style="color:'+curColor+';font-size:11px"></i> مزاياك الحالية</div>';
-    h+='<div style="display:flex;flex-wrap:wrap;gap:5px;margin-bottom:12px">';
-    curBens.forEach(function(b){h+='<span style="padding:6px 12px;border-radius:9px;font-size:11px;font-weight:700;background:'+curColor+'10;color:'+curColor+'"><i class="fa-solid fa-circle-check" style="font-size:8px;margin-left:4px"></i> '+b+'</span>'});
-    h+='</div>';
-  }
-  h+='<div style="font-size:12px;font-weight:800;margin-bottom:8px;display:flex;align-items:center;gap:5px"><i class="fa-solid fa-ranking-star" style="color:var(--primary);font-size:11px"></i> سلّم المستويات</div>';
+  /* مزايا حالية */
+  h+='<div class="lvx-sec"><i class="fa-solid fa-gift"></i> مكافآتك ومزاياك الحالية</div>';
+  h+='<div class="lvx-bens"><div class="lvx-ben main"><span><i class="fa-solid fa-percent"></i></span><div><b>خصم '+curDisc+'%</b><small>على كل طلباتك</small></div></div>';
+  curBens.forEach(function(b,k){h+='<div class="lvx-ben" style="animation-delay:'+(k*.06)+'s"><span><i class="fa-solid fa-circle-check"></i></span><div><b>'+esc(b)+'</b></div></div>'});
+  if(!curBens.length)h+='<div class="lvx-ben soft"><span><i class="fa-solid fa-star"></i></span><div><b>ارتقِ بمستواك لتفتح مزايا إضافية</b></div></div>';
+  h+='</div>';
+  /* السلّم */
+  h+='<div class="lvx-sec"><i class="fa-solid fa-ranking-star"></i> سلّم المستويات</div><div class="lvx-tl">';
   lvs.forEach(function(l,i){
-    var s=i<curIdx?'done':i===curIdx?'current':'locked';
-    var op=s==='locked'?'.35':'1';
-    var bc=s==='current'?l.color:'var(--card-border)';
-    var bw=s==='current'?'1.5px':'1px';
-    h+='<div style="display:flex;align-items:center;gap:8px;padding:10px 12px;background:var(--card);border:'+bw+' solid '+bc+';border-radius:12px;margin-bottom:5px;opacity:'+op+';position:relative;overflow:hidden">';
-    h+='<div style="position:absolute;top:0;right:0;width:3px;height:100%;background:'+l.color+';border-radius:0 5px 5px 0"></div>';
-    h+='<div style="width:32px;height:32px;border-radius:9px;background:'+l.color+'12;color:'+l.color+';display:flex;align-items:center;justify-content:center;font-size:14px;flex-shrink:0"><i class="'+l.icon+'"></i></div>';
-    h+='<div style="flex:1;min-width:0"><div style="font-size:12px;font-weight:800;color:'+(s!=='locked'?l.color:'var(--text3)')+';display:flex;align-items:center;gap:4px">'+l.name+' <span style="font-family:IBM Plex Sans Arabic;font-size:8px;color:var(--text3);font-weight:600">'+l.name_en+'</span></div>';
-    h+='<div style="font-size:9px;color:var(--text3)">$'+l.min.toLocaleString()+' — خصم '+l.discount+'%'+(l.benefits&&l.benefits.length?' — '+l.benefits.length+' مزايا':'')+'</div></div>';
-    h+='<div style="flex-shrink:0;display:flex;align-items:center;gap:6px">';
-    h+='<span style="font-family:IBM Plex Sans Arabic;font-size:13px;font-weight:800;color:'+(s==='locked'?'var(--text3)':l.color)+'">'+l.discount+'%</span>';
-    var stIcon=s==='done'?'check':s==='current'?'bolt':'lock';
-    var stBg=s==='done'?l.color:s==='current'?l.color:'var(--card-border)';
-    h+='<div style="width:22px;height:22px;border-radius:50%;background:'+stBg+';display:flex;align-items:center;justify-content:center"><i class="fa-solid fa-'+stIcon+'" style="font-size:8px;color:'+(s==='locked'?'var(--text3)':'#fff')+'"></i></div>';
+    var st=i<curIdx?'done':i===curIdx?'cur':'lock';
+    h+='<div class="lvx-node '+st+'" style="--c:'+l.color+';animation-delay:'+(i*.06)+'s"><div class="lvx-dot"><i class="'+(st==='lock'?'fa-solid fa-lock':l.icon)+'"></i></div>';
+    h+='<div class="lvx-card"><div class="lvx-ct"><b>'+esc(l.name)+'</b><em>'+esc(l.name_en)+'</em><span class="lvx-pct">'+l.discount+'%</span></div>';
+    h+='<div class="lvx-cs">من $'+l.min.toLocaleString()+(st==='cur'?' · <u>مستواك الآن</u>':st==='done'?' · ✓ مكتمل':'')+'</div>';
+    if(st==='cur'&&l.benefits&&l.benefits.length)h+='<div class="lvx-cb">'+l.benefits.map(function(b){return '<span>'+esc(b)+'</span>'}).join('')+'</div>';
     h+='</div></div>';
   });
-  if(nextName){
-    var nx=lvs[curIdx+1];
-    if(nx){
-      h+='<div style="margin-top:10px;padding:14px;background:var(--card);border:1px solid '+nx.color+'25;border-radius:14px;display:flex;align-items:center;gap:10px">';
-      h+='<div style="width:38px;height:38px;border-radius:11px;background:'+nx.color+'12;color:'+nx.color+';display:flex;align-items:center;justify-content:center;font-size:16px;flex-shrink:0"><i class="'+nx.icon+'"></i></div>';
-      h+='<div style="flex:1"><div style="font-size:12px;font-weight:700">القادم: <span style="color:'+nx.color+'">'+nx.name+'</span></div><div style="font-size:10px;color:var(--text3)">أنفق $'+remaining.toLocaleString()+' إضافية لخصم '+nx.discount+'%</div></div>';
-      h+='<div style="text-align:center"><div style="font-family:IBM Plex Sans Arabic;font-size:18px;font-weight:800;color:'+nx.color+'">'+progress+'%</div><div style="font-size:8px;color:var(--text3)">مكتمل</div></div></div>';
-    }
-  }
-  h+='<div style="text-align:center;margin-top:14px;font-size:10px;color:var(--text3)"><i class="fa-solid fa-circle-info" style="margin-left:3px"></i> المستويات تتحدث تلقائياً بناءً على إنفاقك</div>';
   h+='</div>';
+  if(nextName&&lvs[curIdx+1]){
+    var nx=lvs[curIdx+1];
+    h+='<div class="lvx-next" style="--c:'+nx.color+'"><div class="lvx-nb"><i class="'+nx.icon+'"></i></div><div class="lvx-nt"><b>القادم: '+esc(nx.name)+'</b><small>أنفق $'+Number(remaining).toLocaleString()+' إضافية لتحصل على خصم '+nx.discount+'%</small></div><div class="lvx-np">'+progress+'%</div></div>';
+  }
+  h+='<div class="lvx-foot"><i class="fa-solid fa-circle-info"></i> المستويات تتحدث تلقائياً بناءً على إنفاقك</div></div>';
   el.innerHTML=h;
 }
 var _pwaInstallEvt=null;
@@ -8704,9 +8870,17 @@ function enableNotifPopup(){
   }
 }
 function dismissNotifPopup(){
-  document.getElementById('notifPopup').classList.remove('show');
-  localStorage.setItem('fc_notif_dismissed',Date.now().toString());
+  var pop=document.getElementById('notifPopup'),box=document.getElementById('npSheet');
+  if(box){box.classList.add('closing');box.style.transform='';setTimeout(function(){pop.classList.remove('show');box.classList.remove('closing')},230)}else pop.classList.remove('show');
+  try{localStorage.setItem('fc_notif_dismissed',Date.now().toString())}catch(e){}
 }
+/* سحب الورقة للأسفل لإغلاقها */
+(function(){
+  var box=document.getElementById('npSheet');if(!box)return;var y0=null,dy=0;
+  box.addEventListener('touchstart',function(e){y0=e.touches[0].clientY;dy=0;box.style.animation='none'},{passive:true});
+  box.addEventListener('touchmove',function(e){if(y0===null)return;dy=Math.max(0,e.touches[0].clientY-y0);box.style.transform='translateY('+dy+'px)'},{passive:true});
+  box.addEventListener('touchend',function(){if(y0===null)return;y0=null;if(dy>90){dismissNotifPopup()}else{box.style.transition='transform .2s';box.style.transform='';setTimeout(function(){box.style.transition=''},220)}});
+})();
 
 function openAdmOV(id){document.getElementById(id).classList.add('show')}
 var _siteSettingsLoaded=false;
@@ -9119,7 +9293,7 @@ function cmOk(){document.getElementById('cmodal').classList.remove('show');if(_c
 function cmNo(){document.getElementById('cmodal').classList.remove('show');_cmCb=null}
 function openLogoutSheet(){document.getElementById('logoutSheetOv').classList.add('show')}
 function closeLogoutSheet(){document.getElementById('logoutSheetOv').classList.remove('show')}
-function confirmLogoutAction(){window.location.href='/api/logout'}
+function confirmLogoutAction(){fcClearCache();window.location.href='/api/logout'}
 window.openLogoutSheet=openLogoutSheet;window.closeLogoutSheet=closeLogoutSheet;window.confirmLogoutAction=confirmLogoutAction;
 
 /* ═══ REVIEWS SYSTEM ═══ */
@@ -9143,12 +9317,33 @@ function loadReviews(){
     if(!d.ok)return;
     var list=document.getElementById('accRvList'),sum=document.getElementById('rvfSum');if(!list)return;
     if(sum)sum.innerHTML=d.total?_rvSumHtml(d):'';
-    list.innerHTML=(d.reviews||[]).length?d.reviews.map(_rvItemHtml).join(''):'<div class="rvf-empty"><i class="fa-regular fa-star" style="font-size:20px;opacity:.3;display:block;margin-bottom:6px"></i>لا توجد تقييمات حالياً — كن أول من يقيّم!</div>';
+    list.innerHTML=(d.reviews||[]).length?d.reviews.map(_rvItemHtml).join(''):emptyState('star','لا توجد تقييمات بعد','كن أول من يشاركنا رأيه');
     if(sum&&!d.total)sum.style.display='none';else if(sum)sum.style.display='';
   }).catch(function(){});
   var pg=document.getElementById('reviewsPage');if(pg&&pg.classList.contains('show'))rvReload();
 }
 var _rvpOff=0;
+
+/* ===== الكاش (يعرض آخر بيانات فوراً ثم يحدّث بالخلفية) + الحالات الفارغة المصوّرة ===== */
+var FC_UID='__UID__';
+function fcGet(k){try{var r=localStorage.getItem('fc_c_'+FC_UID+'_'+k);return r?JSON.parse(r):null}catch(e){return null}}
+function fcSet(k,v){try{localStorage.setItem('fc_c_'+FC_UID+'_'+k,JSON.stringify(v))}catch(e){}}
+function fcClearCache(){try{Object.keys(localStorage).forEach(function(k){if(k.indexOf('fc_c_')===0)localStorage.removeItem(k)})}catch(e){}}
+function skelRows(n,h){var o='';for(var i=0;i<(n||3);i++)o+='<div class="skel-row" style="animation-delay:'+(i*.08)+'s"><div class="skel-ic"></div><div class="skel-ln"><i></i><i style="width:55%"></i></div></div>';return '<div class="skel-list">'+o+'</div>'}
+var _EMPTY_ART={
+ orders:'<svg viewBox="0 0 160 130" aria-hidden="true"><ellipse cx="80" cy="118" rx="46" ry="6" class="e-sh"/><rect x="42" y="14" width="76" height="96" rx="12" class="e-bg"/><rect x="42" y="14" width="76" height="96" rx="12" class="e-ln"/><rect x="62" y="8" width="36" height="14" rx="7" class="e-fill"/><rect x="54" y="42" width="52" height="6" rx="3" class="e-bar"/><rect x="54" y="58" width="40" height="6" rx="3" class="e-bar"/><rect x="54" y="74" width="46" height="6" rx="3" class="e-bar"/><circle cx="112" cy="88" r="17" class="e-fill2"/><circle cx="112" cy="88" r="17" class="e-ln"/><path d="M124 100l12 12" class="e-st"/></svg>',
+ bell:'<svg viewBox="0 0 160 130" aria-hidden="true"><ellipse cx="80" cy="118" rx="40" ry="6" class="e-sh"/><path d="M80 18c-20 0-32 15-32 34v18c0 8-6 12-10 16h84c-4-4-10-8-10-16V52c0-19-12-34-32-34z" class="e-bg"/><path d="M80 18c-20 0-32 15-32 34v18c0 8-6 12-10 16h84c-4-4-10-8-10-16V52c0-19-12-34-32-34z" class="e-ln"/><circle cx="80" cy="12" r="5" class="e-fill"/><path d="M68 92a12 12 0 0024 0" class="e-ln"/><path d="M104 30l10-8M112 46h12M56 30l-10-8" class="e-st"/></svg>',
+ pay:'<svg viewBox="0 0 160 130" aria-hidden="true"><ellipse cx="80" cy="118" rx="48" ry="6" class="e-sh"/><rect x="26" y="30" width="108" height="72" rx="14" class="e-bg"/><rect x="26" y="30" width="108" height="72" rx="14" class="e-ln"/><rect x="26" y="46" width="108" height="14" class="e-fill"/><rect x="38" y="76" width="34" height="8" rx="4" class="e-bar"/><rect x="38" y="90" width="22" height="6" rx="3" class="e-bar"/><circle cx="116" cy="84" r="9" class="e-fill2"/><circle cx="126" cy="84" r="9" class="e-fill" style="opacity:.6"/></svg>',
+ ticket:'<svg viewBox="0 0 160 130" aria-hidden="true"><ellipse cx="80" cy="118" rx="46" ry="6" class="e-sh"/><path d="M30 40h100v18a10 10 0 000 20v18H30V78a10 10 0 000-20z" class="e-bg"/><path d="M30 40h100v18a10 10 0 000 20v18H30V78a10 10 0 000-20z" class="e-ln"/><path d="M100 44v64" class="e-ln" stroke-dasharray="4 5"/><rect x="44" y="58" width="42" height="6" rx="3" class="e-bar"/><rect x="44" y="74" width="30" height="6" rx="3" class="e-bar"/><circle cx="115" cy="76" r="8" class="e-fill"/></svg>',
+ chat:'<svg viewBox="0 0 160 130" aria-hidden="true"><ellipse cx="80" cy="118" rx="46" ry="6" class="e-sh"/><path d="M34 26h76a12 12 0 0112 12v34a12 12 0 01-12 12H70l-20 16V84h-16a12 12 0 01-12-12V38a12 12 0 0112-12z" class="e-bg"/><path d="M34 26h76a12 12 0 0112 12v34a12 12 0 01-12 12H70l-20 16V84h-16a12 12 0 01-12-12V38a12 12 0 0112-12z" class="e-ln"/><circle cx="60" cy="55" r="4.5" class="e-fill"/><circle cx="80" cy="55" r="4.5" class="e-fill"/><circle cx="100" cy="55" r="4.5" class="e-fill"/></svg>',
+ star:'<svg viewBox="0 0 160 130" aria-hidden="true"><ellipse cx="80" cy="118" rx="40" ry="6" class="e-sh"/><path d="M80 14l16 33 36 5-26 25 6 36-32-17-32 17 6-36-26-25 36-5z" class="e-bg"/><path d="M80 14l16 33 36 5-26 25 6 36-32-17-32 17 6-36-26-25 36-5z" class="e-ln"/><circle cx="28" cy="40" r="4" class="e-fill"/><circle cx="136" cy="96" r="5" class="e-fill2"/></svg>',
+ box:'<svg viewBox="0 0 160 130" aria-hidden="true"><ellipse cx="80" cy="118" rx="46" ry="6" class="e-sh"/><path d="M80 24l46 20v44l-46 20-46-20V44z" class="e-bg"/><path d="M80 24l46 20v44l-46 20-46-20V44z" class="e-ln"/><path d="M34 44l46 20 46-20M80 64v44" class="e-ln"/><circle cx="118" cy="26" r="5" class="e-fill"/></svg>',
+ search:'<svg viewBox="0 0 160 130" aria-hidden="true"><ellipse cx="80" cy="118" rx="40" ry="6" class="e-sh"/><circle cx="72" cy="58" r="34" class="e-bg"/><circle cx="72" cy="58" r="34" class="e-ln"/><path d="M98 84l26 26" class="e-st"/><path d="M58 50h28M58 64h18" class="e-ln"/></svg>'
+};
+function emptyState(kind,title,sub){
+  return '<div class="empty-st"><div class="empty-art">'+(_EMPTY_ART[kind]||_EMPTY_ART.box)+'</div><div class="empty-t">'+title+'</div>'+(sub?'<div class="empty-s">'+sub+'</div>':'')+'</div>';
+}
+window.emptyState=emptyState;
 
 /* ===== بطاقة المطوّر ===== */
 var _devCard=null;
@@ -9210,7 +9405,7 @@ function rvLoadMore(first){
       list.innerHTML='';
     }
     var rs=d.reviews||[];
-    if(first&&!rs.length)list.innerHTML='<div class="rvf-empty">لا توجد تقييمات حالياً — كن أول من يقيّم!</div>';
+    if(first&&!rs.length)list.innerHTML=emptyState('star','لا توجد تقييمات بعد','كن أول من يشاركنا رأيه');
     list.insertAdjacentHTML('beforeend',rs.map(function(r,i){return _rvItemHtml(r,_rvpOff+i)}).join(''));
     _rvpOff+=rs.length;
     document.getElementById('rvpMore').style.display=d.has_more?'flex':'none';
@@ -9970,7 +10165,7 @@ window.loadBrandMedia=loadBrandMedia;window.uploadBrandMedia=uploadBrandMedia;wi
     </div>
   </div>
 </div>
-<div class="rv-prompt nonadmin-only" id="rvPrompt">
+<div class="rv-prompt" id="rvPrompt">
   <div class="rv-prompt-close" onclick="dismissRvPrompt()"><i class="fa-solid fa-xmark"></i></div>
   <div class="rv-prompt-row">
     <div class="rv-prompt-ic">⭐</div>
@@ -9982,7 +10177,7 @@ window.loadBrandMedia=loadBrandMedia;window.uploadBrandMedia=uploadBrandMedia;wi
 <script>
 /* ===== اللغة: عربي / English (ترجمة الواجهة الأمامية — واجهات المستخدم الرئيسية) ===== */
 (function(){
-var EN={"الرصيد":"Balance","القائمة":"Menu","الرئيسية":"Home","طلباتي":"My Orders","شحن الرصيد":"Add Funds","الشحن":"Add Funds","المساعد الذكي":"AI Assistant","الحساب":"Account","حسابي":"Account","إعدادات الحساب":"Account Settings","سجل المعاملات":"Transactions","الدعم":"Support","إنشاء تذكرة":"Create Ticket","أخرى":"Other","نظام الإحالة":"Referrals","الإعدادات":"Settings","API للريسيلر":"Reseller API","تسجيل خروج":"Log out","تسجيل الخروج":"Log out","خروج":"Log out","اختر العملة":"Choose currency","USD — دولار أمريكي":"USD — US Dollar","IQD — دينار عراقي":"IQD — Iraqi Dinar","SAR — ريال سعودي":"SAR — Saudi Riyal","AED — درهم إماراتي":"AED — UAE Dirham","KWD — دينار كويتي":"KWD — Kuwaiti Dinar","QAR — ريال قطري":"QAR — Qatari Riyal","BHD — دينار بحريني":"BHD — Bahraini Dinar","OMR — ريال عماني":"OMR — Omani Rial","JOD — دينار أردني":"JOD — Jordanian Dinar","EGP — جنيه مصري":"EGP — Egyptian Pound","LBP — ليرة لبنانية":"LBP — Lebanese Pound","SYP — ليرة سورية":"SYP — Syrian Pound","YER — ريال يمني":"YER — Yemeni Rial","LYD — دينار ليبي":"LYD — Libyan Dinar","MAD — درهم مغربي":"MAD — Moroccan Dirham","TND — دينار تونسي":"TND — Tunisian Dinar","DZD — دينار جزائري":"DZD — Algerian Dinar","EUR — يورو":"EUR — Euro","GBP — جنيه إسترليني":"GBP — Pound Sterling","TRY — ليرة تركية":"TRY — Turkish Lira","INR — روبية هندية":"INR — Indian Rupee","PKR — روبية باكستانية":"PKR — Pakistani Rupee","CNY — يوان صيني":"CNY — Chinese Yuan","CAD — دولار كندي":"CAD — Canadian Dollar","AUD — دولار أسترالي":"AUD — Australian Dollar","CHF — فرنك سويسري":"CHF — Swiss Franc","ZAR — راند جنوب أفريقي":"ZAR — South African Rand","NGN — نايرا نيجيرية":"NGN — Nigerian Naira","MYR — رينغيت ماليزي":"MYR — Malaysian Ringgit","IDR — روبية إندونيسية":"IDR — Indonesian Rupiah","USD — الدولار الأمريكي":"USD — US Dollar","الإشعارات":"Notifications","تحديد الكل كمقروء":"Mark all as read","حذف الكل":"Delete all","رصيدك":"Your balance","المنفق":"Spent","مكتمل":"Completed","نشطة":"Active","تذاكر":"Tickets","الطلبات المكتملة":"Completed orders","إنفاق":"Spent","اسأله عن خدماتك وطلباتك ورصيدك — يجيبك فوراً":"Ask about your services, orders and balance — instant answers","💰 كم رصيدي؟":"💰 My balance?","📦 أين طلبي؟":"📦 Where is my order?","⭐ أرخص خدمة":"⭐ Cheapest service","💳 كيف أشحن؟":"💳 How do I add funds?","الألعاب":"Games","عرض الكل":"View all","تسليم يدوي":"Manual delivery","اشتراك":"Subscription","اختر المنصة":"Choose a platform","الألعاب والخدمات المخصصة":"Games & Custom Services","خدمات الألعاب":"Game Services","الخدمات المخصصة":"Custom Services","ابحث عن خدمة...":"Search for a service...","ادعو أصدقاءك واحصل على عمولة من كل طلب":"Invite friends and earn commission on every order","إحالة":"Referrals","الأرباح":"Earnings","معلّق":"Pending","نسخ":"Copy","سحب الأرباح":"Withdraw earnings","مشاركة":"Share","جاري":"In progress","ملغي":"Canceled","الكل":"All","الخدمات":"Services","قيد التنفيذ":"Processing","مكتملة":"Completed","معلّقة":"Pending","ملغاة":"Canceled","جزئي":"Partial","لا توجد طلبات حالياً":"No orders yet","لا توجد طلبات":"No orders","بانتظار التنفيذ":"Awaiting processing","فتح المحادثة":"Open chat","اكتمل الطلب — المحادثة مغلقة":"Order completed — chat closed","أُلغي الطلب — المحادثة مغلقة":"Order canceled — chat closed","السعر":"Price","ابحث في طلباتك...":"Search your orders...","رصيدك الحالي":"Your current balance","طرق الدفع":"Payment methods","جاري التحميل...":"Loading...","الدفع":"Payment","طلبات شحن الرصيد":"Top-up requests","بانتظار":"Pending","موافق":"Approved","مرفوض":"Rejected","لا توجد طلبات شحن":"No top-up requests","إجمالي الإنفاق":"Total spent","إجراءات سريعة":"Quick actions","طلب جديد":"New order","فتح تذكرة":"Open ticket","دعوة صديق":"Invite a friend","عضو منذ":"Member since","الأمان":"Security","جديد":"New","المصادقة الثنائية (2FA)":"Two-factor authentication (2FA)","غير مفعّلة — موصى بها":"Not enabled — recommended","تفعيل":"Enable","الأجهزة والجلسات":"Devices & sessions","● متصل":"● Online","المزيد من الإعدادات":"More settings","اللغة · المظهر · الإشعارات · العملة · الهدايا":"Language · Theme · Notifications · Currency · Gifts","الاسم، الايميل، كلمة المرور":"Name, email, password","عمليات الشحن والمدفوعات":"Top-ups and payments","تواصل مع فريق الدعم":"Contact the support team","تذاكري":"My Tickets","عرض جميع التذاكر المفتوحة والمغلقة":"View all open and closed tickets","الأسئلة الشائعة":"FAQ","إجابات على أكثر الأسئلة":"Answers to common questions","واتساب الدعم الفني":"WhatsApp support","تواصل مباشر مع فريق الدعم":"Chat directly with support","أرباح":"Earnings","آراء العملاء":"Customer reviews","أكتب تقييم":"Write a review","كل التقييمات":"All reviews","عرض المزيد":"Show more","سياسة الخصوصية":"Privacy Policy","الشروط والأحكام":"Terms & Conditions","تفاصيل الطلب":"Order details","محادثات سابقة":"Previous chats","مسح الكل":"Clear all","تفاصيل العملية":"Transaction details","عملة عرض الأسعار":"Display currency","تُطبَّق على كل الأسعار المعروضة لك في التطبيق والموقع":"Applied to all prices shown in the app and website","مكافأة يومية":"Daily bonus","اضغط للحصول على مكافأتك اليومية":"Tap to claim your daily bonus","المظهر الداكن":"Dark mode","الوضع الليلي للتطبيق":"Night mode for the app","اللغة":"Language","لغة واجهة التطبيق":"App interface language","عربي":"Arabic","الهدية اليومية":"Daily gift","كوبون هدية":"Gift coupon","أدخل كود الهدية واحصل على رصيد مجاني":"Enter a gift code and get free balance","هدية اليوم —":"Today's gift —","المعلومات الشخصية":"Personal information","الاسم":"Name","البريد الإلكتروني":"Email","حفظ التغييرات":"Save changes","تأكيد البريد الإلكتروني الجديد":"Confirm new email","تأكيد":"Confirm","إعادة إرسال":"Resend","إلغاء":"Cancel","تغيير كلمة المرور":"Change password","كلمة المرور الحالية":"Current password","كلمة المرور الجديدة":"New password","تأكيد كلمة المرور":"Confirm password","كيف أطلب خدمة؟":"How do I order a service?","كيف أشحن رصيدي؟":"How do I add funds?","كم يستغرق تنفيذ الطلب؟":"How long does an order take?","كيف أتواصل مع الدعم؟":"How do I contact support?","هل يمكنني استرجاع أموالي؟":"Can I get a refund?","يمكنك إنشاء تذكرة دعم من قسم الدعم وسيتم الرد عليك في أسرع وقت.":"You can create a support ticket from the Support section and we will reply as soon as possible.","اختر القسم":"Choose a category","اختر الخدمة":"Choose a service","ابحث عن قسم...":"Search for a category...","وصف الخدمة":"Service description","السرعة":"Speed","الجودة":"Quality","التعويض":"Refill","النقصان":"Drop","متوسط":"Medium","عادية":"Standard","قليل":"Low","تلقائي":"Auto","لا يوجد":"None","التعليقات":"Comments","(تعليق واحد بكل سطر)":"(one comment per line)","توليد":"Generate","مكرر":"Duplicates","الكمية":"Quantity","الرابط":"Link","المجموع":"Total","رصيدك بعد الطلب":"Balance after order","أدخل رابط الحساب أو المنشور":"Enter the account or post link","الأدنى:":"Min:","الأقصى:":"Max:","تأكد إن الحساب":"Make sure the account is","عام (Public)":"Public","قبل الطلب. لا تطلب نفس الخدمة مرتين على نفس الرابط.":"before ordering. Do not order the same service twice on the same link.","إرسال الطلب":"Place order","أضف للسلة":"Add to cart","الإجمالي":"Total","إرسال كل الطلبات":"Send all orders","السلة (":"Cart (","اختر الباقة":"Choose a package","معرّف اللاعب (ID)":"Player ID","ملاحظات (اختياري)":"Notes (optional)","رصيدك بعد الخصم":"Balance after deduction","اطلب الآن":"Order now","متوفر":"Available","لا توجد خدمات مخصصة حالياً":"No custom services yet","الأكثر طلباً":"Most requested","لعبة":"Game","سوشيال":"Social","من":"From","المصادقة الثنائية":"Two-factor authentication","الجلسة الحالية":"Current session","إنهاء":"End","إنهاء كل الجلسات الأخرى":"End all other sessions","تسجيل الخروج من هذا الجهاز":"Log out of this device","أضف fastcrand لشاشتك":"Add fastcrand to your home screen","تطبيق مجاني — إشعارات + فتح فوري":"Free app — notifications + instant open","لاحقاً":"Later","تثبيت التطبيق":"Install app","لا يفوتك شي!":"Don't miss a thing!","فعّل الإشعارات حتى توصلك تحديثات طلباتك وعروضنا الحصرية فوراً":"Enable notifications to get order updates and exclusive offers instantly","تحديث الطلبات":"Order updates","إشعار فوري لما يكتمل أو يتغير طلبك":"Instant alert when your order completes or changes","إضافة الرصيد":"Balance top-up","تنبيه فوري عند الموافقة على شحن رصيدك":"Instant alert when your top-up is approved","عروض وخصومات":"Offers & discounts","كن أول من يعرف عن العروض الجديدة":"Be the first to know about new offers","تفعيل الإشعارات":"Enable notifications","هل أنت متأكد من رغبتك في تسجيل الخروج من حسابك؟":"Are you sure you want to log out of your account?","تأكيد الخروج":"Confirm logout","شاركنا رأيك!":"Share your opinion!","تقييمك يساعدنا نتحسّن ويساعد الآخرين":"Your review helps us improve and helps others","تعليقك":"Your comment","تقييمك يظهر فوراً باسمك الأول فقط":"Your review appears instantly with your first name only","إرسال التقييم":"Submit review","شكراً لتقييمك!":"Thanks for your review!","تم نشر تقييمك بنجاح.":"Your review was published.","نقدّر وقتك ورأيك!":"We appreciate your time and opinion!","تم":"Done","كيف كانت تجربتك؟":"How was your experience?","شاركنا رأيك وساعد الآخرين يختارون":"Share your opinion and help others choose","أكتب تقييم الآن":"Write a review now","لا توجد تقييمات حالياً — كن أول من يقيّم!":"No reviews yet — be the first!","الآن":"Just now","جاري الإرسال...":"Sending...","سجّل دخول أولاً":"Please log in first","لا يمكنك الإعجاب بتقييمك":"You can't like your own review","ابحث عن عملة...":"Search currency...","بحث عن عملة...":"Search currency...","بحث بالاسم أو رقم الطلب...":"Search by name or order number...","اكتب سؤالك هنا...":"Type your question here...","أدخل الكود هنا":"Enter code here","ادخل كلمة المرور الحالية":"Enter current password","ادخل كلمة المرور الجديدة":"Enter new password","أعد كتابة كلمة المرور":"Re-enter password","أدخل المبلغ":"Enter amount","أي ملاحظة للإدارة...":"Any note for the admin...","اكتب الـ ID بدقة — لا يمكن التراجع بعد التسليم":"Enter the ID carefully — cannot be undone after delivery","اكتب تجربتك مع الموقع...":"Write your experience with the site...","اكتب رسالتك...":"Type your message...","رد على الزبون...":"Reply to the customer...","رقم الطلب...":"Order number...","رمز التطبيق (6 أرقام) أو رمز احتياطي":"App code (6 digits) or recovery code","اكتب سؤالك هنا":"Type your question here","إغلاق":"Close","رجوع":"Back","إظهار/إخفاء":"Show/Hide","معاينة سريعة":"Quick preview","الحساب · الدعم · التقييمات · اللغة · المظهر · الإشعارات":"Account · Support · Reviews · Language · Theme · Notifications","ابتداءً من":"From","قراءة الكل":"Read all","غير مقروء":"Unread","الطلبات":"Orders","المحفظة":"Wallet","النظام":"System","اليوم":"Today","أمس":"Yesterday","أقدم":"Older","إشعار غير مقروء":"unread notification","كل الإشعارات مقروءة ✓":"All caught up ✓","لا توجد إشعارات في هذا القسم":"No notifications in this section","طلب":"Order","محفظة":"Wallet","نظام":"System","عرض":"Offer","إدارة":"Admin","شحن":"Top-up","اختر الطريقة":"Choose method","أرسل المبلغ":"Send the amount","يُضاف رصيدك":"Balance added","الدفع التلقائي":"Automatic payment","تحقق فوري وإضافة الرصيد بدون انتظار":"Instant verification, balance added right away","التحويل اليدوي":"Manual transfer","حوّل المبلغ وأرفق الوصل ثم تتم المراجعة":"Transfer the amount, attach the receipt, then we review","فوري":"Instant","يدوي":"Manual","تحقق تلقائي — يُضاف الرصيد فوراً":"Automatic check — balance added instantly","تحويل يدوي مع إرفاق الوصل":"Manual transfer with receipt","تواصل مع المطوّر":"Contact the developer","لأي استفسار أو طلب خاص — راسله مباشرة":"For any question or special request — message directly","واتساب":"WhatsApp","حذف":"Delete","مرحباً,":"Welcome,","ألعاب":"Games","تسليم يدوي عبر محادثة":"Manual delivery via chat","تسليم يدوي خلال دقائق":"Manual delivery within minutes","لا توجد طرق دفع متاحة حالياً":"No payment methods available","تم النسخ":"Copied","خطأ":"Error","حفظ":"Save"};
+var EN={"الرصيد":"Balance","القائمة":"Menu","الرئيسية":"Home","طلباتي":"My Orders","شحن الرصيد":"Add Funds","الشحن":"Add Funds","المساعد الذكي":"AI Assistant","الحساب":"Account","حسابي":"Account","إعدادات الحساب":"Account Settings","سجل المعاملات":"Transactions","الدعم":"Support","إنشاء تذكرة":"Create Ticket","أخرى":"Other","نظام الإحالة":"Referrals","الإعدادات":"Settings","API للريسيلر":"Reseller API","تسجيل خروج":"Log out","تسجيل الخروج":"Log out","خروج":"Log out","اختر العملة":"Choose currency","USD — دولار أمريكي":"USD — US Dollar","IQD — دينار عراقي":"IQD — Iraqi Dinar","SAR — ريال سعودي":"SAR — Saudi Riyal","AED — درهم إماراتي":"AED — UAE Dirham","KWD — دينار كويتي":"KWD — Kuwaiti Dinar","QAR — ريال قطري":"QAR — Qatari Riyal","BHD — دينار بحريني":"BHD — Bahraini Dinar","OMR — ريال عماني":"OMR — Omani Rial","JOD — دينار أردني":"JOD — Jordanian Dinar","EGP — جنيه مصري":"EGP — Egyptian Pound","LBP — ليرة لبنانية":"LBP — Lebanese Pound","SYP — ليرة سورية":"SYP — Syrian Pound","YER — ريال يمني":"YER — Yemeni Rial","LYD — دينار ليبي":"LYD — Libyan Dinar","MAD — درهم مغربي":"MAD — Moroccan Dirham","TND — دينار تونسي":"TND — Tunisian Dinar","DZD — دينار جزائري":"DZD — Algerian Dinar","EUR — يورو":"EUR — Euro","GBP — جنيه إسترليني":"GBP — Pound Sterling","TRY — ليرة تركية":"TRY — Turkish Lira","INR — روبية هندية":"INR — Indian Rupee","PKR — روبية باكستانية":"PKR — Pakistani Rupee","CNY — يوان صيني":"CNY — Chinese Yuan","CAD — دولار كندي":"CAD — Canadian Dollar","AUD — دولار أسترالي":"AUD — Australian Dollar","CHF — فرنك سويسري":"CHF — Swiss Franc","ZAR — راند جنوب أفريقي":"ZAR — South African Rand","NGN — نايرا نيجيرية":"NGN — Nigerian Naira","MYR — رينغيت ماليزي":"MYR — Malaysian Ringgit","IDR — روبية إندونيسية":"IDR — Indonesian Rupiah","USD — الدولار الأمريكي":"USD — US Dollar","الإشعارات":"Notifications","تحديد الكل كمقروء":"Mark all as read","حذف الكل":"Delete all","رصيدك":"Your balance","المنفق":"Spent","مكتمل":"Completed","نشطة":"Active","تذاكر":"Tickets","الطلبات المكتملة":"Completed orders","إنفاق":"Spent","اسأله عن خدماتك وطلباتك ورصيدك — يجيبك فوراً":"Ask about your services, orders and balance — instant answers","💰 كم رصيدي؟":"💰 My balance?","📦 أين طلبي؟":"📦 Where is my order?","⭐ أرخص خدمة":"⭐ Cheapest service","💳 كيف أشحن؟":"💳 How do I add funds?","الألعاب":"Games","عرض الكل":"View all","تسليم يدوي":"Manual delivery","اشتراك":"Subscription","اختر المنصة":"Choose a platform","الألعاب والخدمات المخصصة":"Games & Custom Services","خدمات الألعاب":"Game Services","الخدمات المخصصة":"Custom Services","ابحث عن خدمة...":"Search for a service...","ادعو أصدقاءك واحصل على عمولة من كل طلب":"Invite friends and earn commission on every order","إحالة":"Referrals","الأرباح":"Earnings","معلّق":"Pending","نسخ":"Copy","سحب الأرباح":"Withdraw earnings","مشاركة":"Share","جاري":"In progress","ملغي":"Canceled","الكل":"All","الخدمات":"Services","قيد التنفيذ":"Processing","مكتملة":"Completed","معلّقة":"Pending","ملغاة":"Canceled","جزئي":"Partial","لا توجد طلبات حالياً":"No orders yet","لا توجد طلبات":"No orders","بانتظار التنفيذ":"Awaiting processing","فتح المحادثة":"Open chat","اكتمل الطلب — المحادثة مغلقة":"Order completed — chat closed","أُلغي الطلب — المحادثة مغلقة":"Order canceled — chat closed","السعر":"Price","ابحث في طلباتك...":"Search your orders...","رصيدك الحالي":"Your current balance","طرق الدفع":"Payment methods","جاري التحميل...":"Loading...","الدفع":"Payment","طلبات شحن الرصيد":"Top-up requests","بانتظار":"Pending","موافق":"Approved","مرفوض":"Rejected","لا توجد طلبات شحن":"No top-up requests","إجمالي الإنفاق":"Total spent","إجراءات سريعة":"Quick actions","طلب جديد":"New order","فتح تذكرة":"Open ticket","دعوة صديق":"Invite a friend","عضو منذ":"Member since","الأمان":"Security","جديد":"New","المصادقة الثنائية (2FA)":"Two-factor authentication (2FA)","غير مفعّلة — موصى بها":"Not enabled — recommended","تفعيل":"Enable","الأجهزة والجلسات":"Devices & sessions","● متصل":"● Online","المزيد من الإعدادات":"More settings","اللغة · المظهر · الإشعارات · العملة · الهدايا":"Language · Theme · Notifications · Currency · Gifts","الاسم، الايميل، كلمة المرور":"Name, email, password","عمليات الشحن والمدفوعات":"Top-ups and payments","تواصل مع فريق الدعم":"Contact the support team","تذاكري":"My Tickets","عرض جميع التذاكر المفتوحة والمغلقة":"View all open and closed tickets","الأسئلة الشائعة":"FAQ","إجابات على أكثر الأسئلة":"Answers to common questions","واتساب الدعم الفني":"WhatsApp support","تواصل مباشر مع فريق الدعم":"Chat directly with support","أرباح":"Earnings","آراء العملاء":"Customer reviews","أكتب تقييم":"Write a review","كل التقييمات":"All reviews","عرض المزيد":"Show more","سياسة الخصوصية":"Privacy Policy","الشروط والأحكام":"Terms & Conditions","تفاصيل الطلب":"Order details","محادثات سابقة":"Previous chats","مسح الكل":"Clear all","تفاصيل العملية":"Transaction details","عملة عرض الأسعار":"Display currency","تُطبَّق على كل الأسعار المعروضة لك في التطبيق والموقع":"Applied to all prices shown in the app and website","مكافأة يومية":"Daily bonus","اضغط للحصول على مكافأتك اليومية":"Tap to claim your daily bonus","المظهر الداكن":"Dark mode","الوضع الليلي للتطبيق":"Night mode for the app","اللغة":"Language","لغة واجهة التطبيق":"App interface language","عربي":"Arabic","الهدية اليومية":"Daily gift","كوبون هدية":"Gift coupon","أدخل كود الهدية واحصل على رصيد مجاني":"Enter a gift code and get free balance","هدية اليوم —":"Today's gift —","المعلومات الشخصية":"Personal information","الاسم":"Name","البريد الإلكتروني":"Email","حفظ التغييرات":"Save changes","تأكيد البريد الإلكتروني الجديد":"Confirm new email","تأكيد":"Confirm","إعادة إرسال":"Resend","إلغاء":"Cancel","تغيير كلمة المرور":"Change password","كلمة المرور الحالية":"Current password","كلمة المرور الجديدة":"New password","تأكيد كلمة المرور":"Confirm password","كيف أطلب خدمة؟":"How do I order a service?","كيف أشحن رصيدي؟":"How do I add funds?","كم يستغرق تنفيذ الطلب؟":"How long does an order take?","كيف أتواصل مع الدعم؟":"How do I contact support?","هل يمكنني استرجاع أموالي؟":"Can I get a refund?","يمكنك إنشاء تذكرة دعم من قسم الدعم وسيتم الرد عليك في أسرع وقت.":"You can create a support ticket from the Support section and we will reply as soon as possible.","اختر القسم":"Choose a category","اختر الخدمة":"Choose a service","ابحث عن قسم...":"Search for a category...","وصف الخدمة":"Service description","السرعة":"Speed","الجودة":"Quality","التعويض":"Refill","النقصان":"Drop","متوسط":"Medium","عادية":"Standard","قليل":"Low","تلقائي":"Auto","لا يوجد":"None","التعليقات":"Comments","(تعليق واحد بكل سطر)":"(one comment per line)","توليد":"Generate","مكرر":"Duplicates","الكمية":"Quantity","الرابط":"Link","المجموع":"Total","رصيدك بعد الطلب":"Balance after order","أدخل رابط الحساب أو المنشور":"Enter the account or post link","الأدنى:":"Min:","الأقصى:":"Max:","تأكد إن الحساب":"Make sure the account is","عام (Public)":"Public","قبل الطلب. لا تطلب نفس الخدمة مرتين على نفس الرابط.":"before ordering. Do not order the same service twice on the same link.","إرسال الطلب":"Place order","أضف للسلة":"Add to cart","الإجمالي":"Total","إرسال كل الطلبات":"Send all orders","السلة (":"Cart (","اختر الباقة":"Choose a package","معرّف اللاعب (ID)":"Player ID","ملاحظات (اختياري)":"Notes (optional)","رصيدك بعد الخصم":"Balance after deduction","اطلب الآن":"Order now","متوفر":"Available","لا توجد خدمات مخصصة حالياً":"No custom services yet","الأكثر طلباً":"Most requested","لعبة":"Game","سوشيال":"Social","من":"From","المصادقة الثنائية":"Two-factor authentication","الجلسة الحالية":"Current session","إنهاء":"End","إنهاء كل الجلسات الأخرى":"End all other sessions","تسجيل الخروج من هذا الجهاز":"Log out of this device","أضف fastcrand لشاشتك":"Add fastcrand to your home screen","تطبيق مجاني — إشعارات + فتح فوري":"Free app — notifications + instant open","لاحقاً":"Later","تثبيت التطبيق":"Install app","لا يفوتك شي!":"Don't miss a thing!","فعّل الإشعارات حتى توصلك تحديثات طلباتك وعروضنا الحصرية فوراً":"Enable notifications to get order updates and exclusive offers instantly","تحديث الطلبات":"Order updates","إشعار فوري لما يكتمل أو يتغير طلبك":"Instant alert when your order completes or changes","إضافة الرصيد":"Balance top-up","تنبيه فوري عند الموافقة على شحن رصيدك":"Instant alert when your top-up is approved","عروض وخصومات":"Offers & discounts","كن أول من يعرف عن العروض الجديدة":"Be the first to know about new offers","تفعيل الإشعارات":"Enable notifications","هل أنت متأكد من رغبتك في تسجيل الخروج من حسابك؟":"Are you sure you want to log out of your account?","تأكيد الخروج":"Confirm logout","شاركنا رأيك!":"Share your opinion!","تقييمك يساعدنا نتحسّن ويساعد الآخرين":"Your review helps us improve and helps others","تعليقك":"Your comment","تقييمك يظهر فوراً باسمك الأول فقط":"Your review appears instantly with your first name only","إرسال التقييم":"Submit review","شكراً لتقييمك!":"Thanks for your review!","تم نشر تقييمك بنجاح.":"Your review was published.","نقدّر وقتك ورأيك!":"We appreciate your time and opinion!","تم":"Done","كيف كانت تجربتك؟":"How was your experience?","شاركنا رأيك وساعد الآخرين يختارون":"Share your opinion and help others choose","أكتب تقييم الآن":"Write a review now","لا توجد تقييمات حالياً — كن أول من يقيّم!":"No reviews yet — be the first!","الآن":"Just now","جاري الإرسال...":"Sending...","سجّل دخول أولاً":"Please log in first","لا يمكنك الإعجاب بتقييمك":"You can't like your own review","ابحث عن عملة...":"Search currency...","بحث عن عملة...":"Search currency...","بحث بالاسم أو رقم الطلب...":"Search by name or order number...","اكتب سؤالك هنا...":"Type your question here...","أدخل الكود هنا":"Enter code here","ادخل كلمة المرور الحالية":"Enter current password","ادخل كلمة المرور الجديدة":"Enter new password","أعد كتابة كلمة المرور":"Re-enter password","أدخل المبلغ":"Enter amount","أي ملاحظة للإدارة...":"Any note for the admin...","اكتب الـ ID بدقة — لا يمكن التراجع بعد التسليم":"Enter the ID carefully — cannot be undone after delivery","اكتب تجربتك مع الموقع...":"Write your experience with the site...","اكتب رسالتك...":"Type your message...","رد على الزبون...":"Reply to the customer...","رقم الطلب...":"Order number...","رمز التطبيق (6 أرقام) أو رمز احتياطي":"App code (6 digits) or recovery code","اكتب سؤالك هنا":"Type your question here","إغلاق":"Close","رجوع":"Back","إظهار/إخفاء":"Show/Hide","معاينة سريعة":"Quick preview","الحساب · الدعم · التقييمات · اللغة · المظهر · الإشعارات":"Account · Support · Reviews · Language · Theme · Notifications","ابتداءً من":"From","قراءة الكل":"Read all","غير مقروء":"Unread","الطلبات":"Orders","المحفظة":"Wallet","النظام":"System","اليوم":"Today","أمس":"Yesterday","أقدم":"Older","إشعار غير مقروء":"unread notification","كل الإشعارات مقروءة ✓":"All caught up ✓","لا توجد إشعارات في هذا القسم":"No notifications in this section","طلب":"Order","محفظة":"Wallet","نظام":"System","عرض":"Offer","إدارة":"Admin","شحن":"Top-up","اختر الطريقة":"Choose method","أرسل المبلغ":"Send the amount","يُضاف رصيدك":"Balance added","الدفع التلقائي":"Automatic payment","تحقق فوري وإضافة الرصيد بدون انتظار":"Instant verification, balance added right away","التحويل اليدوي":"Manual transfer","حوّل المبلغ وأرفق الوصل ثم تتم المراجعة":"Transfer the amount and attach the receipt for review","فوري":"Instant","يدوي":"Manual","تحقق تلقائي — يُضاف الرصيد فوراً":"Automatic check — balance added instantly","تحويل يدوي مع إرفاق الوصل":"Manual transfer with receipt","تواصل مع المطوّر":"Contact the developer","لأي استفسار أو طلب خاص — راسله مباشرة":"For any question or special request — message directly","واتساب":"WhatsApp","حذف":"Delete","مرحباً,":"Welcome,","لا توجد طلبات بعد":"No orders yet","ابدأ بطلبك الأول من الصفحة الرئيسية":"Place your first order from the home page","لا توجد نتائج":"No results","جرّب تغيير الفلتر أو البحث":"Try changing the filter or search","ستظهر هنا إشعارات طلباتك ورصيدك":"Your order and balance notifications will appear here","سيتم إضافة طرق الدفع قريباً":"Payment methods will be added soon","ليس الآن":"Not now","المبلغ":"Amount","أرسل إلى المعرّف":"Send to the ID","تحقق من الدفع":"Verify payment","رقم الهاتف":"Phone number","رمز التحقق":"Verification code","تأكيد التحويل":"Confirm transfer","عدد النجوم":"Stars","المتابعة عبر البوت":"Continue via bot","أرفق الوصل":"Attach receipt","حوّل المبلغ":"Transfer","مراجعة":"Review","تحقق تلقائي — يُضاف الرصيد فور نجاح العملية":"Automatic check — balance added on success","حوّل المبلغ وأرفق الوصل":"Transfer and attach the receipt","لا توجد تذاكر حالياً":"No tickets yet","إن احتجت مساعدة أنشئ تذكرة وسنرد عليك":"Need help? Create a ticket and we will reply","لا توجد عمليات بعد":"No transactions yet","ستظهر هنا عمليات الشحن والمدفوعات":"Your top-ups and payments will appear here","لا توجد تقييمات بعد":"No reviews yet","كن أول من يشاركنا رأيه":"Be the first to share your opinion","لا توجد خدمات حالياً":"No services yet","ستظهر هنا الألعاب والخدمات عند إضافتها":"Games and services will appear here once added","المفضلة فارغة":"Favorites is empty","اضغط القلب على أي خدمة لتجدها هنا بسرعة":"Tap the heart on any service to find it here quickly","مكافآتك ومزاياك الحالية":"Your current rewards and perks","سلّم المستويات":"Level ladder","على كل طلباتك":"on all your orders","مستواك الآن":"your level now","المستويات تتحدث تلقائياً بناءً على إنفاقك":"Levels update automatically based on your spending","ارتقِ بمستواك لتفتح مزايا إضافية":"Level up to unlock more perks","ألعاب":"Games","تسليم يدوي عبر محادثة":"Manual delivery via chat","تسليم يدوي خلال دقائق":"Manual delivery within minutes","لا توجد طرق دفع متاحة حالياً":"No payment methods available","تم النسخ":"Copied","خطأ":"Error","حفظ":"Save"};
 var PAT=[["^مرحباً, (.+)$","Welcome, \\1"],["^(\\d+) تقييم$","\\1 reviews"],["^(\\d+) جديد$","\\1 new"],["^(\\d+) إشعار غير مقروء$","\\1 unread notifications"],["^(\\d+) إشعارات غير مقروءة$","\\1 unread notifications"],["^(\\d+) أجهزة مسجّلة$","\\1 signed-in devices"],["^(\\d+) خدمات$","\\1 services"],["^(\\d+) قسم$","\\1 categories"],["^(\\d+) باقات$","\\1 packages"],["^(?:قبل|منذ) (\\d+) د$","\\1 min ago"],["^منذ (\\d+) ساعة$","\\1 h ago"],["^منذ (\\d+) يوم$","\\1 d ago"],["^منذ (\\d+) أسبوع$","\\1 w ago"],["^الجلسة الحالية · (.+) · الآن$","Current session · \\1 · now"],["^الأدنى: (.+)$","Min: \\1"],["^الأقصى: (.+)$","Max: \\1"],["^من (\\$[\\d.,]+)$","From \\1"],["^تم خصم (.+)$","Deducted \\1"],["^بيع خدمات (.+) من موقعك$","Sell \\1 services from your site"]].map(function(p){return[new RegExp(p[0]),p[1].replace(/\\(\d)/g,'$$$1')]});
 var nodes=[],attrs=[],obs=null,cur='ar',busy=false;
 function tr(s){

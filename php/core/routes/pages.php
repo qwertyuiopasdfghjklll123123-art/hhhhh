@@ -92,6 +92,7 @@ function render_dash_page(): Response {
     $html = str_replace('__UNAME__', py_str($uname), $html);
     $html = str_replace('__UINIT__', $uinit, $html);
     $html = str_replace('__UEMAIL__', py_str($uemail), $html);
+    $html = str_replace('__UID__', (string)(int)$_SESSION['user_id'], $html);   // مفتاح كاش المتصفح لكل مستخدم
     $html = str_replace('__AVATAR_URL__', py_str($avatar_url), $html);
     $_bm = brand_media_html($site_name);   // شعار متحرك يرفعه الأدمن يحلّ محل اسم الموقع بالشريط العلوي
     if ($_bm !== null) $html = str_replace('<div class="brand-name" id="brandNameDisplay">__SITE_NAME__</div>', $_bm, $html);
