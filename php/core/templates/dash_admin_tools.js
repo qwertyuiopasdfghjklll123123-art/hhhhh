@@ -137,7 +137,7 @@
     var body = { token: job.token, password: pw, confirm: 'RESTORE', restore_db: !!($('trfOptDb') && $('trfOptDb').checked), restore_json: !!($('trfOptJson') && $('trfOptJson').checked) };
     if ($('trfPrefer')) body.prefer = $('trfPrefer').value;
     if (!body.restore_db && !body.restore_json) { note('اختر ما تريد استعادته', 'error'); return; }
-    var btn = $('trfApplyBtn'); btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> جاري الاستيراد… لا تغلق الصفحة';
+    var btn = $('trfApplyBtn'); btn.disabled = true; btn.innerHTML = '<img class="fc-spin" src="/pwa-icon-192.png" alt=""> جاري الاستيراد… لا تغلق الصفحة';
     jpost('/api/admin/transfer/apply', body).then(function (r) { return r.json().catch(function () { return { ok: false, msg: 'ردّ غير متوقع من الخادم (قد يكون الاستيراد تجاوز مهلة الخادم؛ راجع النسخ المحلية)' }; }); }).then(function (d) {
       btn.disabled = false; btn.innerHTML = '<i class="fa-solid fa-rotate-left"></i> ابدأ الاستيراد';
       var box = $('trfReport'); box.style.display = '';
@@ -153,7 +153,7 @@
   };
 
   window.trfFetchTg = function (btn) {
-    if (tgBusy) return; tgBusy = true; var old = btn.innerHTML; btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i>';
+    if (tgBusy) return; tgBusy = true; var old = btn.innerHTML; btn.disabled = true; btn.innerHTML = '<img class="fc-spin" src="/pwa-icon-192.png" alt="">';
     resetImport(); $('trfDropTxt').textContent = 'جاري الجلب من تلغرام…';
     jpost('/api/admin/transfer/telegram-fetch', { file_id: btn.getAttribute('data-fid') }).then(function (r) { return r.json(); }).then(function (d) {
       $('trfDropTxt').textContent = 'اضغط لاختيار ملف النسخة';
@@ -193,7 +193,7 @@
   };
 
   window.secProbe = function () {
-    var b = $('secProbeBtn'); b.disabled = true; $('secProbeRes').innerHTML = '<div class="loading"><i class="fa-solid fa-spinner fa-spin"></i> جاري الفحص…</div>';
+    var b = $('secProbeBtn'); b.disabled = true; $('secProbeRes').innerHTML = '<div class="loading"><img class="fc-spin" src="/pwa-icon-192.png" alt=""> جاري الفحص…</div>';
     jpost('/api/admin/security/probe', {}).then(function (r) { return r.json(); }).then(function (d) {
       if (!d.ok) { $('secProbeRes').innerHTML = '<div class="trf-bad">' + esc(d.msg || 'تعذّر الفحص') + '</div>'; return; }
       $('secProbeRes').innerHTML = d.results.map(function (x) {

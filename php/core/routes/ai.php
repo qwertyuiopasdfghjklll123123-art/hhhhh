@@ -68,14 +68,15 @@ function _check_ai_connectivity(): array {
         $resp = requests_post(AI_API_BASE, [
             'headers' => ['Content-Type' => 'application/json', 'Authorization' => "Bearer $api_key"],
             'json' => ['model' => $model, 'messages' => [['role' => 'user', 'content' => 'hi']], 'max_tokens' => 5],
-            'timeout' => 15,
+            // رُفعت من 15 إلى [10, 35]: نفس سبب رفع مهلة الدردشة (نماذج بلا بث لا ترسل شيئاً حتى يبدأ الرد، فزمن "أول بايت" وحده قد يتجاوز 15 ثانية وقت الازدحام حتى لو المفتاح والشبكة سليمين تماماً).
+            'timeout' => [10, 35],
         ]);
     } catch (RequestsSSLError $e) {
         return [false, 'فشل الاتصال بسبب مشكلة شهادة SSL: ' . py_slice($e->getMessage(), null, 150)];
     } catch (RequestsConnectionErrorT $e) {
         return [false, 'تعذّر الوصول لسيرفر المساعد الذكي من هذا السيرفر (مشكلة شبكة/DNS/جدار حماية): ' . py_slice($e->getMessage(), null, 150)];
     } catch (RequestsTimeoutT $e) {
-        return [false, 'انتهت مهلة الاتصال (أكثر من 15 ثانية) — الشبكة بطيئة جداً أو محجوبة.'];
+        return [false, 'انتهت مهلة الاتصال (أكثر من 35 ثانية) — الشبكة بطيئة جداً أو محجوبة، أو الاستضافة تحجب الاتصال الصادر لهذا العنوان.'];
     } catch (Throwable $e) {
         return [false, 'خطأ غير متوقع أثناء الاتصال: ' . py_slice($e->getMessage(), null, 150)];
     }

@@ -174,6 +174,35 @@ CREATE TABLE IF NOT EXISTS `ai_messages` (
   KEY `idx_ai_msg_conv` (`conversation_id`, `id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin;
 
+CREATE TABLE IF NOT EXISTS `ai_agent_conversations` (
+  `id` INT NOT NULL AUTO_INCREMENT,
+  `title` VARCHAR(255) DEFAULT '',
+  `created_at` DOUBLE DEFAULT (UNIX_TIMESTAMP()),
+  `updated_at` DOUBLE DEFAULT (UNIX_TIMESTAMP()),
+  PRIMARY KEY (`id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS `ai_agent_messages` (
+  `id` INT NOT NULL AUTO_INCREMENT,
+  `conversation_id` INT NOT NULL,
+  `role` VARCHAR(16) NOT NULL,
+  `content` LONGTEXT,
+  `created_at` DOUBLE DEFAULT (UNIX_TIMESTAMP()),
+  PRIMARY KEY (`id`),
+  KEY `idx_aam_conv` (`conversation_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS `ai_agent_log` (
+  `id` INT NOT NULL AUTO_INCREMENT,
+  `created_at` DOUBLE DEFAULT (UNIX_TIMESTAMP()),
+  `source` VARCHAR(16) NOT NULL DEFAULT 'chat',
+  `tool` VARCHAR(64) DEFAULT '',
+  `detail` LONGTEXT,
+  `success` INT NOT NULL DEFAULT 1,
+  PRIMARY KEY (`id`),
+  KEY `idx_aal_created` (`created_at`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 CREATE TABLE IF NOT EXISTS `notifications` (
   `id` VARCHAR(64) NOT NULL,
   `user_id` INT NULL,

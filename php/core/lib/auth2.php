@@ -25,7 +25,7 @@ function ensure_schema_upgrade(): void {
     if ($done) return;
     $done = true;
     $flag = DATA_DIR . '/cache/schema_v5.done';
-    if (is_file($flag)) return;
+    if (is_file($flag)) { ensure_schema_v6_upgrade(); return; }
     try {
         $pdo = get_db()->pdo;
         $pdo->exec("CREATE TABLE IF NOT EXISTS `user_sessions` (
@@ -43,6 +43,32 @@ function ensure_schema_upgrade(): void {
         @file_put_contents($flag, date('c'));
     } catch (Throwable $e) {
         log_app_error('ERROR', 'schema upgrade: ' . $e->getMessage());
+    }
+    ensure_schema_v6_upgrade();
+}
+
+/** جداول مساعد الأدمن الذكي (محادثة + سجل إجراءات): تُضاف تلقائياً مرة واحدة (علم schema_v6.done) */
+function ensure_schema_v6_upgrade(): void {
+    $flag = DATA_DIR . '/cache/schema_v6.done';
+    if (is_file($flag)) return;
+    try {
+        $pdo = get_db()->pdo;
+        $pdo->exec("CREATE TABLE IF NOT EXISTS `ai_agent_conversations` (
+  `id` INT NOT NULL AUTO_INCREMENT, `title` VARCHAR(255) DEFAULT '', `created_at` DOUBLE DEFAULT 0, `updated_at` DOUBLE DEFAULT 0,
+  PRIMARY KEY (`id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+        $pdo->exec("CREATE TABLE IF NOT EXISTS `ai_agent_messages` (
+  `id` INT NOT NULL AUTO_INCREMENT, `conversation_id` INT NOT NULL, `role` VARCHAR(16) NOT NULL, `content` LONGTEXT, `created_at` DOUBLE DEFAULT 0,
+  PRIMARY KEY (`id`), KEY `idx_aam_conv` (`conversation_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+        $pdo->exec("CREATE TABLE IF NOT EXISTS `ai_agent_log` (
+  `id` INT NOT NULL AUTO_INCREMENT, `created_at` DOUBLE DEFAULT 0, `source` VARCHAR(16) NOT NULL DEFAULT 'chat',
+  `tool` VARCHAR(64) DEFAULT '', `detail` LONGTEXT, `success` INT NOT NULL DEFAULT 1,
+  PRIMARY KEY (`id`), KEY `idx_aal_created` (`created_at`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+        @file_put_contents($flag, date('c'));
+    } catch (Throwable $e) {
+        log_app_error('ERROR', 'schema v6 upgrade: ' . $e->getMessage());
     }
 }
 

@@ -75,7 +75,8 @@ body{font-family:IBM Plex Sans Arabic,'Tajawal',sans-serif;background:var(--bg);
 .hero h1 .gradient{background:linear-gradient(135deg,var(--primary),var(--primary-light));-webkit-background-clip:text;-webkit-text-fill-color:transparent}
 .hero p{font-size:clamp(15px,2.5vw,18px);color:var(--text2);line-height:1.8;max-width:520px;margin:0 auto 32px;animation:fadeUp .7s ease .2s both}
 @keyframes fadeUp{from{opacity:0;transform:translateY(24px)}to{opacity:1;transform:translateY(0)}}
-@keyframes spin{0%{transform:rotate(0deg)}100%{transform:rotate(360deg)}}
+.fc-spin{display:inline-block;width:1em;height:1em;vertical-align:-0.15em;border-radius:4px;object-fit:cover;animation:fcSpinPulse 1s ease-in-out infinite}
+@keyframes fcSpinPulse{0%,100%{transform:scale(.8);opacity:.5}50%{transform:scale(1);opacity:1}}
 @keyframes shimmer{0%{background-position:-200% 0}100%{background-position:200% 0}}
 .hero-btns{display:flex;align-items:center;justify-content:center;gap:12px;flex-wrap:wrap;animation:fadeUp .7s ease .3s both}
 .btn-hero{padding:14px 32px;border-radius:12px;font-size:15px;font-weight:700;font-family:IBM Plex Sans Arabic,'Tajawal',sans-serif;cursor:pointer;transition:all .3s;display:inline-flex;align-items:center;gap:8px;border:none}
@@ -662,7 +663,7 @@ body{font-family:IBM Plex Sans Arabic,'Tajawal',sans-serif;background:var(--bg);
   document.getElementById('btnVerifyCode').addEventListener('click',function(){
     var btn=this;var code=document.getElementById('otpInput').value.trim();
     if(code.length!==6){toast('أدخل الرمز المكون من 6 أرقام','error');return;}
-    btn.disabled=true;btn.innerHTML='<i class="fa-solid fa-spinner fa-spin"></i> جاري التحقق...';
+    btn.disabled=true;btn.innerHTML='<img class="fc-spin" src="/pwa-icon-192.png" alt=""> جاري التحقق...';
     fetch('/api/verify-code',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email:_verifyEmail,code:code})})
     .then(function(r){return r.json();})
     .then(function(d){
@@ -700,7 +701,7 @@ body{font-family:IBM Plex Sans Arabic,'Tajawal',sans-serif;background:var(--bg);
   document.getElementById('btnSendReset').addEventListener('click',function(){
     var btn=this;var email=document.getElementById('forgotEmail').value.trim();
     if(!email){toast('أدخل البريد الإلكتروني','error');return;}
-    btn.disabled=true;btn.innerHTML='<i class="fa-solid fa-spinner fa-spin"></i> جاري الإرسال...';
+    btn.disabled=true;btn.innerHTML='<img class="fc-spin" src="/pwa-icon-192.png" alt=""> جاري الإرسال...';
     fetch('/api/forgot-password',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email:email})})
     .then(function(r){return r.json();})
     .then(function(d){
@@ -715,7 +716,7 @@ body{font-family:IBM Plex Sans Arabic,'Tajawal',sans-serif;background:var(--bg);
     if(!code||code.length!==6){toast('أدخل الرمز المكون من 6 أرقام','error');return;}
     if(!pw||pw.length<6){toast('كلمة المرور 6 أحرف على الأقل','error');return;}
     if(pw!==pw2){toast('كلمة المرور غير متطابقة','error');return;}
-    btn.disabled=true;btn.innerHTML='<i class="fa-solid fa-spinner fa-spin"></i> جاري التغيير...';
+    btn.disabled=true;btn.innerHTML='<img class="fc-spin" src="/pwa-icon-192.png" alt=""> جاري التغيير...';
     fetch('/api/reset-password',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email:_forgotEmail,code:code,password:pw})})
     .then(function(r){return r.json();})
     .then(function(d){

@@ -101,7 +101,7 @@ foreach (['', '/logs', '/cache', '/fc_voices', '/fc_ticket_images', '/fc_avatars
     if (!is_dir(DATA_DIR . $d)) @mkdir(DATA_DIR . $d, 0775, true);
 }
 
-foreach (['py', 'sqlsplit', 'error_handler', 'db', 'session', 'response', 'router', 'http', 'core', 'schema', 'hooks', 'mail', 'webpush', 'notify', 'payments', 'catalog', 'backup', 'jobs', 'app_routes', 'security', 'transfer', 'auth2'] as $lib) {
+foreach (['py', 'sqlsplit', 'error_handler', 'db', 'session', 'response', 'router', 'http', 'core', 'schema', 'hooks', 'mail', 'webpush', 'notify', 'payments', 'catalog', 'backup', 'jobs', 'app_routes', 'security', 'transfer', 'auth2', 'ai_agent'] as $lib) {
     require_once APP_DIR . "/lib/$lib.php";
 }
 install_error_handlers();

@@ -526,6 +526,16 @@ html:not([data-theme="dark"]) .ai-cs-card::after{background:linear-gradient(105d
 .msg-toast .mt-tx{flex:1;min-width:0}
 @keyframes fadeUp{from{opacity:0;transform:translate(-50%,10px)}to{opacity:1;transform:translate(-50%,0)}}
 .loading{text-align:center;padding:20px;color:var(--text3);font-size:12px}
+.fc-spin{display:inline-block;width:1em;height:1em;vertical-align:-0.15em;border-radius:4px;object-fit:cover;animation:fcSpinPulse 1s ease-in-out infinite}
+@keyframes fcSpinPulse{0%,100%{transform:scale(.8);opacity:.5}50%{transform:scale(1);opacity:1}}
+.aa-tab{flex:1;padding:9px 6px;border-radius:10px;border:1px solid var(--card-border);background:var(--card);color:var(--text3);font-size:12px;font-weight:700;cursor:pointer;font-family:inherit}
+.aa-tab.on{background:var(--primary);color:#fff;border-color:var(--primary)}
+.aa-log-row{padding:10px 12px;border-radius:12px;background:var(--card);border:1px solid var(--card-border);margin-bottom:8px;font-size:12px}
+.aa-log-row .aa-lr-top{display:flex;align-items:center;justify-content:space-between;margin-bottom:4px}
+.aa-log-row .aa-lr-tool{font-weight:800}
+.aa-log-row .aa-lr-fail{color:var(--red)}
+.aa-log-row .aa-lr-ok{color:var(--green)}
+.aa-log-row .aa-lr-detail{color:var(--text3);font-size:11px;word-break:break-word;white-space:pre-wrap}
 /* ADMIN */
 .admin-only{__ADMIN_DISPLAY__}
 .nonadmin-only{__NONADMIN_DISPLAY__}
@@ -2724,6 +2734,7 @@ html[dir="ltr"] body{text-align:left}
     <div class="md-item admin-only" onclick="toggleMobDrawer();document.getElementById('adminCOPage').classList.add('show');if(typeof loadAdminCO==='function')loadAdminCO()"><i class="fa-solid fa-clipboard-list"></i> طلبات الخدمات</div>
     <div class="md-item admin-only" onclick="toggleMobDrawer();document.getElementById('adminFilterPage').classList.add('show');if(typeof loadAdminFilters==='function')loadAdminFilters()"><i class="fa-solid fa-filter"></i> فلترة الخدمات</div>
     <div class="md-item admin-only" onclick="toggleMobDrawer();document.getElementById('adminSvcCtlPage').classList.add('show');if(typeof loadSvcCtl==='function')loadSvcCtl()"><i class="fa-solid fa-sliders"></i> تحكم بالخدمات</div>
+    <div class="md-item admin-only" onclick="toggleMobDrawer();document.getElementById('adminAiAgentPage').classList.add('show');if(typeof loadAiAgentHistory==='function')loadAiAgentHistory()"><i class="fa-solid fa-robot"></i> المساعد الإداري الذكي</div>
     <div class="md-item admin-only" onclick="toggleMobDrawer();document.getElementById('adminLevelsPage').classList.add('show');if(typeof loadAdminLevels==='function')loadAdminLevels()"><i class="fa-solid fa-layer-group"></i> نظام المستويات</div>
     <div class="md-item admin-only" onclick="toggleMobDrawer();document.getElementById('adminOrderLookupPage').classList.add('show')"><i class="fa-solid fa-magnifying-glass"></i> بحث عن طلب</div>
     <div class="md-item admin-only" onclick="toggleMobDrawer();document.getElementById('adminRefillPage').classList.add('show');if(typeof loadAdminRefill==='function')loadAdminRefill()"><i class="fa-solid fa-recycle"></i> التعويض التلقائي</div>
@@ -3029,6 +3040,11 @@ html[dir="ltr"] body{text-align:left}
         <div class="mi-info"><div class="mi-title">تحكم بالخدمات</div><div class="mi-desc">إضافة مجموعة أو خدمة من مزوّد وتعديل الاسم والوصف والسعر</div></div>
         <span class="arr"><i class="fa-solid fa-chevron-left"></i></span>
       </a>
+      <a class="acc-item" href="#" onclick="event.preventDefault();document.getElementById('adminAiAgentPage').classList.add('show');loadAiAgentHistory()">
+        <div class="mi-ic" style="background:rgba(99,102,241,.1);color:#6366f1"><i class="fa-solid fa-robot"></i></div>
+        <div class="mi-info"><div class="mi-title">المساعد الإداري الذكي</div><div class="mi-desc">حوار مباشر معه + تنفيذ إجراءات إدارية فعلية + فحص دوري تلقائي</div></div>
+        <span class="arr"><i class="fa-solid fa-chevron-left"></i></span>
+      </a>
       <a class="acc-item" href="#" onclick="event.preventDefault();document.getElementById('adminLevelsPage').classList.add('show');loadAdminLevels()">
         <div class="mi-ic" style="background:rgba(236,72,153,.08);color:#f59e0b"><i class="fa-solid fa-layer-group"></i></div>
         <div class="mi-info"><div class="mi-title">نظام المستويات</div><div class="mi-desc">إدارة مستويات العملاء والخصومات والمزايا</div></div>
@@ -3082,11 +3098,11 @@ html[dir="ltr"] body{text-align:left}
 </div>
 <div class="overlay-page admin-only" id="adminRefPage">
   <div class="ov-topbar"><button class="ov-back" onclick="document.getElementById('adminRefPage').classList.remove('show')"><i class="fa-solid fa-arrow-right"></i></button><div class="ov-title"><i class="fa-solid fa-share-nodes"></i> نظام الإحالة</div></div>
-  <div class="ov-body" id="adminRefContent"><div style="text-align:center;padding:30px;color:var(--text3)"><i class="fa-solid fa-spinner fa-spin"></i> جاري التحميل...</div></div>
+  <div class="ov-body" id="adminRefContent"><div style="text-align:center;padding:30px;color:var(--text3)"><img class="fc-spin" src="/pwa-icon-192.png" alt=""> جاري التحميل...</div></div>
 </div>
 <div class="overlay-page admin-only" id="adminTicketsPage">
   <div class="ov-topbar"><button class="ov-back" onclick="document.getElementById('adminTicketsPage').classList.remove('show')"><i class="fa-solid fa-arrow-right"></i></button><div class="ov-title"><i class="fa-solid fa-ticket"></i> تذاكر الدعم</div></div>
-  <div class="ov-body" id="atkContent"><div style="text-align:center;padding:30px;color:var(--text3)"><i class="fa-solid fa-spinner fa-spin"></i> جاري التحميل...</div></div>
+  <div class="ov-body" id="atkContent"><div style="text-align:center;padding:30px;color:var(--text3)"><img class="fc-spin" src="/pwa-icon-192.png" alt=""> جاري التحميل...</div></div>
 </div>
 <div class="overlay-page" id="customerTicketsPage">
   <div class="ov-topbar"><button class="ov-back" onclick="document.getElementById('customerTicketsPage').classList.remove('show')"><i class="fa-solid fa-arrow-right"></i></button><div class="ov-title"><i class="fa-solid fa-ticket"></i> تذاكري</div></div>
@@ -3108,7 +3124,7 @@ html[dir="ltr"] body{text-align:left}
 </div>
 <div class="overlay-page" id="rchHistPage">
   <div class="ov-topbar"><button class="ov-back" onclick="document.getElementById('rchHistPage').classList.remove('show')"><i class="fa-solid fa-arrow-right"></i></button><div class="ov-title"><i class="fa-solid fa-money-bill-transfer"></i> سجل المعاملات</div></div>
-  <div class="ov-body" id="rchHistContent"><div style="text-align:center;padding:30px;color:var(--text3)"><i class="fa-solid fa-spinner fa-spin"></i></div></div>
+  <div class="ov-body" id="rchHistContent"><div style="text-align:center;padding:30px;color:var(--text3)"><img class="fc-spin" src="/pwa-icon-192.png" alt=""></div></div>
 </div>
 <div class="overlay-page" id="txDetailPage">
   <div class="ov-topbar"><button class="ov-back" onclick="document.getElementById('txDetailPage').classList.remove('show')"><i class="fa-solid fa-arrow-right"></i></button><div class="ov-title"><i class="fa-solid fa-receipt"></i> تفاصيل العملية</div></div>
@@ -3451,7 +3467,7 @@ html[dir="ltr"] body{text-align:left}
       <div class="field-group" style="margin-bottom:0"><div class="field-label"><i class="fa-solid fa-user"></i> Chat ID</div><input type="text" class="text-input" id="tgChatId" placeholder="معرف المحادثة" dir="ltr" style="text-align:left;font-family:var(--font-num);font-size:12px"></div>
     </div>
     <div class="sec-label"><i class="fa-solid fa-history"></i> آخر النُسخ</div>
-    <div id="backupListAdm" style="margin-bottom:10px"><div style="text-align:center;padding:16px;color:var(--text3);font-size:12px"><i class="fa-solid fa-spinner fa-spin"></i></div></div>
+    <div id="backupListAdm" style="margin-bottom:10px"><div style="text-align:center;padding:16px;color:var(--text3);font-size:12px"><img class="fc-spin" src="/pwa-icon-192.png" alt=""></div></div>
     <button onclick="doBackupNow()" class="btn-outline" style="margin-bottom:6px"><i class="fa-solid fa-play"></i> نسخ احتياطي الآن</button>
     <button onclick="sendBackupTG()" class="btn-outline" style="margin-bottom:6px;border-color:rgba(0,136,204,.3);color:#0088cc"><i class="fa-brands fa-telegram"></i> إرسال الآن للتلغرام</button>
     <div id="tgSendStatus" style="display:none;padding:10px;border-radius:10px;font-size:11px;text-align:center;margin-bottom:6px"></div>
@@ -3499,7 +3515,7 @@ html[dir="ltr"] body{text-align:left}
     <div style="background:var(--card);border:1px solid var(--card-border);border-radius:14px;padding:16px;margin-bottom:12px">
       <div class="sec-label"><i class="fa-solid fa-box-archive"></i> نسخ محفوظة على الخادم</div>
       <div style="font-size:10px;color:var(--text3);margin-bottom:8px;line-height:1.7">النسخ التلقائية كل ساعة ونسخ الأمان التي تُنشأ قبل كل استيراد.</div>
-      <div id="trfLocalList"><div class="loading"><i class="fa-solid fa-spinner fa-spin"></i></div></div>
+      <div id="trfLocalList"><div class="loading"><img class="fc-spin" src="/pwa-icon-192.png" alt=""></div></div>
     </div>
   </div>
 </div>
@@ -3507,7 +3523,7 @@ html[dir="ltr"] body{text-align:left}
   <div class="ov-topbar"><button class="ov-back" onclick="document.getElementById('securityPage').classList.remove('show')"><i class="fa-solid fa-arrow-right"></i></button><div class="ov-title"><i class="fa-solid fa-shield-halved"></i> مركز الأمان</div></div>
   <div class="ov-body">
     <div style="text-align:center;padding:8px 0 14px"><div style="width:52px;height:52px;border-radius:14px;background:rgba(99,102,241,.1);display:inline-flex;align-items:center;justify-content:center;font-size:22px;color:var(--primary);margin-bottom:8px"><i class="fa-solid fa-shield-halved"></i></div><div style="font-size:15px;font-weight:800">حماية لوحة الإدارة</div><div id="secSummary" style="font-size:11px;color:var(--text3);margin-top:4px"></div></div>
-    <div id="secChecks" style="margin-bottom:12px"><div class="loading"><i class="fa-solid fa-spinner fa-spin"></i></div></div>
+    <div id="secChecks" style="margin-bottom:12px"><div class="loading"><img class="fc-spin" src="/pwa-icon-192.png" alt=""></div></div>
 
     <div style="background:var(--card);border:1px solid var(--card-border);border-radius:14px;padding:16px;margin-bottom:12px">
       <div class="sec-label"><i class="fa-solid fa-magnifying-glass-chart"></i> فحص تعرّض الملفات الخاصة</div>
@@ -3685,7 +3701,7 @@ html[dir="ltr"] body{text-align:left}
     </div>
     <button onclick="createCoupon()" class="btn-primary" style="margin-top:4px;background:linear-gradient(135deg,#ec4899,#a855f7);box-shadow:0 4px 20px rgba(236,72,153,.15)"><i class="fa-solid fa-plus"></i> إنشاء الكوبون</button>
     <div style="margin-top:18px" class="sec-label"><i class="fa-solid fa-list"></i> الكوبونات الحالية</div>
-    <div id="couponListAdm"><div style="text-align:center;padding:16px;color:var(--text3);font-size:12px"><i class="fa-solid fa-spinner fa-spin"></i></div></div>
+    <div id="couponListAdm"><div style="text-align:center;padding:16px;color:var(--text3);font-size:12px"><img class="fc-spin" src="/pwa-icon-192.png" alt=""></div></div>
   </div>
 </div>
 <div class="overlay-page admin-only" id="googlePage">
@@ -4150,6 +4166,23 @@ html[dir="ltr"] body{text-align:left}
   <div class="sc-bar" id="scBar"></div>
 </div>
 <div class="sc-sheet-ov" id="scSheet" onclick="if(event.target===this)scSheetClose()"><div class="sc-sheet" id="scSheetBox"></div></div>
+<div class="overlay-page admin-only" id="adminAiAgentPage">
+  <div class="ov-topbar"><button class="ov-back" onclick="document.getElementById('adminAiAgentPage').classList.remove('show')"><i class="fa-solid fa-arrow-right"></i></button><div class="ov-title"><i class="fa-solid fa-robot"></i> المساعد الإداري الذكي</div></div>
+  <div style="display:flex;gap:6px;padding:10px 14px 0">
+    <button class="aa-tab on" id="aaTabBtn_chat" onclick="aaSwitchTab('chat')"><i class="fa-solid fa-comments"></i> محادثة</button>
+    <button class="aa-tab" id="aaTabBtn_log" onclick="aaSwitchTab('log')"><i class="fa-solid fa-list-check"></i> سجل الإجراءات</button>
+    <button class="aa-tab" id="aaTabBtn_cron" onclick="aaSwitchTab('cron')"><i class="fa-solid fa-clock"></i> الفحص الدوري</button>
+  </div>
+  <div id="aaTab_chat" style="display:flex;flex-direction:column;height:calc(100vh - 104px)">
+    <div id="aaChatLog" style="flex:1;overflow-y:auto;padding:14px"></div>
+    <div style="padding:10px 12px;border-top:1px solid var(--card-border);display:flex;gap:8px;background:var(--card);flex-shrink:0">
+      <input type="text" id="aaInputField" placeholder="اكتب للمساعد الإداري... مثال: رد على أي تذكرة دعم مفتوحة" style="flex:1;padding:11px 14px;border-radius:12px;border:1px solid var(--input-border);background:var(--input-bg);color:var(--text);font-size:13px;font-family:inherit" onkeydown="if(event.key==='Enter')sendAgentMessage()">
+      <button id="aaSendBtn" onclick="sendAgentMessage()" style="width:42px;height:42px;border-radius:12px;border:none;background:var(--primary);color:#fff;cursor:pointer;flex-shrink:0"><i class="fa-solid fa-paper-plane"></i></button>
+    </div>
+  </div>
+  <div id="aaTab_log" class="ov-body" style="display:none"></div>
+  <div id="aaTab_cron" class="ov-body" style="display:none"></div>
+</div>
 <div class="sm-modal-ov" id="smImportModal">
   <div class="sm-modal" style="max-width:420px;position:relative">
     <h3><i class="fa-solid fa-file-import" style="color:var(--green)"></i> <span id="smwTitle">استيراد خدمة</span></h3>
@@ -4572,6 +4605,8 @@ print(r.json())</pre>
   var allData=null;
   var platformIcons={'instagram':'fa-brands fa-instagram','tiktok':'fa-brands fa-tiktok','youtube':'fa-brands fa-youtube','facebook':'fa-brands fa-facebook-f','twitter':'fa-brands fa-x-twitter','x':'fa-brands fa-x-twitter','telegram':'fa-brands fa-telegram','snapchat':'fa-brands fa-snapchat','whatsapp':'fa-brands fa-whatsapp','threads':'fa-brands fa-threads','spotify':'fa-brands fa-spotify','discord':'fa-brands fa-discord','linkedin':'fa-brands fa-linkedin-in','twitch':'fa-brands fa-twitch','google':'fa-brands fa-google','soundcloud':'fa-brands fa-soundcloud','pinterest':'fa-brands fa-pinterest','other':'fa-solid fa-globe'};
   function toast(m,t){var o=document.querySelector('.msg-toast');if(o)o.remove();var e=document.createElement('div');e.className='msg-toast '+t;e.innerHTML='<img class="mt-ic" src="/pwa-icon-192.png" alt=""><span class="mt-tx"></span>';e.querySelector('.mt-tx').textContent=m;document.body.appendChild(e);setTimeout(function(){e.remove()},3500)}
+  function fcSpinnerHTML(){return '<img class="fc-spin" src="/pwa-icon-192.png" alt="">'}
+  window.fcSpinnerHTML=fcSpinnerHTML;
   window.toast=toast;
   function _utc2(dark){var m=document.querySelector('meta[name="theme-color"]');if(m)m.setAttribute('content',dark?'#000000':'#f2f3f7');}
   var sv=localStorage.getItem('fc_theme');if(sv==='dark'){document.documentElement.setAttribute('data-theme','dark');document.getElementById('themeIcon').className='fa-solid fa-moon';_utc2(true);}else{_utc2(false);}
@@ -4878,17 +4913,20 @@ print(r.json())</pre>
   async function submitCart(){
     if(!_cart.length)return;
     var btn=document.getElementById('cartSubmitAllBtn');
-    btn.disabled=true;btn.innerHTML='<i class="fa-solid fa-spinner fa-spin"></i> جاري الإرسال...';
+    btn.disabled=true;btn.innerHTML=fcSpinnerHTML()+' جاري الإرسال...';
     var okCount=0,failMsgs=[],remaining=[];
-    for(var i=0;i<_cart.length;i++){
-      var item=_cart[i];
-      try{
-        var r=await fetch('/api/order',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(item)});
-        var d=await r.json();
-        if(d.ok){okCount++;if(d.balance!==undefined){var b=document.getElementById('hudBalVal');if(b){b.dataset.usd=d.balance;b.textContent=fmtP(d.balance)}}}
-        else{failMsgs.push(d.msg||'خطأ');remaining.push(item)}
-      }catch(e){failMsgs.push('خطأ بالاتصال');remaining.push(item)}
-    }
+    // ترسل كل طلبات السلة دفعة واحدة بالتوازي بدل التسلسل: كل عنصر كان ينتظر اكتمال الذي قبله كاملاً (رحلة شبكة كاملة لكل عنصر تباعاً)
+    // رغم أن كل عنصر مستقل تماماً عن غيره في الخادم. خصم الرصيد ذرّي (balance>=? بالاستعلام) فلا خطر تجاوز رصيد عند التوازي.
+    var results=await Promise.all(_cart.map(function(item){
+      return fetch('/api/order',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(item)})
+        .then(function(r){return r.json().then(function(d){return {item:item,d:d}})})
+        .catch(function(){return {item:item,d:null}});
+    }));
+    results.forEach(function(res){
+      var item=res.item,d=res.d;
+      if(d&&d.ok){okCount++;if(d.balance!==undefined){var b=document.getElementById('hudBalVal');if(b){b.dataset.usd=d.balance;b.textContent=fmtP(d.balance)}}}
+      else{failMsgs.push((d&&d.msg)||'خطأ بالاتصال');remaining.push(item)}
+    });
     _cart=remaining;
     btn.disabled=false;btn.innerHTML='<i class="fa-solid fa-paper-plane"></i> إرسال كل الطلبات';
     if(okCount>0){toast('تم إرسال '+okCount+' طلب بنجاح','success');loadOrders()}
@@ -5075,11 +5113,11 @@ print(r.json())</pre>
     if(o.can_refill)a+='<button class="oc-act rf" onclick="event.stopPropagation();ordRefill(\''+oid+'\',this)"><i class="fa-solid fa-recycle"></i> تعويض</button>';
     else if(o.refill_state==='wait'||o.refill_state==='recent'){var hrs=Math.max(1,Math.ceil((o.refill_wait||0)/3600));a+='<span class="oc-act wt"><i class="fa-solid fa-hourglass-half"></i> التعويض بعد '+hrs+' ساعة</span>'}
     if(o.can_cancel)a+='<button class="oc-act cn" onclick="event.stopPropagation();ordCancel(\''+oid+'\',this)"><i class="fa-solid fa-ban"></i> إلغاء الطلب</button>';
-    else if(o.cancel_state==='requested')a+='<span class="oc-act wt"><i class="fa-solid fa-spinner fa-spin"></i> جارٍ الإلغاء</span>';
+    else if(o.cancel_state==='requested')a+='<span class="oc-act wt"><img class="fc-spin" src="/pwa-icon-192.png" alt=""> جارٍ الإلغاء</span>';
     return a?'<div class="oc-acts">'+a+'</div>':'';
   }
   window.ordRefill=function(oid,btn){
-    btn.disabled=true;var old=btn.innerHTML;btn.innerHTML='<i class="fa-solid fa-spinner fa-spin"></i> جاري الطلب...';
+    btn.disabled=true;var old=btn.innerHTML;btn.innerHTML='<img class="fc-spin" src="/pwa-icon-192.png" alt=""> جاري الطلب...';
     fetch('/api/refill',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({order_id:oid})}).then(function(r){return r.json()}).then(function(d){
       toast(d.msg||(d.ok?'تم طلب التعويض':'تعذّر التعويض'),d.ok?'success':'error');
       if(d.ok)loadOrders(1);else{btn.disabled=false;btn.innerHTML=old}
@@ -5087,7 +5125,7 @@ print(r.json())</pre>
   };
   window.ordCancel=function(oid,btn){
     var run=function(){
-      btn.disabled=true;var old=btn.innerHTML;btn.innerHTML='<i class="fa-solid fa-spinner fa-spin"></i> جاري الإلغاء...';
+      btn.disabled=true;var old=btn.innerHTML;btn.innerHTML='<img class="fc-spin" src="/pwa-icon-192.png" alt=""> جاري الإلغاء...';
       fetch('/api/cancel-order',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({order_id:oid})}).then(function(r){return r.json()}).then(function(d){
         toast(d.msg||(d.ok?'تم إرسال طلب الإلغاء':'تعذّر الإلغاء'),d.ok?'success':'error');
         if(d.ok){loadOrders(1);if(typeof loadUserStats==='function')loadUserStats()}else{btn.disabled=false;btn.innerHTML=old}
@@ -5096,7 +5134,7 @@ print(r.json())</pre>
     customConfirm('إلغاء الطلب #'+oid+'؟','سيُطلب الإلغاء من المزوّد، ويُرجَع المبلغ إلى رصيدك عند تأكيده.','ban','red',run);
   };
   window.doRefill=function(oid,btn){
-    btn.disabled=true;btn.innerHTML='<i class="fa-solid fa-spinner fa-spin"></i> جاري الطلب...';
+    btn.disabled=true;btn.innerHTML='<img class="fc-spin" src="/pwa-icon-192.png" alt=""> جاري الطلب...';
     fetch('/api/refill',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({order_id:oid})})
     .then(function(r){return r.json()}).then(function(d){
       if(d.ok){toast(d.msg||'تم طلب التعويض!','success');btn.innerHTML='<i class="fa-solid fa-check-circle"></i> تم الطلب';btn.style.background='#06b6d4';btn.style.cursor='not-allowed'}
@@ -5357,7 +5395,7 @@ print(r.json())</pre>
     });
   }
   function doSubmitRch(amt,method,receipt,btn){
-    var orig=btn.innerHTML;btn.disabled=true;btn.innerHTML='<i class="fa-solid fa-spinner fa-spin"></i> جاري الإرسال...';
+    var orig=btn.innerHTML;btn.disabled=true;btn.innerHTML='<img class="fc-spin" src="/pwa-icon-192.png" alt=""> جاري الإرسال...';
     fetch('/api/recharge/submit',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({amount:amt,method:method,receipt:receipt})})
     .then(function(r){return r.json()}).then(function(d){
       if(d.ok){rchAutoSuccess(d.msg)}
@@ -5386,7 +5424,7 @@ print(r.json())</pre>
       errEl.style.display='none';
       if(amt<=0){errEl.textContent='أدخل مبلغ صحيح.';errEl.style.display='';return}
       if(!orderId){errEl.textContent='الرجاء إدخال رقم عملية Binance.';errEl.style.display='';return}
-      var orig=btn.innerHTML;btn.disabled=true;btn.innerHTML='<i class="fa-solid fa-spinner fa-spin"></i> جاري التحقق...';
+      var orig=btn.innerHTML;btn.disabled=true;btn.innerHTML='<img class="fc-spin" src="/pwa-icon-192.png" alt=""> جاري التحقق...';
       fetch('/api/recharge/binance/verify',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({amount:amt,order_id:orderId})})
       .then(function(r){return r.json()}).then(function(d){
         if(d.ok){rchAutoSuccess(d.msg||'تم شحن رصيدك بنجاح')}
@@ -5446,7 +5484,7 @@ print(r.json())</pre>
       errEl.style.display='none';
       if(!selectedTier){errEl.textContent='اختر المبلغ.';errEl.style.display='';return}
       if(!/^(077|078|079)\d{8}$/.test(phone)){errEl.textContent='رقم غير صحيح، يجب أن يكون بصيغة 07xxxxxxxxx.';errEl.style.display='';return}
-      var orig=sendBtn.innerHTML;sendBtn.disabled=true;sendBtn.innerHTML='<i class="fa-solid fa-spinner fa-spin"></i> جاري الإرسال...';
+      var orig=sendBtn.innerHTML;sendBtn.disabled=true;sendBtn.innerHTML='<img class="fc-spin" src="/pwa-icon-192.png" alt=""> جاري الإرسال...';
       fetch('/api/recharge/asiacell/start',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({phone:phone,amount_iqd:selectedTier.iqd})})
       .then(function(r){return r.json()}).then(function(d){
         sendBtn.disabled=false;sendBtn.innerHTML=orig;
@@ -5461,7 +5499,7 @@ print(r.json())</pre>
       var code=document.getElementById('rchAcCode1').value.trim();
       errEl.style.display='none';
       if(!/^\d{4,6}$/.test(code)){errEl.textContent='رمز التحقق يجب أن يكون من 4 إلى 6 أرقام.';errEl.style.display='';return}
-      var orig=verifyBtn.innerHTML;verifyBtn.disabled=true;verifyBtn.innerHTML='<i class="fa-solid fa-spinner fa-spin"></i> جاري التحقق...';
+      var orig=verifyBtn.innerHTML;verifyBtn.disabled=true;verifyBtn.innerHTML='<img class="fc-spin" src="/pwa-icon-192.png" alt=""> جاري التحقق...';
       fetch('/api/recharge/asiacell/verify-sms',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({code:code})})
       .then(function(r){return r.json()}).then(function(d){
         verifyBtn.disabled=false;verifyBtn.innerHTML=orig;
@@ -5478,7 +5516,7 @@ print(r.json())</pre>
       var code=document.getElementById('rchAcCode2').value.trim();
       errEl.style.display='none';
       if(!/^\d{4,6}$/.test(code)){errEl.textContent='رمز التأكيد يجب أن يكون من 4 إلى 6 أرقام.';errEl.style.display='';return}
-      var orig=confirmBtn.innerHTML;confirmBtn.disabled=true;confirmBtn.innerHTML='<i class="fa-solid fa-spinner fa-spin"></i> جاري التأكيد...';
+      var orig=confirmBtn.innerHTML;confirmBtn.disabled=true;confirmBtn.innerHTML='<img class="fc-spin" src="/pwa-icon-192.png" alt=""> جاري التأكيد...';
       fetch('/api/recharge/asiacell/confirm',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({code:code})})
       .then(function(r){return r.json()}).then(function(d){
         confirmBtn.disabled=false;confirmBtn.innerHTML=orig;
@@ -5539,7 +5577,7 @@ print(r.json())</pre>
       // الزر يبدو "عالقاً" رغم أن الطلب نجح فعلياً
       var newTab=null;
       try{newTab=window.open('about:blank','_blank')}catch(e){newTab=null}
-      btn.disabled=true;var orig=btn.innerHTML;btn.innerHTML='<i class="fa-solid fa-spinner fa-spin"></i> جاري التحضير...';
+      btn.disabled=true;var orig=btn.innerHTML;btn.innerHTML='<img class="fc-spin" src="/pwa-icon-192.png" alt=""> جاري التحضير...';
       fetch('/api/recharge/telegram-stars/link?stars='+stars)
       .then(function(r){return r.json()}).then(function(d){
         btn.disabled=false;btn.innerHTML=orig;
@@ -5615,7 +5653,7 @@ print(r.json())</pre>
     });
   }
   window.adminRchAction=function(id,action,btn){
-    if(btn){btn.disabled=true;btn.innerHTML='<i class="fa-solid fa-spinner fa-spin"></i>';}
+    if(btn){btn.disabled=true;btn.innerHTML='<img class="fc-spin" src="/pwa-icon-192.png" alt="">';}
     fetch('/api/admin/recharge-action',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:id,action:action})})
     .then(function(r){return r.json()}).then(function(d){
       if(d.ok){
@@ -6199,7 +6237,7 @@ print(r.json())</pre>
     }).catch(function(){toast('حدث خطأ','error');btn.disabled=false});
   });
   document.getElementById('btnTgsWebhook').addEventListener('click',function(){
-    var btn=this;btn.disabled=true;var orig=btn.innerHTML;btn.innerHTML='<i class="fa-solid fa-spinner fa-spin"></i> جاري التسجيل...';
+    var btn=this;btn.disabled=true;var orig=btn.innerHTML;btn.innerHTML='<img class="fc-spin" src="/pwa-icon-192.png" alt=""> جاري التسجيل...';
     var st=document.getElementById('tgsWebhookStatus');
     fetch('/api/admin/payment-methods/telegram-stars',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(_tgsBody())})
     .then(function(r){return r.json()}).then(function(d){
@@ -6254,7 +6292,7 @@ var _ctkFilter='all',_ctkSelectMode=false,_ctkAllData=[];
 async function loadCustomerTicketsList(){
   document.getElementById('customerTicketsPage').classList.add('show');
   var el=document.getElementById('ctkContent');
-  el.innerHTML='<div style="text-align:center;padding:30px;color:var(--text3)"><i class="fa-solid fa-spinner fa-spin"></i> جاري التحميل...</div>';
+  el.innerHTML='<div style="text-align:center;padding:30px;color:var(--text3)"><img class="fc-spin" src="/pwa-icon-192.png" alt=""> جاري التحميل...</div>';
   try{
     var r=await fetch('/api/tickets',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({})});
     var d=await r.json();if(!d.ok){el.innerHTML='<div style="text-align:center;padding:30px;color:var(--text3)">خطأ بتحميل التذاكر</div>';return}
@@ -6440,7 +6478,7 @@ function openAiConversation(cid){
     log.innerHTML='<div style="text-align:center;padding:30px 16px;color:var(--text3)"><img src="__AI_ICON__" alt="" style="width:56px;height:56px;border-radius:50%;display:block;margin:0 auto 10px"><div style="font-size:13px;font-weight:700">مرحباً! كيف أقدر أساعدك اليوم؟</div><div style="font-size:11px;margin-top:4px">اسألني عن الخدمات، طلباتك، أو رصيدك</div></div>';
     return;
   }
-  log.innerHTML='<div style="text-align:center;padding:20px"><i class="fa-solid fa-spinner fa-spin"></i></div>';
+  log.innerHTML='<div style="text-align:center;padding:20px"><img class="fc-spin" src="/pwa-icon-192.png" alt=""></div>';
   fetch('/api/ai/conversation/'+cid).then(function(r){return r.json()}).then(function(d){
     if(!d.ok){log.innerHTML='';return}
     log.innerHTML='';
@@ -6493,6 +6531,102 @@ function aiGoToService(card){
   },80);
 }
 window.aiGoToService=aiGoToService;
+
+/* ----------------------- المساعد الإداري الذكي (أدمن) ----------------------- */
+function aaSwitchTab(t){
+  ['chat','log','cron'].forEach(function(k){
+    document.getElementById('aaTab_'+k).style.display=(k===t)?(k==='chat'?'flex':'block'):'none';
+    document.getElementById('aaTabBtn_'+k).classList.toggle('on',k===t);
+  });
+  if(t==='log')loadAiAgentLog();
+  if(t==='cron')loadAiAgentCron();
+}
+function appendAgentMessage(role,content){
+  var log=document.getElementById('aaChatLog');if(!log)return;
+  var isUser=role==='user';
+  var row=document.createElement('div');
+  row.style.cssText='display:flex;'+(isUser?'justify-content:flex-end':'justify-content:flex-start')+';margin-bottom:10px';
+  row.innerHTML='<div style="max-width:85%;padding:10px 14px;border-radius:14px;font-size:13px;line-height:1.7;white-space:pre-wrap;'+(isUser?'background:var(--primary);color:#fff;border-bottom-left-radius:4px':'background:var(--input-bg);color:var(--text);border-bottom-right-radius:4px')+'"></div>';
+  row.firstChild.textContent=content;
+  log.appendChild(row);
+  log.scrollTop=log.scrollHeight;
+}
+function loadAiAgentHistory(){
+  var log=document.getElementById('aaChatLog');if(!log)return;
+  log.innerHTML='<div class="loading">'+fcSpinnerHTML()+' جاري التحميل...</div>';
+  fetch('/api/admin/ai-agent/history').then(function(r){return r.json()}).then(function(d){
+    log.innerHTML='';
+    if(!d.ok){log.innerHTML='<div class="loading">تعذّر التحميل</div>';return}
+    if(!d.messages.length){log.innerHTML='<div class="loading">لا توجد محادثة سابقة — اكتب أي شيء لبدء الحوار مع المساعد الإداري.</div>';return}
+    d.messages.forEach(function(m){appendAgentMessage(m.role,m.content)});
+  }).catch(function(){log.innerHTML='<div class="loading">تعذّر الاتصال بالسيرفر</div>'});
+}
+function sendAgentMessage(){
+  var input=document.getElementById('aaInputField');
+  var msg=input.value.trim();
+  if(!msg)return;
+  input.value='';
+  appendAgentMessage('user',msg);
+  var btn=document.getElementById('aaSendBtn');btn.disabled=true;
+  var typingEl=document.createElement('div');
+  typingEl.id='aaTypingIndicator';
+  typingEl.style.cssText='display:flex;justify-content:flex-start;margin-bottom:10px';
+  typingEl.innerHTML='<div style="padding:10px 14px;border-radius:14px;background:var(--input-bg);color:var(--text3);font-size:12px">'+fcSpinnerHTML()+' يعمل المساعد الإداري الآن...</div>';
+  document.getElementById('aaChatLog').appendChild(typingEl);
+  var longWaitTO=setTimeout(function(){var e=document.getElementById('aaTypingIndicator');if(e)e.firstChild.lastChild.textContent=' قد ينفّذ عدة إجراءات متتالية، هذا قد يأخذ دقيقة...'},10000);
+  var ctl=('AbortController' in window)?new AbortController():null;
+  var hardTO=setTimeout(function(){if(ctl)ctl.abort()},410000);
+  function done(){clearTimeout(longWaitTO);clearTimeout(hardTO);var t=document.getElementById('aaTypingIndicator');if(t)t.remove();btn.disabled=false}
+  fetch('/api/admin/ai-agent/chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({message:msg}),signal:ctl?ctl.signal:undefined})
+    .then(function(r){return r.json()})
+    .then(function(d){
+      done();
+      if(d.ok){appendAgentMessage('assistant',d.reply);if(d.actions&&d.actions.length)toast('نفّذ المساعد '+d.actions.length+' إجراء/إجراءات','success')}
+      else{appendAgentMessage('assistant',d.msg||'حدث خطأ، حاول مرة أخرى.')}
+    })
+    .catch(function(e){done();appendAgentMessage('assistant',(e&&e.name==='AbortError')?'استغرق الرد وقتاً طويلاً جداً، تحقّق من اتصالك وحاول مرة أخرى.':'تعذر الاتصال بالسيرفر.')});
+}
+window.sendAgentMessage=sendAgentMessage;
+function loadAiAgentLog(){
+  var box=document.getElementById('aaTab_log');if(!box)return;
+  box.innerHTML='<div class="loading">'+fcSpinnerHTML()+' جاري التحميل...</div>';
+  fetch('/api/admin/ai-agent/log').then(function(r){return r.json()}).then(function(d){
+    if(!d.ok||!d.log.length){box.innerHTML='<div class="loading">لا توجد إجراءات مسجّلة بعد</div>';return}
+    var h='';
+    d.log.forEach(function(l){
+      var detail=l.detail||'';
+      if(detail.length>300)detail=detail.slice(0,300)+'…';
+      h+='<div class="aa-log-row"><div class="aa-lr-top"><span class="aa-lr-tool"><i class="fa-solid fa-'+(l.source==='cron'?'clock':'comment')+'"></i> '+esc(l.tool)+'</span><span class="'+(l.success?'aa-lr-ok':'aa-lr-fail')+'">'+(l.success?'نجح':'فشل')+' · '+esc(l.time)+'</span></div><div class="aa-lr-detail">'+esc(detail)+'</div></div>';
+    });
+    box.innerHTML=h;
+  }).catch(function(){box.innerHTML='<div class="loading">تعذّر الاتصال بالسيرفر</div>'});
+}
+function loadAiAgentCron(){
+  var box=document.getElementById('aaTab_cron');if(!box)return;
+  box.innerHTML='<div class="loading">'+fcSpinnerHTML()+' جاري التحميل...</div>';
+  fetch('/api/admin/ai-agent/cron-info').then(function(r){return r.json()}).then(function(d){
+    if(!d.ok){box.innerHTML='<div class="loading">تعذّر التحميل</div>';return}
+    box.innerHTML='<div style="max-width:520px;margin:0 auto">'
+      +'<div style="font-size:12px;color:var(--text3);line-height:1.9;margin-bottom:12px">لتشغيل فحص دوري تلقائي (كل ساعة مثلاً) حتى بلا وجودك، أضف "مهمة مجدولة Cron Job" من لوحة استضافتك (مثل cPanel) تُنفَّذ كل ساعة وتستدعي هذا الرابط:</div>'
+      +'<div style="background:var(--input-bg);border:1px solid var(--input-border);border-radius:10px;padding:10px 12px;font-size:11px;word-break:break-all;margin-bottom:10px" id="aaCronUrl">'+esc(d.url)+'</div>'
+      +'<button class="btn-sm" onclick="navigator.clipboard.writeText(document.getElementById(\'aaCronUrl\').textContent);toast(\'تم النسخ\',\'success\')"><i class="fa-solid fa-copy"></i> نسخ الرابط</button> '
+      +'<button class="btn-sm-danger" onclick="regenAiAgentCronToken()"><i class="fa-solid fa-rotate"></i> توليد رابط جديد</button>'
+      +'<div style="font-size:12px;color:var(--text3);line-height:2;margin-top:16px">خطوات الإضافة في cPanel:<br>'
+      +'1) من لوحة الاستضافة ابحث عن "Cron Jobs".<br>'
+      +'2) اختر التكرار "كل ساعة" (Common Settings → Once Per Hour) أو أي تكرار تريده.<br>'
+      +'3) في خانة الأمر (Command) ضع: <code style="background:var(--input-bg);padding:2px 6px;border-radius:6px">curl -s "'+esc(d.url)+'" &gt; /dev/null 2&gt;&amp;1</code><br>'
+      +'4) احفظ. سيفحص المساعد النظام وينفّذ ما يلزم بنفسه كل مرة يعمل بها دون انتظارك، ويمكنك مراجعة كل ما فعله من تبويب "سجل الإجراءات".</div>'
+      +'</div>';
+  }).catch(function(){box.innerHTML='<div class="loading">تعذّر الاتصال بالسيرفر</div>'});
+}
+function regenAiAgentCronToken(){
+  if(!confirm('سيتوقف الرابط القديم عن العمل فوراً — تأكد من تحديثه في لوحة الاستضافة بعد التوليد. متابعة؟'))return;
+  fetch('/api/admin/ai-agent/cron-info/regenerate',{method:'POST'}).then(function(r){return r.json()}).then(function(d){
+    if(d.ok){toast('تم توليد رابط جديد','success');loadAiAgentCron()}
+  });
+}
+window.regenAiAgentCronToken=regenAiAgentCronToken;
+
 function sendAiMessage(){
   var input=document.getElementById('aiInputField');
   var msg=input.value.trim();
@@ -6502,7 +6636,7 @@ function sendAiMessage(){
   var typingEl=document.createElement('div');
   typingEl.id='aiTypingIndicator';
   typingEl.style.cssText='display:flex;justify-content:flex-start;margin-bottom:10px';
-  typingEl.innerHTML='<div style="padding:10px 14px;border-radius:14px;background:var(--input-bg);color:var(--text3);font-size:12px"><i class="fa-solid fa-ellipsis fa-fade"></i> <span id="aiTypingTxt"></span></div>';
+  typingEl.innerHTML='<div style="padding:10px 14px;border-radius:14px;background:var(--input-bg);color:var(--text3);font-size:12px"><img class="fc-spin" src="/pwa-icon-192.png" alt=""> <span id="aiTypingTxt"></span></div>';
   var log=document.getElementById('aiChatLog');
   log.appendChild(typingEl);log.scrollTop=log.scrollHeight;
   var btn=document.getElementById('aiSendBtn');btn.disabled=true;
@@ -6551,7 +6685,7 @@ function clearAiConversations(){
     }).catch(function(){});
   });
 }
-async function loadRchHistory(){document.getElementById('rchHistPage').classList.add('show');document.getElementById('rchHistContent').innerHTML='<div style="text-align:center;padding:30px;color:var(--text3)"><i class="fa-solid fa-spinner fa-spin"></i></div>';try{var r=await fetch('/api/recharge/history');var d=await r.json();if(!d.ok){document.getElementById('rchHistContent').innerHTML='<div style="text-align:center;padding:30px;color:var(--text3)"><i class="fa-solid fa-exclamation-triangle" style="font-size:24px;opacity:.4;display:block;margin-bottom:8px"></i><div style="font-size:12px">فشل تحميل السجل</div></div>';return}var hist=d.history||[];_rchTxCache=hist;var total=d.total||0;var h='<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:14px"><div style="padding:14px;border-radius:12px;background:var(--card);border:1px solid var(--card-border);text-align:center"><div style="font-family:IBM Plex Sans Arabic;font-size:18px;font-weight:900;color:var(--green)">'+fmtP(total)+'</div><div style="font-size:9px;color:var(--text3);margin-top:2px">إجمالي الشحن</div></div><div style="padding:14px;border-radius:12px;background:var(--card);border:1px solid var(--card-border);text-align:center"><div style="font-family:IBM Plex Sans Arabic;font-size:18px;font-weight:900;color:var(--primary)">'+hist.length+'</div><div style="font-size:9px;color:var(--text3);margin-top:2px">عدد العمليات</div></div></div>';
+async function loadRchHistory(){document.getElementById('rchHistPage').classList.add('show');document.getElementById('rchHistContent').innerHTML='<div style="text-align:center;padding:30px;color:var(--text3)"><img class="fc-spin" src="/pwa-icon-192.png" alt=""></div>';try{var r=await fetch('/api/recharge/history');var d=await r.json();if(!d.ok){document.getElementById('rchHistContent').innerHTML='<div style="text-align:center;padding:30px;color:var(--text3)"><i class="fa-solid fa-exclamation-triangle" style="font-size:24px;opacity:.4;display:block;margin-bottom:8px"></i><div style="font-size:12px">فشل تحميل السجل</div></div>';return}var hist=d.history||[];_rchTxCache=hist;var total=d.total||0;var h='<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:14px"><div style="padding:14px;border-radius:12px;background:var(--card);border:1px solid var(--card-border);text-align:center"><div style="font-family:IBM Plex Sans Arabic;font-size:18px;font-weight:900;color:var(--green)">'+fmtP(total)+'</div><div style="font-size:9px;color:var(--text3);margin-top:2px">إجمالي الشحن</div></div><div style="padding:14px;border-radius:12px;background:var(--card);border:1px solid var(--card-border);text-align:center"><div style="font-family:IBM Plex Sans Arabic;font-size:18px;font-weight:900;color:var(--primary)">'+hist.length+'</div><div style="font-size:9px;color:var(--text3);margin-top:2px">عدد العمليات</div></div></div>';
   if(!hist.length){h+=emptyState('pay','لا توجد عمليات بعد','ستظهر هنا عمليات الشحن والمدفوعات')}
   else{h+='<div style="font-size:13px;font-weight:800;margin-bottom:8px;display:flex;align-items:center;gap:6px"><i class="fa-solid fa-clock-rotate-left" style="color:var(--primary);font-size:12px"></i> آخر العمليات</div>';hist.forEach(function(tx,idx){var st=tx.status||'pending';var icMap={'approved':'fa-circle-check','pending':'fa-clock','rejected':'fa-circle-xmark'};var colMap={'approved':'green','pending':'orange','rejected':'red'};var lblMap={'approved':'مقبول','pending':'قيد المراجعة','rejected':'مرفوض'};h+='<div class="rch-tx" onclick="openTxDetail('+idx+')"><div class="rch-tx-ic '+st+'"><i class="fa-solid '+(icMap[st]||'fa-clock')+'"></i></div><div class="rch-tx-info"><div class="rch-tx-method">شحن — '+(tx.method||'غير محدد')+'</div><div class="rch-tx-date">'+(tx.date||'')+'</div></div><div class="rch-tx-right"><div class="rch-tx-amount '+(colMap[st]||'orange')+'">+$'+tx.amount.toFixed(2)+'</div><div class="rch-tx-status '+st+'">'+(lblMap[st]||tx.status)+'</div></div><div class="rch-tx-chev"><i class="fa-solid fa-chevron-left"></i></div></div>'})}
   document.getElementById('rchHistContent').innerHTML=h}catch(e){document.getElementById('rchHistContent').innerHTML='<div style="text-align:center;padding:30px;color:var(--text3)"><i class="fa-solid fa-wifi"></i><br>خطأ بالاتصال</div>'}}
@@ -6588,7 +6722,7 @@ function openTxDetail(idx){
     h+='</div>';
   }else if(tx.has_receipt){
     h+='<div class="txd-receipt"><div class="txd-receipt-lbl"><i class="fa-solid fa-receipt"></i> الإيصال / المرجع</div>';
-    h+='<div id="txReceipt_'+tx.id+'" style="text-align:center;padding:14px;color:var(--text3);font-size:11px"><i class="fa-solid fa-spinner fa-spin"></i> جاري تحميل الإيصال...</div>';
+    h+='<div id="txReceipt_'+tx.id+'" style="text-align:center;padding:14px;color:var(--text3);font-size:11px"><img class="fc-spin" src="/pwa-icon-192.png" alt=""> جاري تحميل الإيصال...</div>';
     h+='</div>';
   }
   h+='<div class="txd-tl"><div class="txd-tl-title"><i class="fa-solid fa-timeline"></i> مسار العملية</div>';
@@ -6632,7 +6766,7 @@ async function saveAccProfile(){
   // Client-side email format check (server still re-validates)
   var emailRe=/^[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}$/;
   if(!emailVal||!emailRe.test(emailVal)){toast('صيغة البريد الإلكتروني غير صحيحة','error');return}
-  btn.disabled=true;btn.innerHTML='<i class="fa-solid fa-spinner fa-spin"></i> جاري الحفظ...';
+  btn.disabled=true;btn.innerHTML='<img class="fc-spin" src="/pwa-icon-192.png" alt=""> جاري الحفظ...';
   try{var r=await fetch('/api/update-profile',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:document.getElementById('accNameInput').value,email:emailVal})});var d=await r.json();
   if(d.ok){
     toast(d.msg,'success');
@@ -6652,14 +6786,14 @@ async function confirmEmailChange(){
   var btn=document.getElementById('emailChangeConfirmBtn');var orig=btn.innerHTML;
   var code=(document.getElementById('emailChangeCode').value||'').trim();
   if(!/^[0-9]{6}$/.test(code)){toast('أدخل الرمز المكوّن من 6 أرقام','error');return}
-  btn.disabled=true;btn.innerHTML='<i class="fa-solid fa-spinner fa-spin"></i> جاري التأكيد...';
+  btn.disabled=true;btn.innerHTML='<img class="fc-spin" src="/pwa-icon-192.png" alt=""> جاري التأكيد...';
   try{var r=await fetch('/api/verify-email-change',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({code:code})});var d=await r.json();
   if(d.ok){toast(d.msg,'success');setTimeout(function(){location.reload()},1200)}
   else{toast(d.msg,'error')}}catch(e){toast('حدث خطأ','error')}finally{btn.disabled=false;btn.innerHTML=orig}
 }
 async function resendEmailChange(){
   var btn=document.getElementById('emailChangeResendBtn');var orig=btn.innerHTML;
-  btn.disabled=true;btn.innerHTML='<i class="fa-solid fa-spinner fa-spin"></i> جاري الإرسال...';
+  btn.disabled=true;btn.innerHTML='<img class="fc-spin" src="/pwa-icon-192.png" alt=""> جاري الإرسال...';
   try{var r=await fetch('/api/resend-email-change',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({})});var d=await r.json();
   if(d.ok){toast(d.msg,'success')}else{toast(d.msg,'error')}}catch(e){toast('حدث خطأ','error')}finally{btn.disabled=false;btn.innerHTML=orig}
 }
@@ -6668,7 +6802,7 @@ async function cancelEmailChange(){
   if(d.ok){toast(d.msg,'success');var p=document.getElementById('emailChangePanel');if(p)p.style.display='none'}}catch(e){}
 }
 async function saveAccPassword(){
-  var btn=document.getElementById('accSavePassBtn');var orig=btn.innerHTML;btn.disabled=true;btn.innerHTML='<i class="fa-solid fa-spinner fa-spin"></i> جاري التغيير...';
+  var btn=document.getElementById('accSavePassBtn');var orig=btn.innerHTML;btn.disabled=true;btn.innerHTML='<img class="fc-spin" src="/pwa-icon-192.png" alt=""> جاري التغيير...';
   var op=document.getElementById('accOldPass').value,np=document.getElementById('accNewPass').value,cp=document.getElementById('accConfPass').value;
   if(np!==cp){toast('كلمة المرور غير متطابقة','error');btn.disabled=false;btn.innerHTML=orig;return}
   try{var r=await fetch('/api/change-password',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({old_password:op,new_password:np,confirm_password:cp})});var d=await r.json();
@@ -7120,7 +7254,7 @@ window.saveAutoImportSettings=saveAutoImportSettings;
 async function runAutoImportNow(){
   var btn=document.getElementById('btnAutoImportRunNow');
   var st=document.getElementById('autoImportRunStatus');
-  var orig=btn.innerHTML;btn.disabled=true;btn.innerHTML='<i class="fa-solid fa-spinner fa-spin"></i> جاري الفحص...';
+  var orig=btn.innerHTML;btn.disabled=true;btn.innerHTML='<img class="fc-spin" src="/pwa-icon-192.png" alt=""> جاري الفحص...';
   st.style.display='none';
   try{
     var r=await fetch('/api/admin/auto-import/run-now',{method:'POST'});
@@ -7145,7 +7279,7 @@ window.runAutoImportNow=runAutoImportNow;
 async function testAiConnection(){
   var btn=document.getElementById('btnAiTestConn');
   var st=document.getElementById('aiTestConnStatus');
-  var orig=btn.innerHTML;btn.disabled=true;btn.innerHTML='<i class="fa-solid fa-spinner fa-spin"></i> جاري الاختبار...';
+  var orig=btn.innerHTML;btn.disabled=true;btn.innerHTML='<img class="fc-spin" src="/pwa-icon-192.png" alt=""> جاري الاختبار...';
   st.style.display='none';
   try{
     var r=await fetch('/api/admin/ai/test-connection',{method:'POST'});
@@ -7503,7 +7637,7 @@ async function submitCSOrder(sid){
     if(pid.length<2){toast('اكتب معرّف اللاعب (ID)','error');return}
     body.link=pid;body.comments=((document.getElementById('csNotes')||{}).value||'').trim();
   }
-  var btn=document.getElementById('csOrderBtn');btn.disabled=true;btn.innerHTML='<i class="fa-solid fa-spinner fa-spin"></i>';
+  var btn=document.getElementById('csOrderBtn');btn.disabled=true;btn.innerHTML='<img class="fc-spin" src="/pwa-icon-192.png" alt="">';
   try{
     var r=await fetch('/api/custom_order',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});var d=await r.json();
     if(d.ok){
@@ -7518,7 +7652,7 @@ async function submitCSOrder(sid){
   }catch(e){toast('خطأ','error')}
   btn.disabled=false;btn.innerHTML='<i class="fa-solid fa-shopping-cart"></i> '+(isGame?'اطلب الآن':'اطلب');
 }
-async function submitCSSocialOrder(sid){var link=(document.getElementById('csLink').value||'').trim();var qty=parseInt(document.getElementById('csQty').value||0);var cmts=(document.getElementById('csComments')||{}).value||'';if(!link||!qty){toast('عبّي الحقول','error');return}var btn=document.getElementById('csOrderBtn');btn.disabled=true;btn.innerHTML='<i class="fa-solid fa-spinner fa-spin"></i>';try{var r=await fetch('/api/custom_order',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({service_id:sid,link:link,quantity:qty,comments:cmts.trim()})});var d=await r.json();if(d.ok){toast('تم الطلب #'+d.order.id,'success');document.getElementById('customSvcsPage').classList.remove('show');if(d.balance!==undefined){var b=document.getElementById('hudBalVal');if(b){b.dataset.usd=d.balance;b.textContent='$'+parseFloat(d.balance).toFixed(2)}}if(d.ticket_id){setTimeout(function(){openTicket(d.ticket_id)},1500)}}else toast(d.error==='insufficient_balance'?'رصيد غير كافي':(d.error||'خطأ'),'error')}catch(e){toast('خطأ','error')}btn.disabled=false;btn.innerHTML='<i class="fa-solid fa-shopping-cart"></i> اطلب'}
+async function submitCSSocialOrder(sid){var link=(document.getElementById('csLink').value||'').trim();var qty=parseInt(document.getElementById('csQty').value||0);var cmts=(document.getElementById('csComments')||{}).value||'';if(!link||!qty){toast('عبّي الحقول','error');return}var btn=document.getElementById('csOrderBtn');btn.disabled=true;btn.innerHTML='<img class="fc-spin" src="/pwa-icon-192.png" alt="">';try{var r=await fetch('/api/custom_order',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({service_id:sid,link:link,quantity:qty,comments:cmts.trim()})});var d=await r.json();if(d.ok){toast('تم الطلب #'+d.order.id,'success');document.getElementById('customSvcsPage').classList.remove('show');if(d.balance!==undefined){var b=document.getElementById('hudBalVal');if(b){b.dataset.usd=d.balance;b.textContent='$'+parseFloat(d.balance).toFixed(2)}}if(d.ticket_id){setTimeout(function(){openTicket(d.ticket_id)},1500)}}else toast(d.error==='insufficient_balance'?'رصيد غير كافي':(d.error||'خطأ'),'error')}catch(e){toast('خطأ','error')}btn.disabled=false;btn.innerHTML='<i class="fa-solid fa-shopping-cart"></i> اطلب'}
 
 var _smmAllOrders=[],_smmFilter='all',_smmSearch='';
 var _smmStL={Completed:'مكتمل',Processing:'قيد التنفيذ',Pending:'معلّق','In progress':'جاري',Canceled:'ملغي',Partial:'جزئي',Error:'خطأ',Queued:'بانتظار الرصيد'};
@@ -7623,7 +7757,7 @@ async function loadAdminSMMOrders(){
 async function resendSMMOrder(oid){
   var card=document.getElementById('smmr_'+oid);if(!card)return;
   var btn=card.querySelector('.smm-row-resend');
-  if(btn){btn.disabled=true;btn.innerHTML='<i class="fa-solid fa-spinner fa-spin" style="font-size:10px"></i>'}
+  if(btn){btn.disabled=true;btn.innerHTML='<img class="fc-spin" src="/pwa-icon-192.png" alt="" style="width:10px;height:10px">'}
   try{
     var r=await fetch('/api/admin/order/resend',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({order_id:String(oid)})});
     var d=await r.json();
@@ -7663,7 +7797,7 @@ async function saveOrderStatusChange(){
   var newStatus=document.getElementById('ordStSelect').value;
   var refundWrap=document.getElementById('ordStRefundWrap');
   var refundAmount=refundWrap.style.display!=='none'?(parseFloat(document.getElementById('ordStRefundIn').value)||0):0;
-  btn.disabled=true;btn.innerHTML='<i class="fa-solid fa-spinner fa-spin"></i>';
+  btn.disabled=true;btn.innerHTML='<img class="fc-spin" src="/pwa-icon-192.png" alt="">';
   try{
     var r=await fetch('/api/admin/order/set-status',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:_ordSt.id,status:newStatus,refund_amount:refundAmount})});
     var d=await r.json();
@@ -8219,7 +8353,7 @@ async function smDoSync(force){
   var btn=document.getElementById('smSyncBtn');
   var st=document.getElementById('smSyncStatus');
   if(!btn)return;
-  btn.disabled=true;btn.innerHTML='<i class="fa-solid fa-spinner fa-spin"></i> جاري المزامنة...';
+  btn.disabled=true;btn.innerHTML='<img class="fc-spin" src="/pwa-icon-192.png" alt=""> جاري المزامنة...';
   if(st)st.innerHTML='';
   try{
     var r=await fetch('/api/admin/svc-mgmt/sync',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({force:!!force})});
@@ -8258,7 +8392,7 @@ function smResetAll(){
 }
 async function _smDoResetAll(){
   var btn=document.getElementById('smResetBtn');
-  if(btn){btn.disabled=true;btn.innerHTML='<i class="fa-solid fa-spinner fa-spin"></i> جاري المسح...';}
+  if(btn){btn.disabled=true;btn.innerHTML='<img class="fc-spin" src="/pwa-icon-192.png" alt=""> جاري المسح...';}
   try{
     var r=await fetch('/api/admin/svc-mgmt/reset-all',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({confirm:1})});
     var d=await r.json();
@@ -8384,7 +8518,7 @@ function renderSmAddedCats(el,cats,filters,q){
   el.innerHTML=h;
 }
 function renderSmHidden(el,q){
-  el.innerHTML='<div style="text-align:center;padding:20px;color:var(--text3);font-size:10px"><i class="fa-solid fa-spinner fa-spin"></i> جاري تحميل المخفية...</div>';
+  el.innerHTML='<div style="text-align:center;padding:20px;color:var(--text3);font-size:10px"><img class="fc-spin" src="/pwa-icon-192.png" alt=""> جاري تحميل المخفية...</div>';
   fetch('/api/admin/svc-mgmt/hidden').then(function(r){return r.json()}).then(function(d){
     if(!d.ok){el.innerHTML='<div style="text-align:center;padding:30px;color:var(--red)">خطأ بالتحميل</div>';return}
     var h='';
@@ -8454,7 +8588,7 @@ function renderSmHidden(el,q){
 }
 async function smRestore(type,key,platform,btn){
   var oldH=btn.innerHTML;
-  btn.disabled=true;btn.innerHTML='<i class="fa-solid fa-spinner fa-spin"></i>';
+  btn.disabled=true;btn.innerHTML='<img class="fc-spin" src="/pwa-icon-192.png" alt="">';
   try{
     var body={type:type};
     if(type==='platform')body.items=[{platform:platform}];
@@ -8531,7 +8665,7 @@ async function smDoReimportCategory(){
   var profit=parseFloat(document.getElementById('smReimpCatProfit').value)||0;
   var btn=document.getElementById('smReimpCatBtn');
   var oldHtml=btn.innerHTML;
-  btn.disabled=true;btn.innerHTML='<i class="fa-solid fa-spinner fa-spin"></i> جاري الاستيراد...';
+  btn.disabled=true;btn.innerHTML='<img class="fc-spin" src="/pwa-icon-192.png" alt=""> جاري الاستيراد...';
   var items=_smReimpCat.services.map(function(s){
     return {id:String(s.id),platform:_smReimpCat.platform,category:_smReimpCat.cat,prov_id:s.prov_id||0};
   });
@@ -8594,7 +8728,7 @@ function smwPrev(){
 }
 function smwLoadPlatforms(){
   var grid=document.getElementById('smwPlatGrid');
-  grid.innerHTML='<div class="smw-empty"><i class="fa-solid fa-spinner fa-spin"></i> جاري التحميل...</div>';
+  grid.innerHTML='<div class="smw-empty"><img class="fc-spin" src="/pwa-icon-192.png" alt=""> جاري التحميل...</div>';
   fetch('/api/admin/svc-mgmt/existing-platforms').then(function(r){return r.json()}).then(function(d){
     if(!d.ok){grid.innerHTML='<div class="smw-empty">غير مصرح</div>';return}
     var plats=d.platforms||[];
@@ -8719,7 +8853,7 @@ async function doSmImportSingle(){
   var cat=_smImpItem.cat;
   var btn=document.getElementById('smwConfirmBtn');
   var oldHtml=btn.innerHTML;
-  btn.disabled=true;btn.innerHTML='<i class="fa-solid fa-spinner fa-spin"></i> جاري الحفظ...';
+  btn.disabled=true;btn.innerHTML='<img class="fc-spin" src="/pwa-icon-192.png" alt=""> جاري الحفظ...';
   try{
     var r=await fetch('/api/admin/svc-mgmt/import',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({
       items:[{id:String(_smImpItem.id),platform:platform,category:cat,prov_id:_smImpItem.prov_id||0}],
@@ -8764,7 +8898,7 @@ function smDoDel(){
   if(!_smDelTarget)return;
   var t=_smDelTarget;
   var btn=document.getElementById('smDelConfirm');
-  if(btn){btn.disabled=true;btn.innerHTML='<i class="fa-solid fa-spinner fa-spin"></i> جاري الحذف...'}
+  if(btn){btn.disabled=true;btn.innerHTML='<img class="fc-spin" src="/pwa-icon-192.png" alt=""> جاري الحذف...'}
   fetch('/api/admin/svc-mgmt/delete',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({type:t.type,items:[{key:t.key,platform:t.platform}]})})
   .then(function(r){return r.json()}).then(function(d){
     if(btn){btn.disabled=false;btn.innerHTML='<i class="fa-solid fa-trash"></i> حذف نهائياً'}
@@ -8817,7 +8951,7 @@ async function loadAdminRefill(){
   }catch(e){el.innerHTML='<div style="text-align:center;padding:30px;color:var(--red)">خطأ في التحميل</div>'}
 }
 async function runAutoRefillNow(btn){
-  btn.disabled=true;btn.innerHTML='<span class="spinner"></span> جاري التشغيل...';
+  btn.disabled=true;btn.innerHTML=fcSpinnerHTML()+' جاري التشغيل...';
   try{
     var r=await fetch('/api/admin/auto_refill',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'run_now'})});
     var d=await r.json();
@@ -9270,7 +9404,7 @@ function uploadPwaIcon(input){
   if(file.size>5*1024*1024){toast('الملف كبير جداً — الحد 5MB','error');input.value='';return;}
   var prev=document.getElementById('pwaIconPreview');
   var origHtml=prev.innerHTML;
-  prev.innerHTML='<i class="fa-solid fa-spinner fa-spin"></i>';
+  prev.innerHTML='<img class="fc-spin" src="/pwa-icon-192.png" alt="">';
   var fd=new FormData();fd.append('icon',file);
   fetch('/api/admin/upload-pwa-icon',{method:'POST',body:fd}).then(function(r){return r.json()}).then(function(d){
     if(d.ok){
@@ -9353,7 +9487,7 @@ function doBackupNow(){
 function sendBackupTG(){
   var st=document.getElementById('tgSendStatus');
   st.style.display='block';st.style.background='rgba(59,130,246,.08)';st.style.color='#3b82f6';st.style.border='1px solid rgba(59,130,246,.15)';
-  st.innerHTML='<i class="fa-solid fa-spinner fa-spin"></i> جاري الإرسال للتلغرام... انتظر';
+  st.innerHTML='<img class="fc-spin" src="/pwa-icon-192.png" alt=""> جاري الإرسال للتلغرام... انتظر';
   fetch('/api/admin/send-backup-tg',{method:'POST'}).then(function(r){return r.json()}).then(function(d){
     if(d.ok){st.style.background='rgba(16,185,129,.08)';st.style.color='#10b981';st.style.border='1px solid rgba(16,185,129,.15)';st.innerHTML='<i class="fa-solid fa-check-circle"></i> تم إرسال النسخة للتلغرام: '+d.name;toast('تم الإرسال للتلغرام','success')}
     else{st.style.background='rgba(239,68,68,.08)';st.style.color='#ef4444';st.style.border='1px solid rgba(239,68,68,.15)';st.innerHTML='<i class="fa-solid fa-times-circle"></i> '+(d.error||'فشل الإرسال')}
@@ -9362,7 +9496,7 @@ function sendBackupTG(){
 }
 function loadProviderBalance(){
   var vEl=document.getElementById('provBalVal');var tEl=document.getElementById('provBalTime');
-  if(vEl)vEl.textContent='...';if(tEl)tEl.innerHTML='<i class="fa-solid fa-spinner fa-spin"></i> جاري التحميل...';
+  if(vEl)vEl.textContent='...';if(tEl)tEl.innerHTML='<img class="fc-spin" src="/pwa-icon-192.png" alt=""> جاري التحميل...';
   fetch('/api/admin/provider-balance').then(function(r){return r.json()}).then(function(d){
     if(d.ok){if(vEl)vEl.textContent='$'+parseFloat(d.balance).toFixed(2);if(tEl)tEl.innerHTML='<i class="fa-solid fa-rotate"></i> آخر تحديث: الآن'}
     else{if(vEl)vEl.textContent='خطأ';if(tEl)tEl.innerHTML='<i class="fa-solid fa-exclamation-triangle"></i> '+(d.error||'فشل الاتصال')}
@@ -9398,7 +9532,7 @@ var _provCatIcons={'Instagram':'fa-brands fa-instagram','TikTok':'fa-brands fa-t
 var _provCatColors={'Instagram':'linear-gradient(135deg,#E1306C,#F77737)','TikTok':'linear-gradient(135deg,#010101,#69C9D0)','YouTube':'linear-gradient(135deg,#FF0000,#FF4444)','Facebook':'linear-gradient(135deg,#1877F2,#42A5F5)','Twitter / X':'linear-gradient(135deg,#000,#333)','Telegram':'linear-gradient(135deg,#0088cc,#33b5e5)','Snapchat':'linear-gradient(135deg,#FFFC00,#FFE500)','WhatsApp':'linear-gradient(135deg,#25D366,#128C7E)','Threads':'linear-gradient(135deg,#000,#444)','Spotify':'linear-gradient(135deg,#1DB954,#1ED760)','Discord':'linear-gradient(135deg,#5865F2,#7289DA)','LinkedIn':'linear-gradient(135deg,#0A66C2,#2996E8)','Twitch':'linear-gradient(135deg,#9146FF,#A970FF)','Google':'linear-gradient(135deg,#4285F4,#34A853)','SoundCloud':'linear-gradient(135deg,#FF5500,#FF8800)','Pinterest':'linear-gradient(135deg,#E60023,#FF3344)','Other':'linear-gradient(135deg,var(--primary),#06b6d4)'};
 function fetchProviderCategories(){
   var box=document.getElementById('provCatResult');if(!box)return;
-  box.innerHTML='<div style="text-align:center;padding:24px;color:var(--text3);font-size:12px"><i class="fa-solid fa-spinner fa-spin" style="font-size:18px;display:block;margin-bottom:8px"></i>جاري جلب الفئات من API...</div>';
+  box.innerHTML='<div style="text-align:center;padding:24px;color:var(--text3);font-size:12px"><img class="fc-spin" src="/pwa-icon-192.png" alt="" style="width:18px;height:18px;display:block;margin:0 auto 8px">جاري جلب الفئات من API...</div>';
   fetch('/api/admin/provider-categories').then(function(r){return r.json()}).then(function(d){
     if(!d.ok){box.innerHTML='<div style="text-align:center;padding:20px;color:var(--red);font-size:12px;background:rgba(239,68,68,.06);border-radius:12px"><i class="fa-solid fa-exclamation-triangle" style="font-size:18px;display:block;margin-bottom:6px"></i>'+(d.error||'فشل جلب البيانات')+'</div>';return}
     var plats=d.platforms;var keys=Object.keys(plats);
@@ -9528,7 +9662,7 @@ function redeemCoupon(){
   var res=document.getElementById('couponResult');res.style.display='none';
   var btn=document.getElementById('couponBtn');
   var origBtn=btn.innerHTML;
-  btn.classList.add('loading');btn.innerHTML='<i class="fa-solid fa-spinner fa-spin"></i>';
+  btn.classList.add('loading');btn.innerHTML='<img class="fc-spin" src="/pwa-icon-192.png" alt="">';
   fetch('/api/redeem-coupon',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({code:code})}).then(function(r){return r.json()}).then(function(d){
     btn.classList.remove('loading');btn.innerHTML=origBtn;
     res.style.display='flex';
@@ -9553,7 +9687,7 @@ function redeemGift(){
   var res=document.getElementById('giftResult');res.style.display='none';
   var btn=document.getElementById('giftBtn');
   var origBtn=btn.innerHTML;
-  btn.innerHTML='<i class="fa-solid fa-spinner fa-spin"></i>';btn.style.pointerEvents='none';
+  btn.innerHTML='<img class="fc-spin" src="/pwa-icon-192.png" alt="">';btn.style.pointerEvents='none';
   fetch('/api/redeem-coupon',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({code:code})}).then(function(r){return r.json()}).then(function(d){
     btn.innerHTML=origBtn;btn.style.pointerEvents='';
     res.style.display='flex';
@@ -9751,7 +9885,7 @@ function closeReviewModal(){
 }
 function submitReview(){
   var btn=document.getElementById('rvSubmitBtn');btn.disabled=true;
-  btn.innerHTML='<i class="fa-solid fa-spinner fa-spin"></i> جاري الإرسال...';
+  btn.innerHTML='<img class="fc-spin" src="/pwa-icon-192.png" alt=""> جاري الإرسال...';
   fetch('/api/reviews',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({stars:_rvStars,text:document.getElementById('rvTextarea').value.trim()})})
   .then(function(r){
     if(r.status===401){toast('سجّل دخول أولاً','error');throw new Error('skip')}
@@ -9848,7 +9982,7 @@ var _provColors=['linear-gradient(135deg,#6366f1,#818cf8)','linear-gradient(135d
 
 function loadProviders(){
   var list=document.getElementById('provList');
-  list.innerHTML='<div style="text-align:center;padding:20px;color:var(--text3);font-size:10px"><i class="fa-solid fa-spinner fa-spin"></i> جاري التحميل...</div>';
+  list.innerHTML='<div style="text-align:center;padding:20px;color:var(--text3);font-size:10px"><img class="fc-spin" src="/pwa-icon-192.png" alt=""> جاري التحميل...</div>';
   fetch('/api/admin/providers').then(function(r){return r.json()}).then(function(d){
     if(!d.ok)return;
     _provData=d.providers||[];
@@ -9943,7 +10077,7 @@ function saveProvider(){
   var url=document.getElementById('provUrl').value.trim();
   var key=document.getElementById('provKey').value.trim();
   if(!name){toast('أدخل اسم المزود','error');return}
-  var btn=document.getElementById('provSaveBtn');btn.disabled=true;btn.innerHTML='<i class="fa-solid fa-spinner fa-spin"></i>';
+  var btn=document.getElementById('provSaveBtn');btn.disabled=true;btn.innerHTML='<img class="fc-spin" src="/pwa-icon-192.png" alt="">';
   var endpoint=id?'/api/admin/providers/update':'/api/admin/providers/add';
   var body=id?{id:id,name:name,api_url:url,api_key:key}:{name:name,api_url:url,api_key:key};
   var _t=setTimeout(function(){btn.disabled=false;btn.innerHTML='<i class="fa-solid fa-check"></i> حفظ';toast('انتهت المهلة — حاول مرة أخرى','error')},15000);
@@ -9958,7 +10092,7 @@ function testProvider(){
   var key=document.getElementById('provKey').value.trim();
   var res=document.getElementById('provTestResult');
   var btn=document.getElementById('provTestBtn');
-  btn.disabled=true;btn.innerHTML='<i class="fa-solid fa-spinner fa-spin"></i>';
+  btn.disabled=true;btn.innerHTML='<img class="fc-spin" src="/pwa-icon-192.png" alt="">';
   var _t=setTimeout(function(){btn.disabled=false;btn.innerHTML='<i class="fa-solid fa-vial"></i> فحص';res.style.display='block';res.style.background='rgba(239,68,68,.08)';res.style.color='var(--red)';res.style.border='1px solid rgba(239,68,68,.12)';res.textContent='✗ انتهت المهلة'},12000);
   fetch('/api/admin/providers/test',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({api_url:url,api_key:key})})
   .then(function(r){if(!r.ok)throw new Error('HTTP '+r.status);return r.json()}).then(function(d){
@@ -10281,7 +10415,7 @@ async function loadAccSecurity(){
 window.loadAccSecurity=loadAccSecurity;
 function openSessionsPage(){document.getElementById('sessionsPage').classList.add('show');renderSessionsPage()}
 async function renderSessionsPage(){
-  var el=document.getElementById('sessionsBody');el.innerHTML='<div class="loading" style="padding:30px;text-align:center"><i class="fa-solid fa-spinner fa-spin"></i></div>';
+  var el=document.getElementById('sessionsBody');el.innerHTML='<div class="loading" style="padding:30px;text-align:center"><img class="fc-spin" src="/pwa-icon-192.png" alt=""></div>';
   await loadAccSecurity();var d=_secState;if(!d){el.innerHTML='<div style="text-align:center;padding:30px;color:var(--text3)">تعذّر التحميل</div>';return}
   var cur=d.sessions.filter(function(x){return x.current})[0],others=d.sessions.filter(function(x){return !x.current});
   var h='';
@@ -10306,7 +10440,7 @@ window.openSessionsPage=openSessionsPage;window.revokeSession=revokeSession;wind
 function _loadQrLib(){return new Promise(function(res,rej){if(window.qrcode)return res();var sc=document.createElement('script');sc.src='/assets/qrcode.js';sc.onload=res;sc.onerror=rej;document.head.appendChild(sc)})}
 async function openTwofaPage(){
   document.getElementById('twofaPage').classList.add('show');
-  var el=document.getElementById('twofaBody');el.innerHTML='<div class="loading" style="padding:30px;text-align:center"><i class="fa-solid fa-spinner fa-spin"></i></div>';
+  var el=document.getElementById('twofaBody');el.innerHTML='<div class="loading" style="padding:30px;text-align:center"><img class="fc-spin" src="/pwa-icon-192.png" alt=""></div>';
   await loadAccSecurity();var d=_secState;if(!d){el.innerHTML='<div style="text-align:center;padding:30px;color:var(--text3)">تعذّر التحميل</div>';return}
   if(d.twofa.enabled)return renderTwofaOn(d);
   var st=await _secPost('/api/account/2fa/setup');if(!st.ok){el.innerHTML='<div style="text-align:center;padding:30px;color:var(--text3)">'+esc(st.msg||'خطأ')+'</div>';return}
