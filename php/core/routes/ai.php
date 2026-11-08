@@ -1,15 +1,15 @@
 <?php
 /**
- * المساعد الذكي (NVIDIA API): نداء الخدمة + سياق الحساب/الخدمات/طرق الدفع + المحادثات
- * منقول من app.py:4183-4462.
+ * المساعد الذكي (DeepSeek API): نداء الخدمة + سياق الحساب/الخدمات/طرق الدفع + المحادثات
+ * منقول من app.py:4183-4462. استُبدل مزوّد NVIDIA بـ DeepSeek (واجهة متوافقة مع OpenAI أيضاً).
  */
 
-const AI_API_BASE = 'https://integrate.api.nvidia.com/v1/chat/completions';
+const AI_API_BASE = 'https://api.deepseek.com/chat/completions';
 
 /** @return array [reply|null, error|null] */
 function call_ai_api(array $messages): array {
-    $api_key = get_setting('nvidia_api_key', '');
-    $model = py_or(get_setting('nvidia_model', 'openai/gpt-oss-20b'), 'openai/gpt-oss-20b');
+    $api_key = get_setting('deepseek_api_key', '');
+    $model = py_or(get_setting('deepseek_model', 'deepseek-chat'), 'deepseek-chat');
     if (!py_truthy($api_key)) {
         return [null, 'لم يتم إعداد مفتاح المساعد الذكي بعد. الرجاء التواصل مع الإدارة.'];
     }
@@ -26,7 +26,7 @@ function call_ai_api(array $messages): array {
             ]);
             break;
         } catch (RequestsTimeoutT $e) {
-            // يُسجَّل في data/logs/app_errors.log — يفيد لتمييز "المزوّد بطيء فعلاً" عن "الخادم لا يصل لعنوان integrate.api.nvidia.com أصلاً"
+            // يُسجَّل في data/logs/app_errors.log — يفيد لتمييز "المزوّد بطيء فعلاً" عن "الخادم لا يصل لعنوان api.deepseek.com أصلاً"
             // (مثلاً استضافة تحجب الاتصال الصادر لعناوين خارجية): كلاهما يظهر للمستخدم بنفس رسالة المهلة، لكن السجل يفرّق بينهما.
             log_app_error('WARNING', 'ai: ' . get_class($e) . ': ' . $e->getMessage());
             return [null, 'استغرق رد المساعد الذكي وقتاً أطول من المعتاد، حاول مرة أخرى.'];
@@ -59,8 +59,8 @@ function call_ai_api(array $messages): array {
 
 /** @return array [bool, string] */
 function _check_ai_connectivity(): array {
-    $api_key = get_setting('nvidia_api_key', '');
-    $model = py_or(get_setting('nvidia_model', 'openai/gpt-oss-20b'), 'openai/gpt-oss-20b');
+    $api_key = get_setting('deepseek_api_key', '');
+    $model = py_or(get_setting('deepseek_model', 'deepseek-chat'), 'deepseek-chat');
     if (!py_truthy($api_key)) {
         return [false, 'لم يتم إعداد مفتاح API الخاص بالمساعد الذكي بعد من لوحة الإدارة.'];
     }
@@ -81,7 +81,7 @@ function _check_ai_connectivity(): array {
         return [false, 'خطأ غير متوقع أثناء الاتصال: ' . py_slice($e->getMessage(), null, 150)];
     }
     if ($resp->status_code == 200) return [true, 'الاتصال يعمل بشكل طبيعي.'];
-    if ($resp->status_code == 401) return [false, 'مفتاح API غير صحيح أو منتهي الصلاحية (خطأ 401) — أنشئ مفتاحاً جديداً من build.nvidia.com.'];
+    if ($resp->status_code == 401) return [false, 'مفتاح API غير صحيح أو منتهي الصلاحية (خطأ 401) — أنشئ مفتاحاً جديداً من platform.deepseek.com.'];
     if ($resp->status_code == 402) return [false, 'رصيد الحساب غير كافٍ (خطأ 402).'];
     if ($resp->status_code == 429) return [false, 'تجاوزت الحد المسموح من الطلبات حالياً (خطأ 429) — عادة مؤقت، أعد المحاولة بعد قليل.'];
     return [false, 'الخدمة رجّعت رمز غير متوقع: ' . $resp->status_code . ' — ' . py_slice($resp->text, null, 150)];

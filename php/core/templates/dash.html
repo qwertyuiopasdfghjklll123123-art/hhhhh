@@ -508,6 +508,16 @@ html:not([data-theme="dark"]) .ai-cs-card::after{background:linear-gradient(105d
 .od-act-reorder{background:var(--primary);color:#fff;box-shadow:0 3px 12px rgba(108,92,231,.3)}
 .od-act-support{background:var(--card);color:var(--text);border:1px solid var(--card-border)}
 .od-act-support i{color:var(--green)}
+.od-act-export{background:var(--card);color:var(--text);border:1px solid var(--card-border)}
+.od-act-export i{color:var(--primary)}
+.od-share-card{background:var(--card);border-radius:16px;overflow:hidden;margin-bottom:8px}
+.od-brand-strip{display:flex;align-items:center;gap:8px;padding:10px 14px;background:linear-gradient(135deg,var(--primary),var(--primary-light,var(--primary)))}
+.od-brand-strip img{width:22px;height:22px;border-radius:6px;object-fit:cover;flex-shrink:0}
+.od-brand-strip span{font-size:12px;font-weight:800;color:#fff}
+.od-share-card .od-head,.od-share-card .od-timeline,.od-share-card .od-stats,.od-share-card .od-prog,.od-share-card .od-link-card{border-radius:0;border-left:none;border-right:none;margin-bottom:0;border-top:none}
+.od-share-card>.od-head{border-top:none}
+.od-share-card .od-link-card{border-bottom:none}
+.od-foot-tag{text-align:center;padding:9px;font-size:10px;font-weight:700;color:var(--text3);background:var(--card)}
 @media(min-width:768px){.od-body{max-width:520px;margin:0 auto;padding:16px 20px 40px}.od-head{padding:18px 16px}.od-svc{font-size:12px}.od-stats{grid-template-columns:repeat(4,1fr);gap:8px}.od-stat{padding:12px 8px}.od-stat-val{font-size:15px}.od-stat-label{font-size:8px}.od-stat-icon{width:26px;height:26px;font-size:10px}.od-act-btn{padding:12px 10px;font-size:11px;border-radius:12px}}
 /* FLOATING NAV - mobile only */
 .bottom-nav{position:fixed;bottom:0;left:0;right:0;z-index:300;padding:0;padding-bottom:env(safe-area-inset-bottom);display:none;pointer-events:none}
@@ -3327,7 +3337,7 @@ html[dir="ltr"] body{text-align:left}
       <div class="set-item" onclick="openAdmOV('couponPage');loadCoupons();loadDailyGiftAdmin();loadDailyBonusSettings()"><div class="set-ic" style="background:rgba(236,72,153,.1);color:#ec4899"><i class="fa-solid fa-gift"></i></div><div class="set-info"><div class="set-name">كوبونات الهدية</div><div class="set-desc">إنشاء كوبونات مجانية للمستخدمين</div></div><i class="fa-solid fa-chevron-left set-arr"></i></div>
       <div class="set-item" onclick="openAdmOV('reviewsAdmPage');loadAdminReviews()"><div class="set-ic" style="background:rgba(245,158,11,.1);color:#f59e0b"><i class="fa-solid fa-star"></i></div><div class="set-info"><div class="set-name">إدارة التقييمات</div><div class="set-desc">عرض وإخفاء تقييمات العملاء</div></div><i class="fa-solid fa-chevron-left set-arr"></i></div>
       <div class="set-item" onclick="openAdmOV('currencyPage');loadCurrencySettings()"><div class="set-ic" style="background:rgba(245,158,11,.1);color:#f59e0b"><i class="fa-solid fa-coins"></i></div><div class="set-info"><div class="set-name">أسعار صرف العملات</div><div class="set-desc">تحكم بأسعار الصرف المعروضة للمستخدمين</div></div><i class="fa-solid fa-chevron-left set-arr"></i></div>
-      <div class="set-item" onclick="openAdmOV('aiSettingsPage');loadAiSettings()"><div class="set-ic" style="background:var(--primary-bg);color:var(--primary)"><i class="fa-solid fa-robot"></i></div><div class="set-info"><div class="set-name">المساعد الذكي (AI)</div><div class="set-desc">مفتاح NVIDIA API الذي يشغّل مساعد الدردشة</div></div><i class="fa-solid fa-chevron-left set-arr"></i></div>
+      <div class="set-item" onclick="openAdmOV('aiSettingsPage');loadAiSettings()"><div class="set-ic" style="background:var(--primary-bg);color:var(--primary)"><i class="fa-solid fa-robot"></i></div><div class="set-info"><div class="set-name">المساعد الذكي (AI)</div><div class="set-desc">مفتاح DeepSeek API الذي يشغّل مساعد الدردشة</div></div><i class="fa-solid fa-chevron-left set-arr"></i></div>
       <div class="set-item" onclick="openAdmOV('autoImportPage');loadAutoImportSettings()"><div class="set-ic" style="background:rgba(16,185,129,.1);color:var(--green)"><i class="fa-solid fa-cloud-arrow-down"></i></div><div class="set-info"><div class="set-name">الاستيراد التلقائي للخدمات</div><div class="set-desc">يفحص المزوّدين كل 6 ساعات ويضيف الخدمات الجديدة تلقائياً</div></div><i class="fa-solid fa-chevron-left set-arr"></i></div>
       <div class="set-item" onclick="openAdmOV('googlePage');loadGoogleSettings()"><div class="set-ic" style="background:rgba(66,133,244,.1);color:#4285F4"><i class="fa-brands fa-google"></i></div><div class="set-info"><div class="set-name">تسجيل Google</div><div class="set-desc">ربط تسجيل الدخول بحساب Google</div></div><i class="fa-solid fa-chevron-left set-arr"></i></div>
       <div class="set-item" onclick="openAdmOV('sitePoliciesPage');loadSitePolicies()"><div class="set-ic" style="background:rgba(37,211,102,.1);color:#25d366"><i class="fa-brands fa-whatsapp"></i></div><div class="set-info"><div class="set-name">الدعم والسياسات</div><div class="set-desc">رقم واتساب، الشروط والأحكام، سياسة الخصوصية</div></div><i class="fa-solid fa-chevron-left set-arr"></i></div>
@@ -3767,7 +3777,7 @@ html[dir="ltr"] body{text-align:left}
 <div class="overlay-page admin-only" id="aiSettingsPage">
   <div class="ov-topbar"><button class="ov-back" onclick="document.getElementById('aiSettingsPage').classList.remove('show')"><i class="fa-solid fa-arrow-right"></i></button><div class="ov-title"><i class="fa-solid fa-robot"></i> المساعد الذكي (AI)</div></div>
   <div class="ov-body">
-    <div style="text-align:center;padding:8px 0 16px"><div id="aiIconPreview" style="width:52px;height:52px;border-radius:50%;overflow:hidden;display:inline-flex;align-items:center;justify-content:center;margin-bottom:8px"><img src="__AI_ICON__" alt="" style="width:100%;height:100%;object-fit:contain"></div><div style="font-size:15px;font-weight:800">مساعد الذكاء الاصطناعي</div><div style="font-size:10px;color:var(--text3)">يعمل عبر NVIDIA API — يجاوب المستخدمين عن الخدمات، الطلبات، والرصيد</div></div>
+    <div style="text-align:center;padding:8px 0 16px"><div id="aiIconPreview" style="width:52px;height:52px;border-radius:50%;overflow:hidden;display:inline-flex;align-items:center;justify-content:center;margin-bottom:8px"><img src="__AI_ICON__" alt="" style="width:100%;height:100%;object-fit:contain"></div><div style="font-size:15px;font-weight:800">مساعد الذكاء الاصطناعي</div><div style="font-size:10px;color:var(--text3)">يعمل عبر DeepSeek API — يجاوب المستخدمين عن الخدمات، الطلبات، والرصيد</div></div>
     <div style="background:var(--card);border:1px solid var(--card-border);border-radius:14px;padding:16px;margin-bottom:12px">
       <div class="sec-label"><i class="fa-solid fa-image"></i> أيقونة المساعد الذكي</div>
       <div onclick="document.getElementById('aiIconFileIn').click()" style="width:100%;padding:16px;border:2px dashed var(--card-border);border-radius:14px;text-align:center;cursor:pointer;background:var(--input-bg)">
@@ -3776,10 +3786,10 @@ html[dir="ltr"] body{text-align:left}
       </div>
     </div>
     <div style="background:var(--card);border:1px solid var(--card-border);border-radius:14px;padding:16px;margin-bottom:12px">
-      <div class="field-group"><div class="field-label"><i class="fa-solid fa-key"></i> NVIDIA API Key</div><input type="text" class="text-input" id="nvidiaKeyIn" placeholder="nvapi-xxxxxxxxxxxxxxxx" dir="ltr" style="text-align:left;font-family:var(--font-num);font-size:11px"></div>
-      <div class="field-group" style="margin-bottom:0"><div class="field-label"><i class="fa-solid fa-microchip"></i> الموديل</div><input type="text" class="text-input" id="nvidiaModelIn" placeholder="openai/gpt-oss-20b" dir="ltr" style="text-align:left;font-family:var(--font-num);font-size:11px"></div>
+      <div class="field-group"><div class="field-label"><i class="fa-solid fa-key"></i> DeepSeek API Key</div><input type="text" class="text-input" id="deepseekKeyIn" placeholder="sk-xxxxxxxxxxxxxxxx" dir="ltr" style="text-align:left;font-family:var(--font-num);font-size:11px"></div>
+      <div class="field-group" style="margin-bottom:0"><div class="field-label"><i class="fa-solid fa-microchip"></i> الموديل</div><input type="text" class="text-input" id="deepseekModelIn" placeholder="deepseek-chat" dir="ltr" style="text-align:left;font-family:var(--font-num);font-size:11px"></div>
     </div>
-    <div style="padding:10px 14px;border-radius:10px;background:var(--primary-bg);border:1px solid var(--card-border);font-size:10px;color:var(--text2);line-height:1.8;font-weight:600;margin-bottom:12px"><i class="fa-solid fa-lightbulb"></i> احصل على مفتاح API مجاني من <a href="https://build.nvidia.com" target="_blank" style="color:var(--primary);font-weight:800">build.nvidia.com</a> — المساعد لن يعمل للمستخدمين قبل إدخال مفتاح صالح هنا.</div>
+    <div style="padding:10px 14px;border-radius:10px;background:var(--primary-bg);border:1px solid var(--card-border);font-size:10px;color:var(--text2);line-height:1.8;font-weight:600;margin-bottom:12px"><i class="fa-solid fa-lightbulb"></i> احصل على مفتاح API من <a href="https://platform.deepseek.com" target="_blank" style="color:var(--primary);font-weight:800">platform.deepseek.com</a> — المساعد لن يعمل للمستخدمين قبل إدخال مفتاح صالح هنا.</div>
     <div id="aiTestConnStatus" style="display:none;margin-bottom:12px;font-size:11px;padding:10px 14px;border-radius:10px;background:var(--input-bg);color:var(--text2);line-height:1.7"></div>
     <button onclick="testAiConnection()" id="btnAiTestConn" class="btn-primary" style="background:var(--card);color:var(--primary);border:1.5px solid var(--primary);box-shadow:none;margin-bottom:12px"><i class="fa-solid fa-satellite-dish"></i> اختبار الاتصال الآن</button>
     <div style="background:var(--card);border:1px solid var(--card-border);border-radius:14px;padding:16px;margin-bottom:12px">
@@ -5096,15 +5106,56 @@ print(r.json())</pre>
     var _sn=(o.service_name||'').toLowerCase();var _detPlat='Other';
     var _platMap={'Instagram':['instagram','انستقرام','انستغرام','انستا','إنستجرام','انستجرام','إنستقرام','إنستغرام','insta'],'TikTok':['tiktok','تيك توك','تيكتوك'],'YouTube':['youtube','يوتيوب'],'Facebook':['facebook','فيسبوك'],'Twitter / X':['twitter','تويتر','x.com'],'Telegram':['telegram','تيليجرام','تلجرام','تليجرام'],'Snapchat':['snapchat','سناب'],'WhatsApp':['whatsapp','واتساب'],'Threads':['threads','ثريدز'],'Spotify':['spotify','سبوتيفاي'],'Discord':['discord','ديسكورد'],'LinkedIn':['linkedin','لينكدان'],'Twitch':['twitch','تويتش'],'Google':['google','جوجل','reviews'],'SoundCloud':['soundcloud'],'Pinterest':['pinterest']};
     for(var _pk in _platMap){for(var _ki=0;_ki<_platMap[_pk].length;_ki++){if(_sn.indexOf(_platMap[_pk][_ki])!==-1){_detPlat=_pk;break}}if(_detPlat!=='Other')break}
-    return '<div class="od-head"><div class="od-av"><i class="fa-solid fa-bag-shopping"></i></div><div class="od-head-info"><div class="od-svc">'+(o.service_name||'خدمة #'+o.service)+'</div><div class="od-chips"><div class="od-chip">#'+(o.order||('L'+o.id))+'</div><div class="od-chip">'+_detPlat+'</div><div class="od-chip '+stClass+'">'+(statusAr2[status]||status)+'</div></div></div></div>'+
-      '<div class="od-timeline"><div class="od-tl-step '+tl1+'"><div class="od-tl-dot"><i class="fa-solid fa-check"></i></div><div class="od-tl-label">تم الطلب</div></div><div class="od-tl-line '+tlLine1+'"></div><div class="od-tl-step '+tl2+'"><div class="od-tl-dot"><i class="fa-solid fa-clock"></i></div><div class="od-tl-label">قيد التنفيذ</div></div><div class="od-tl-line '+tlLine2+'"></div><div class="od-tl-step '+tl3+'"><div class="od-tl-dot"><i class="fa-solid '+(isCanceled?'fa-xmark':'fa-flag-checkered')+'"></i></div><div class="od-tl-label">'+(isCanceled?'ملغاة':'مكتمل')+'</div></div></div>'+
-      '<div class="od-stats"><div class="od-stat"><div class="od-stat-icon"><i class="fa-solid fa-hashtag"></i></div><div class="od-stat-label">الكمية</div><div class="od-stat-val">'+(o.quantity||'—')+'</div></div><div class="od-stat"><div class="od-stat-icon ic-price"><i class="fa-solid fa-tag"></i></div><div class="od-stat-label">السعر</div><div class="od-stat-val price" data-usd="'+charge+'">'+fmtP(charge)+'</div></div><div class="od-stat"><div class="od-stat-icon ic-start"><i class="fa-solid fa-play"></i></div><div class="od-stat-label">بداية العدد</div><div class="od-stat-val">'+startCount+'</div></div><div class="od-stat"><div class="od-stat-icon ic-remain"><i class="fa-solid fa-hourglass-half"></i></div><div class="od-stat-label">المتبقي</div><div class="od-stat-val">'+remains+'</div></div></div>'+
-      '<div class="od-prog"><div class="od-prog-row"><div class="od-prog-bar"><div class="od-prog-fill" style="width:'+progress+'%"></div></div><div class="od-prog-pct">'+progress+'%</div></div></div>'+
-      '<div class="od-link-card"><div class="od-link-row"><div class="od-link-icon"><i class="fa-solid fa-link"></i></div><div class="od-link-url">'+(o.link||'—')+'</div></div><button class="od-copy-btn" onclick="navigator.clipboard.writeText(\''+(o.link||'')+'\');toast(\'تم النسخ\',\'success\')"><i class="fa-regular fa-copy"></i> <span>نسخ الرابط</span></button></div>'+
+    var _hasStartRemain=(startCount!=='—'||remains!=='—');
+    // أسماء الخدمات من المزوّد تكون عادة لاتينية بالكامل (أقواس/رموز)؛ نفرض اتجاه LTR عليها فقط حينها
+    // كي لا ينقلب ترتيب الأقواس بصورة التصدير (خلل معروف بمكتبة html2canvas مع النص ثنائي الاتجاه)
+    var _svcDir=/^[\x00-\x7F\s]*$/.test(o.service_name||'')?' dir="ltr" style="text-align:center"':'';
+    var _statsHtml='<div class="od-stat"><div class="od-stat-icon"><i class="fa-solid fa-hashtag"></i></div><div class="od-stat-label">الكمية</div><div class="od-stat-val">'+(o.quantity||'—')+'</div></div><div class="od-stat"><div class="od-stat-icon ic-price"><i class="fa-solid fa-tag"></i></div><div class="od-stat-label">السعر</div><div class="od-stat-val price" data-usd="'+charge+'">'+fmtP(charge)+'</div></div>'
+      +(_hasStartRemain?'<div class="od-stat"><div class="od-stat-icon ic-start"><i class="fa-solid fa-play"></i></div><div class="od-stat-label">بداية العدد</div><div class="od-stat-val">'+startCount+'</div></div><div class="od-stat"><div class="od-stat-icon ic-remain"><i class="fa-solid fa-hourglass-half"></i></div><div class="od-stat-label">المتبقي</div><div class="od-stat-val">'+remains+'</div></div>':'');
+    return '<div class="od-share-card" id="odShareCard" data-oid="'+esc(String(o.order||o.id||''))+'">'
+      +'<div class="od-brand-strip"><img src="/pwa-icon-192.png" alt=""><span>__SITE_NAME__</span></div>'
+      +'<div class="od-head"><div class="od-av"><i class="fa-solid fa-bag-shopping"></i></div><div class="od-head-info"><div class="od-svc"'+_svcDir+'>'+(o.service_name||'خدمة #'+o.service)+'</div><div class="od-chips"><div class="od-chip">#'+(o.order||('L'+o.id))+'</div><div class="od-chip">'+_detPlat+'</div><div class="od-chip '+stClass+'">'+(statusAr2[status]||status)+'</div></div></div></div>'
+      +'<div class="od-timeline"><div class="od-tl-step '+tl1+'"><div class="od-tl-dot"><i class="fa-solid fa-check"></i></div><div class="od-tl-label">تم الطلب</div></div><div class="od-tl-line '+tlLine1+'"></div><div class="od-tl-step '+tl2+'"><div class="od-tl-dot"><i class="fa-solid fa-clock"></i></div><div class="od-tl-label">قيد التنفيذ</div></div><div class="od-tl-line '+tlLine2+'"></div><div class="od-tl-step '+tl3+'"><div class="od-tl-dot"><i class="fa-solid '+(isCanceled?'fa-xmark':'fa-flag-checkered')+'"></i></div><div class="od-tl-label">'+(isCanceled?'ملغاة':'مكتمل')+'</div></div></div>'
+      +'<div class="od-stats" style="grid-template-columns:repeat('+(_hasStartRemain?4:2)+',1fr)">'+_statsHtml+'</div>'
+      +'<div class="od-prog"><div class="od-prog-row"><div class="od-prog-bar"><div class="od-prog-fill" style="width:'+progress+'%"></div></div><div class="od-prog-pct">'+progress+'%</div></div></div>'
+      +'<div class="od-link-card"><div class="od-link-row"><div class="od-link-icon"><i class="fa-solid fa-link"></i></div><div class="od-link-url">'+(o.link||'—')+'</div></div><button class="od-copy-btn" onclick="navigator.clipboard.writeText(\''+(o.link||'')+'\');toast(\'تم النسخ\',\'success\')"><i class="fa-regular fa-copy"></i> <span>نسخ الرابط</span></button></div>'
+      +'<div class="od-foot-tag">__SITE_NAME__ · '+(o.order||('L'+o.id))+'</div>'
+      +'</div>'+
       rfHtml+
       (o.can_cancel?'<div style="margin-top:10px"><button class="oc-act cn" style="width:100%;justify-content:center;padding:13px" onclick="ordCancel(\''+String(o.order||"").replace(/[^0-9A-Za-z_-]/g,"")+'\',this)"><i class="fa-solid fa-ban"></i> إلغاء الطلب</button></div>':'')+
-      '<div class="od-actions"><button class="od-act-btn od-act-reorder" onclick="reorderFromDetail('+o.service+',\''+encodeURIComponent(o.link||'')+'\','+(o.quantity||0)+',\''+encodeURIComponent(o.service_name||'')+'\')"><i class="fa-solid fa-rotate"></i> إعادة الطلب</button><button class="od-act-btn od-act-support" onclick="odOpenSupport(\''+encodeURIComponent(JSON.stringify({oid:o.order||o.id,svc:o.service_name||'',qty:o.quantity||0,charge:charge,link:o.link||'',status:status||''}))+'\')"><i class="fa-solid fa-headset"></i> الدعم الفني</button></div>';
+      '<div class="od-actions"><button class="od-act-btn od-act-reorder" onclick="reorderFromDetail('+o.service+',\''+encodeURIComponent(o.link||'')+'\','+(o.quantity||0)+',\''+encodeURIComponent(o.service_name||'')+'\')"><i class="fa-solid fa-rotate"></i> إعادة الطلب</button><button class="od-act-btn od-act-support" onclick="odOpenSupport(\''+encodeURIComponent(JSON.stringify({oid:o.order||o.id,svc:o.service_name||'',qty:o.quantity||0,charge:charge,link:o.link||'',status:status||''}))+'\')"><i class="fa-solid fa-headset"></i> الدعم الفني</button><button class="od-act-btn od-act-export" onclick="exportOrderImage(this)"><i class="fa-solid fa-image"></i> تصدير</button></div>';
   }
+
+  /* تصدير بطاقة تفاصيل الطلب (od-share-card) كصورة PNG قابلة للمشاركة — يحمّل html2canvas عند أول استخدام فقط */
+  function _ensureHtml2Canvas(cb){
+    if(window.html2canvas){cb();return}
+    var s=document.createElement('script');
+    s.src='https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js';
+    s.onload=cb;
+    s.onerror=function(){toast('تعذّر تحميل أداة التصدير، تحقق من الاتصال','error')};
+    document.head.appendChild(s);
+  }
+  window.exportOrderImage=function(btn){
+    var card=document.getElementById('odShareCard');
+    if(!card){toast('تعذّر العثور على البطاقة','error');return}
+    var oldHtml=btn?btn.innerHTML:null;
+    if(btn){btn.disabled=true;btn.innerHTML=fcSpinnerHTML()+' تصدير...'}
+    _ensureHtml2Canvas(function(){
+      var bg=getComputedStyle(document.body).backgroundColor;
+      html2canvas(card,{backgroundColor:bg,scale:2,useCORS:true}).then(function(canvas){
+        canvas.toBlob(function(blob){
+          if(!blob){toast('تعذّر إنشاء الصورة','error');if(btn){btn.disabled=false;btn.innerHTML=oldHtml}return}
+          var url=URL.createObjectURL(blob);
+          var a=document.createElement('a');
+          a.href=url;a.download='order-'+(card.dataset.oid||'card')+'.png';
+          document.body.appendChild(a);a.click();document.body.removeChild(a);
+          setTimeout(function(){URL.revokeObjectURL(url)},4000);
+          toast('تم تصدير الصورة','success');
+          if(btn){btn.disabled=false;btn.innerHTML=oldHtml}
+        },'image/png');
+      }).catch(function(){toast('تعذّر إنشاء الصورة','error');if(btn){btn.disabled=false;btn.innerHTML=oldHtml}});
+    });
+  };
 
   /* أزرار التعويض/الإلغاء بجانب الطلب: يقرّر الخادم تلقائياً من دعم الخدمة (can_refill/can_cancel) وحالة الطلب */
   function _ocActs(o){
@@ -7217,15 +7268,15 @@ function renderCurrencyRatesList(settings){
 async function loadAiSettings(){
   try{var r=await fetch('/api/admin/site-settings');var d=await r.json();
     if(d.ok){var s=d.settings||d;
-      if(s.nvidia_api_key)document.getElementById('nvidiaKeyIn').value=s.nvidia_api_key;
-      document.getElementById('nvidiaModelIn').value=s.nvidia_model||'openai/gpt-oss-20b';
+      if(s.deepseek_api_key)document.getElementById('deepseekKeyIn').value=s.deepseek_api_key;
+      document.getElementById('deepseekModelIn').value=s.deepseek_model||'deepseek-chat';
       document.getElementById('aiNotifToggle').classList.toggle('on',s.ai_notif_enabled!=='0');
       document.getElementById('aiInactivityDaysIn').value=s.ai_inactivity_days||'3';
     }
   }catch(e){}
 }
 async function saveAiSettings(){
-  var data={nvidia_api_key:document.getElementById('nvidiaKeyIn').value.trim(),nvidia_model:document.getElementById('nvidiaModelIn').value.trim()||'openai/gpt-oss-20b',
+  var data={deepseek_api_key:document.getElementById('deepseekKeyIn').value.trim(),deepseek_model:document.getElementById('deepseekModelIn').value.trim()||'deepseek-chat',
             ai_notif_enabled:document.getElementById('aiNotifToggle').classList.contains('on')?'1':'0',
             ai_inactivity_days:document.getElementById('aiInactivityDaysIn').value||'3'};
   try{var r=await fetch('/api/admin/site-settings',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});

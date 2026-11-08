@@ -10,7 +10,7 @@ const SITE_SETTINGS_READ_KEYS = [
     'backup_enabled', 'backup_interval', 'tg_bot_token', 'tg_chat_id', 'provider_api_url', 'provider_api_key',
     'rate_IQD', 'rate_EUR', 'rate_SAR', 'rate_AED', 'rate_TRY', 'google_client_id',
     'support_whatsapp', 'site_terms', 'site_privacy', 'skip_email_verify',
-    'nvidia_api_key', 'nvidia_model', 'ai_logo',
+    'deepseek_api_key', 'deepseek_model', 'ai_logo',
     'daily_bonus_enabled', 'daily_bonus_amount',
     'auto_import_enabled', 'auto_import_profit_pct',
     'ai_notif_enabled', 'ai_inactivity_days',
@@ -20,7 +20,7 @@ const SITE_SETTINGS_READ_KEYS = [
 const SITE_SETTINGS_WRITE_KEYS = [
     'site_name', 'site_name_color', 'smtp_enabled', 'smtp_host', 'smtp_port', 'smtp_tls', 'smtp_email', 'smtp_password', 'smtp_sender_name',
     'backup_enabled', 'backup_interval', 'tg_bot_token', 'tg_chat_id', 'provider_api_url', 'provider_api_key',
-    'google_client_id', 'nvidia_api_key', 'nvidia_model', 'ai_logo',
+    'google_client_id', 'deepseek_api_key', 'deepseek_model', 'ai_logo',
     'support_whatsapp', 'site_terms', 'site_privacy', 'skip_email_verify',
     'daily_bonus_enabled', 'daily_bonus_amount',
     'auto_import_enabled', 'auto_import_profit_pct',
