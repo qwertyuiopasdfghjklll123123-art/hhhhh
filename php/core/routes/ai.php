@@ -283,9 +283,6 @@ route('/api/ai/chat', function () {
             break;
         }
     }
-    if (!$service_card && $svc_matches) {
-        $service_card = $svc_matches[0];
-    }
 
     $conn = get_db();
     $conn->execute('INSERT INTO ai_messages(conversation_id, role, content, created_at) VALUES(?,?,?,?)',
