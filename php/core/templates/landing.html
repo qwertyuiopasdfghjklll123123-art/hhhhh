@@ -204,18 +204,14 @@ body{font-family:IBM Plex Sans Arabic,'Tajawal',sans-serif;background:var(--bg);
 @keyframes stepFade{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
 .btn-google{width:100%;padding:11px;border:1.5px solid var(--card-border);border-radius:10px;background:var(--card);color:var(--text);font-size:14px;font-weight:700;cursor:pointer;font-family:IBM Plex Sans Arabic,'Tajawal',sans-serif;transition:all .3s;display:flex;align-items:center;justify-content:center;gap:10px}
 .btn-google:hover{border-color:var(--primary);box-shadow:0 2px 12px var(--primary-glow)}
-.msg-toast{position:fixed;top:80px;left:50%;transform:translateX(-50%);padding:11px 22px;border-radius:12px;font-size:13px;font-weight:700;z-index:9999;animation:fadeUp .3s ease;font-family:IBM Plex Sans Arabic,'Tajawal',sans-serif;max-width:90%;background:#1e1e2e;color:#fff;border:1px solid rgba(255,255,255,.12);box-shadow:0 8px 28px rgba(0,0,0,.35);display:flex;align-items:center;gap:8px;backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px)}
-.msg-toast::before{content:'\f05a';font-family:'Font Awesome 6 Free';font-weight:900;font-size:14px;color:#a78bfa}
+.msg-toast{position:fixed;top:80px;left:50%;transform:translateX(-50%);padding:9px 20px 9px 14px;border-radius:12px;font-size:13px;font-weight:700;z-index:9999;animation:fadeUp .3s ease;font-family:IBM Plex Sans Arabic,'Tajawal',sans-serif;max-width:90%;background:#1e1e2e;color:#fff;border:1px solid rgba(255,255,255,.12);box-shadow:0 8px 28px rgba(0,0,0,.35);display:flex;align-items:center;gap:9px;backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px)}
+.msg-toast .mt-ic{width:20px;height:20px;border-radius:6px;flex-shrink:0;object-fit:cover}
+.msg-toast .mt-tx{flex:1;min-width:0}
 .msg-toast.success{background:#10b981;color:#fff;border-color:rgba(255,255,255,.2)}
-.msg-toast.success::before{content:'\f058';color:#fff}
 .msg-toast.error{background:#ef4444;color:#fff;border-color:rgba(255,255,255,.2)}
-.msg-toast.error::before{content:'\f057';color:#fff}
 .msg-toast.warning{background:#f59e0b;color:#fff;border-color:rgba(255,255,255,.2)}
-.msg-toast.warning::before{content:'\f071';color:#fff}
 .msg-toast.info{background:#3b82f6;color:#fff;border-color:rgba(255,255,255,.2)}
-.msg-toast.info::before{content:'\f05a';color:#fff}
 .msg-toast.order{background:#6366f1;color:#fff;border-color:rgba(255,255,255,.2)}
-.msg-toast.order::before{content:'\f1d8';color:#fff}
 [data-theme="light"] .msg-toast{background:#fff;color:#1a1a2e;border-color:rgba(0,0,0,.08);box-shadow:0 8px 28px rgba(0,0,0,.12)}
 
 @media(max-width:768px){
@@ -362,7 +358,8 @@ body{font-family:IBM Plex Sans Arabic,'Tajawal',sans-serif;background:var(--bg);
 </div>
 <script>
 (function(){
-  var MIN=1600,start=Date.now();
+  // الشعار الافتراضي (FC) يُكتب بانيميشن حتى ~4.45 ثانية: ننتظر اكتماله بالكامل قبل فتح الصفحة (صفحة الهبوط تعرض الشعار الافتراضي دائماً)
+  var MIN=4600,start=Date.now();
   try{if(window.matchMedia&&matchMedia('(prefers-reduced-motion: reduce)').matches)MIN=250}catch(e){}
   function hide(){
     var e=document.getElementById('bootSplash');if(!e)return;
@@ -371,7 +368,7 @@ body{font-family:IBM Plex Sans Arabic,'Tajawal',sans-serif;background:var(--bg);
   }
   function arm(){setTimeout(hide,Math.max(0,MIN-(Date.now()-start)))}
   if(document.readyState==='complete')arm();else window.addEventListener('load',arm);
-  setTimeout(hide,4500);
+  setTimeout(hide,5200); // سقف أعلى احتياطي مهما حدث كي لا تحجب الشاشة للأبد
 })();
 </script>
 
@@ -551,7 +548,9 @@ body{font-family:IBM Plex Sans Arabic,'Tajawal',sans-serif;background:var(--bg);
 
   function toast(msg,type){
     var old=document.querySelector('.msg-toast');if(old)old.remove();
-    var t=document.createElement('div');t.className='msg-toast '+type;t.textContent=msg;
+    var t=document.createElement('div');t.className='msg-toast '+type;
+    t.innerHTML='<img class="mt-ic" src="/pwa-icon-192.png" alt=""><span class="mt-tx"></span>';
+    t.querySelector('.mt-tx').textContent=msg;
     document.body.appendChild(t);setTimeout(function(){t.remove();},3500);
   }
 

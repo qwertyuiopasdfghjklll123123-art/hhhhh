@@ -26,6 +26,9 @@ function call_ai_api(array $messages): array {
             ]);
             break;
         } catch (RequestsTimeoutT $e) {
+            // يُسجَّل في data/logs/app_errors.log — يفيد لتمييز "المزوّد بطيء فعلاً" عن "الخادم لا يصل لعنوان integrate.api.nvidia.com أصلاً"
+            // (مثلاً استضافة تحجب الاتصال الصادر لعناوين خارجية): كلاهما يظهر للمستخدم بنفس رسالة المهلة، لكن السجل يفرّق بينهما.
+            log_app_error('WARNING', 'ai: ' . get_class($e) . ': ' . $e->getMessage());
             return [null, 'استغرق رد المساعد الذكي وقتاً أطول من المعتاد، حاول مرة أخرى.'];
         } catch (Throwable $e) {
             // فشل على مستوى الاتصال غالباً عابر — أعد المحاولة مرة واحدة بعد توقف قصير
@@ -33,10 +36,12 @@ function call_ai_api(array $messages): array {
                 usleep(1500000);
                 continue;
             }
+            log_app_error('WARNING', 'ai: ' . get_class($e) . ': ' . $e->getMessage());
             return [null, 'تعذر الاتصال بخدمة الذكاء الاصطناعي، تحقق من اتصالك وحاول مرة أخرى.'];
         }
     }
     if ($resp->status_code != 200) {
+        log_app_error('WARNING', 'ai: provider HTTP ' . $resp->status_code . ': ' . mb_substr($resp->text, 0, 500, 'UTF-8'));
         return [null, 'تعذر الحصول على رد من المساعد الذكي حالياً، حاول مرة أخرى.'];
     }
     try {
@@ -46,6 +51,7 @@ function call_ai_api(array $messages): array {
         $reply = null;
     }
     if (!py_truthy($reply)) {
+        log_app_error('WARNING', 'ai: no reply content in provider response: ' . mb_substr($resp->text, 0, 500, 'UTF-8'));
         return [null, 'لم يصل رد من خدمة الذكاء الاصطناعي.'];
     }
     return [$reply, null];
