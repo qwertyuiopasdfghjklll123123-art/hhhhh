@@ -2,3 +2,4 @@ core/config.php
 data/*
 !data/.htaccess
 !data/.gitkeep
+fastcrand_php.zip
