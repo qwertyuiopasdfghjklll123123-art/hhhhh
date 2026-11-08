@@ -1,60 +1,71 @@
 <?php
 /**
- * المساعد الذكي للأدمن: يستخدم نفس مزوّد الذكاء الاصطناعي (call_ai_api) لكن بصلاحية تنفيذ أدوات إدارية
- * حقيقية (رد على تذاكر، فحص طلبات، تنظيف أسماء/أوصاف خدمات، فحص صحة النظام) — بتفويض كامل بلا موافقة لكل إجراء،
- * حسب طلب الأدمن صراحة. كل إجراء يُسجَّل في ai_agent_log للمراجعة لاحقاً حتى لو نُفِّذ تلقائياً.
+ * المساعد الذكي للأدمن: يستخدم دعم DeepSeek الأصلي لاستدعاء الدوال (function calling متوافق مع OpenAI
+ * عبر call_ai_api_raw/tools في routes/ai.php) لتنفيذ أدوات إدارية حقيقية (رد على تذاكر، فحص طلبات،
+ * تنظيف أسماء/أوصاف خدمات، فحص صحة النظام) — بتفويض كامل بلا موافقة لكل إجراء، حسب طلب الأدمن صراحة.
+ * كل إجراء يُسجَّل في ai_agent_log للمراجعة لاحقاً حتى لو نُفِّذ تلقائياً.
  *
- * البروتوكول: بدل الاعتماد على "استدعاء أدوات" من مزوّد معيّن (غير مضمون الدعم لكل النماذج)، نطلب من النموذج
- * أن يكتب سطر JSON بصيغة {"tool":"اسم","args":{...}} عندما يريد تنفيذ إجراء، نُنفّذه، ونُعيد له النتيجة كرسالة
- * تالية، بحلقة محدودة التكرار (AI_AGENT_MAX_STEPS) تمنع أي دوران لا نهائي.
+ * ملاحظة تصميم: جُرِّب أولاً بروتوكول نصي (مطالبة النموذج بكتابة JSON داخل الرد) فتبيّن أنه غير موثوق —
+ * بعض النماذج (ومنها DeepSeek أحياناً) تخرج بصيغة استدعاء خاصة بها بدل النص المطلوب حرفياً، فيظهر للأدمن
+ * نص مشوّه بدل تنفيذ فعلي. الحل الصحيح: تمرير الأدوات كمخطط JSON Schema رسمي عبر حقل tools في الطلب،
+ * وقراءة tool_calls من رد المزوّد مباشرة بدل تحليل النص — وهذا ما يطبَّق هنا.
  */
 
 const AI_AGENT_MAX_STEPS = 6;
 
-function ai_agent_tools_prompt(): string {
-    return <<<'TXT'
-
-عندما تحتاج لتنفيذ إجراء فعلي استخدم فقط الأدوات التالية. للتنفيذ، اجعل ردّك بالكامل سطراً واحداً بصيغة JSON بالضبط بلا أي نص أو شرح قبله أو بعده:
-{"tool":"اسم_الأداة","args":{...}}
-بعدها ستصلك نتيجة التنفيذ في رسالة تالية فتكمل عملك بناءً عليها. يمكنك استخدام عدة أدوات بالتتابع حسب الحاجة (حد أقصى 6 خطوات بجلسة واحدة).
-عندما تنتهي تماماً من كل ما يلزم، أو إن لم تحتج لأي أداة، اكتب رداً نصياً عادياً (بدون JSON) موجّهاً للمدير يلخّص ما فعلته أو يجيب سؤاله مباشرة.
-
-الأدوات المتاحة:
-- list_open_tickets {} : يرجع كل تذاكر الدعم التي تنتظر رداً من الإدارة (مفتوحة/بانتظار رد) مع آخر رسائلها.
-- reply_ticket {"ticket_id": رقم, "message": "نص الرد"} : يرسل رداً فورياً لصاحب التذكرة ويعلّمها كمُجاب عليها.
-- close_ticket {"ticket_id": رقم} : يغلق التذكرة نهائياً (استخدمها فقط بعد حل المشكلة فعلاً أو إن كانت التذكرة قديمة ولا رد من صاحبها).
-- list_problem_orders {} : يرجع الطلبات العالقة (قيد التنفيذ منذ أكثر من 24 ساعة بلا اكتمال) لفحصها.
-- get_order {"order_id": رقم} : تفاصيل طلب واحد بكل حقوله.
-- list_services {"query": "كلمة بحث اختيارية بالاسم أو المنصة"} : يرجع حتى 40 خدمة من كتالوج الموقع الفعلي (معرّفها id/prov_id، اسمها الحالي، اسمها الأصلي من المزوّد، وصفها الحالي، المنصة، وهل تدعم تعويض/إلغاء). استخدمها دائماً أولاً قبل أي تعديل اسم أو وصف لمعرفة المعرّف الصحيح ومحتوى الخدمة الفعلي — لا تخترع معرّفات أو أسماء خدمات من عندك.
-- update_service_name {"id": "معرّف من list_services", "prov_id": رقم, "name": "الاسم الجديد النظيف"} : يحدّث اسم الخدمة الظاهر للمستخدمين.
-- update_service_desc {"id": "معرّف من list_services", "prov_id": رقم, "desc": "الوصف الجديد"} : يحدّث وصف الخدمة الظاهر للمستخدمين.
-- check_system_health {} : يفحص الاتصال بقاعدة البيانات، الاتصال بمزوّد الخدمات، آخر أخطاء مسجّلة بالنظام، وعدد الطلبات العالقة — استخدمها عند أي فحص دوري أو شك بوجود عطل.
-
-قواعد صارمة يجب اتّباعها دائماً:
-1. المدير فوّضك كامل الصلاحية — نفّذ الإجراءات المناسبة مباشرة دون انتظار تأكيد منه على كل خطوة.
-2. لا تخترع أبداً أرقام تذاكر أو طلبات أو معرّفات خدمات غير موجودة فعلاً فيما أرجعته الأدوات — استخدم القوائم أولاً دائماً.
-3. عند تنظيف اسم خدمة: احذف فقط الرموز التعبيرية (إيموجي)، الرموز الزخرفية الغريبة، والأرقام/الشرطات الزائدة في نهاية الاسم بلا معنى. حافظ دوماً على المعلومات المهمة داخل الاسم (المنصة، الحد الأقصى للكمية، مستوى الجودة مثل Real/HQ، السرعة/فورية Instant، إمكانية Refill ومدتها) ولا تحذفها.
-4. عند كتابة وصف خدمة: اكتب جملتين إلى ثلاث بالعربية الفصحى الواضحة تشرح ما تقدمه الخدمة فعلاً بناءً على اسمها الأصلي ونوعها (متابعين/لايكات/مشاهدات/تعليقات...) وهل تدعم تعويضاً أو إلغاءً — دون مبالغة أو اختراع مزايا غير مؤكدة من الاسم أو البيانات المتاحة.
-5. عند الرد على تذكرة: اقرأ آخر رسالة المستخدم جيداً وأجب بالعربية بما يحل مشكلته تحديداً بنبرة ودودة ومهنية؛ لا تغلق التذكرة إلا إن كانت محلولة فعلاً.
-TXT;
+/** مخطط الأدوات بصيغة OpenAI/DeepSeek function-calling (JSON Schema) */
+function ai_agent_tool_schemas(): array {
+    $noArgs = ['type' => 'object', 'properties' => (object)[], 'required' => []];
+    return [
+        ['type' => 'function', 'function' => ['name' => 'list_open_tickets',
+            'description' => 'يرجع كل تذاكر الدعم التي تنتظر رداً من الإدارة (مفتوحة/بانتظار رد) مع آخر رسائلها.',
+            'parameters' => $noArgs]],
+        ['type' => 'function', 'function' => ['name' => 'reply_ticket',
+            'description' => 'يرسل رداً فورياً لصاحب تذكرة دعم ويعلّمها كمُجاب عليها.',
+            'parameters' => ['type' => 'object', 'properties' => [
+                'ticket_id' => ['type' => 'integer', 'description' => 'رقم التذكرة من list_open_tickets'],
+                'message' => ['type' => 'string', 'description' => 'نص الرد بالعربية'],
+            ], 'required' => ['ticket_id', 'message']]]],
+        ['type' => 'function', 'function' => ['name' => 'close_ticket',
+            'description' => 'يغلق تذكرة دعم نهائياً — فقط بعد حل مشكلتها فعلاً أو إن كانت قديمة بلا رد من صاحبها.',
+            'parameters' => ['type' => 'object', 'properties' => ['ticket_id' => ['type' => 'integer']], 'required' => ['ticket_id']]]],
+        ['type' => 'function', 'function' => ['name' => 'list_problem_orders',
+            'description' => 'يرجع الطلبات العالقة (قيد التنفيذ منذ أكثر من 24 ساعة بلا اكتمال) لفحصها.',
+            'parameters' => $noArgs]],
+        ['type' => 'function', 'function' => ['name' => 'get_order',
+            'description' => 'تفاصيل طلب واحد بكل حقوله.',
+            'parameters' => ['type' => 'object', 'properties' => ['order_id' => ['type' => 'integer']], 'required' => ['order_id']]]],
+        ['type' => 'function', 'function' => ['name' => 'list_services',
+            'description' => 'يرجع حتى 40 خدمة من كتالوج الموقع الفعلي (المعرّف id/prov_id، الاسم الحالي، الاسم الأصلي من المزوّد، الوصف الحالي، المنصة، وهل تدعم تعويض/إلغاء). استخدمها دائماً أولاً قبل أي تعديل اسم أو وصف لمعرفة المعرّف الصحيح — لا تخترع معرّفات أو أسماء خدمات من عندك.',
+            'parameters' => ['type' => 'object', 'properties' => ['query' => ['type' => 'string', 'description' => 'كلمة بحث اختيارية بالاسم أو المنصة']], 'required' => []]]],
+        ['type' => 'function', 'function' => ['name' => 'update_service_name',
+            'description' => 'يحدّث اسم خدمة ظاهر للمستخدمين (نظّف الرموز التعبيرية/الزخرفية/الأرقام الزائدة بلا معنى فقط، وحافظ على معلومات مهمة مثل المنصة والجودة والسرعة وإمكانية Refill).',
+            'parameters' => ['type' => 'object', 'properties' => [
+                'id' => ['type' => 'string', 'description' => 'معرّف الخدمة من list_services'],
+                'prov_id' => ['type' => 'integer'],
+                'name' => ['type' => 'string', 'description' => 'الاسم الجديد النظيف'],
+            ], 'required' => ['id', 'prov_id', 'name']]]],
+        ['type' => 'function', 'function' => ['name' => 'update_service_desc',
+            'description' => 'يحدّث وصف خدمة ظاهر للمستخدمين (جملتان إلى ثلاث بالعربية الفصحى تشرح ما تقدمه الخدمة فعلاً بناءً على اسمها ونوعها، دون مبالغة أو اختراع مزايا).',
+            'parameters' => ['type' => 'object', 'properties' => [
+                'id' => ['type' => 'string', 'description' => 'معرّف الخدمة من list_services'],
+                'prov_id' => ['type' => 'integer'],
+                'desc' => ['type' => 'string'],
+            ], 'required' => ['id', 'prov_id', 'desc']]]],
+        ['type' => 'function', 'function' => ['name' => 'check_system_health',
+            'description' => 'يفحص الاتصال بقاعدة البيانات، الاتصال بمزوّد الخدمات، آخر أخطاء مسجّلة بالنظام، وعدد الطلبات العالقة — استخدمها عند أي فحص دوري أو شك بوجود عطل.',
+            'parameters' => $noArgs]],
+    ];
 }
 
 function ai_agent_system_prompt(): string {
     $site_name = get_setting('site_name', 'المتجر');
     return 'أنت "المساعد الإداري الذكي" الخاص بمالك/أدمن موقع "' . $site_name . '" لبيع خدمات التسويق عبر منصات التواصل الاجتماعي (SMM). '
         . 'مهمتك مساعدة الأدمن بأي شيء يخص إدارة الموقع: الرد على تذاكر الدعم، فحص الطلبات العالقة أو التي بها مشكلة، تنظيف أسماء الخدمات من الشوائب وكتابة أوصاف لها، وفحص صحة النظام دورياً. '
-        . 'أجب الأدمن بالعربية دائماً، بوضوح واختصار عند التلخيص، وبالتفصيل الكافي عند الشرح.'
-        . ai_agent_tools_prompt();
-}
-
-/** يفصل رد النموذج عن استدعاء أداة JSON إن وُجد (متسامح مع ```json ... ``` إن كتبها النموذج رغم التعليمات) */
-function ai_agent_parse_tool_call(string $reply): ?array {
-    $t = trim($reply);
-    if (preg_match('/^```(?:json)?\s*(.*?)\s*```$/su', $t, $m)) $t = trim($m[1]);
-    if ($t === '' || $t[0] !== '{') return null;
-    $j = json_decode($t, true);
-    if (!is_array($j) || !isset($j['tool']) || !is_string($j['tool'])) return null;
-    return $j;
+        . 'لديك أدوات حقيقية (tools) يمكنك استدعاؤها لتنفيذ هذه المهام فعلياً على الموقع — استخدمها مباشرة متى احتجتها، بالتتابع إن لزم عدة خطوات، دون انتظار تأكيد من المدير (فوّضك كامل الصلاحية). '
+        . 'لا تخترع أبداً أرقام تذاكر أو طلبات أو معرّفات خدمات غير موجودة فعلاً فيما أرجعته الأدوات — استدعِ أداة القوائم المناسبة أولاً دائماً قبل أي إجراء على عنصر محدد. '
+        . 'عند الرد على تذكرة: اقرأ آخر رسالة المستخدم جيداً وأجب بما يحل مشكلته تحديداً بنبرة ودودة ومهنية. '
+        . 'بعد تنفيذ ما يلزم من أدوات، أجب الأدمن بالعربية بنص عادي واضح يلخّص ما فعلته أو يجيب سؤاله مباشرة — بإيجاز عند التلخيص وبالتفصيل الكافي عند الشرح.';
 }
 
 /* ------------------------------ الأدوات ------------------------------ */
@@ -243,29 +254,32 @@ function ai_agent_run(string $user_message, string $source = 'chat'): array {
         $conn->commit();
     }
 
+    // ملاحظة: فقط رسائل (user, assistant) النهائية المقروءة تُحفَظ طويل الأمد — سلسلة tool_calls/tool الخام
+    // تبقى داخل هذه الجولة فقط (أسفل) ولا تُخزَّن، لتبسيط المخطط وتفادي حفظ معرّفات tool_call_id عبر الزمن.
     $hist = $conn->execute('SELECT role, content FROM ai_agent_messages WHERE conversation_id=? ORDER BY id DESC LIMIT 40', [$conv_id])->fetchall();
     $messages = [['role' => 'system', 'content' => ai_agent_system_prompt()]];
     foreach (array_reverse($hist) as $h) $messages[] = ['role' => $h['role'], 'content' => $h['content']];
 
+    $tools = ai_agent_tool_schemas();
     $actions = [];
     $final_reply = null;
     for ($i = 0; $i < AI_AGENT_MAX_STEPS; $i++) {
-        [$reply, $err] = call_ai_api($messages);
+        [$msg, $err] = call_ai_api_raw($messages, $tools);
         if ($err) { $final_reply = $err; break; }
-        $tool = ai_agent_parse_tool_call($reply);
-        if ($tool === null) { $final_reply = $reply; break; }
+        $toolCalls = $msg['tool_calls'] ?? null;
+        if (!$toolCalls) { $final_reply = py_truthy($msg['content'] ?? null) ? $msg['content'] : 'تم.'; break; }
 
-        $messages[] = ['role' => 'assistant', 'content' => $reply];
-        $conn->execute('INSERT INTO ai_agent_messages(conversation_id,role,content,created_at) VALUES(?,?,?,?)', [$conv_id, 'assistant', $reply, microtime(true)]);
-
-        [$result, $ok] = ai_agent_exec_tool($tool['tool'], (array)($tool['args'] ?? []));
-        $actions[] = ['tool' => $tool['tool'], 'args' => $tool['args'] ?? [], 'ok' => $ok, 'result' => $result];
-        $conn->execute('INSERT INTO ai_agent_log(created_at,source,tool,detail,success) VALUES(?,?,?,?,?)',
-            [microtime(true), $source, $tool['tool'], json_encode(['args' => $tool['args'] ?? [], 'result' => $result], JSON_UNESCAPED_UNICODE), $ok ? 1 : 0]);
-
-        $result_msg = '[نتيجة تنفيذ الأداة ' . $tool['tool'] . ']: ' . json_encode($result, JSON_UNESCAPED_UNICODE);
-        $messages[] = ['role' => 'user', 'content' => $result_msg];
-        $conn->execute('INSERT INTO ai_agent_messages(conversation_id,role,content,created_at) VALUES(?,?,?,?)', [$conv_id, 'user', $result_msg, microtime(true)]);
+        $messages[] = $msg;
+        foreach ($toolCalls as $tc) {
+            $fn = $tc['function']['name'] ?? '';
+            $args = json_decode($tc['function']['arguments'] ?? '{}', true);
+            if (!is_array($args)) $args = [];
+            [$result, $ok] = ai_agent_exec_tool($fn, $args);
+            $actions[] = ['tool' => $fn, 'args' => $args, 'ok' => $ok, 'result' => $result];
+            $conn->execute('INSERT INTO ai_agent_log(created_at,source,tool,detail,success) VALUES(?,?,?,?,?)',
+                [microtime(true), $source, $fn, json_encode(['args' => $args, 'result' => $result], JSON_UNESCAPED_UNICODE), $ok ? 1 : 0]);
+            $messages[] = ['role' => 'tool', 'tool_call_id' => $tc['id'] ?? '', 'content' => json_encode($result, JSON_UNESCAPED_UNICODE)];
+        }
         $conn->commit();
     }
     if ($final_reply === null) $final_reply = 'وصلت للحد الأقصى من الإجراءات المتتالية بجولة واحدة (6)؛ إن احتجت أكثر أخبرني لأكمل.';

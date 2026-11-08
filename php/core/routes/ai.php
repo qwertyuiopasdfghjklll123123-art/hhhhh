@@ -6,20 +6,27 @@
 
 const AI_API_BASE = 'https://api.deepseek.com/chat/completions';
 
-/** @return array [reply|null, error|null] */
-function call_ai_api(array $messages): array {
+/**
+ * يُرجع رسالة النموذج الخام كاملة (content + tool_calls إن وُجدت) بدل النص فقط — يستخدمها المساعد
+ * الإداري الذكي (lib/ai_agent.php) لربط أدوات حقيقية عبر دعم DeepSeek الأصلي لاستدعاء الدوال (OpenAI-compatible
+ * function calling)، بدل الاعتماد على مطالبة النموذج بكتابة JSON داخل النص (غير موثوق: قد يخرج بصيغة
+ * مشوّهة من تنسيقه الداخلي الخاص بدل النص المطلوب حرفياً).
+ * @return array [message|null, error|null]
+ */
+function call_ai_api_raw(array $messages, ?array $tools = null): array {
     $api_key = get_setting('deepseek_api_key', '');
     $model = py_or(get_setting('deepseek_model', 'deepseek-chat'), 'deepseek-chat');
     if (!py_truthy($api_key)) {
         return [null, 'لم يتم إعداد مفتاح المساعد الذكي بعد. الرجاء التواصل مع الإدارة.'];
     }
+    $body = ['model' => $model, 'messages' => $messages, 'temperature' => 1, 'top_p' => 1, 'max_tokens' => 900, 'stream' => false];
+    if ($tools) { $body['tools'] = $tools; $body['tool_choice'] = 'auto'; }
     $resp = null;
     for ($attempt = 0; $attempt < 2; $attempt++) {
         try {
             $resp = requests_post(AI_API_BASE, [
                 'headers' => ['Content-Type' => 'application/json', 'Authorization' => "Bearer $api_key"],
-                // max_tokens أُنزل من 4096: ردود المساعد مطلوب منها الإيجاز أصلاً (انظر system_prompt)، وتقليله يقلّل زمن الرد كثيراً فلا يصطدم بأي مهلة.
-                'json' => ['model' => $model, 'messages' => $messages, 'temperature' => 1, 'top_p' => 1, 'max_tokens' => 900, 'stream' => false],
+                'json' => $body,
                 // مهلة اتصال قصيرة (10s) ومهلة قراءة أطول (65s): نماذج الذكاء الاصطناعي بلا بث (stream=false) لا ترسل أي بايت حتى يكتمل الرد،
                 // فمهلة 30 ثانية (كانت الإعداد السابق) كانت تقطع ردوداً سليمة لم تنتهِ بعد فقط لأنها أخذت وقتاً أطول قليلاً — سبب رئيسي لشكاوى "لا يستجيب".
                 'timeout' => [10, 65],
@@ -46,12 +53,24 @@ function call_ai_api(array $messages): array {
     }
     try {
         $j = $resp->json();
-        $reply = $j['choices'][0]['message']['content'];
+        $msg = $j['choices'][0]['message'];
     } catch (Throwable $e) {
-        $reply = null;
+        $msg = null;
     }
+    if (!$msg) {
+        log_app_error('WARNING', 'ai: no message in provider response: ' . mb_substr($resp->text, 0, 500, 'UTF-8'));
+        return [null, 'لم يصل رد من خدمة الذكاء الاصطناعي.'];
+    }
+    return [$msg, null];
+}
+
+/** @return array [reply|null, error|null] */
+function call_ai_api(array $messages): array {
+    [$msg, $err] = call_ai_api_raw($messages);
+    if ($err) return [null, $err];
+    $reply = $msg['content'] ?? null;
     if (!py_truthy($reply)) {
-        log_app_error('WARNING', 'ai: no reply content in provider response: ' . mb_substr($resp->text, 0, 500, 'UTF-8'));
+        log_app_error('WARNING', 'ai: no reply content in provider response');
         return [null, 'لم يصل رد من خدمة الذكاء الاصطناعي.'];
     }
     return [$reply, null];
@@ -97,6 +116,8 @@ function ai_account_status_context($user_id): string {
     // أمان: كل استعلام مقيّد بمعرّف المستخدم نفسه (لا نقبل معرّفات من نص الدردشة)
     $conn = get_db();
     $lines = [];
+    $balRow = $conn->execute('SELECT balance FROM users WHERE id=?', [$user_id])->fetchone();
+    $balLine = $balRow ? "\n\nرصيد هذا المستخدم الحالي الفعلي: $" . py_fmt(py_float($balRow['balance'])) . ' (استخدم هذا الرقم فقط إن سأل عن رصيده، ولا تخترع رقماً آخر).' : '';
     $orders = $conn->execute('SELECT id, display_id, service_name, quantity, charge, status, created_at FROM orders WHERE user_id=? ORDER BY created_at DESC, id ASC LIMIT 8', [$user_id])->fetchall();
     foreach ($orders as $o) {
         $when = fmt_time('%Y-%m-%d %H:%M', $o['created_at']);
@@ -114,9 +135,9 @@ function ai_account_status_context($user_id): string {
         $lines[] = '- طلب شحن رصيد #' . py_str($r['id']) . ' بمبلغ $' . py_fmt($r['amount']) . ' عبر ' . py_str($r['method']) . ' — الحالة: ' . py_str($r['status']) . " — بتاريخ $when.";
     }
     if (!$lines) {
-        return "\n\nملاحظة: لا توجد لدى هذا المستخدم حالياً أي طلبات أو عمليات شحن رصيد.";
+        return $balLine . "\n\nملاحظة: لا توجد لدى هذا المستخدم حالياً أي طلبات أو عمليات شحن رصيد.";
     }
-    return "\n\nهذه هي طلبات وعمليات شحن الرصيد الفعلية لهذا المستخدم فقط (لا تخبره أبداً عن أي طلب أو مستخدم آخر، ولا تفترض بيانات غير موجودة هنا):\n"
+    return $balLine . "\n\nهذه هي طلبات وعمليات شحن الرصيد الفعلية لهذا المستخدم فقط (لا تخبره أبداً عن أي طلب أو مستخدم آخر، ولا تفترض بيانات غير موجودة هنا):\n"
         . implode("\n", $lines)
         . "\nإذا سأل عن حالة طلب أو سبب تأخيره: استخدم رقمه وحالته أعلاه فقط، وطمئنه دون الوعد بوقت محدد.";
 }
