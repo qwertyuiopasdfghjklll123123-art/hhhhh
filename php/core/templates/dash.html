@@ -22,6 +22,10 @@
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@300;400;500;600;700;800;900&family=Tajawal:wght@400;500;700;800;900&display=swap" rel="stylesheet">
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
+/* يمنع متصفحات الجوال من تكبير الخط تلقائياً (font boosting) في الأعمدة الضيقة، وهو سبب شائع لقصّ نصوص صغيرة (تسميات الحقول) على بعض الأجهزة؛ ويمنع أي ظهور لتمرير أفقي غير مقصود */
+html{-webkit-text-size-adjust:100%;-moz-text-size-adjust:100%;text-size-adjust:100%;max-width:100%;overflow-x:hidden}
+body{max-width:100%}
+
 :root{--bg:#f7f4f0;--card:#ffffff;--card-border:rgba(34,26,18,0.08);--text:#221a12;--text2:#6b5d50;--text3:#998a7c;--primary:#2563eb;--primary-light:#3b82f6;--primary-glow:rgba(37,99,235,0.12);--primary-bg:rgba(37,99,235,0.08);--input-bg:#fbf7f3;--input-border:#f0e6da;--shadow:0 2px 10px rgba(34,26,18,0.05);--shadow-lg:0 8px 30px rgba(34,26,18,0.08);--toggle-bg:#fdeee0;--platform-bg:#fbf7f3;--platform-border:rgba(34,26,18,0.08);--platform-active-bg:rgba(37,99,235,0.10);--green:#10b981;--red:#ef4444;--orange:#f59e0b;--note-bg:#eff6ff;--note-border:#bfdbfe;--note-text:#1e40af;--nav-bg:#fff;--nav-border:rgba(34,26,18,0.08);--font:IBM Plex Sans Arabic,'Tajawal',sans-serif;--font-num:IBM Plex Sans Arabic,sans-serif}
 [data-theme="dark"]{--bg:#070605;--card:#0f0c0a;--card-border:rgba(96,165,250,0.14);--text:#f5efe8;--text2:#c9baa8;--text3:#94816d;--primary:#3b82f6;--primary-light:#60a5fa;--primary-glow:rgba(59,130,246,0.18);--primary-bg:rgba(59,130,246,0.08);--input-bg:#120e0a;--input-border:#291f15;--shadow:0 2px 10px rgba(0,0,0,0.6);--shadow-lg:0 8px 30px rgba(0,0,0,0.7);--toggle-bg:#120e0a;--platform-bg:#0b0906;--platform-border:rgba(96,165,250,0.14);--platform-active-bg:rgba(59,130,246,0.14);--note-bg:rgba(59,130,246,0.10);--note-border:rgba(59,130,246,0.25);--note-text:#60a5fa;--nav-bg:#0b0906;--nav-border:rgba(96,165,250,0.12)}
 body{font-family:var(--font);background:var(--bg);color:var(--text);transition:background .15s,color .3s;min-height:100vh}
@@ -2064,7 +2068,7 @@ html:not([data-theme="dark"]) .rv-star-btn{color:rgba(0,0,0,.1)}
 .is-admin .bottom-nav{display:block!important}
 .is-admin .bnav-inner{margin:0 auto 14px!important;width:calc(100% - 28px);max-width:560px}
 .gm-ic.has-img{background:var(--input-bg)!important}
-.gm-card .gm-ic.has-img img{object-fit:contain;padding:7px}
+.gm-card .gm-ic.has-img img{object-fit:cover;padding:0}
 .gm-card .gm-ic.has-img::after{display:none}
 /* ===== v3: واجهة إنشاء الطلب ===== */
 #orderWizPage .ow-selected{padding:14px!important;border-radius:16px!important;background:var(--card)!important;border:1px solid var(--card-border)!important;box-shadow:0 1px 2px rgba(0,0,0,.04)}
@@ -2658,6 +2662,25 @@ html[dir="ltr"] body{text-align:left}
 </style>
 </head>
 <body>
+<div id="bootSplash" style="position:fixed;inset:0;z-index:99999;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;background:linear-gradient(160deg,#2a4778,#1f3157);transition:opacity .45s ease">
+  <style>#bootSplash .brand-media{width:120px!important;height:120px!important;max-width:none!important;max-height:none!important}</style>
+  <div style="width:120px;height:120px;display:flex;align-items:center;justify-content:center">__SPLASH_BRAND__</div>
+  <div style="color:#fff;font-family:'IBM Plex Sans Arabic','Tajawal',sans-serif;font-weight:800;font-size:14px;opacity:.8;letter-spacing:.4px">__SITE_NAME__</div>
+</div>
+<script>
+(function(){
+  var MIN=1600,start=Date.now();
+  try{if(window.matchMedia&&matchMedia('(prefers-reduced-motion: reduce)').matches)MIN=250}catch(e){}
+  function hide(){
+    var e=document.getElementById('bootSplash');if(!e)return;
+    e.id='';e.style.opacity='0';e.style.pointerEvents='none';
+    setTimeout(function(){if(e.parentNode)e.parentNode.removeChild(e)},480);
+  }
+  function arm(){setTimeout(hide,Math.max(0,MIN-(Date.now()-start)))}
+  if(document.readyState==='complete')arm();else window.addEventListener('load',arm);
+  setTimeout(hide,4500); // سقف أعلى احتياطي مهما حدث (شبكة بطيئة جداً أو خطأ غير متوقع) كي لا تحجب الشاشة للأبد
+})();
+</script>
 <div class="topbar">
   <div class="brand-wrap">
     <button class="mob-menu-btn admin-only" id="mobMenuBtn" onclick="toggleMobDrawer()"><i class="fa-solid fa-bars" id="mobMenuIcon"></i></button>
@@ -2904,6 +2927,30 @@ html[dir="ltr"] body{text-align:left}
       <div class="dev-go"><i class="fa-brands fa-whatsapp"></i><span>واتساب</span></div>
     </a>
 
+    <div class="sec-sep">الهدية اليومية</div>
+    <div class="acc-card cpn-collapse-card">
+      <div class="cpn-collapse-top" onclick="var b=this.parentElement.querySelector('.cpn-collapse-body');var a=this.querySelector('.cpn-collapse-arr');if(b.classList.contains('open')){b.classList.remove('open');a.classList.remove('open')}else{b.classList.add('open');a.classList.add('open')}">
+        <div class="cpn-collapse-ic"><i class="fa-solid fa-gift"></i></div>
+        <div class="cpn-collapse-info"><div class="cpn-collapse-title">كوبون هدية</div><div class="cpn-collapse-sub">أدخل كود الهدية واحصل على رصيد مجاني</div></div>
+        <button class="cpn-collapse-arr"><i class="fa-solid fa-chevron-down"></i></button>
+      </div>
+      <div class="cpn-collapse-body">
+        <div id="dailyGiftBanner" style="display:none;margin-bottom:10px;padding:14px;border-radius:12px;background:linear-gradient(135deg,rgba(236,72,153,.06),rgba(168,85,247,.06));border:1px solid rgba(236,72,153,.12);text-align:center">
+          <div style="font-size:10px;color:var(--text3);margin-bottom:4px"><i class="fa-solid fa-clock" style="color:#ec4899"></i> هدية اليوم — <span id="dailyGiftAmountUser">$0</span></div>
+          <div style="font-family:var(--font-num);font-size:20px;font-weight:900;color:#ec4899;letter-spacing:3px;margin:6px 0" id="dailyGiftCodeUser"></div>
+          <div style="display:flex;gap:8px;justify-content:center;margin-top:8px">
+            <button onclick="copyDailyGift()" class="btn-sm" style="border-color:rgba(236,72,153,.2);background:rgba(236,72,153,.06);color:#ec4899;font-size:10px"><i class="fa-solid fa-copy"></i> نسخ</button>
+            <button onclick="shareDailyGift()" class="btn-sm" style="border-color:rgba(168,85,247,.2);background:rgba(168,85,247,.06);color:#a855f7;font-size:10px"><i class="fa-solid fa-share-nodes"></i> مشاركة</button>
+          </div>
+        </div>
+        <div class="cpn-collapse-row">
+          <input type="text" class="cpn-collapse-input" id="userCouponIn2" placeholder="أدخل الكود هنا" dir="ltr">
+          <button onclick="redeemGift()" class="cpn-collapse-btn" id="giftBtn"><i class="fa-solid fa-check"></i> تفعيل</button>
+        </div>
+        <div id="giftResult" class="cpn-collapse-result" style="display:none"></div>
+      </div>
+    </div>
+
     <div class="sec-sep">الأمان <span class="new-tag">جديد</span></div>
     <div class="acc-card" id="accSecCard">
       <a class="acc-item" href="#" onclick="event.preventDefault();openTwofaPage()">
@@ -3145,29 +3192,6 @@ html[dir="ltr"] body{text-align:left}
       </a>
     </div>
 
-    <div class="sec-sep">الهدية اليومية</div>
-    <div class="acc-card cpn-collapse-card">
-      <div class="cpn-collapse-top" onclick="var b=this.parentElement.querySelector('.cpn-collapse-body');var a=this.querySelector('.cpn-collapse-arr');if(b.classList.contains('open')){b.classList.remove('open');a.classList.remove('open')}else{b.classList.add('open');a.classList.add('open')}">
-        <div class="cpn-collapse-ic"><i class="fa-solid fa-gift"></i></div>
-        <div class="cpn-collapse-info"><div class="cpn-collapse-title">كوبون هدية</div><div class="cpn-collapse-sub">أدخل كود الهدية واحصل على رصيد مجاني</div></div>
-        <button class="cpn-collapse-arr"><i class="fa-solid fa-chevron-down"></i></button>
-      </div>
-      <div class="cpn-collapse-body">
-        <div id="dailyGiftBanner" style="display:none;margin-bottom:10px;padding:14px;border-radius:12px;background:linear-gradient(135deg,rgba(236,72,153,.06),rgba(168,85,247,.06));border:1px solid rgba(236,72,153,.12);text-align:center">
-          <div style="font-size:10px;color:var(--text3);margin-bottom:4px"><i class="fa-solid fa-clock" style="color:#ec4899"></i> هدية اليوم — <span id="dailyGiftAmountUser">$0</span></div>
-          <div style="font-family:var(--font-num);font-size:20px;font-weight:900;color:#ec4899;letter-spacing:3px;margin:6px 0" id="dailyGiftCodeUser"></div>
-          <div style="display:flex;gap:8px;justify-content:center;margin-top:8px">
-            <button onclick="copyDailyGift()" class="btn-sm" style="border-color:rgba(236,72,153,.2);background:rgba(236,72,153,.06);color:#ec4899;font-size:10px"><i class="fa-solid fa-copy"></i> نسخ</button>
-            <button onclick="shareDailyGift()" class="btn-sm" style="border-color:rgba(168,85,247,.2);background:rgba(168,85,247,.06);color:#a855f7;font-size:10px"><i class="fa-solid fa-share-nodes"></i> مشاركة</button>
-          </div>
-        </div>
-        <div class="cpn-collapse-row">
-          <input type="text" class="cpn-collapse-input" id="userCouponIn2" placeholder="أدخل الكود هنا" dir="ltr">
-          <button onclick="redeemGift()" class="cpn-collapse-btn" id="giftBtn"><i class="fa-solid fa-check"></i> تفعيل</button>
-        </div>
-        <div id="giftResult" class="cpn-collapse-result" style="display:none"></div>
-      </div>
-    </div>
     <div class="sec-sep">آراء العملاء</div>
     <div class="rv-flat" id="accReviews">
       <div class="rvf-sum" id="rvfSum"></div>
@@ -6474,21 +6498,25 @@ function sendAiMessage(){
   var typingEl=document.createElement('div');
   typingEl.id='aiTypingIndicator';
   typingEl.style.cssText='display:flex;justify-content:flex-start;margin-bottom:10px';
-  typingEl.innerHTML='<div style="padding:10px 14px;border-radius:14px;background:var(--input-bg);color:var(--text3);font-size:12px"><i class="fa-solid fa-ellipsis fa-fade"></i></div>';
+  typingEl.innerHTML='<div style="padding:10px 14px;border-radius:14px;background:var(--input-bg);color:var(--text3);font-size:12px"><i class="fa-solid fa-ellipsis fa-fade"></i> <span id="aiTypingTxt"></span></div>';
   var log=document.getElementById('aiChatLog');
   log.appendChild(typingEl);log.scrollTop=log.scrollHeight;
   var btn=document.getElementById('aiSendBtn');btn.disabled=true;
-  fetch('/api/ai/chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({message:msg,conversation_id:aiCurrentConv})})
+  // تلميح "لا يزال يفكّر" إن طال الانتظار، حتى لا يبدو المساعد متجمّداً أثناء ردّ طويل (المساعد قد يستغرق حتى 65 ثانية)
+  var longWaitTO=setTimeout(function(){var e=document.getElementById('aiTypingTxt');if(e)e.textContent='لا يزال يفكّر...'},12000);
+  // مهلة بالواجهة أيضاً (75 ثانية): لا يبقى السؤال معلّقاً للأبد لو انقطع الاتصال فعلياً دون أن يرجع الخادم أي رد
+  var ctl=('AbortController' in window)?new AbortController():null;
+  var hardTO=setTimeout(function(){if(ctl)ctl.abort()},75000);
+  function done(){clearTimeout(longWaitTO);clearTimeout(hardTO);var t=document.getElementById('aiTypingIndicator');if(t)t.remove();btn.disabled=false}
+  fetch('/api/ai/chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({message:msg,conversation_id:aiCurrentConv}),signal:ctl?ctl.signal:undefined})
   .then(function(r){return r.json()}).then(function(d){
-    var t=document.getElementById('aiTypingIndicator');if(t)t.remove();
-    btn.disabled=false;
+    done();
     if(d.conversation_id)aiCurrentConv=d.conversation_id;
     if(d.ok){appendAiMessage('assistant',d.reply,d.service_card)}
     else{appendAiMessage('assistant',d.msg||'حدث خطأ، حاول مرة أخرى.')}
-  }).catch(function(){
-    var t=document.getElementById('aiTypingIndicator');if(t)t.remove();
-    btn.disabled=false;
-    appendAiMessage('assistant','تعذر الاتصال بالسيرفر.');
+  }).catch(function(e){
+    done();
+    appendAiMessage('assistant',(e&&e.name==='AbortError')?'استغرق الرد وقتاً طويلاً جداً، تحقّق من اتصالك وحاول مرة أخرى.':'تعذر الاتصال بالسيرفر.');
   });
 }
 function toggleAiHistory(){

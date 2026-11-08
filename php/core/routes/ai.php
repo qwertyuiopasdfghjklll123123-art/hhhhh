@@ -18,8 +18,11 @@ function call_ai_api(array $messages): array {
         try {
             $resp = requests_post(AI_API_BASE, [
                 'headers' => ['Content-Type' => 'application/json', 'Authorization' => "Bearer $api_key"],
-                'json' => ['model' => $model, 'messages' => $messages, 'temperature' => 1, 'top_p' => 1, 'max_tokens' => 4096, 'stream' => false],
-                'timeout' => 30,
+                // max_tokens أُنزل من 4096: ردود المساعد مطلوب منها الإيجاز أصلاً (انظر system_prompt)، وتقليله يقلّل زمن الرد كثيراً فلا يصطدم بأي مهلة.
+                'json' => ['model' => $model, 'messages' => $messages, 'temperature' => 1, 'top_p' => 1, 'max_tokens' => 900, 'stream' => false],
+                // مهلة اتصال قصيرة (10s) ومهلة قراءة أطول (65s): نماذج الذكاء الاصطناعي بلا بث (stream=false) لا ترسل أي بايت حتى يكتمل الرد،
+                // فمهلة 30 ثانية (كانت الإعداد السابق) كانت تقطع ردوداً سليمة لم تنتهِ بعد فقط لأنها أخذت وقتاً أطول قليلاً — سبب رئيسي لشكاوى "لا يستجيب".
+                'timeout' => [10, 65],
             ]);
             break;
         } catch (RequestsTimeoutT $e) {
@@ -188,6 +191,7 @@ function ai_payment_methods_context(): string {
 
 route('/api/ai/chat', function () {
     if (!array_key_exists('user_id', $_SESSION)) return jsonify(['ok' => false, 'msg' => 'غير مصرح'], 401);
+    @set_time_limit(150);   // أوسع من المهلة العامة (120s) بهامش مريح فوق مهلة نداء الذكاء الاصطناعي (65s)، يمنع قطع الطلب بخطأ PHP فجّ بدل رسالة JSON واضحة
     $uid = $_SESSION['user_id'];
     $data = req_data();
     $user_message = py_strip(py_or(dget($data, 'message'), ''));

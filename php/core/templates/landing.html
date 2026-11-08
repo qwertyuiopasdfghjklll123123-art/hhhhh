@@ -17,6 +17,10 @@
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@300;400;500;600;700;800;900&family=Tajawal:wght@400;500;700;800;900&display=swap" rel="stylesheet">
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
+/* يمنع متصفحات الجوال من تكبير الخط تلقائياً (font boosting) في الأعمدة الضيقة، وهو سبب شائع لقصّ نصوص صغيرة (تسميات الحقول) على بعض الأجهزة؛ ويمنع أي ظهور لتمرير أفقي غير مقصود */
+html{-webkit-text-size-adjust:100%;-moz-text-size-adjust:100%;text-size-adjust:100%;max-width:100%;overflow-x:hidden}
+body{max-width:100%}
+
 :root{
   --bg:#f7f4f0;--bg2:#fbf7f3;
   --card:#ffffff;--card-border:rgba(34,26,18,0.08);
@@ -155,7 +159,7 @@ body{font-family:IBM Plex Sans Arabic,'Tajawal',sans-serif;background:var(--bg);
 .verify-icon{width:68px;height:68px;border-radius:50%;margin:0 auto 16px;background:linear-gradient(135deg,var(--success),#34d399);display:flex;align-items:center;justify-content:center;color:#fff;font-size:28px;box-shadow:0 6px 24px rgba(16,185,129,0.25)}
 .verify-notice h3{font-size:18px;font-weight:700;margin-bottom:8px}
 .verify-notice p{font-size:13px;color:var(--text3);line-height:1.7}
-.verify-email{display:inline-block;margin:10px 0;padding:5px 14px;background:var(--primary-glow);border-radius:8px;font-size:13px;font-weight:700;color:var(--primary)}
+.verify-email{display:inline-block;margin:10px 0;padding:5px 14px;background:var(--primary-glow);border-radius:8px;font-size:13px;font-weight:700;color:var(--primary);max-width:100%;word-break:break-word;overflow-wrap:anywhere}
 .site-footer{text-align:center;padding:28px 20px;border-top:1px solid var(--card-border);font-size:12px;color:var(--text3);position:relative;z-index:1;background:var(--bg)}
 .site-footer a{color:var(--primary);text-decoration:none}
 .reveal{opacity:0;transform:translateY(30px);transition:opacity .6s,transform .6s}
@@ -352,6 +356,24 @@ body{font-family:IBM Plex Sans Arabic,'Tajawal',sans-serif;background:var(--bg);
 </style>
 </head>
 <body>
+<div id="bootSplash" style="position:fixed;inset:0;z-index:99999;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;background:linear-gradient(160deg,#2a4778,#1f3157);transition:opacity .45s ease">
+  <img src="/brand-default.svg?v=3" alt="" width="120" height="120">
+  <div style="color:#fff;font-family:'IBM Plex Sans Arabic','Tajawal',sans-serif;font-weight:800;font-size:14px;opacity:.8;letter-spacing:.4px">__SITE_NAME__</div>
+</div>
+<script>
+(function(){
+  var MIN=1600,start=Date.now();
+  try{if(window.matchMedia&&matchMedia('(prefers-reduced-motion: reduce)').matches)MIN=250}catch(e){}
+  function hide(){
+    var e=document.getElementById('bootSplash');if(!e)return;
+    e.id='';e.style.opacity='0';e.style.pointerEvents='none';
+    setTimeout(function(){if(e.parentNode)e.parentNode.removeChild(e)},480);
+  }
+  function arm(){setTimeout(hide,Math.max(0,MIN-(Date.now()-start)))}
+  if(document.readyState==='complete')arm();else window.addEventListener('load',arm);
+  setTimeout(hide,4500);
+})();
+</script>
 
 <div class="floating-icons" id="floatingIcons"></div>
 

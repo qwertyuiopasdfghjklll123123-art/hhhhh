@@ -96,6 +96,9 @@ function render_dash_page(): Response {
     $html = str_replace('__AVATAR_URL__', py_str($avatar_url), $html);
     $_bm = brand_media_html($site_name);   // شعار متحرك يرفعه الأدمن يحلّ محل اسم الموقع بالشريط العلوي
     if ($_bm !== null) $html = str_replace('<div class="brand-name" id="brandNameDisplay">__SITE_NAME__</div>', $_bm, $html);
+    // شاشة التحميل عند الرفرش: نفس الشعار المتحرك، بنسخة بلا id="brandNameDisplay" (معرّف العنصر الحقيقي بالشريط العلوي يبقى فريداً بالصفحة)
+    $_bmSplash = $_bm !== null ? preg_replace('/\s*id="brandNameDisplay"/', '', $_bm, 1) : '<img src="/brand-default.svg?v=3" alt="" width="120" height="120">';
+    $html = str_replace('__SPLASH_BRAND__', $_bmSplash, $html);
     $html = str_replace('__SITE_NAME__', $site_name, $html);
     $html = str_replace('__BRAND_COLOR_BG__', $_brand_bg, $html);
     $html = str_replace('__PWA_ICON_VER__', get_setting('pwa_icon_version', '2'), $html);
