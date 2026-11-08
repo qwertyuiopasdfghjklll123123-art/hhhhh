@@ -142,12 +142,35 @@ function ai_account_status_context($user_id): string {
         . "\nإذا سأل عن حالة طلب أو سبب تأخيره: استخدم رقمه وحالته أعلاه فقط، وطمئنه دون الوعد بوقت محدد.";
 }
 
+/**
+ * يحوّل أسماء المنصات العامية/المختصرة في كلمات السؤال (مثل "انستا"، "سناب") إلى الاسم القانوني للمنصة
+ * كما هو مخزّن بالكتالوج (مثل "instagram")، عبر نفس قائمة مرادفات PLATFORM_MAP المستخدمة أصلاً لاكتشاف
+ * منصة كل خدمة من نص المزوّد — بدونها كانت "انستا" مثلاً لا تطابق "Instagram" إطلاقاً كونهما نصّين مختلفين حرفياً.
+ */
+function ai_platform_alias_words(array $words): array {
+    static $alias = null;
+    if ($alias === null) {
+        $alias = [];
+        foreach (PLATFORM_MAP as $pname => $kws) {
+            $plow = mb_strtolower($pname, 'UTF-8');
+            $alias[$plow] = $plow;
+            foreach ($kws as $kw) $alias[mb_strtolower($kw, 'UTF-8')] = $plow;
+        }
+    }
+    $extra = [];
+    foreach ($words as $w) {
+        if (isset($alias[$w]) && !in_array($alias[$w], $words, true) && !in_array($alias[$w], $extra, true)) $extra[] = $alias[$w];
+    }
+    return $extra;
+}
+
 function ai_find_services($query, int $limit = 8): array {
     $words = [];
     if (preg_match_all('/(*UCP)[\w\x{0600}-\x{06FF}]+/u', mb_strtolower((string)py_or($query, ''), 'UTF-8'), $m)) {
         foreach ($m[0] as $w) if (py_len($w) > 1) $words[] = $w;
     }
     if (!$words) return [];
+    $words = array_merge($words, ai_platform_alias_words($words));
     $matches = [];
     try {
         [$platforms, $_t] = _build_services_catalog();
