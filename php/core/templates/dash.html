@@ -23,8 +23,8 @@
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 /* يمنع متصفحات الجوال من تكبير الخط تلقائياً (font boosting) في الأعمدة الضيقة، وهو سبب شائع لقصّ نصوص صغيرة (تسميات الحقول) على بعض الأجهزة؛ ويمنع أي ظهور لتمرير أفقي غير مقصود */
-html{-webkit-text-size-adjust:100%;-moz-text-size-adjust:100%;text-size-adjust:100%;max-width:100%;overflow-x:hidden}
-body{max-width:100%}
+html{-webkit-text-size-adjust:100%;-moz-text-size-adjust:100%;text-size-adjust:100%;max-width:100%;overflow-x:hidden;overscroll-behavior-x:none}
+body{max-width:100%;overscroll-behavior-x:none}
 
 :root{--bg:#f7f4f0;--card:#ffffff;--card-border:rgba(34,26,18,0.08);--text:#221a12;--text2:#6b5d50;--text3:#998a7c;--primary:#2563eb;--primary-light:#3b82f6;--primary-glow:rgba(37,99,235,0.12);--primary-bg:rgba(37,99,235,0.08);--input-bg:#fbf7f3;--input-border:#f0e6da;--shadow:0 2px 10px rgba(34,26,18,0.05);--shadow-lg:0 8px 30px rgba(34,26,18,0.08);--toggle-bg:#fdeee0;--platform-bg:#fbf7f3;--platform-border:rgba(34,26,18,0.08);--platform-active-bg:rgba(37,99,235,0.10);--green:#10b981;--red:#ef4444;--orange:#f59e0b;--note-bg:#eff6ff;--note-border:#bfdbfe;--note-text:#1e40af;--nav-bg:#fff;--nav-border:rgba(34,26,18,0.08);--font:IBM Plex Sans Arabic,'Tajawal',sans-serif;--font-num:IBM Plex Sans Arabic,sans-serif}
 [data-theme="dark"]{--bg:#070605;--card:#0f0c0a;--card-border:rgba(96,165,250,0.14);--text:#f5efe8;--text2:#c9baa8;--text3:#94816d;--primary:#3b82f6;--primary-light:#60a5fa;--primary-glow:rgba(59,130,246,0.18);--primary-bg:rgba(59,130,246,0.08);--input-bg:#120e0a;--input-border:#291f15;--shadow:0 2px 10px rgba(0,0,0,0.6);--shadow-lg:0 8px 30px rgba(0,0,0,0.7);--toggle-bg:#120e0a;--platform-bg:#0b0906;--platform-border:rgba(96,165,250,0.14);--platform-active-bg:rgba(59,130,246,0.14);--note-bg:rgba(59,130,246,0.10);--note-border:rgba(59,130,246,0.25);--note-text:#60a5fa;--nav-bg:#0b0906;--nav-border:rgba(96,165,250,0.12)}
@@ -4199,6 +4199,7 @@ html[dir="ltr"] body{text-align:left}
     <button class="aa-tab on" id="aaTabBtn_chat" onclick="aaSwitchTab('chat')"><i class="fa-solid fa-comments"></i> محادثة</button>
     <button class="aa-tab" id="aaTabBtn_log" onclick="aaSwitchTab('log')"><i class="fa-solid fa-list-check"></i> سجل الإجراءات</button>
     <button class="aa-tab" id="aaTabBtn_cron" onclick="aaSwitchTab('cron')"><i class="fa-solid fa-clock"></i> الفحص الدوري</button>
+    <button class="aa-tab" id="aaTabBtn_tasks" onclick="aaSwitchTab('tasks')"><i class="fa-solid fa-list-ul"></i> المهام</button>
   </div>
   <div id="aaTab_chat" style="display:flex;flex-direction:column;height:calc(100vh - 104px)">
     <div id="aaChatLog" style="flex:1;overflow-y:auto;padding:14px"></div>
@@ -4209,6 +4210,7 @@ html[dir="ltr"] body{text-align:left}
   </div>
   <div id="aaTab_log" class="ov-body" style="display:none"></div>
   <div id="aaTab_cron" class="ov-body" style="display:none"></div>
+  <div id="aaTab_tasks" class="ov-body" style="display:none"></div>
 </div>
 <div class="sm-modal-ov" id="smImportModal">
   <div class="sm-modal" style="max-width:420px;position:relative">
@@ -6602,12 +6604,13 @@ window.aiGoToService=aiGoToService;
 
 /* ----------------------- المساعد الإداري الذكي (أدمن) ----------------------- */
 function aaSwitchTab(t){
-  ['chat','log','cron'].forEach(function(k){
+  ['chat','log','cron','tasks'].forEach(function(k){
     document.getElementById('aaTab_'+k).style.display=(k===t)?(k==='chat'?'flex':'block'):'none';
     document.getElementById('aaTabBtn_'+k).classList.toggle('on',k===t);
   });
   if(t==='log')loadAiAgentLog();
   if(t==='cron')loadAiAgentCron();
+  if(t==='tasks')loadAiAgentTasks();
 }
 function appendAgentMessage(role,content){
   var log=document.getElementById('aaChatLog');if(!log)return;
@@ -6694,6 +6697,55 @@ function regenAiAgentCronToken(){
   });
 }
 window.regenAiAgentCronToken=regenAiAgentCronToken;
+
+function loadAiAgentTasks(){
+  var box=document.getElementById('aaTab_tasks');if(!box)return;
+  box.innerHTML='<div class="loading">'+fcSpinnerHTML()+' جاري التحميل...</div>';
+  fetch('/api/admin/ai-agent/tasks').then(function(r){return r.json()}).then(function(d){
+    if(!d.ok){box.innerHTML='<div class="loading">تعذّر التحميل</div>';return}
+    var h='<div style="max-width:560px;margin:0 auto">'
+      +'<div style="font-size:12px;color:var(--text3);line-height:1.9;margin-bottom:12px">مهام يُنفّذها المساعد تلقائياً عند كل تشغيل للفحص الدوري (تبويب "الفحص الدوري"). اكتب المهمة بالعربية بوضوح، مثال: «رد على كل تذكرة دعم جديدة بأسلوب ودود يحل مشكلة صاحبها» أو «أنشئ كوبون هدية برصيد 2$ وأعلنه لكل المستخدمين عبر إشعار».</div>'
+      +'<div style="background:var(--card);border:1px solid var(--card-border);border-radius:14px;padding:14px;margin-bottom:14px">'
+      +'<textarea id="aaNewTaskText" placeholder="اكتب نص المهمة..." style="width:100%;min-height:70px;padding:10px 12px;border-radius:10px;border:1px solid var(--input-border);background:var(--input-bg);color:var(--text);font-size:13px;font-family:inherit;resize:vertical;margin-bottom:10px"></textarea>'
+      +'<div style="display:flex;gap:8px;align-items:center">'
+      +'<select id="aaNewTaskSchedule" class="text-input" style="flex:1;cursor:pointer"><option value="every_run">كل فحص دوري (كل مرة يعمل بها Cron)</option><option value="daily">مرة واحدة يومياً فقط</option></select>'
+      +'<button class="btn-primary" style="width:auto;padding:10px 18px" onclick="addAiAgentTask()"><i class="fa-solid fa-plus"></i> إضافة</button>'
+      +'</div></div>'
+      +'<div id="aaTasksList"></div></div>';
+    box.innerHTML=h;
+    var list=document.getElementById('aaTasksList');
+    if(!d.tasks.length){list.innerHTML='<div class="loading">لا توجد مهام بعد</div>';return}
+    var lh='';
+    d.tasks.forEach(function(t){
+      lh+='<div style="background:var(--card);border:1px solid var(--card-border);border-radius:12px;padding:12px 14px;margin-bottom:8px">'
+        +'<div style="font-size:13px;line-height:1.7;margin-bottom:8px">'+esc(t.instruction)+'</div>'
+        +'<div style="display:flex;align-items:center;justify-content:space-between;gap:8px">'
+        +'<span style="font-size:10.5px;color:var(--text3)"><i class="fa-solid '+(t.schedule==='daily'?'fa-calendar-day':'fa-rotate'/*كل فحص*/)+'"></i> '+(t.schedule==='daily'?'يومياً':'كل فحص دوري')+(t.last_run_at?' · آخر تنفيذ: '+esc(t.last_run_at):' · لم تُنفَّذ بعد')+'</span>'
+        +'<div style="display:flex;gap:6px;flex-shrink:0">'
+        +'<div class="adm-toggle'+(t.enabled?' on':'')+'" style="transform:scale(.8)" onclick="toggleAiAgentTask('+t.id+')"><div class="adm-toggle-dot"></div></div>'
+        +'<button class="btn-sm-danger" style="padding:4px 10px;font-size:11px" onclick="deleteAiAgentTask('+t.id+')"><i class="fa-solid fa-trash"></i></button>'
+        +'</div></div></div>';
+    });
+    list.innerHTML=lh;
+  }).catch(function(){box.innerHTML='<div class="loading">تعذّر الاتصال بالسيرفر</div>'});
+}
+function addAiAgentTask(){
+  var txt=document.getElementById('aaNewTaskText').value.trim();
+  if(!txt){toast('اكتب نص المهمة أولاً','error');return}
+  var sched=document.getElementById('aaNewTaskSchedule').value;
+  fetch('/api/admin/ai-agent/tasks',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({instruction:txt,schedule:sched})}).then(function(r){return r.json()}).then(function(d){
+    toast(d.msg||(d.ok?'تم':'خطأ'),d.ok?'success':'error');
+    if(d.ok)loadAiAgentTasks();
+  });
+}
+function toggleAiAgentTask(id){
+  fetch('/api/admin/ai-agent/tasks/'+id+'/toggle',{method:'POST'}).then(function(r){return r.json()}).then(function(d){if(d.ok)loadAiAgentTasks()});
+}
+function deleteAiAgentTask(id){
+  if(!confirm('حذف هذه المهمة نهائياً؟'))return;
+  fetch('/api/admin/ai-agent/tasks/'+id,{method:'DELETE'}).then(function(r){return r.json()}).then(function(d){if(d.ok)loadAiAgentTasks()});
+}
+window.addAiAgentTask=addAiAgentTask;window.toggleAiAgentTask=toggleAiAgentTask;window.deleteAiAgentTask=deleteAiAgentTask;
 
 function sendAiMessage(){
   var input=document.getElementById('aiInputField');

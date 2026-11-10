@@ -34,6 +34,12 @@ route('/api/admin/site-bot/status', function () {
     return jsonify(['ok' => true, 'active' => py_truthy(get_setting('site_bot_token', '')), 'bot_username' => get_setting('site_bot_username', '')]);
 });
 
+/* '/api/site-bot-info': عامة بلا جلسة — فقط اسم مستخدم البوت (غير حساس، يظهر لأي أحد يراسل البوت أصلاً) لبناء زر "تسجيل الدخول عبر تليجرام" بصفحة الدخول */
+route('/api/site-bot-info', function () {
+    $active = py_truthy(get_setting('site_bot_token', ''));
+    return jsonify(['ok' => true, 'active' => $active, 'bot_username' => $active ? get_setting('site_bot_username', '') : '']);
+});
+
 /* '/api/admin/site-bot/save': يحفظ التوكن بعد التحقق منه عبر getMe، ثم يسجّل الـ Webhook فوراً — تفعيل بخطوة واحدة */
 route('/api/admin/site-bot/save', function () {
     if (!_is_admin_session()) return jsonify(['ok' => false], 403);
@@ -99,8 +105,9 @@ route('/api/telegram/site-bot-webhook', function () {
     $login_token = site_bot_sign_login($tid, $fn, $un);
     $login_url = $site_url . '/api/telegram/login?token=' . urlencode($login_token);
 
-    $rows = [[['text' => '🌐 زيارة الموقع', 'url' => $site_url]],
-              [['text' => '🔑 تسجيل الدخول المباشر', 'url' => $login_url]]];
+    // web_app (بدل url عادي): يفتح الرابط داخل متصفح تليجرام المدمج دائماً (بكل المنصات)، وليس متصفحاً خارجياً —
+    // مدعوم فقط بالمحادثات الخاصة بين المستخدم والبوت (وهذا بالضبط سياقنا هنا)
+    $rows = [[['text' => '🔑 تسجيل الدخول / إنشاء حساب', 'web_app' => ['url' => $login_url]]]];
     $wa = preg_replace('/[^0-9]/', '', (string)get_setting('support_whatsapp', ''));
     if (py_truthy($wa)) $rows[] = [['text' => '💬 الدعم', 'url' => 'https://wa.me/' . $wa]];
 

@@ -50,7 +50,7 @@ function ensure_schema_upgrade(): void {
 /** جداول مساعد الأدمن الذكي (محادثة + سجل إجراءات): تُضاف تلقائياً مرة واحدة (علم schema_v6.done) */
 function ensure_schema_v6_upgrade(): void {
     $flag = DATA_DIR . '/cache/schema_v6.done';
-    if (is_file($flag)) return;
+    if (is_file($flag)) { ensure_schema_v7_upgrade(); return; }
     try {
         $pdo = get_db()->pdo;
         $pdo->exec("CREATE TABLE IF NOT EXISTS `ai_agent_conversations` (
@@ -69,6 +69,25 @@ function ensure_schema_v6_upgrade(): void {
         @file_put_contents($flag, date('c'));
     } catch (Throwable $e) {
         log_app_error('ERROR', 'schema v6 upgrade: ' . $e->getMessage());
+    }
+    ensure_schema_v7_upgrade();
+}
+
+/** جدول مهام المساعد الإداري الذكي المتكررة (يُنفَّذها Cron دورياً): يُضاف تلقائياً مرة واحدة (علم schema_v7.done) */
+function ensure_schema_v7_upgrade(): void {
+    $flag = DATA_DIR . '/cache/schema_v7.done';
+    if (is_file($flag)) return;
+    try {
+        $pdo = get_db()->pdo;
+        $pdo->exec("CREATE TABLE IF NOT EXISTS `ai_agent_tasks` (
+  `id` INT NOT NULL AUTO_INCREMENT, `instruction` TEXT NOT NULL, `schedule` VARCHAR(16) NOT NULL DEFAULT 'every_run',
+  `enabled` INT NOT NULL DEFAULT 1, `last_run_date` VARCHAR(10) NOT NULL DEFAULT '', `last_run_at` DOUBLE DEFAULT NULL,
+  `created_at` DOUBLE DEFAULT 0,
+  PRIMARY KEY (`id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+        @file_put_contents($flag, date('c'));
+    } catch (Throwable $e) {
+        log_app_error('ERROR', 'schema v7 upgrade: ' . $e->getMessage());
     }
 }
 

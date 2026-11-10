@@ -203,6 +203,17 @@ CREATE TABLE IF NOT EXISTS `ai_agent_log` (
   KEY `idx_aal_created` (`created_at`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+CREATE TABLE IF NOT EXISTS `ai_agent_tasks` (
+  `id` INT NOT NULL AUTO_INCREMENT,
+  `instruction` TEXT NOT NULL,
+  `schedule` VARCHAR(16) NOT NULL DEFAULT 'every_run',
+  `enabled` INT NOT NULL DEFAULT 1,
+  `last_run_date` VARCHAR(10) NOT NULL DEFAULT '',
+  `last_run_at` DOUBLE DEFAULT NULL,
+  `created_at` DOUBLE DEFAULT (UNIX_TIMESTAMP()),
+  PRIMARY KEY (`id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 CREATE TABLE IF NOT EXISTS `notifications` (
   `id` VARCHAR(64) NOT NULL,
   `user_id` INT NULL,

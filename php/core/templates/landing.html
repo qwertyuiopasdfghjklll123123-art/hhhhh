@@ -18,8 +18,8 @@
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 /* يمنع متصفحات الجوال من تكبير الخط تلقائياً (font boosting) في الأعمدة الضيقة، وهو سبب شائع لقصّ نصوص صغيرة (تسميات الحقول) على بعض الأجهزة؛ ويمنع أي ظهور لتمرير أفقي غير مقصود */
-html{-webkit-text-size-adjust:100%;-moz-text-size-adjust:100%;text-size-adjust:100%;max-width:100%;overflow-x:hidden}
-body{max-width:100%}
+html{-webkit-text-size-adjust:100%;-moz-text-size-adjust:100%;text-size-adjust:100%;max-width:100%;overflow-x:hidden;overscroll-behavior-x:none}
+body{max-width:100%;overscroll-behavior-x:none}
 
 :root{
   --bg:#f7f4f0;--bg2:#fbf7f3;
@@ -419,6 +419,7 @@ body{font-family:IBM Plex Sans Arabic,'Tajawal',sans-serif;background:var(--bg);
       </div>
       <div style="display:flex;align-items:center;gap:12px;margin:16px 0"><div style="flex:1;height:1px;background:var(--divider)"></div><span style="font-size:12px;color:var(--text3)">أو</span><div style="flex:1;height:1px;background:var(--divider)"></div></div>
       <button type="button" class="btn-google" id="btnGoogleLogin"><svg width="18" height="18" viewBox="0 0 48 48"><path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/><path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/><path fill="#FBBC05" d="M10.53 28.59a14.5 14.5 0 0 1 0-9.18l-7.98-6.19a24.01 24.01 0 0 0 0 21.56l7.98-6.19z"/><path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/></svg> تسجيل بواسطة Google</button>
+      <button type="button" class="btn-google tg-login-btn" style="display:none;margin-top:10px;color:#229ed9"><i class="fa-brands fa-telegram" style="font-size:18px"></i> تسجيل الدخول عبر تليجرام</button>
     </div>
     <div id="forgotForm" style="display:none">
       <div class="welcome"><h2>استعادة كلمة المرور </h2><p>أدخل بريدك وسنرسل لك رمز التحقق</p></div>
@@ -448,6 +449,7 @@ body{font-family:IBM Plex Sans Arabic,'Tajawal',sans-serif;background:var(--bg);
       <button class="btn-primary" id="btnRegister">إنشاء الحساب <i class="fa-solid fa-user-check"></i></button>
       <div style="display:flex;align-items:center;gap:12px;margin:16px 0"><div style="flex:1;height:1px;background:var(--divider)"></div><span style="font-size:12px;color:var(--text3)">أو</span><div style="flex:1;height:1px;background:var(--divider)"></div></div>
       <button type="button" class="btn-google" id="btnGoogleReg"><svg width="18" height="18" viewBox="0 0 48 48"><path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/><path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/><path fill="#FBBC05" d="M10.53 28.59a14.5 14.5 0 0 1 0-9.18l-7.98-6.19a24.01 24.01 0 0 0 0 21.56l7.98-6.19z"/><path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/></svg> التسجيل بواسطة Google</button>
+      <button type="button" class="btn-google tg-login-btn" style="display:none;margin-top:10px;color:#229ed9"><i class="fa-brands fa-telegram" style="font-size:18px"></i> تسجيل الدخول عبر تليجرام</button>
     </div>
     <div id="verifyNotice" class="verify-notice">
       <div class="verify-icon"><i class="fa-solid fa-envelope-circle-check"></i></div>
@@ -573,6 +575,14 @@ body{font-family:IBM Plex Sans Arabic,'Tajawal',sans-serif;background:var(--bg);
   if(params.get('verified')==='0') toast('رابط التأكيد غير صالح','error');
   if(params.get('tg')==='0') toast('رابط الدخول عبر تليجرام غير صالح أو منتهي، افتح /start بالبوت من جديد','error');
   if(params.get('tg')==='2fa') toast('هذا الحساب مفعّل عليه التحقق بخطوتين — سجّل الدخول بكلمة المرور ثم أدخل الرمز','error');
+
+  fetch('/api/site-bot-info').then(function(r){return r.json()}).then(function(d){
+    if(!d.ok||!d.active||!d.bot_username)return;
+    document.querySelectorAll('.tg-login-btn').forEach(function(b){
+      b.style.display='flex';
+      b.addEventListener('click',function(){window.open('https://t.me/'+d.bot_username,'_blank')});
+    });
+  }).catch(function(){});
 
   function scrollTo(id){document.getElementById(id).scrollIntoView({behavior:'smooth'});}
   var _auth=document.getElementById('authSection');

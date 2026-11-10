@@ -55,13 +55,22 @@ function ai_agent_tool_schemas(): array {
         ['type' => 'function', 'function' => ['name' => 'check_system_health',
             'description' => 'يفحص الاتصال بقاعدة البيانات، الاتصال بمزوّد الخدمات، آخر أخطاء مسجّلة بالنظام، وعدد الطلبات العالقة — استخدمها عند أي فحص دوري أو شك بوجود عطل.',
             'parameters' => $noArgs]],
+        ['type' => 'function', 'function' => ['name' => 'create_gift_coupon',
+            'description' => 'ينشئ كوبون هدية رصيد مجاني فعلياً بالموقع. إن لم يُطلب كود محدد، يُولَّد كود عشوائي تلقائياً.',
+            'parameters' => ['type' => 'object', 'properties' => [
+                'code' => ['type' => 'string', 'description' => 'اختياري — كود محدد بالأحرف اللاتينية/أرقام، وإلا يُولَّد تلقائياً'],
+                'amount' => ['type' => 'number', 'description' => 'قيمة الرصيد بالدولار لكل استخدام للكوبون'],
+                'max_uses' => ['type' => 'integer', 'description' => 'الحد الأقصى لعدد مرات الاستخدام (افتراضي 1)'],
+                'notify_all' => ['type' => 'boolean', 'description' => 'إرسال إشعار بالكوبون لكل المستخدمين فوراً (افتراضي true)'],
+            ], 'required' => ['amount']]]],
     ];
 }
 
 function ai_agent_system_prompt(): string {
     $site_name = get_setting('site_name', 'المتجر');
     return 'أنت "المساعد الإداري الذكي" الخاص بمالك/أدمن موقع "' . $site_name . '" لبيع خدمات التسويق عبر منصات التواصل الاجتماعي (SMM). '
-        . 'مهمتك مساعدة الأدمن بأي شيء يخص إدارة الموقع: الرد على تذاكر الدعم، فحص الطلبات العالقة أو التي بها مشكلة، تنظيف أسماء الخدمات من الشوائب وكتابة أوصاف لها، وفحص صحة النظام دورياً. '
+        . 'مهمتك مساعدة الأدمن بأي شيء يخص إدارة الموقع: الرد على تذاكر الدعم، فحص الطلبات العالقة أو التي بها مشكلة، تنظيف أسماء الخدمات من الشوائب وكتابة أوصاف لها، فحص صحة النظام دورياً، وإنشاء كوبونات هدية وإعلانها للمستخدمين. '
+        . 'قد يُشغَّل طلبك هذا كمهمة متكررة مجدولة أضافها الأدمن مسبقاً (وليس بالضرورة سؤالاً مباشراً منه الآن) — نفّذها بنفس الجدّية دون انتظار أي تأكيد. '
         . 'لديك أدوات حقيقية (tools) يمكنك استدعاؤها لتنفيذ هذه المهام فعلياً على الموقع — استخدمها مباشرة متى احتجتها، بالتتابع إن لزم عدة خطوات، دون انتظار تأكيد من المدير (فوّضك كامل الصلاحية). '
         . 'لا تخترع أبداً أرقام تذاكر أو طلبات أو معرّفات خدمات غير موجودة فعلاً فيما أرجعته الأدوات — استدعِ أداة القوائم المناسبة أولاً دائماً قبل أي إجراء على عنصر محدد. '
         . 'عند الرد على تذكرة: اقرأ آخر رسالة المستخدم جيداً وأجب بما يحل مشكلته تحديداً بنبرة ودودة ومهنية. '
@@ -213,6 +222,33 @@ function ai_agent_tool_check_health(): array {
     return $out;
 }
 
+function ai_agent_tool_create_coupon(array $args): array {
+    $amount = py_float($args['amount'] ?? 0);
+    if ($amount <= 0) return ['error' => 'amount يجب أن يكون أكبر من صفر'];
+    $code = py_upper_s(py_strip_s($args['code'] ?? ''));
+    if ($code === '') $code = 'GIFT' . strtoupper(substr(bin2hex(random_bytes(4)), 0, 6));
+    $max_uses = max(1, (int)($args['max_uses'] ?? 1));
+    $notify_all = !array_key_exists('notify_all', $args) || py_truthy($args['notify_all']);
+    $cid = uuid8();
+    $conn = get_db();
+    try {
+        $conn->execute('INSERT INTO coupons(id,code,amount,max_uses,expires_at) VALUES(?,?,?,?,?)', [$cid, $code, $amount, $max_uses, '']);
+        $conn->commit();
+    } catch (Throwable $e) {
+        return ['error' => 'الكود "' . $code . '" موجود مسبقاً، جرّب كوداً آخر'];
+    }
+    if ($notify_all) {
+        $users = $conn->execute('SELECT id FROM users WHERE is_admin=0 ORDER BY id ASC')->fetchall();
+        foreach ($users as $u) {
+            $nid = uuid8();
+            $conn->execute('INSERT INTO notifications(id,user_id,type,title,text,icon) VALUES(?,?,?,?,?,?)',
+                [$nid, $u['id'], 'system', 'كوبون هدية جديد', "استخدم الكود $code واحصل على $" . py_fmt($amount, 2) . ' رصيد مجاني!', 'gift']);
+        }
+        $conn->commit();
+    }
+    return ['ok' => true, 'code' => $code, 'amount' => $amount, 'max_uses' => $max_uses, 'notified_users' => $notify_all];
+}
+
 function ai_agent_exec_tool(string $tool, array $args): array {
     try {
         switch ($tool) {
@@ -225,6 +261,7 @@ function ai_agent_exec_tool(string $tool, array $args): array {
             case 'update_service_name': $r = ai_agent_tool_update_service($args, 'name'); return [$r, !isset($r['error'])];
             case 'update_service_desc': $r = ai_agent_tool_update_service($args, 'desc'); return [$r, !isset($r['error'])];
             case 'check_system_health': return [ai_agent_tool_check_health(), true];
+            case 'create_gift_coupon': $r = ai_agent_tool_create_coupon($args); return [$r, !isset($r['error'])];
             default: return [['error' => 'أداة غير معروفة: ' . $tool], false];
         }
     } catch (Throwable $e) {
