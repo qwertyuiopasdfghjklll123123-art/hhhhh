@@ -234,6 +234,16 @@ function ai_agent_exec_tool(string $tool, array $args): array {
 }
 
 /**
+ * يكشف إن كان نص رد (بلا tool_calls رسمية) يحاول فعلياً وصف استدعاء أداة بصيغة تحكّم غير رسمية بدل نص طبيعي —
+ * بعض النماذج (أو بوابات توجيه الطلبات) قد تُسرّب رموز تحكّمها الداخلية الخاصة باستدعاء الأدوات كنص عادي
+ * بدل تعبئة tool_calls الرسمية، فيظهر للأدمن كلام مبهم مثل "<DSML| |calls| |>" بدل تنفيذ فعلي أو رد مفهوم.
+ */
+function ai_agent_looks_garbled(string $text): bool {
+    return (bool)preg_match('/dsml|invoke\s+name\s*=|function_call|tool[_\x{2581}\x{ff5c}]*calls?\s*[_\x{2581}\x{ff5c}]*(begin|end)?/iu', $text)
+        || str_contains($text, '｜') || str_contains($text, '▁');
+}
+
+/**
  * يشغّل جولة محادثة/تنفيذ كاملة: يحفظ رسالة الأدمن (إن وُجدت)، يستدعي النموذج، ينفّذ أي أدوات يطلبها تباعاً
  * (حتى AI_AGENT_MAX_STEPS)، ويعيد الرد النهائي النصي + قائمة الإجراءات المنفَّذة فعلياً بهذه الجولة.
  * $source: 'chat' (محادثة حيّة مع الأدمن) أو 'cron' (فحص دوري تلقائي بلا أدمن حاضر).
@@ -263,11 +273,29 @@ function ai_agent_run(string $user_message, string $source = 'chat'): array {
     $tools = ai_agent_tool_schemas();
     $actions = [];
     $final_reply = null;
+    $garbled_retry_used = false;
     for ($i = 0; $i < AI_AGENT_MAX_STEPS; $i++) {
         [$msg, $err] = call_ai_api_raw($messages, $tools);
         if ($err) { $final_reply = $err; break; }
         $toolCalls = $msg['tool_calls'] ?? null;
-        if (!$toolCalls) { $final_reply = py_truthy($msg['content'] ?? null) ? $msg['content'] : 'تم.'; break; }
+        if (!$toolCalls) {
+            $reply = py_truthy($msg['content'] ?? null) ? $msg['content'] : 'تم.';
+            // بعض المزوّدين/النماذج قد "يهلوس" أحياناً بصيغة استدعاء أداة غير رسمية كنص عادي بدل تعبئة tool_calls
+            // الرسمية (رموز تحكّم مشوّهة مثل <DSML|...>) — لا نعرض هذا النص كأنه رد نهائي سليم أبداً، بل نعيد
+            // المحاولة مرة واحدة بتذكير صريح قبل أن نستسلم برسالة خطأ واضحة.
+            if (ai_agent_looks_garbled($reply)) {
+                log_app_error('WARNING', 'ai_agent: garbled non-tool_calls content from provider: ' . mb_substr($reply, 0, 300, 'UTF-8'));
+                if (!$garbled_retry_used) {
+                    $garbled_retry_used = true;
+                    $messages[] = ['role' => 'system', 'content' => 'ردّك السابق لم يصل بصيغة سليمة. استخدم آلية استدعاء الأدوات الرسمية (tool_calls) فقط لتنفيذ أي إجراء، ولا تكتب استدعاء الأداة كنص عادي إطلاقاً.'];
+                    continue;
+                }
+                $final_reply = 'تعذّر الحصول على رد منظّم من مزوّد الذكاء الاصطناعي لهذا الطلب (مشكلة تنسيق من النموذج نفسه، وليست عطلاً بالموقع). جرّب تبسيط الطلب أو إعادة المحاولة بعد قليل. إن تكرر الأمر باستمرار، تأكد من أن النموذج المحدد بإعدادات المساعد الذكي (deepseek_model) يدعم فعلياً استدعاء الأدوات (Tool/Function Calling).';
+                break;
+            }
+            $final_reply = $reply;
+            break;
+        }
 
         $messages[] = $msg;
         foreach ($toolCalls as $tc) {
