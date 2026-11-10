@@ -571,6 +571,8 @@ body{font-family:IBM Plex Sans Arabic,'Tajawal',sans-serif;background:var(--bg);
   var params=new URLSearchParams(window.location.search);
   if(params.get('verified')==='1') toast('تم تأكيد حسابك بنجاح! سجّل الدخول الآن','success');
   if(params.get('verified')==='0') toast('رابط التأكيد غير صالح','error');
+  if(params.get('tg')==='0') toast('رابط الدخول عبر تليجرام غير صالح أو منتهي، افتح /start بالبوت من جديد','error');
+  if(params.get('tg')==='2fa') toast('هذا الحساب مفعّل عليه التحقق بخطوتين — سجّل الدخول بكلمة المرور ثم أدخل الرمز','error');
 
   function scrollTo(id){document.getElementById(id).scrollIntoView({behavior:'smooth'});}
   var _auth=document.getElementById('authSection');

@@ -3326,6 +3326,7 @@ html[dir="ltr"] body{text-align:left}
       <div class="set-item" onclick="openAdmOV('logoPage');loadSiteSettings()"><div class="set-ic" style="background:rgba(99,102,241,.1);color:var(--primary)"><i class="fa-solid fa-palette"></i></div><div class="set-info"><div class="set-name">اللوغو واسم الموقع</div><div class="set-desc">تغيير شعار الموقع واسمه المعروض</div></div><i class="fa-solid fa-chevron-left set-arr"></i></div>
       <div class="set-item" onclick="openAdmOV('pwaIconPage');loadPwaIcon()"><div class="set-ic" style="background:rgba(139,92,246,.1);color:#8b5cf6"><i class="fa-solid fa-mobile-screen-button"></i></div><div class="set-info"><div class="set-name">أيقونة تطبيق PWA</div><div class="set-desc">تغيير الأيقونة التي تظهر عند تثبيت التطبيق</div></div><i class="fa-solid fa-chevron-left set-arr"></i></div>
       <div class="set-item" onclick="openAdmOV('smtpPage');loadSiteSettings()"><div class="set-ic" style="background:rgba(6,182,212,.1);color:#06b6d4"><i class="fa-solid fa-envelope-open-text"></i></div><div class="set-info"><div class="set-name">إعدادات البريد (SMTP)</div><div class="set-desc">ربط بريد لإرسال رسائل استعادة كلمة المرور</div></div><i class="fa-solid fa-chevron-left set-arr"></i></div>
+      <div class="set-item" onclick="openAdmOV('siteBotPage');loadSiteBot()"><div class="set-ic" style="background:rgba(34,158,217,.1);color:#229ed9"><i class="fa-brands fa-telegram"></i></div><div class="set-info"><div class="set-name">بوت تليجرام الموقع</div><div class="set-desc">بوت بأزرار: الموقع، تسجيل دخول مباشر، والدعم</div></div><i class="fa-solid fa-chevron-left set-arr"></i></div>
       <div class="set-item" onclick="openAdmOV('backupPage');loadSiteSettings();loadBackupList()"><div class="set-ic blue"><i class="fa-solid fa-cloud-arrow-up"></i></div><div class="set-info"><div class="set-name">النسخ الاحتياطي</div><div class="set-desc">نسخ تلقائي للقاعدة + إرسال للتلغرام</div></div><i class="fa-solid fa-chevron-left set-arr"></i></div>
       <div class="set-item" onclick="openAdmOV('transferPage');loadTransferPage()"><div class="set-ic" style="background:rgba(16,185,129,.1);color:#10b981"><i class="fa-solid fa-right-left"></i></div><div class="set-info"><div class="set-name">استيراد وتصدير</div><div class="set-desc">استعادة نسخة وصلت من تلغرام أو تحميل نسخة من الموقع</div></div><i class="fa-solid fa-chevron-left set-arr"></i></div>
       <div class="set-item" onclick="openAdmOV('securityPage');loadSecurityPage()"><div class="set-ic" style="background:rgba(99,102,241,.1);color:var(--primary)"><i class="fa-solid fa-shield-halved"></i></div><div class="set-info"><div class="set-name">مركز الأمان</div><div class="set-desc">حالة الحماية وسجل نشاط الأدمن</div></div><i class="fa-solid fa-chevron-left set-arr"></i></div>
@@ -3461,6 +3462,26 @@ html[dir="ltr"] body{text-align:left}
     <button onclick="testSMTP()" class="btn-outline" style="margin-bottom:6px"><i class="fa-solid fa-paper-plane"></i> إرسال بريد تجريبي</button>
     <div id="smtpTestRes" style="display:none;padding:10px 12px;border-radius:10px;font-size:11px;font-weight:700;margin-bottom:6px;align-items:center;gap:6px"></div>
     <button onclick="saveSMTP()" class="btn-primary"><i class="fa-solid fa-check"></i> حفظ الإعدادات</button>
+  </div>
+</div>
+<div class="overlay-page admin-only" id="siteBotPage">
+  <div class="ov-topbar"><button class="ov-back" onclick="document.getElementById('siteBotPage').classList.remove('show')"><i class="fa-solid fa-arrow-right"></i></button><div class="ov-title"><i class="fa-brands fa-telegram"></i> بوت تليجرام الموقع</div></div>
+  <div class="ov-body">
+    <div style="text-align:center;padding:8px 0 16px"><div style="width:52px;height:52px;border-radius:14px;background:rgba(34,158,217,.1);display:inline-flex;align-items:center;justify-content:center;font-size:22px;color:#229ed9;margin-bottom:8px"><i class="fa-brands fa-telegram"></i></div><div style="font-size:15px;font-weight:800">بوت تليجرام تفاعلي</div><div style="font-size:10px;color:var(--text3)">ارفع توكن البوت فقط ويتفعّل تلقائياً</div></div>
+    <div id="siteBotStatus" style="display:none;padding:10px 12px;border-radius:10px;font-size:11px;font-weight:700;margin-bottom:12px;align-items:center;gap:6px"></div>
+    <div style="background:var(--card);border:1px solid var(--card-border);border-radius:14px;padding:16px;margin-bottom:12px">
+      <div class="field-group" style="margin-bottom:0"><div class="field-label"><i class="fa-solid fa-key"></i> Bot Token</div><input type="text" class="text-input" id="siteBotToken" placeholder="من BotFather — مثال: 123456:ABC-DEF..." dir="ltr" style="text-align:left;font-family:var(--font-num);font-size:12px"></div>
+    </div>
+    <div style="background:var(--card);border:1px solid var(--card-border);border-radius:14px;padding:14px;margin-bottom:12px">
+      <div class="sec-label"><i class="fa-solid fa-circle-info"></i> عند الضغط على /start بالبوت</div>
+      <ul style="margin:0;padding:0 16px 0 0;list-style:none">
+        <li style="font-size:11px;color:var(--text2);line-height:1.8;margin-bottom:6px"><i class="fa-solid fa-check" style="color:#10b981;font-size:9px;margin-left:5px"></i>زر 🌐 زيارة الموقع</li>
+        <li style="font-size:11px;color:var(--text2);line-height:1.8;margin-bottom:6px"><i class="fa-solid fa-check" style="color:#10b981;font-size:9px;margin-left:5px"></i>زر 🔑 تسجيل دخول مباشر بحساب تليجرام (ينشئ حساباً تلقائياً لأول مرة)</li>
+        <li style="font-size:11px;color:var(--text2);line-height:1.8"><i class="fa-solid fa-check" style="color:#10b981;font-size:9px;margin-left:5px"></i>زر 💬 الدعم (واتساب الدعم المُعدّ بإعدادات الموقع)</li>
+      </ul>
+    </div>
+    <button onclick="saveSiteBot()" class="btn-primary" style="margin-bottom:8px"><i class="fa-solid fa-check"></i> حفظ وتفعيل</button>
+    <button onclick="removeSiteBot()" id="siteBotRemoveBtn" class="btn-danger" style="display:none"><i class="fa-solid fa-power-off"></i> إيقاف البوت</button>
   </div>
 </div>
 <div class="overlay-page admin-only" id="backupPage">
@@ -9503,6 +9524,31 @@ function testSMTP(){
     else{res.style.background='rgba(239,68,68,.1)';res.style.color='var(--red,#ef4444)';res.style.border='1px solid rgba(239,68,68,.15)';res.innerHTML='<i class="fa-solid fa-times-circle"></i> فشل: '+(d.error||'خطأ')}
   });
 }
+function loadSiteBot(){
+  fetch('/api/admin/site-bot/status').then(function(r){return r.json()}).then(function(d){
+    if(!d.ok)return;
+    var st=document.getElementById('siteBotStatus'),rm=document.getElementById('siteBotRemoveBtn');
+    if(d.active){
+      st.style.display='flex';st.style.background='rgba(16,185,129,.1)';st.style.color='var(--green,#10b981)';st.style.border='1px solid rgba(16,185,129,.15)';
+      st.innerHTML='<i class="fa-solid fa-check-circle"></i> البوت مفعّل: @'+esc(d.bot_username||'');
+      rm.style.display='block';
+    }else{st.style.display='none';rm.style.display='none';}
+  });
+}
+function saveSiteBot(){
+  var token=document.getElementById('siteBotToken').value.trim();
+  if(!token){toast('أدخل توكن البوت أولاً','error');return}
+  fetch('/api/admin/site-bot/save',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({token:token})}).then(function(r){return r.json()}).then(function(d){
+    toast(d.msg||(d.ok?'تم':'خطأ'),d.ok?'success':'error');
+    if(d.ok){document.getElementById('siteBotToken').value='';loadSiteBot()}
+  });
+}
+function removeSiteBot(){
+  fetch('/api/admin/site-bot/remove',{method:'POST'}).then(function(r){return r.json()}).then(function(d){
+    toast(d.msg||(d.ok?'تم':'خطأ'),d.ok?'success':'error');
+    if(d.ok)loadSiteBot();
+  });
+}
 function saveBackupSettings(){
   var data={tg_bot_token:document.getElementById('tgBotToken').value,tg_chat_id:document.getElementById('tgChatId').value};
   fetch('/api/admin/site-settings',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)}).then(function(r){return r.json()}).then(function(d){
@@ -10699,7 +10745,10 @@ function setLang(l){
 }
 window.fcSetLang=setLang;window.fcLang=function(){return cur};window.fcTr=function(s){return cur==='en'?tr(s):s};
 document.addEventListener('click',function(e){var b=e.target.closest&&e.target.closest('.lang-seg button');if(b)setLang(b.dataset.lang)});
-function init(){var l='ar';try{l=localStorage.getItem('fc_lang')||'ar'}catch(e){}document.querySelectorAll('.lang-seg button').forEach(function(b){b.classList.toggle('on',b.dataset.lang===l)});if(l==='en')setLang('en')}
+function init(){var l='ar';try{l=localStorage.getItem('fc_lang')||'ar'}catch(e){}document.querySelectorAll('.lang-seg button').forEach(function(b){b.classList.toggle('on',b.dataset.lang===l)});if(l==='en')setLang('en');
+  var _p=new URLSearchParams(window.location.search);
+  if(_p.get('tg')==='1'){toast('تم تسجيل الدخول عبر تليجرام بنجاح!','success');history.replaceState(null,'','/app')}
+}
 if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',function(){setTimeout(init,50)});else setTimeout(init,50);
 })();
 </script>

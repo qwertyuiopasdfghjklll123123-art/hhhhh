@@ -1,0 +1,148 @@
+<?php
+/**
+ * بوت تليجرام الموقع: بوت تفاعلي مستقل (منفصل عن بوت نجوم تليجرام الخاص بالدفع) يرفع الأدمن توكنه من
+ * لوحة الإدارة فيتفعّل فوراً (يُسجَّل Webhook تلقائياً). عند /start يرد بثلاثة أزرار: زيارة الموقع،
+ * تسجيل دخول مباشر بحساب تليجرام (ينشئ حساباً تلقائياً إن كانت أول مرة)، والدعم عبر واتساب.
+ */
+
+const SITE_BOT_LOGIN_TTL = 600; // صلاحية رابط الدخول المباشر: 10 دقائق من وقت إرساله بالبوت
+
+/** يوقّع [tid, fn, un, exp] بـ HMAC مبني على SECRET_KEY — بلا حاجة لتخزين توكنات الدخول بقاعدة البيانات */
+function site_bot_sign_login(int $tid, string $first_name, string $username): string {
+    $payload = json_encode(['tid' => $tid, 'fn' => $first_name, 'un' => $username, 'exp' => time() + SITE_BOT_LOGIN_TTL], JSON_UNESCAPED_UNICODE);
+    $b64 = rtrim(strtr(base64_encode($payload), '+/', '-_'), '=');
+    $sig = rtrim(strtr(base64_encode(hash_hmac('sha256', $b64, SECRET_KEY, true)), '+/', '-_'), '=');
+    return $b64 . '.' . $sig;
+}
+
+/** @return array|null الحمولة إن كان التوقيع صحيحاً وغير منتهي الصلاحية، وإلا null */
+function site_bot_verify_login(string $token): ?array {
+    $parts = explode('.', $token, 2);
+    if (count($parts) !== 2) return null;
+    [$b64, $sig] = $parts;
+    $expected = rtrim(strtr(base64_encode(hash_hmac('sha256', $b64, SECRET_KEY, true)), '+/', '-_'), '=');
+    if (!hash_equals($expected, $sig)) return null;
+    $payload = json_decode(base64_decode(strtr($b64, '-_', '+/')), true);
+    if (!is_array($payload) || !isset($payload['tid'], $payload['exp'])) return null;
+    if (time() > (int)$payload['exp']) return null;
+    return $payload;
+}
+
+/* '/api/admin/site-bot/status' */
+route('/api/admin/site-bot/status', function () {
+    if (!_is_admin_session()) return jsonify(['ok' => false], 403);
+    return jsonify(['ok' => true, 'active' => py_truthy(get_setting('site_bot_token', '')), 'bot_username' => get_setting('site_bot_username', '')]);
+});
+
+/* '/api/admin/site-bot/save': يحفظ التوكن بعد التحقق منه عبر getMe، ثم يسجّل الـ Webhook فوراً — تفعيل بخطوة واحدة */
+route('/api/admin/site-bot/save', function () {
+    if (!_is_admin_session()) return jsonify(['ok' => false], 403);
+    $data = req_data();
+    $token = py_strip(py_or(dget($data, 'token'), ''));
+    if (!py_truthy($token)) return jsonify(['ok' => false, 'msg' => 'أدخل توكن البوت أولاً']);
+    try {
+        $r = requests_get("https://api.telegram.org/bot$token/getMe", ['timeout' => 10]);
+        $rj = $r->json();
+    } catch (Throwable $e) {
+        return jsonify(['ok' => false, 'msg' => 'تعذر الاتصال بتليجرام: ' . py_slice($e->getMessage(), null, 80)]);
+    }
+    if (!py_truthy(dget($rj, 'ok'))) {
+        return jsonify(['ok' => false, 'msg' => 'توكن غير صالح: ' . py_str(dget($rj, 'description', 'تأكد من نسخه كاملاً من BotFather'))]);
+    }
+    $bot_username = py_str(dget(dget($rj, 'result', []), 'username', ''));
+    set_setting('site_bot_token', $token);
+    set_setting('site_bot_username', $bot_username);
+    $webhook_url = 'https://' . req_host() . '/api/telegram/site-bot-webhook';
+    try {
+        $wr = requests_post("https://api.telegram.org/bot$token/setWebhook",
+            ['json' => ['url' => $webhook_url, 'allowed_updates' => ['message']], 'timeout' => 15]);
+        $wrj = $wr->json();
+    } catch (Throwable $e) {
+        return jsonify(['ok' => false, 'msg' => 'تم حفظ التوكن لكن تعذر تفعيل الاستقبال: ' . py_slice($e->getMessage(), null, 80)]);
+    }
+    if (!py_truthy(dget($wrj, 'ok'))) {
+        return jsonify(['ok' => false, 'msg' => 'تم حفظ التوكن لكن فشل تفعيل الاستقبال: ' . py_str(dget($wrj, 'description', ''))]);
+    }
+    return jsonify(['ok' => true, 'msg' => 'تم تفعيل البوت بنجاح: @' . $bot_username, 'bot_username' => $bot_username]);
+}, ['POST']);
+
+/* '/api/admin/site-bot/remove' */
+route('/api/admin/site-bot/remove', function () {
+    if (!_is_admin_session()) return jsonify(['ok' => false], 403);
+    $token = get_setting('site_bot_token', '');
+    if (py_truthy($token)) {
+        try { requests_post("https://api.telegram.org/bot$token/deleteWebhook", ['timeout' => 10]); } catch (Throwable $e) {}
+    }
+    set_setting('site_bot_token', '');
+    set_setting('site_bot_username', '');
+    return jsonify(['ok' => true, 'msg' => 'تم إيقاف البوت']);
+}, ['POST']);
+
+/* '/api/telegram/site-bot-webhook': يستقبل تحديثات تليجرام (بلا جلسة) ويرد عند /start بالأزرار الثلاثة */
+route('/api/telegram/site-bot-webhook', function () {
+    $token = get_setting('site_bot_token', '');
+    if (!py_truthy($token)) return jsonify(['ok' => true]);
+    $update = req_data();
+    $msg = dget($update, 'message', null);
+    if (!is_array($msg)) return jsonify(['ok' => true]);
+    $chat = dget($msg, 'chat', []);
+    $chat_id = dget($chat, 'id', null);
+    $from = dget($msg, 'from', []);
+    if (!$chat_id || !is_array($from)) return jsonify(['ok' => true]);
+    $tid = py_int(py_or(dget($from, 'id'), 0));
+    if ($tid <= 0) return jsonify(['ok' => true]);
+    $fn = py_str(dget($from, 'first_name', ''));
+    $un = py_str(dget($from, 'username', ''));
+
+    $site_name = get_setting('site_name', 'المتجر');
+    $site_url = 'https://' . req_host();
+    $login_token = site_bot_sign_login($tid, $fn, $un);
+    $login_url = $site_url . '/api/telegram/login?token=' . urlencode($login_token);
+
+    $rows = [[['text' => '🌐 زيارة الموقع', 'url' => $site_url]],
+              [['text' => '🔑 تسجيل الدخول المباشر', 'url' => $login_url]]];
+    $wa = preg_replace('/[^0-9]/', '', (string)get_setting('support_whatsapp', ''));
+    if (py_truthy($wa)) $rows[] = [['text' => '💬 الدعم', 'url' => 'https://wa.me/' . $wa]];
+
+    try {
+        requests_post("https://api.telegram.org/bot$token/sendMessage", [
+            'json' => [
+                'chat_id' => $chat_id,
+                'text' => "مرحباً بك في $site_name! 👋\nاستخدم الأزرار بالأسفل للتنقل أو لتسجيل الدخول مباشرة بحسابك.",
+                'reply_markup' => ['inline_keyboard' => $rows],
+            ],
+            'timeout' => 10,
+        ]);
+    } catch (Throwable $e) {}
+    return jsonify(['ok' => true]);
+}, ['POST']);
+
+/* '/api/telegram/login': رابط الدخول المباشر من البوت — يسجّل الدخول أو ينشئ حساباً تلقائياً لأول مرة */
+route('/api/telegram/login', function () {
+    $token = req_args('token', '');
+    $payload = py_truthy($token) ? site_bot_verify_login((string)$token) : null;
+    if (!$payload) return redirect('/?tg=0');
+    $tid = (int)$payload['tid'];
+    if ($tid <= 0) return redirect('/?tg=0');
+
+    $conn = get_db();
+    $user = $conn->execute('SELECT * FROM users WHERE telegram_chat_id=?', [(string)$tid])->fetchone();
+    if ($user) {
+        if (user_has_2fa($user)) return redirect('/?tg=2fa');
+        _session_login($user);
+        return redirect('/app?tg=1');
+    }
+
+    $fn = py_str(py_or(dget($payload, 'fn'), ''));
+    $un = py_str(py_or(dget($payload, 'un'), ''));
+    $name = py_truthy($fn) ? $fn : (py_truthy($un) ? $un : 'مستخدم تليجرام');
+    $email = 'tg' . $tid . '@telegram.local';
+    $pw_hash = hash_pw(bin2hex(random_bytes(16)));
+    $_pid = _next_public_id();
+    $conn->execute('INSERT INTO users(name,email,password,verified,telegram_chat_id,public_id) VALUES(?,?,?,1,?,?)',
+        [$name, $email, $pw_hash, (string)$tid, $_pid]);
+    $conn->commit();
+    $user = $conn->execute('SELECT * FROM users WHERE email=?', [$email])->fetchone();
+    _session_login($user, true, false);
+    return redirect('/app?tg=1');
+});
