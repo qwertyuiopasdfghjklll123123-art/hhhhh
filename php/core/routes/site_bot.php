@@ -5,7 +5,21 @@
  * تسجيل دخول مباشر بحساب تليجرام (ينشئ حساباً تلقائياً إن كانت أول مرة)، والدعم عبر واتساب.
  */
 
-const SITE_BOT_LOGIN_TTL = 600; // صلاحية رابط الدخول المباشر: 10 دقائق من وقت إرساله بالبوت
+const SITE_BOT_LOGIN_TTL = 86400; // صلاحية رابط الدخول المباشر: يوم كامل من وقت إرساله بالبوت (كان 10 دقائق فقط — قصير جداً عملياً، يجعل الرابط ينتهي قبل أن يضغطه المستخدم غالباً)
+
+/** صفحة خطأ صغيرة مخصّصة (بدل العودة للموقع الكامل) تظهر داخل متصفح تليجرام المدمج عند فشل رابط الدخول لأي سبب */
+function _site_bot_login_error_page(string $title, string $msg): Response {
+    $bot_username = get_setting('site_bot_username', '');
+    $btn = py_truthy($bot_username)
+        ? '<a href="https://t.me/' . htmlspecialchars($bot_username, ENT_QUOTES) . '" style="display:inline-block;margin-top:18px;padding:12px 28px;background:#229ed9;color:#fff;border-radius:12px;font-weight:700;text-decoration:none">العودة للبوت</a>'
+        : '';
+    $html = '<!doctype html><html lang="ar" dir="rtl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">'
+        . '<title>' . htmlspecialchars($title, ENT_QUOTES) . '</title>'
+        . '<style>body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;background:#0f1b35;color:#fff;font-family:"IBM Plex Sans Arabic",Tahoma,sans-serif;text-align:center;padding:24px;box-sizing:border-box}'
+        . '.box{max-width:360px}h1{font-size:18px;margin:0 0 10px}p{font-size:13px;line-height:1.8;color:#b9c3dd;margin:0}</style></head>'
+        . '<body><div class="box"><h1>' . htmlspecialchars($title, ENT_QUOTES) . '</h1><p>' . htmlspecialchars($msg, ENT_QUOTES) . '</p>' . $btn . '</div></body></html>';
+    return make_response($html, 200);
+}
 
 /** يوقّع [tid, fn, un, exp] بـ HMAC مبني على SECRET_KEY — بلا حاجة لتخزين توكنات الدخول بقاعدة البيانات */
 function site_bot_sign_login(int $tid, string $first_name, string $username): string {
@@ -58,6 +72,12 @@ route('/api/admin/site-bot/save', function () {
     $bot_username = py_str(dget(dget($rj, 'result', []), 'username', ''));
     set_setting('site_bot_token', $token);
     set_setting('site_bot_username', $bot_username);
+    // النص الظاهر فوق زر "ابدأ" الأساسي بتليجرام (الزر نفسه ثابت من تليجرام ولا يمكن لأي بوت تغيير تسميته)
+    $site_name = get_setting('site_name', 'المتجر');
+    try {
+        requests_post("https://api.telegram.org/bot$token/setMyShortDescription",
+            ['json' => ['short_description' => "اضغط ابدأ لتسجيل الدخول لموقع $site_name أو إنشاء حساب جديد فوراً"], 'timeout' => 10]);
+    } catch (Throwable $e) {}
     $webhook_url = 'https://' . req_host() . '/api/telegram/site-bot-webhook';
     try {
         $wr = requests_post("https://api.telegram.org/bot$token/setWebhook",
@@ -107,7 +127,7 @@ route('/api/telegram/site-bot-webhook', function () {
 
     // web_app (بدل url عادي): يفتح الرابط داخل متصفح تليجرام المدمج دائماً (بكل المنصات)، وليس متصفحاً خارجياً —
     // مدعوم فقط بالمحادثات الخاصة بين المستخدم والبوت (وهذا بالضبط سياقنا هنا)
-    $rows = [[['text' => '🔑 تسجيل الدخول / إنشاء حساب', 'web_app' => ['url' => $login_url]]]];
+    $rows = [[['text' => '🌐 الدخول للموقع', 'web_app' => ['url' => $login_url]]]];
     $wa = preg_replace('/[^0-9]/', '', (string)get_setting('support_whatsapp', ''));
     if (py_truthy($wa)) $rows[] = [['text' => '💬 الدعم', 'url' => 'https://wa.me/' . $wa]];
 
@@ -128,14 +148,16 @@ route('/api/telegram/site-bot-webhook', function () {
 route('/api/telegram/login', function () {
     $token = req_args('token', '');
     $payload = py_truthy($token) ? site_bot_verify_login((string)$token) : null;
-    if (!$payload) return redirect('/?tg=0');
+    if (!$payload) return _site_bot_login_error_page('انتهت صلاحية الرابط', 'رابط الدخول هذا لم يعد صالحاً. ارجع إلى محادثة البوت واضغط /start من جديد للحصول على رابط دخول جديد.');
     $tid = (int)$payload['tid'];
-    if ($tid <= 0) return redirect('/?tg=0');
+    if ($tid <= 0) return _site_bot_login_error_page('رابط غير صالح', 'تعذّر التحقق من هذا الرابط. ارجع إلى محادثة البوت واضغط /start من جديد.');
 
     $conn = get_db();
     $user = $conn->execute('SELECT * FROM users WHERE telegram_chat_id=?', [(string)$tid])->fetchone();
     if ($user) {
-        if (user_has_2fa($user)) return redirect('/?tg=2fa');
+        if (user_has_2fa($user)) {
+            return _site_bot_login_error_page('التحقق بخطوتين مفعّل', 'هذا الحساب محمي بالتحقق بخطوتين، فلا يمكن الدخول المباشر عبر تليجرام. افتح الموقع من متصفحك وسجّل الدخول بكلمة المرور ثم أدخل رمز التحقق.');
+        }
         _session_login($user);
         return redirect('/app?tg=1');
     }
