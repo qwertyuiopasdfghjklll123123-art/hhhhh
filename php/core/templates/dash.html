@@ -5011,7 +5011,7 @@ print(r.json())</pre>
     var c=document.getElementById('ordCoCnt');if(c){c.textContent=un;c.style.display=un?'inline-flex':'none'}
   }
   var _coBg=['#f59e0b','#2563eb','#7c3aed','#db2777','#10b981','#0891b2','#ef4444'];
-  function _coCard(o){
+  function _coCard(o,coIdx){
     var st=_coSt(o.status);
     var lbl={Completed:'مكتمل',Pending:'بانتظار التنفيذ',Processing:'قيد التنفيذ',Canceled:'ملغي'}[st];
     var cls={Completed:'g',Pending:'y',Processing:'b',Canceled:'r'}[st];
@@ -5021,13 +5021,13 @@ print(r.json())</pre>
     var dt=o.created_at?new Date(o.created_at*1000):null;
     var date=dt?(dt.getFullYear()+'-'+String(dt.getMonth()+1).padStart(2,'0')+'-'+String(dt.getDate()).padStart(2,'0')+' '+String(dt.getHours()).padStart(2,'0')+':'+String(dt.getMinutes()).padStart(2,'0')):'';
     var unread=o.last_sender==='admin'&&st!=='Completed'&&st!=='Canceled';
-    var h='<div class="cocard"><div class="co-h"><div class="co-ic" style="background:'+_coBg[hsh%_coBg.length]+'"><i class="fa-solid '+icon+'"></i></div>';
+    var h='<div class="cocard" data-coidx="'+coIdx+'"><div class="co-h"><div class="co-ic" style="background:'+_coBg[hsh%_coBg.length]+'"><i class="fa-solid '+icon+'"></i></div>';
     h+='<div class="co-tx"><div class="co-t">'+esc(o.service_name||'')+(o.package?' — '+esc(o.package):'')+'</div><div class="co-d">#'+esc(o.id)+(isGame&&o.link?' · ID <span style="font-family:var(--font-num,Inter);font-weight:700">'+esc(o.link)+'</span>':'')+'</div></div>';
     h+='<span class="v2-chip '+cls+'">'+lbl+'</span></div>';
     h+='<div class="co-m"><span>السعر <b data-usd="'+(o.cost||0)+'">'+fmtP(o.cost||0)+'</b></span>'+(date?'<span>'+date+'</span>':'')+'</div>';
     if(o.ticket_id){
       if(st==='Completed'||st==='Canceled')h+='<div class="co-f"><div class="co-closed"><i class="fa-solid fa-lock"></i> '+(st==='Completed'?'اكتمل الطلب — المحادثة مغلقة':'أُلغي الطلب — المحادثة مغلقة')+'</div></div>';
-      else h+='<div class="co-f"><button class="v2-btn solid sm" style="flex:1" onclick="openTicket('+parseInt(o.ticket_id)+')"><i class="fa-solid fa-comments"></i> فتح المحادثة'+(unread?' <span class="co-dot"></span>':'')+'</button></div>';
+      else h+='<div class="co-f"><button class="v2-btn solid sm" style="flex:1" onclick="event.stopPropagation();openTicket('+parseInt(o.ticket_id)+')"><i class="fa-solid fa-comments"></i> فتح المحادثة'+(unread?' <span class="co-dot"></span>':'')+'</button></div>';
     }
     return h+'</div>';
   }
@@ -5044,7 +5044,7 @@ print(r.json())</pre>
     }
     if(!filtered.length&&!cust.length){list.innerHTML=(sq.trim()||filter!=='all')?emptyState('search','لا توجد نتائج','جرّب تغيير الفلتر أو البحث'):emptyState('orders','لا توجد طلبات بعد','ابدأ بطلبك الأول من الصفحة الرئيسية');return}
     var statusAr={'Completed':'مكتمل','Pending':'معلّق','Processing':'قيد التنفيذ','In progress':'قيد التنفيذ','Canceled':'ملغاة','Partial':'جزئي','Queued':'بالانتظار'};
-    var h=cust.map(_coCard).join('');
+    var h=cust.map(function(o,i){return _coCard(o,i)}).join('');
     filtered.forEach(function(o,idx){
       var st=o.status||'Pending';
       var dispId=o.order||('L'+o.id);
@@ -5065,6 +5065,10 @@ print(r.json())</pre>
     list.querySelectorAll('.ocard').forEach(function(card){
       var idx=parseInt(card.dataset.idx);
       card.addEventListener('click',function(){showDetail(filtered[idx])});
+    });
+    list.querySelectorAll('.cocard').forEach(function(card){
+      var ci=parseInt(card.dataset.coidx);
+      card.addEventListener('click',function(){showCustomOrderDetail(cust[ci])});
     });
   }
   window.filterOrdersBySearch=function(){var af=document.querySelector('#ordFilters .flt.on');renderOrders(af?af.dataset.f:'all')};
@@ -5147,6 +5151,50 @@ print(r.json())</pre>
       rfHtml+
       (o.can_cancel?'<div style="margin-top:10px"><button class="oc-act cn" style="width:100%;justify-content:center;padding:13px" onclick="ordCancel(\''+String(o.order||"").replace(/[^0-9A-Za-z_-]/g,"")+'\',this)"><i class="fa-solid fa-ban"></i> إلغاء الطلب</button></div>':'')+
       '<div class="od-actions"><button class="od-act-btn od-act-reorder" onclick="reorderFromDetail('+o.service+',\''+encodeURIComponent(o.link||'')+'\','+(o.quantity||0)+',\''+encodeURIComponent(o.service_name||'')+'\')"><i class="fa-solid fa-rotate"></i> إعادة الطلب</button><button class="od-act-btn od-act-support" onclick="odOpenSupport(\''+encodeURIComponent(JSON.stringify({oid:o.order||o.id,svc:o.service_name||'',qty:o.quantity||0,charge:charge,link:o.link||'',status:status||''}))+'\')"><i class="fa-solid fa-headset"></i> الدعم الفني</button><button class="od-act-btn od-act-export" onclick="exportOrderImage(this)"><i class="fa-solid fa-image"></i> تصدير</button></div>';
+  }
+
+  /* تفاصيل طلب مخصّص (لعبة/اشتراك/خدمة مخصصة) — نفس تصميم بطاقة تفاصيل الطلب العادي، بحقول تناسب الطلبات المخصصة */
+  function showCustomOrderDetail(o){
+    var page=document.getElementById('odPage');
+    var body=document.getElementById('odBody');
+    body.innerHTML=buildCustomDetail(o);
+    page.classList.add('show');
+  }
+  window.showCustomOrderDetail=showCustomOrderDetail;
+  function buildCustomDetail(o){
+    var st=_coSt(o.status);
+    var lbl={Completed:'مكتمل',Pending:'بانتظار التنفيذ',Processing:'قيد التنفيذ',Canceled:'ملغي'}[st];
+    var stClass='st-'+st;
+    var isGame=o.type==='game';
+    var icon=isGame?'fa-gamepad':(o.type==='subscription'?'fa-crown':'fa-gem');
+    var hsh=0;String(o.service_id||o.service_name||'').split('').forEach(function(ch){hsh=(hsh*31+ch.charCodeAt(0))>>>0});
+    var dt=o.created_at?new Date(o.created_at*1000):null;
+    var date=dt?(dt.getFullYear()+'-'+String(dt.getMonth()+1).padStart(2,'0')+'-'+String(dt.getDate()).padStart(2,'0')+' '+String(dt.getHours()).padStart(2,'0')+':'+String(dt.getMinutes()).padStart(2,'0')):'';
+    var isDone=st==='Completed',isCanceled=st==='Canceled';
+    var tl1='done', tl2=isDone||isCanceled?'done':'active', tl3=isDone?'done':(isCanceled?'active':'pending');
+    var tlLine1=(tl2!=='pending')?'done':'', tlLine2=(tl3==='done')?'done':'';
+    var progress=isDone||isCanceled?100:(st==='Processing'?50:8);
+    var extraStat='';
+    if(isGame)extraStat='<div class="od-stat"><div class="od-stat-icon"><i class="fa-solid fa-hashtag"></i></div><div class="od-stat-label">معرّف اللاعب</div><div class="od-stat-val" dir="ltr">'+esc(o.link||'—')+'</div></div>';
+    else if(o.package)extraStat='<div class="od-stat"><div class="od-stat-icon"><i class="fa-solid fa-box-open"></i></div><div class="od-stat-label">الباقة</div><div class="od-stat-val">'+esc(o.package)+'</div></div>';
+    else extraStat='<div class="od-stat"><div class="od-stat-icon"><i class="fa-solid fa-layer-group"></i></div><div class="od-stat-label">الكمية</div><div class="od-stat-val">'+(o.quantity||'—')+'</div></div>';
+    var statsHtml=extraStat+'<div class="od-stat"><div class="od-stat-icon ic-price"><i class="fa-solid fa-tag"></i></div><div class="od-stat-label">السعر</div><div class="od-stat-val price" data-usd="'+(o.cost||0)+'">'+fmtP(o.cost||0)+'</div></div>';
+    var linkHtml=(!isGame&&o.link)?'<div class="od-link-card"><div class="od-link-row"><div class="od-link-icon"><i class="fa-solid fa-link"></i></div><div class="od-link-url">'+esc(o.link)+'</div></div><button class="od-copy-btn" onclick="navigator.clipboard.writeText(\''+esc(o.link).replace(/'/g,"\\'")+'\');toast(\'تم النسخ\',\'success\')"><i class="fa-regular fa-copy"></i> <span>نسخ الرابط</span></button></div>':'';
+    var actsHtml='';
+    if(o.ticket_id){
+      if(isDone||isCanceled)actsHtml='<div class="od-closed" style="margin-top:12px;text-align:center;font-size:12px;color:var(--text3)"><i class="fa-solid fa-lock"></i> '+(isDone?'اكتمل الطلب — المحادثة مغلقة':'أُلغي الطلب — المحادثة مغلقة')+'</div>';
+      else actsHtml='<div class="od-actions"><button class="od-act-btn od-act-support" style="flex:1" onclick="document.getElementById(\'odPage\').classList.remove(\'show\');openTicket('+parseInt(o.ticket_id)+')"><i class="fa-solid fa-comments"></i> فتح المحادثة</button></div>';
+    }
+    return '<div class="od-share-card">'
+      +'<div class="od-brand-strip"><img src="/pwa-icon-192.png" alt=""><span>__SITE_NAME__</span></div>'
+      +'<div class="od-head"><div class="od-av" style="background:'+_coBg[hsh%_coBg.length]+'"><i class="fa-solid '+icon+'"></i></div><div class="od-head-info"><div class="od-svc">'+esc(o.service_name||'')+'</div><div class="od-chips"><div class="od-chip">#'+esc(o.id)+'</div><div class="od-chip '+stClass+'">'+lbl+'</div></div></div></div>'
+      +'<div class="od-timeline"><div class="od-tl-step '+tl1+'"><div class="od-tl-dot"><i class="fa-solid fa-check"></i></div><div class="od-tl-label">تم الطلب</div></div><div class="od-tl-line '+tlLine1+'"></div><div class="od-tl-step '+tl2+'"><div class="od-tl-dot"><i class="fa-solid fa-clock"></i></div><div class="od-tl-label">قيد التنفيذ</div></div><div class="od-tl-line '+tlLine2+'"></div><div class="od-tl-step '+tl3+'"><div class="od-tl-dot"><i class="fa-solid '+(isCanceled?'fa-xmark':'fa-flag-checkered')+'"></i></div><div class="od-tl-label">'+(isCanceled?'ملغي':'مكتمل')+'</div></div></div>'
+      +'<div class="od-stats" style="grid-template-columns:repeat(2,1fr)">'+statsHtml+'</div>'
+      +'<div class="od-prog"><div class="od-prog-row"><div class="od-prog-bar"><div class="od-prog-fill" style="width:'+progress+'%"></div></div><div class="od-prog-pct">'+progress+'%</div></div></div>'
+      +linkHtml
+      +(date?'<div class="od-foot-tag">'+esc(date)+'</div>':'')
+      +'</div>'
+      +actsHtml;
   }
 
   /* تصدير بطاقة تفاصيل الطلب (od-share-card) كصورة PNG قابلة للمشاركة — يحمّل html2canvas عند أول استخدام فقط */
