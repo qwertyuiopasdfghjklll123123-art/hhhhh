@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="ar" dir="rtl"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0">
+<html lang="ar" dir="rtl"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no">
 <meta name="author" content="Fast"><title>__SITE_NAME__ — طلب خدمة</title>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -8,7 +8,10 @@
 <style>
 :root{--bg:#f7f4f0;--card:#ffffff;--card-border:rgba(34,26,18,0.08);--text:#221a12;--text2:#6b5d50;--text3:#998a7c;--primary:#2563eb;--primary-light:#3b82f6;--primary-glow:rgba(37,99,235,0.12);--primary-bg:rgba(37,99,235,0.08);--input-bg:#fbf7f3;--input-border:#f0e6da;--green:#10b981;--red:#ef4444;--font:IBM Plex Sans Arabic,'Tajawal',sans-serif;--font-num:IBM Plex Sans Arabic,sans-serif}
 [data-theme="dark"]{--bg:#070605;--card:#0f0c0a;--card-border:rgba(96,165,250,0.14);--text:#f5efe8;--text2:#c9baa8;--text3:#94816d;--primary:#3b82f6;--primary-light:#60a5fa;--primary-glow:rgba(59,130,246,0.18);--primary-bg:rgba(59,130,246,0.08);--input-bg:#120e0a;--input-border:#291f15;--green:#10b981}
-*{margin:0;padding:0;box-sizing:border-box}body{font-family:var(--font);background:var(--bg);color:var(--text);min-height:100vh;padding-bottom:40px}
+*{margin:0;padding:0;box-sizing:border-box;-webkit-user-select:none;-moz-user-select:none;user-select:none;-webkit-touch-callout:none}
+input,textarea,[contenteditable]{-webkit-user-select:text;-moz-user-select:text;user-select:text}
+img{-webkit-user-drag:none;user-drag:none}
+body{font-family:var(--font);background:var(--bg);color:var(--text);min-height:100vh;padding-bottom:40px}
 .op-topbar{position:sticky;top:0;z-index:50;display:flex;align-items:center;gap:10px;padding:12px 16px;background:var(--card);border-bottom:1px solid var(--card-border);box-shadow:0 2px 8px rgba(0,0,0,0.04)}
 .op-head{display:flex;align-items:center;gap:12px;padding:16px;background:rgba(10,10,26,.92);backdrop-filter:blur(16px);border-bottom:1px solid var(--card-border);position:sticky;top:0;z-index:10;width:100%;box-sizing:border-box}
 .op-title{font-size:15px;font-weight:800;flex:1;display:flex;align-items:center;gap:6px}
@@ -107,6 +110,7 @@
 @keyframes cmtPop{0%,100%{transform:scale(1)}50%{transform:scale(1.15)}}
 .cmt-pop{animation:cmtPop .25s}
 </style></head><body>
+<script>document.addEventListener('contextmenu',function(e){e.preventDefault()});document.addEventListener('copy',function(e){e.preventDefault()});document.addEventListener('cut',function(e){e.preventDefault()});</script>
 <div class="op-topbar">
   <a href="/app" class="op-back"><i class="fa-solid fa-arrow-right"></i></a>
   <div class="op-plat-icon" id="opIcon"></div>

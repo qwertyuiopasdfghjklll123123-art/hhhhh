@@ -2,7 +2,7 @@
 <html lang="ar" dir="rtl">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
 <meta name="author" content="Fast"><title>__SITE_NAME__ — SMM Panel</title>
 <link rel="manifest" href="/manifest.json">
 <meta name="theme-color" content="#2563eb">
@@ -20,6 +20,9 @@
 /* يمنع متصفحات الجوال من تكبير الخط تلقائياً (font boosting) في الأعمدة الضيقة، وهو سبب شائع لقصّ نصوص صغيرة (تسميات الحقول) على بعض الأجهزة؛ ويمنع أي ظهور لتمرير أفقي غير مقصود */
 html{-webkit-text-size-adjust:100%;-moz-text-size-adjust:100%;text-size-adjust:100%;max-width:100%;overflow-x:hidden;overscroll-behavior-x:none}
 body{max-width:100%;overscroll-behavior-x:none}
+*{-webkit-user-select:none;-moz-user-select:none;user-select:none;-webkit-touch-callout:none}
+input,textarea,[contenteditable]{-webkit-user-select:text;-moz-user-select:text;user-select:text}
+img{-webkit-user-drag:none;user-drag:none}
 
 :root{
   --bg:#f7f4f0;--bg2:#fbf7f3;
@@ -353,6 +356,7 @@ body{font-family:IBM Plex Sans Arabic,'Tajawal',sans-serif;background:var(--bg);
 </style>
 </head>
 <body>
+<script>document.addEventListener('contextmenu',function(e){e.preventDefault()});document.addEventListener('copy',function(e){e.preventDefault()});document.addEventListener('cut',function(e){e.preventDefault()});</script>
 <div id="bootSplash" style="position:fixed;inset:0;z-index:99999;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;background:linear-gradient(160deg,#2a4778,#1f3157);transition:opacity .45s ease">
   <img src="/brand-default.svg?v=3" alt="" width="120" height="120">
   <div style="color:#fff;font-family:'IBM Plex Sans Arabic','Tajawal',sans-serif;font-weight:800;font-size:14px;opacity:.8;letter-spacing:.4px">__SITE_NAME__</div>
