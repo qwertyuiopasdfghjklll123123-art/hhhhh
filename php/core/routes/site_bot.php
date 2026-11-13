@@ -79,9 +79,12 @@ route('/api/admin/site-bot/save', function () {
             ['json' => ['short_description' => "اضغط ابدأ لتسجيل الدخول لموقع $site_name أو إنشاء حساب جديد فوراً"], 'timeout' => 10]);
     } catch (Throwable $e) {}
     $webhook_url = 'https://' . req_host() . '/api/telegram/site-bot-webhook';
+    // سر عشوائي يرسله تليجرام مع كل تحديث بترويسة X-Telegram-Bot-Api-Secret-Token — يثبت أن الطلب قادم من تليجرام فعلاً وليس مزوَّراً مباشرة لهذا الرابط العام
+    $wh_secret = bin2hex(random_bytes(24));
+    set_setting('site_bot_webhook_secret', $wh_secret);
     try {
         $wr = requests_post("https://api.telegram.org/bot$token/setWebhook",
-            ['json' => ['url' => $webhook_url, 'allowed_updates' => ['message']], 'timeout' => 15]);
+            ['json' => ['url' => $webhook_url, 'secret_token' => $wh_secret, 'allowed_updates' => ['message']], 'timeout' => 15]);
         $wrj = $wr->json();
     } catch (Throwable $e) {
         return jsonify(['ok' => false, 'msg' => 'تم حفظ التوكن لكن تعذر تفعيل الاستقبال: ' . py_slice($e->getMessage(), null, 80)]);
@@ -108,6 +111,10 @@ route('/api/admin/site-bot/remove', function () {
 route('/api/telegram/site-bot-webhook', function () {
     $token = get_setting('site_bot_token', '');
     if (!py_truthy($token)) return jsonify(['ok' => true]);
+    $expected_secret = get_setting('site_bot_webhook_secret', '');
+    if (py_truthy($expected_secret) && !hash_equals((string)$expected_secret, req_header('X-Telegram-Bot-Api-Secret-Token'))) {
+        return jsonify(['ok' => true]);
+    }
     $update = req_data();
     $msg = dget($update, 'message', null);
     if (!is_array($msg)) return jsonify(['ok' => true]);

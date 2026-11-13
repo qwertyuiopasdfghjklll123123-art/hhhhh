@@ -439,14 +439,19 @@ route('/api/admin/payment-methods/telegram-stars/set-webhook', function () {
     }
     // تليجرام يشترط https دائماً — نبني الرابط من Host مباشرة
     $webhook_url = 'https://' . req_host() . '/api/telegram/stars-webhook';
+    // سر عشوائي يرسله تليجرام مع كل تحديث بترويسة X-Telegram-Bot-Api-Secret-Token — يمنع أي شخص من تزوير طلب "دفع ناجح" مباشرة لهذا الرابط العام وشحن رصيد نفسه
+    $secret = bin2hex(random_bytes(24));
     try {
         $r = requests_post("https://api.telegram.org/bot$token/setWebhook",
-            ['json' => ['url' => $webhook_url, 'allowed_updates' => ['message', 'pre_checkout_query']], 'timeout' => 15]);
+            ['json' => ['url' => $webhook_url, 'secret_token' => $secret, 'allowed_updates' => ['message', 'pre_checkout_query']], 'timeout' => 15]);
         $rj = $r->json();
     } catch (Throwable $e) {
         return jsonify(['ok' => false, 'msg' => 'تعذر الاتصال بتليجرام: ' . py_slice($e->getMessage(), null, 80)]);
     }
     if (py_truthy(dget($rj, 'ok'))) {
+        $extras['webhook_secret'] = $secret;
+        $conn->execute('UPDATE payment_methods SET method_extras=? WHERE method_type=\'telegram_stars\'', [py_json_dumps($extras)]);
+        $conn->commit();
         return jsonify(['ok' => true, 'msg' => "تم تسجيل الـ Webhook بنجاح على: $webhook_url"]);
     }
     return jsonify(['ok' => false, 'msg' => 'فشل تليجرام: ' . py_str(dget($rj, 'description', 'خطأ غير معروف'))]);
@@ -487,6 +492,12 @@ route('/api/telegram/stars-webhook', function () {
     try { $rate = py_float(py_or(dget($extras, 'rate_usd_per_100', 1.5), 1.5)); }
     catch (PyValueError | PyTypeError $e) { $rate = 1.5; }
     $admin_chat_id = dget($extras, 'admin_chat_id', '');
+    // حماية ضد تزوير الطلب: هذا المسار عام بدون جلسة ويضيف رصيداً حقيقياً — يجب التأكد أن الطلب قادم من تليجرام فعلاً
+    // عبر السر المسجَّل وقت setWebhook (secret_token)، لا من أي زائر يرسل نفس شكل البيانات مباشرة لهذا الرابط
+    $expected_secret = dget($extras, 'webhook_secret', '');
+    if (py_truthy($expected_secret) && !hash_equals((string)$expected_secret, req_header('X-Telegram-Bot-Api-Secret-Token'))) {
+        return jsonify(['ok' => true]);
+    }
 
     $update = py_or(req_json(false, true), []);
     if (!is_array($update) || (is_list_array($update) && $update !== [])) throw new PyTypeError("object has no attribute 'get'");
