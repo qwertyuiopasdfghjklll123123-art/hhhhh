@@ -317,6 +317,36 @@ function ai_agent_looks_garbled(string $text): bool {
 }
 
 /**
+ * يحاول استخراج اسم أداة ومعاملاتها فعلياً من نص "مشوّه" يحوي صيغة شبه-XML (مثل <｜｜DSML｜｜ invoke name="x">...)
+ * يسرّبها بعض المزوّدين أحياناً كنص عادي بدل تعبئة tool_calls الرسمية — بدل الاستسلام مباشرة نحاول تنفيذ
+ * الاستدعاء المقصود فعلياً. نرجع ['name','args'] فقط إن كان اسم الأداة معروفاً وكل معاملاتها المطلوبة (required)
+ * متوفرة بوضوح بالنص — وإلا null، فلا نخمّن تنفيذ إجراء (خصوصاً مع وجود أداة run_sql الحرة) بمعاملات ناقصة أو غامضة.
+ */
+function ai_agent_parse_dsml_tool_call(string $text, array $tools): ?array {
+    if (!preg_match('/invoke\s+name\s*=\s*"([a-zA-Z0-9_]+)"/u', $text, $m)) return null;
+    $name = $m[1];
+    $schema = null;
+    foreach ($tools as $t) { if (($t['function']['name'] ?? '') === $name) { $schema = $t['function']; break; } }
+    if ($schema === null) return null;
+    $required = $schema['parameters']['required'] ?? [];
+    $body = '';
+    if (preg_match('/invoke\s+name\s*=\s*"' . preg_quote($name, '/') . '"[^>]*>(.*?)<\/[^>]*invoke\s*>/su', $text, $bm)) $body = trim($bm[1]);
+    $args = [];
+    if ($body !== '') {
+        $decoded = json_decode($body, true);
+        if (is_array($decoded)) {
+            $args = $decoded;
+        } elseif (preg_match_all('/<[^>]*parameter\s+name\s*=\s*"([a-zA-Z0-9_]+)"[^>]*>(.*?)<\/[^>]*parameter\s*>/su', $body, $pm, PREG_SET_ORDER)) {
+            foreach ($pm as $p) $args[$p[1]] = trim($p[2]);
+        }
+    }
+    foreach ($required as $r) {
+        if (!array_key_exists($r, $args) || $args[$r] === '') return null;
+    }
+    return ['name' => $name, 'args' => $args];
+}
+
+/**
  * يشغّل جولة محادثة/تنفيذ كاملة: يحفظ رسالة الأدمن (إن وُجدت)، يستدعي النموذج، ينفّذ أي أدوات يطلبها تباعاً
  * (حتى AI_AGENT_MAX_STEPS)، ويعيد الرد النهائي النصي + قائمة الإجراءات المنفَّذة فعلياً بهذه الجولة.
  * $source: 'chat' (محادثة حيّة مع الأدمن) أو 'cron' (فحص دوري تلقائي بلا أدمن حاضر).
@@ -356,20 +386,32 @@ function ai_agent_run(string $user_message, string $source = 'chat'): array {
         if (!$toolCalls) {
             $reply = py_truthy($msg['content'] ?? null) ? $msg['content'] : 'تم.';
             // بعض المزوّدين/النماذج قد "يهلوس" أحياناً بصيغة استدعاء أداة غير رسمية كنص عادي بدل تعبئة tool_calls
-            // الرسمية (رموز تحكّم مشوّهة مثل <DSML|...>) — لا نعرض هذا النص كأنه رد نهائي سليم أبداً، بل نعيد
-            // المحاولة مرة واحدة بتذكير صريح قبل أن نستسلم برسالة خطأ واضحة.
+            // الرسمية (رموز تحكّم مشوّهة مثل <DSML|...>) — لا نعرض هذا النص كأنه رد نهائي سليم أبداً.
             if (ai_agent_looks_garbled($reply)) {
                 log_app_error('WARNING', 'ai_agent: garbled non-tool_calls content from provider: ' . mb_substr($reply, 0, 300, 'UTF-8'));
-                if (!$garbled_retry_used) {
+                // أولاً: نحاول استخراج استدعاء الأداة المقصود فعلياً من هذه الصيغة المشوّهة وتنفيذه مباشرة
+                // (حل جذري لمشكلة متكررة لدى بعض الحسابات حيث يرسل المزوّد كل استدعاء أداة بهذه الصيغة دائماً
+                // مهما أعدنا المحاولة أو ذكّرناه) بدل الاستسلام مباشرة برسالة خطأ.
+                $extracted = ai_agent_parse_dsml_tool_call($reply, $tools);
+                if ($extracted !== null) {
+                    $toolCalls = [['id' => 'dsml_1', 'type' => 'function', 'function' => [
+                        'name' => $extracted['name'], 'arguments' => json_encode($extracted['args'], JSON_UNESCAPED_UNICODE),
+                    ]]];
+                    $msg['content'] = null;
+                    $msg['tool_calls'] = $toolCalls;
+                } elseif (!$garbled_retry_used) {
+                    // تعذّر الاستخراج (أداة غير معروفة أو معاملات مطلوبة ناقصة) — نعيد المحاولة مرة واحدة بتذكير صريح
                     $garbled_retry_used = true;
                     $messages[] = ['role' => 'system', 'content' => 'ردّك السابق لم يصل بصيغة سليمة. استخدم آلية استدعاء الأدوات الرسمية (tool_calls) فقط لتنفيذ أي إجراء، ولا تكتب استدعاء الأداة كنص عادي إطلاقاً.'];
                     continue;
+                } else {
+                    $final_reply = 'تعذّر الحصول على رد منظّم من مزوّد الذكاء الاصطناعي لهذا الطلب (مشكلة تنسيق من النموذج نفسه، وليست عطلاً بالموقع). جرّب تبسيط الطلب أو إعادة المحاولة بعد قليل. إن تكرر الأمر باستمرار، تأكد من أن النموذج المحدد بإعدادات المساعد الذكي (deepseek_model) يدعم فعلياً استدعاء الأدوات (Tool/Function Calling).';
+                    break;
                 }
-                $final_reply = 'تعذّر الحصول على رد منظّم من مزوّد الذكاء الاصطناعي لهذا الطلب (مشكلة تنسيق من النموذج نفسه، وليست عطلاً بالموقع). جرّب تبسيط الطلب أو إعادة المحاولة بعد قليل. إن تكرر الأمر باستمرار، تأكد من أن النموذج المحدد بإعدادات المساعد الذكي (deepseek_model) يدعم فعلياً استدعاء الأدوات (Tool/Function Calling).';
+            } else {
+                $final_reply = $reply;
                 break;
             }
-            $final_reply = $reply;
-            break;
         }
 
         $messages[] = $msg;
