@@ -11,15 +11,19 @@ const AI_API_BASE = 'https://api.deepseek.com/chat/completions';
  * الإداري الذكي (lib/ai_agent.php) لربط أدوات حقيقية عبر دعم DeepSeek الأصلي لاستدعاء الدوال (OpenAI-compatible
  * function calling)، بدل الاعتماد على مطالبة النموذج بكتابة JSON داخل النص (غير موثوق: قد يخرج بصيغة
  * مشوّهة من تنسيقه الداخلي الخاص بدل النص المطلوب حرفياً).
+ * $max_tokens: افتراضياً 900 يكفي رداً نصياً عادياً أو استدعاء أداة واحدة. المساعد الإداري يرفعها عند تمرير أدوات
+ * (tools) لأن إجراء إدارياً واحداً قد يحتاج عدة استدعاءات أدوات متوازية بنفس الرد (مثلاً تحديث اسم عشرات
+ * الخدمات دفعة واحدة) — 900 توكن كانت تقطع ذلك الرد منتصف تجميعه، فيفشل تجميع tool_calls الرسمية ويتسرّب
+ * نص تحكّم داخلي مشوّه بدلاً منها (راجع ai_agent_looks_garbled بـ lib/ai_agent.php).
  * @return array [message|null, error|null]
  */
-function call_ai_api_raw(array $messages, ?array $tools = null): array {
+function call_ai_api_raw(array $messages, ?array $tools = null, int $max_tokens = 900): array {
     $api_key = get_setting('deepseek_api_key', '');
     $model = py_or(get_setting('deepseek_model', 'deepseek-chat'), 'deepseek-chat');
     if (!py_truthy($api_key)) {
         return [null, 'لم يتم إعداد مفتاح المساعد الذكي بعد. الرجاء التواصل مع الإدارة.'];
     }
-    $body = ['model' => $model, 'messages' => $messages, 'temperature' => 1, 'top_p' => 1, 'max_tokens' => 900, 'stream' => false];
+    $body = ['model' => $model, 'messages' => $messages, 'temperature' => 1, 'top_p' => 1, 'max_tokens' => $max_tokens, 'stream' => false];
     if ($tools) { $body['tools'] = $tools; $body['tool_choice'] = 'auto'; }
     $resp = null;
     for ($attempt = 0; $attempt < 2; $attempt++) {
