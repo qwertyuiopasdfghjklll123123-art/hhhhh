@@ -197,8 +197,8 @@ function render_app_page(array $user)
 
 <div id="pwaInstallBanner" class="pwa-banner">
   <img id="pwaBannerIcon" src="{$icon}" alt="">
-  <span id="pwaBannerText">ثبّت التطبيق على جهازك للوصول السريع</span>
-  <button class="pwa-banner-install" onclick="installPwa()">تثبيت</button>
+  <span id="pwaBannerText">اختياري: أضف أيقونة الموقع للشاشة الرئيسية حتى تفتحه بسرعة</span>
+  <button class="pwa-banner-install" onclick="installPwa()">إضافة الأيقونة</button>
   <button class="pwa-banner-dismiss" onclick="dismissPwaBanner()" aria-label="إغلاق">&times;</button>
 </div>
 

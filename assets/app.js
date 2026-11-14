@@ -135,7 +135,7 @@ function initChrome() {
   document.getElementById('sidebarUserName').textContent = displayName;
   document.getElementById('sidebarUserRole').textContent = IS_ADMIN ? 'أدمن المنصة' : 'حساب فرع';
   document.getElementById('brandName').textContent = SITE_NAME;
-  document.getElementById('pwaBannerText').textContent = 'ثبّت تطبيق ' + SITE_NAME + ' على جهازك للوصول السريع';
+  document.getElementById('pwaBannerText').textContent = 'اختياري: أضف أيقونة ' + SITE_NAME + ' للشاشة الرئيسية حتى تفتحه بسرعة';
   const brandLogo = document.getElementById('brandLogo');
   if (LOGO_URL) brandLogo.innerHTML = '<img src="' + esc(LOGO_URL) + '" alt="">';
   else brandLogo.textContent = (SITE_NAME || 'و').trim().charAt(0);
@@ -291,7 +291,12 @@ async function pollEvents() {
   }
   eventsTimer = setTimeout(pollEvents, document.hidden ? 60000 : 15000);
 }
-document.addEventListener('visibilitychange', () => { if (!document.hidden) pollEvents(); });
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) return;
+  pollEvents();
+  // رجع من واتساب للموقع: نعرض آخر حالة من السيرفر حتى يكون الرقم المعروض هو الصحيح دائماً
+  if (senderCampaignId && !senderBusy) loadSender(gen);
+});
 
 /* ====================================================================== الرئيسية (الأدمن) */
 
@@ -513,6 +518,27 @@ function updateNumbersCount() {
   updateSplitSummary();
 }
 
+/** جهات اتصال الجوال (متصفح كروم على أندرويد) — بدون أي تثبيت. */
+function contactsSupported() {
+  return 'contacts' in navigator && 'ContactsManager' in window;
+}
+
+async function pickContacts() {
+  let list;
+  try {
+    list = await navigator.contacts.select(['tel'], { multiple: true });
+  } catch (e) {
+    return;   // المستخدم سكّر نافذة الاختيار
+  }
+  const nums = [];
+  (list || []).forEach(c => (c.tel || []).forEach(t => nums.push(t)));
+  if (!nums.length) return;
+  const ta = document.getElementById('numbersText');
+  ta.value = (ta.value.trim() ? ta.value.trim() + '\n' : '') + nums.join('\n');
+  updateNumbersCount();
+  toast('تمت إضافة ' + nums.length + ' رقم من جهات الاتصال');
+}
+
 function updateMessagePreview() {
   const box = document.getElementById('msgPreview');
   if (!box) return;
@@ -585,6 +611,7 @@ function drawCampaignForm(myGen) {
       '<label class="field-label">الأرقام — رقم بكل سطر أو مفصولة بفواصل (بدون حاجة لرمز الدولة)</label>' +
       '<textarea id="numbersText" rows="5" placeholder="07701234567&#10;7709876543" dir="ltr" style="text-align:right" oninput="updateNumbersCount()"></textarea>' +
       '<div class="numbers-count" id="numbersCount"></div>' +
+      (contactsSupported() ? '<button class="btn-outline" type="button" onclick="pickContacts()">' + icon('users', 12) + ' اختيار أرقام من جهات اتصال الجوال</button>' : '') +
       '<label class="field-label">' + icon('file', 12) + ' أو ارفع ملف Excel / CSV فيه الأرقام</label>' +
       '<input type="file" id="numbersFile" accept=".xlsx,.csv,.txt">' +
       '<div class="field-hint">يتعرّف تلقائياً على عمود الأرقام بأول ورقة بالملف. الأرقام المكررة تنحذف.</div>' +
