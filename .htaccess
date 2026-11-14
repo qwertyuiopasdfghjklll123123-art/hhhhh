@@ -1,0 +1,23 @@
+# واصل — إعدادات Apache/LiteSpeed (استضافات cPanel)
+Options -Indexes
+DirectoryIndex index.php
+
+# ملفات ما لازم تنفتح من المتصفح أبداً
+<FilesMatch "^(config\.php|README\.md|\.gitignore|\.htaccess|error_log)$">
+  <IfModule mod_authz_core.c>
+    Require all denied
+  </IfModule>
+  <IfModule !mod_authz_core.c>
+    Order allow,deny
+    Deny from all
+  </IfModule>
+</FilesMatch>
+
+<IfModule mod_headers.c>
+  Header always set X-Content-Type-Options "nosniff"
+</IfModule>
+
+<IfModule mod_mime.c>
+  AddType application/manifest+json .webmanifest
+  AddType font/woff2 .woff2
+</IfModule>

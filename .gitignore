@@ -1,11 +1,8 @@
-__pycache__/
-*.pyc
-venv/
-.venv/
-
-app.db
-app.db-wal
-app.db-shm
-secret.key
-wa_sessions/
-uploads/
+# ملفات تنشأ على السيرفر نفسه — لا ترفعها للمستودع
+config.php
+uploads/*
+!uploads/.htaccess
+inc/tmp/
+error_log
+.DS_Store
+Thumbs.db

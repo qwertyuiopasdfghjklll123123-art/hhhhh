@@ -1,0 +1,14 @@
+# مجلد صور مرفوعة (شعار الموقع) — صور فقط، وممنوع تشغيل أي سكربت منه
+Options -Indexes -ExecCGI
+<FilesMatch "\.(php[0-9]?|phtml|phar|pl|py|cgi|sh|shtml|htaccess)$">
+  <IfModule mod_authz_core.c>
+    Require all denied
+  </IfModule>
+  <IfModule !mod_authz_core.c>
+    Order allow,deny
+    Deny from all
+  </IfModule>
+</FilesMatch>
+<IfModule mod_headers.c>
+  Header always set X-Content-Type-Options "nosniff"
+</IfModule>
