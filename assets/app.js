@@ -1,4 +1,5 @@
-/* واصل — واجهة لوحة التحكم (صفحة واحدة). البيانات من index.php?api=... */
+/* واصل — واجهة لوحة التحكم (صفحة واحدة). البيانات من index.php?api=...
+   الإرسال بالضغط: زر "إرسال" يفتح واتساب والرقم والرسالة جاهزين، والموقع يعرض الرقم الجاي. */
 'use strict';
 
 const W = window.WASEL || {};
@@ -20,10 +21,10 @@ const ICONS = {
   plus: 'fas fa-plus', users: 'fas fa-users', rocket: 'fas fa-rocket', trophy: 'fas fa-trophy', list: 'fas fa-list',
   info: 'fas fa-circle-info', clock: 'fas fa-clock', check: 'fas fa-check', checkCircle: 'fas fa-circle-check',
   warn: 'fas fa-triangle-exclamation', trash: 'fas fa-trash', link: 'fas fa-link', calendar: 'fas fa-calendar-days',
-  ban: 'fas fa-ban', copy: 'fas fa-copy', image: 'fas fa-image', download: 'fas fa-download', key: 'fas fa-key',
-  plug: 'fas fa-plug', chrome: 'fab fa-chrome', back: 'fas fa-arrow-right', globe: 'fas fa-globe', file: 'fas fa-file-excel',
+  ban: 'fas fa-ban', copy: 'fas fa-copy', image: 'fas fa-image', back: 'fas fa-arrow-right', file: 'fas fa-file-excel',
   phone: 'fas fa-phone', message: 'fas fa-comment-dots', hourglass: 'fas fa-hourglass-half', lock: 'fas fa-lock',
-  chevron: 'fas fa-chevron-left', refresh: 'fas fa-rotate', send: 'fas fa-paper-plane', user: 'fas fa-user',
+  refresh: 'fas fa-rotate', send: 'fas fa-paper-plane', whatsapp: 'fab fa-whatsapp', skip: 'fas fa-forward',
+  undo: 'fas fa-rotate-left', xmark: 'fas fa-circle-xmark', party: 'fas fa-champagne-glasses', mobile: 'fas fa-mobile-screen',
 };
 
 function icon(name, size) {
@@ -33,12 +34,11 @@ function icon(name, size) {
 
 function fmtNum(n) { return Number(n || 0).toLocaleString('en-US'); }
 
-function agoText(seconds) {
-  if (seconds == null) return 'لم يتصل بعد';
-  if (seconds < 60) return 'قبل ' + Math.max(1, seconds) + ' ثانية';
-  if (seconds < 3600) return 'قبل ' + Math.round(seconds / 60) + ' دقيقة';
-  if (seconds < 86400) return 'قبل ' + Math.round(seconds / 3600) + ' ساعة';
-  return 'قبل ' + Math.round(seconds / 86400) + ' يوم';
+/** رقم دولي بشكل مقروء: +964 770 123 4567 */
+function fmtPhone(p) {
+  p = String(p || '');
+  if (p.length >= 11) return '+' + p.slice(0, 3) + ' ' + p.slice(3, 6) + ' ' + p.slice(6, 9) + ' ' + p.slice(9);
+  return '+' + p;
 }
 
 let toastTimer = null;
@@ -56,6 +56,7 @@ async function api(action, opts) {
   let url = 'index.php?api=' + encodeURIComponent(action);
   if (opts.query) url += '&' + new URLSearchParams(opts.query).toString();
   const init = { method: opts.form || opts.body ? 'POST' : 'GET', headers: { 'X-CSRF-Token': W.csrf }, credentials: 'same-origin', cache: 'no-store' };
+  if (opts.keepalive) init.keepalive = true;
   if (opts.form) init.body = opts.form;
   else if (opts.body) { init.headers['Content-Type'] = 'application/json'; init.body = JSON.stringify(opts.body); }
   let res;
@@ -89,6 +90,22 @@ async function copyText(text) {
   }
 }
 
+function localStorageGet(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }
+function localStorageSet(k, v) { try { localStorage.setItem(k, v); } catch (e) { /* وضع التصفح الخاص */ } }
+
+/** رمز لكل تبويب: الرقم المعروض ينحجز له حتى ما ينرسل نفس الرقم من جهازين. */
+const SENDER_TOKEN = (function () {
+  let t = null;
+  try { t = sessionStorage.getItem('wasel.tok'); } catch (e) { /* */ }
+  if (!t || !/^[A-Za-z0-9]{16,40}$/.test(t)) {
+    const a = new Uint8Array(12);
+    window.crypto.getRandomValues(a);
+    t = Array.from(a, b => b.toString(16).padStart(2, '0')).join('');
+    try { sessionStorage.setItem('wasel.tok', t); } catch (e) { /* */ }
+  }
+  return t;
+})();
+
 /* ====================================================================== الهيكل والتنقل */
 
 const SECTION_LABELS = {
@@ -99,11 +116,13 @@ const NAV = IS_ADMIN
   ? ['home', 'accounts', 'campaigns', 'analytics', 'branches', 'admin', 'notifications']
   : ['accounts', 'campaigns', 'notifications'];
 const SECTIONS = IS_ADMIN ? NAV.concat(['settings']) : NAV;
+const DEFAULT_SECTION = IS_ADMIN ? 'home' : 'campaigns';
 
 function initChrome() {
   let navHtml = NAV.map(s =>
     '<button class="nav-item" data-s="' + s + '" onclick="showSection(\'' + s + '\')">' + icon(s, 16) + '<span>' + SECTION_LABELS[s] + '</span>' +
-    (s === 'notifications' ? '<span class="nav-count" id="navNotifCount"></span>' : '') + '</button>'
+    (s === 'notifications' ? '<span class="nav-count" id="navNotifCount"></span>' : '') +
+    (s === 'campaigns' ? '<span class="nav-count" id="navDueCount"></span>' : '') + '</button>'
   ).join('');
   if (IS_ADMIN) {
     navHtml += '<div class="nav-divider"></div>' +
@@ -118,11 +137,8 @@ function initChrome() {
   document.getElementById('brandName').textContent = SITE_NAME;
   document.getElementById('pwaBannerText').textContent = 'ثبّت تطبيق ' + SITE_NAME + ' على جهازك للوصول السريع';
   const brandLogo = document.getElementById('brandLogo');
-  if (LOGO_URL) {
-    brandLogo.innerHTML = '<img src="' + esc(LOGO_URL) + '" alt="">';
-  } else {
-    brandLogo.textContent = (SITE_NAME || 'و').trim().charAt(0);
-  }
+  if (LOGO_URL) brandLogo.innerHTML = '<img src="' + esc(LOGO_URL) + '" alt="">';
+  else brandLogo.textContent = (SITE_NAME || 'و').trim().charAt(0);
 }
 
 function toggleSidebar() {
@@ -142,12 +158,10 @@ let accountsLoaded = false;
 let activeAccountId = Number(localStorageGet('wasel.account')) || null;
 const dataCache = {};
 
-function localStorageGet(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }
-function localStorageSet(k, v) { try { localStorage.setItem(k, v); } catch (e) { /* وضع التصفح الخاص */ } }
-
 function showSection(s, opts) {
-  if (SECTIONS.indexOf(s) === -1) s = NAV[0];
+  if (SECTIONS.indexOf(s) === -1) s = DEFAULT_SECTION;
   section = s;
+  senderCampaignId = null;
   document.querySelectorAll('.sidebar .nav-item').forEach(n => n.classList.toggle('active', n.dataset.s === s));
   document.getElementById('headerTitle').textContent = SECTION_LABELS[s] || '';
   if (!opts || !opts.keepHash) history.replaceState(null, '', '#' + s);
@@ -160,6 +174,7 @@ function newGen() {
   gen++;
   clearTimeout(pollTimer);
   pollTimer = null;
+  clearInterval(countdownTimer);
   return gen;
 }
 
@@ -188,7 +203,7 @@ function render() {
   const fn = {
     home: renderHome, accounts: renderAccounts, campaigns: renderCampaigns, analytics: renderAnalytics,
     branches: renderBranches, admin: renderAdmin, notifications: renderNotifications, settings: renderSettings,
-  }[section] || renderAccounts;
+  }[section] || renderCampaigns;
   fn(myGen);
   fadeContent();
   window.scrollTo(0, 0);
@@ -200,6 +215,9 @@ async function loadAccounts() {
     accounts = r.items;
     accountsLoaded = true;
     if (!accounts.find(a => a.id === activeAccountId)) activeAccountId = accounts.length ? accounts[0].id : null;
+    const due = accounts.reduce((s, a) => s + a.due, 0);
+    const el = document.getElementById('navDueCount');
+    if (el) { el.textContent = due > 99 ? '99+' : String(due); el.classList.toggle('show', due > 0); }
   }
   return r;
 }
@@ -265,6 +283,7 @@ async function pollEvents() {
       r.items.filter(e => e.id > lastSeenEventId).reverse()
         .forEach(e => showLocalNotification(e.title, (e.account ? e.account + ': ' : '') + e.body));
       lastSeenEventId = maxId;
+      loadAccounts();   // يحدّث عدّاد الرسائل الجاهزة بالقائمة
     }
     eventsCache = r.items;
     updateBadges(r.unread);
@@ -282,9 +301,15 @@ function statMiniHtml(value, label, colorClass) {
 
 function homeStatsHtml(d) {
   return statMiniHtml(fmtNum(d.messages_sent), 'رسائل مرسلة', 'primary') +
-    statMiniHtml(d.accounts_connected + '/' + d.accounts_total, 'حسابات متصلة', 'green') +
+    statMiniHtml(fmtNum(d.messages_due), 'جاهزة للإرسال الآن', 'green') +
     statMiniHtml(fmtNum(d.campaigns_active), 'حملات نشطة', 'orange') +
     statMiniHtml(d.success_rate + '%', 'معدل النجاح', 'primary');
+}
+
+function accountMiniHtml(a) {
+  return '<div class="account-item">' + avatarHtml(a.name, a.id) +
+    '<div class="info"><div class="name">' + esc(a.name) + '</div><div class="status ltr" style="text-align:right">' + (a.phone ? esc(fmtPhone(a.phone)) : '') + '</div></div>' +
+    (a.due ? '<span class="pill pill-green">' + fmtNum(a.due) + ' جاهزة</span>' : '<span class="pill pill-gray">ما فيه رسائل جاهزة</span>') + '</div>';
 }
 
 function renderHome(myGen) {
@@ -295,7 +320,7 @@ function renderHome(myGen) {
     '<div class="hero-main"><div class="relative-z">' +
       '<div class="hero-icon-main">' + heroIcon + '</div>' +
       '<h1>' + esc(SITE_NAME) + '</h1>' +
-      '<p>أتمتة حملاتك التسويقية عبر واتساب — أرسل رسائل لعملائك بضغطة واحدة من كل فروعك.</p>' +
+      '<p>حملات واتساب لكل فروعك — اكتب الرسالة والأرقام مرة وحدة، وأرسلها بضغطة لكل رقم من الجوال أو الكمبيوتر.</p>' +
       '<div class="hero-badges"><span>' + icon('campaigns', 11) + ' إرسال جماعي</span><span>' + icon('calendar', 11) + ' جدولة على أيام</span><span>' + icon('branches', 11) + ' فروع</span></div>' +
     '</div></div>' +
     '<h3 class="welcome-title">مرحباً، ' + esc(displayName) + '</h3>' +
@@ -321,10 +346,7 @@ function renderHome(myGen) {
     if (rc.ok) { dataCache.recentAll = rc.items; document.getElementById('homeHistory').innerHTML = campaignRowsHtml(rc.items, true); }
     if (ra.ok) {
       document.getElementById('homeAccounts').innerHTML = accounts.length
-        ? accounts.slice(0, 4).map(a =>
-            '<div class="account-item">' + avatarHtml(a.name, a.id) +
-            '<div class="info"><div class="name">' + esc(a.name) + '</div><div class="status">' + esc(agoText(a.last_seen_ago)) + '</div></div>' +
-            statePill(a.state) + '</div>').join('') +
+        ? accounts.slice(0, 4).map(accountMiniHtml).join('') +
           (accounts.length > 4 ? '<button class="btn-outline" onclick="showSection(\'accounts\')">عرض كل الحسابات</button>' : '')
         : '<div class="muted-sm center" style="padding:16px 0">ما عندك حسابات واتساب بعد. <a href="#accounts" style="color:var(--primary);font-weight:700" onclick="showSection(\'accounts\');return false">أضف حساب</a></div>';
     }
@@ -333,61 +355,32 @@ function renderHome(myGen) {
   every(myGen, 20000, load);
 }
 
-/* ====================================================================== حسابي (حسابات واتساب + جهاز الإرسال) */
+/* ====================================================================== حسابي (أرقام الواتساب) */
 
-const STATE_INFO = {
-  online: { pill: 'pill-green', label: 'متصل', banner: 'ok', icon: 'checkCircle', text: 'جهاز الإرسال متصل وواتساب ويب جاهز — الحملات تنرسل تلقائياً.' },
-  qr: { pill: 'pill-amber', label: 'يحتاج مسح QR', banner: 'warn', icon: 'warn', text: 'الإضافة شغّالة بس واتساب ويب مو مسجّل دخول. افتح تبويب واتساب ويب على جهاز الإرسال وامسح الرمز من جوالك (واتساب ← الأجهزة المرتبطة ← ربط جهاز).' },
-  conflict: { pill: 'pill-amber', label: 'مفتوح بمكان ثاني', banner: 'warn', icon: 'warn', text: 'واتساب ويب مفتوح بنافذة أو تبويب ثاني. بتبويب واتساب اللي فتحته الإضافة اضغط "استخدام هنا".' },
-  no_tab: { pill: 'pill-amber', label: 'تبويب واتساب مسكّر', banner: 'warn', icon: 'warn', text: 'كروم شغّال بس تبويب واتساب ويب مسكّر — اضغط أيقونة واصل بشريط الإضافات ثم "فتح واتساب ويب".' },
-  paused: { pill: 'pill-gray', label: 'متوقف مؤقتاً', banner: 'info', icon: 'info', text: 'الإرسال موقوف مؤقتاً من زر الإضافة على جهاز الإرسال. الرسائل تنتظر لحد ما يرجع يشتغل.' },
-  loading: { pill: 'pill-blue', label: 'جارِ التحميل', banner: 'info', icon: 'hourglass', text: 'واتساب ويب جارِ التحميل على جهاز الإرسال...' },
-  offline: { pill: 'pill-red', label: 'غير متصل', banner: 'bad', icon: 'plug', text: 'جهاز الإرسال غير متصل. تأكد إن كمبيوتر الفرع شغّال وكروم مفتوح. الرسائل بتنتظر وتنرسل أول ما يرجع يتصل.' },
-  new: { pill: 'pill-blue', label: 'بانتظار الربط', banner: 'info', icon: 'chrome', text: 'ثبّت إضافة الإرسال على كمبيوتر الفرع حتى يبدأ الإرسال — الخطوات تحت.' },
-};
-
-function statePill(state) {
-  const s = STATE_INFO[state] || STATE_INFO.offline;
-  return '<span class="pill ' + s.pill + '">' + s.label + '</span>';
-}
-
-const expandedSetup = new Set();
-
-function setupStepsHtml(acc) {
-  return '<div class="setup-box">' +
-    '<div class="setup-title">' + icon('chrome', 15) + ' تثبيت إضافة الإرسال على كمبيوتر الفرع (مرة وحدة)</div>' +
-    '<div class="step-item"><div class="step-num">1</div><div class="step-text">حمّل إضافة الإرسال الخاصة بهذا الحساب' +
-      '<small>ملف zip فيه الإضافة جاهزة ومربوطة تلقائياً بحساب "' + esc(acc.name) + '".</small>' +
-      '<a class="btn-primary-small mt-2" href="index.php?download=extension&account=' + acc.id + '&t=' + encodeURIComponent(W.csrf) + '" onclick="return confirmDownload(' + acc.id + ')">' + icon('download', 13) + ' تحميل الإضافة</a></div></div>' +
-    '<div class="step-item"><div class="step-num">2</div><div class="step-text">فك الضغط وثبّتها بكروم' +
-      '<small>افتح Google Chrome واكتب بشريط العنوان <span class="kbd">chrome://extensions</span> ثم فعّل "وضع المطوّر" <span class="en">Developer mode</span> واضغط "تحميل إضافة غير مضغوطة" <span class="en">Load unpacked</span> واختر مجلد <span class="kbd">wasel-sender</span>.</small></div></div>' +
-    '<div class="step-item"><div class="step-num">3</div><div class="step-text">امسح رمز QR بواتساب ويب' +
-      '<small>بينفتح تبويب واتساب ويب تلقائياً. من جوالك: واتساب ← الأجهزة المرتبطة ← ربط جهاز، وامسح الرمز.</small></div></div>' +
-    '<div class="step-item"><div class="step-num">4</div><div class="step-text">خلّي كروم مفتوح' +
-      '<small>الحالة هنا بتصير "متصل" خلال دقيقة، وأي حملة لهذا الحساب تنرسل تلقائياً من هالجهاز.</small></div></div>' +
+function howItWorksHtml() {
+  return '<div class="card info"><div class="card-header" style="margin-bottom:8px"><h4>' + icon('info', 15) + ' كيف يشتغل الإرسال؟</h4></div>' +
+    '<div class="step-item"><div class="step-num">1</div><div class="step-text">أضف رقم الواتساب اللي ترسل منه<small>اسم للتمييز ورقمه — بدون أي تثبيت أو ربط.</small></div></div>' +
+    '<div class="step-item"><div class="step-num">2</div><div class="step-text">أنشئ حملة من "الحملات"<small>الأرقام (كتابة أو Excel) والنص والرابط، وإرسال فوري أو مقسّم على أيام.</small></div></div>' +
+    '<div class="step-item"><div class="step-num">3</div><div class="step-text">اضغط "إرسال" بأي جهاز مفتوح عليه هذا الواتساب<small>ينفتح واتساب والرقم والرسالة جاهزين، تضغط إرسال بواتساب، وترجع للموقع تلقى الرقم الجاي جاهز.</small></div></div>' +
   '</div>';
 }
 
 function accountCardHtml(acc) {
-  const s = STATE_INFO[acc.state] || STATE_INFO.offline;
-  const showSetup = acc.state === 'new' || expandedSetup.has(acc.id);
-  let bannerText = s.text;
-  if (acc.state === 'offline') bannerText = 'جهاز الإرسال غير متصل (آخر اتصال ' + agoText(acc.last_seen_ago) + '). ' + s.text.replace('جهاز الإرسال غير متصل. ', '');
   return '<div class="card" id="acc-' + acc.id + '">' +
-    '<div class="row">' + avatarHtml(acc.name, acc.id) + '<span class="account-name">' + esc(acc.name) + '</span>' + statePill(acc.state) + '</div>' +
+    '<div class="row">' + avatarHtml(acc.name, acc.id) +
+      '<div class="grow"><div class="account-name">' + esc(acc.name) + '</div>' +
+      (acc.phone ? '<div class="muted-sm ltr" style="text-align:right">' + esc(fmtPhone(acc.phone)) + '</div>' : '') + '</div>' +
+      (acc.due ? '<span class="pill pill-green">' + fmtNum(acc.due) + ' رسالة جاهزة</span>' : '') +
+    '</div>' +
     '<div class="acc-stats">' +
-      '<div><b>' + fmtNum(acc.pending) + '</b><span>بانتظار الإرسال</span></div>' +
+      '<div><b>' + fmtNum(acc.due) + '</b><span>جاهزة للإرسال الآن</span></div>' +
+      '<div><b>' + fmtNum(acc.pending) + '</b><span>متبقية بالحملات</span></div>' +
       '<div><b>' + fmtNum(acc.sent_today) + '</b><span>أُرسلت اليوم</span></div>' +
-      '<div><b style="font-size:12.5px;line-height:1.9">' + esc(agoText(acc.last_seen_ago)) + '</b><span>آخر اتصال للجهاز</span></div>' +
     '</div>' +
-    '<div class="state-banner ' + s.banner + '">' + icon(s.icon, 14) + '<span>' + esc(bannerText) + '</span></div>' +
-    (showSetup ? setupStepsHtml(acc) : '') +
     '<div class="btn-row">' +
-      (acc.state === 'new' ? '' : '<button class="btn-outline" onclick="toggleSetup(' + acc.id + ')">' + icon('chrome', 12) + (showSetup ? ' إخفاء طريقة التثبيت' : ' طريقة التثبيت / تحميل الإضافة') + '</button>') +
-      '<button class="btn-outline" onclick="showPairCode(' + acc.id + ')">' + icon('key', 12) + ' رمز الربط اليدوي</button>' +
-      '<button class="btn-outline danger" onclick="deleteAccount(' + acc.id + ')">' + icon('trash', 12) + ' حذف الحساب</button>' +
+      '<button class="btn-outline primary" onclick="openAccountCampaigns(' + acc.id + ')">' + icon('campaigns', 12) + ' حملات هذا الرقم' + (acc.due ? ' — أرسل الجاهز' : '') + '</button>' +
+      '<button class="btn-outline danger" onclick="deleteAccount(' + acc.id + ')">' + icon('trash', 12) + ' حذف</button>' +
     '</div>' +
-    (acc.agent_version ? '<div class="muted-sm mt-2">نسخة الإضافة: ' + esc(acc.agent_version) + '</div>' : '') +
   '</div>';
 }
 
@@ -395,9 +388,8 @@ function renderAccountsList() {
   const box = document.getElementById('accountsBox');
   if (!box) return;
   if (!accounts.length) {
-    box.innerHTML = '<div class="card info"><div class="empty-state" style="padding:20px 10px">' + icon('accounts', 34) +
-      'ما عندك حسابات واتساب بعد.<br>أضف حساب، ثم ثبّت إضافة الإرسال على كمبيوتر الفرع — وبعدها كل حملاتك تنرسل منه تلقائياً.' +
-      '<br><button class="btn-primary-small mt-3" onclick="openAddAccountSheet()">' + icon('plus', 12) + ' إضافة حساب</button></div></div>';
+    box.innerHTML = '<div class="card"><div class="empty-state" style="padding:20px 10px">' + icon('accounts', 34) +
+      'ما عندك أرقام واتساب بعد.<br><button class="btn-primary-small mt-3" onclick="openAddAccountSheet()">' + icon('plus', 12) + ' إضافة رقم واتساب</button></div></div>';
     return;
   }
   box.innerHTML = accounts.map(accountCardHtml).join('');
@@ -407,8 +399,8 @@ function renderAccounts(myGen) {
   content().innerHTML =
     '<div class="page-title"><h2>' + icon('accounts', 18) + ' حسابي</h2>' +
       '<button class="btn-primary-small" onclick="openAddAccountSheet()">' + icon('plus', 12) + ' إضافة حساب</button></div>' +
-    '<p class="muted-sm mb-3">كل حساب واتساب يرسل حملاته من كمبيوتر الفرع عبر إضافة كروم صغيرة ومجانية — بدون أي اشتراك أو سيرفر خاص.</p>' +
-    '<div id="accountsBox">' + (accountsLoaded ? '' : '<div class="loading-line">جارِ التحميل...</div>') + '</div>';
+    '<div id="accountsBox">' + (accountsLoaded ? '' : '<div class="loading-line">جارِ التحميل...</div>') + '</div>' +
+    howItWorksHtml();
   if (accountsLoaded) renderAccountsList();
   const load = async () => {
     const r = await loadAccounts();
@@ -417,24 +409,18 @@ function renderAccounts(myGen) {
     else if (!accountsLoaded) document.getElementById('accountsBox').innerHTML = '<div class="state-banner bad">' + esc(r.error) + '</div>';
   };
   load();
-  every(myGen, 8000, load);
+  every(myGen, 30000, load);
 }
 
-function toggleSetup(id) {
-  if (expandedSetup.has(id)) expandedSetup.delete(id); else expandedSetup.add(id);
-  renderAccountsList();
-}
-
-function confirmDownload(id) {
-  const acc = accounts.find(a => a.id === id);
-  if (acc && acc.state !== 'new' && acc.paired) {
-    return confirm('تحميل نسخة جديدة من الإضافة يوقف النسخة المثبّتة حالياً لهذا الحساب (لازم تثبّت الجديدة بدالها). تكمل؟');
-  }
-  return true;
+function openAccountCampaigns(id) {
+  activeAccountId = id;
+  localStorageSet('wasel.account', String(id));
+  showSection('campaigns');
 }
 
 function openAddAccountSheet() {
   document.getElementById('newAccountName').value = '';
+  document.getElementById('newAccountPhone').value = '';
   document.getElementById('addAccountOverlay').classList.add('show');
   document.getElementById('addAccountSheet').classList.add('show');
   setTimeout(() => document.getElementById('newAccountName').focus(), 100);
@@ -445,19 +431,20 @@ function closeAddAccountSheet() {
 }
 async function submitAddAccount() {
   const name = document.getElementById('newAccountName').value.trim();
-  closeAddAccountSheet();
-  const r = await api('account_create', { body: { name: name } });
+  const phone = document.getElementById('newAccountPhone').value.trim();
+  const r = await api('account_create', { body: { name: name, phone: phone } });
   if (!r.ok) { toast(r.error, true); return; }
+  closeAddAccountSheet();
   activeAccountId = r.account.id;
   localStorageSet('wasel.account', String(activeAccountId));
   await loadAccounts();
-  toast('تمت إضافة الحساب — ثبّت إضافة الإرسال حتى يتصل');
-  if (section !== 'accounts') showSection('accounts'); else render();
+  toast('تمت إضافة الحساب — هسه أنشئ حملة');
+  showSection('campaigns');
 }
 
 async function deleteAccount(id) {
   const acc = accounts.find(a => a.id === id);
-  if (!confirm('حذف حساب "' + (acc ? acc.name : '') + '"؟ بتنحذف كل حملاته وسجلّه نهائياً، والإضافة المربوطة فيه بتتوقف.')) return;
+  if (!confirm('حذف حساب "' + (acc ? acc.name : '') + '"؟ بتنحذف كل حملاته وسجلّه نهائياً.')) return;
   const r = await api('account_delete', { body: { id: id } });
   if (!r.ok) { toast(r.error, true); return; }
   toast('تم حذف الحساب');
@@ -473,25 +460,6 @@ function openInfoSheet(html) {
 function closeInfoSheet() {
   document.getElementById('infoOverlay').classList.remove('show');
   document.getElementById('infoSheet').classList.remove('show');
-}
-
-let lastPairCode = '';
-async function showPairCode(id) {
-  const acc = accounts.find(a => a.id === id);
-  if (acc && acc.paired && !confirm('توليد رمز ربط جديد يوقف أي إضافة مربوطة حالياً بهذا الحساب. تكمل؟')) return;
-  const r = await api('account_pair_code', { body: { id: id } });
-  if (!r.ok) { toast(r.error, true); return; }
-  lastPairCode = r.code;
-  openInfoSheet(
-    '<div class="sheet-title">' + icon('key', 16) + ' رمز الربط اليدوي</div>' +
-    '<div class="sheet-message">استخدمه إذا ثبّتت الإضافة من مجلد extension مباشرة، أو تريد تنقل الإضافة لحساب ثاني: اضغط أيقونة واصل بكروم ← "ربط برمز" ← الصق الرمز.</div>' +
-    '<div class="code-box">' + esc(r.code) + '</div>' +
-    '<div class="sheet-actions mt-3">' +
-      '<button class="btn-cancel" onclick="closeInfoSheet()">إغلاق</button>' +
-      '<button class="btn-confirm-gold" onclick="copyText(lastPairCode)">' + icon('copy', 13) + ' نسخ الرمز</button>' +
-    '</div>'
-  );
-  loadAccounts().then(() => { if (section === 'accounts') renderAccountsList(); });
 }
 
 /* ====================================================================== الحملات */
@@ -561,12 +529,12 @@ function updateSplitSummary() {
   const v = parseInt(document.getElementById('splitValue').value, 10);
   const time = document.getElementById('sendTime').value || '10:00';
   if (mode === 'none' || !n || !v || v < 1) {
-    out.textContent = 'مثال: 80 رقم مع "عدد ثابت كل يوم" = 20 ← تنرسل 20 رسالة يومياً على 4 أيام تلقائياً.';
+    out.textContent = 'مثال: 80 رقم مع "عدد ثابت كل يوم" = 20 ← كل يوم تنفتح 20 رسالة جاهزة للإرسال على 4 أيام.';
     return;
   }
   const perDay = mode === 'count' ? v : Math.ceil(n / v);
   const days = Math.ceil(n / perDay);
-  out.textContent = fmtNum(n) + ' رقم ← ' + days + ' يوم × ' + perDay + ' رقم باليوم، الساعة ' + time + ' (أرقام ملف Excel تنضاف للحساب عند الإرسال).';
+  out.textContent = fmtNum(n) + ' رقم ← ' + days + ' يوم × ' + perDay + ' رقم باليوم، تجهز كل يوم الساعة ' + time + ' (أرقام ملف Excel تنضاف للحساب عند الحفظ).';
 }
 
 function onSplitModeChange() {
@@ -579,8 +547,7 @@ function onSplitModeChange() {
 }
 
 function accountOptionLabel(a) {
-  const s = STATE_INFO[a.state] || STATE_INFO.offline;
-  return a.name + ' — ' + s.label;
+  return a.name + (a.phone ? ' — ' + fmtPhone(a.phone) : '');
 }
 
 function renderCampaigns(myGen) {
@@ -591,32 +558,13 @@ function renderCampaigns(myGen) {
     if (!accounts.length) {
       c.innerHTML = '<div class="page-title"><h2>' + icon('campaigns', 18) + ' الحملات</h2></div>' +
         '<div class="card info"><div class="empty-state" style="padding:20px 10px">' + icon('accounts', 34) +
-        'تحتاج حساب واتساب واحد على الأقل قبل ما تبدأ حملة.<br><button class="btn-primary-small mt-3" onclick="showSection(\'accounts\')">' + icon('plus', 12) + ' إضافة حساب واتساب</button></div></div>';
+        'أضف رقم الواتساب اللي ترسل منه أولاً — خطوة وحدة بدون أي تثبيت.<br><button class="btn-primary-small mt-3" onclick="openAddAccountSheet()">' + icon('plus', 12) + ' إضافة رقم واتساب</button></div></div>';
       return;
     }
     drawCampaignForm(myGen);
   };
   if (accountsLoaded) draw();
-  loadAccounts().then(() => { if (myGen === gen && !document.getElementById('campaignForm')) draw(); else if (myGen === gen) refreshAccountState(); });
-}
-
-function accountStateBannerHtml(acc) {
-  if (!acc || acc.state === 'online') return '';
-  const s = STATE_INFO[acc.state] || STATE_INFO.offline;
-  return '<div class="state-banner ' + (acc.state === 'offline' || acc.state === 'new' ? 'warn' : s.banner) + '">' + icon('warn', 14) +
-    '<span>جهاز الإرسال لهذا الحساب: ' + s.label + '. تقدر تنشئ الحملة الآن، ورسائلها بتنتظر وتنرسل تلقائياً أول ما يتصل الجهاز. ' +
-    '<a href="#accounts" onclick="showSection(\'accounts\');return false" style="color:inherit;font-weight:700;text-decoration:underline">التفاصيل</a></span></div>';
-}
-
-function refreshAccountState() {
-  const sel = document.getElementById('accPicker');
-  if (!sel) return;
-  accounts.forEach(a => {
-    const opt = sel.querySelector('option[value="' + a.id + '"]');
-    if (opt) opt.textContent = accountOptionLabel(a);
-  });
-  const box = document.getElementById('accStateBox');
-  if (box) box.innerHTML = accountStateBannerHtml(accounts.find(a => a.id === activeAccountId));
+  loadAccounts().then(() => { if (myGen === gen && !document.getElementById('campaignForm')) draw(); });
 }
 
 function drawCampaignForm(myGen) {
@@ -625,13 +573,13 @@ function drawCampaignForm(myGen) {
   const today = W.today || new Date().toISOString().slice(0, 10);
   content().innerHTML =
     '<div class="page-title"><h2>' + icon('campaigns', 18) + ' الحملات</h2></div>' +
+    '<div id="dueBox"></div>' +
     '<div class="card" id="campaignForm">' +
-      '<div class="card-header"><h4>' + icon('send', 15) + ' حملة جديدة</h4></div>' +
+      '<div class="card-header"><h4>' + icon('plus', 15) + ' حملة جديدة</h4></div>' +
       '<label class="field-label">حساب واتساب المرسِل</label>' +
       '<select id="accPicker" onchange="switchCampaignAccount(this.value)">' +
         accounts.map(a => '<option value="' + a.id + '"' + (a.id === acc.id ? ' selected' : '') + '>' + esc(accountOptionLabel(a)) + '</option>').join('') +
       '</select>' +
-      '<div id="accStateBox">' + accountStateBannerHtml(acc) + '</div>' +
       '<label class="field-label">رمز الدولة الافتراضي (يُضاف تلقائياً لأي رقم ما يبدأ فيه)</label>' +
       countryCodeSelectHtml() +
       '<label class="field-label">الأرقام — رقم بكل سطر أو مفصولة بفواصل (بدون حاجة لرمز الدولة)</label>' +
@@ -647,31 +595,32 @@ function drawCampaignForm(myGen) {
       '<label class="field-label">معاينة الرسالة كما توصل للعميل</label>' +
       '<div class="message-preview" id="msgPreview"></div>' +
       '<div class="field-grid">' +
-        '<div><label class="field-label">الفاصل بين كل رسالة وأخرى (ثواني)</label>' +
-          '<input id="delay" type="number" min="' + (W.minDelay || 5) + '" value="' + (W.defaultDelay || 15) + '"></div>' +
-        '<div><label class="field-label">' + icon('calendar', 12) + ' طريقة الإرسال</label>' +
+        '<div><label class="field-label">مهلة بين رقم والثاني (ثواني)</label>' +
+          '<input id="delay" type="number" min="' + (W.minDelay || 0) + '" value="' + (W.defaultDelay || 10) + '">' +
+          '<div class="field-hint">تحمي رقمك من الحظر — 10 ثواني أو أكثر أفضل.</div></div>' +
+        '<div><label class="field-label">' + icon('calendar', 12) + ' متى تجهز الرسائل للإرسال</label>' +
           '<select id="splitMode" onchange="onSplitModeChange()">' +
-            '<option value="none">فوري، أو بموعد واحد</option>' +
-            '<option value="count">تقسيم على أيام — عدد ثابت من الأرقام كل يوم</option>' +
-            '<option value="days">تقسيم على أيام — وزّع الأرقام على عدد أيام</option>' +
+            '<option value="none">هسه، أو بموعد واحد</option>' +
+            '<option value="count">مقسّمة على أيام — عدد ثابت كل يوم</option>' +
+            '<option value="days">مقسّمة على أيام — وزّعها على عدد أيام</option>' +
           '</select></div>' +
       '</div>' +
       '<div id="singleScheduleBox">' +
-        '<label class="field-label">موعد الإرسال (اختياري — اتركه فاضي للإرسال الفوري)</label>' +
+        '<label class="field-label">موعد (اختياري — اتركه فاضي حتى تبدأ الإرسال هسه)</label>' +
         '<input id="sendAt" type="datetime-local">' +
       '</div>' +
       '<div id="splitBox" style="display:none">' +
         '<div class="field-grid">' +
           '<div><label class="field-label" id="splitValueLabel">عدد الأرقام باليوم الواحد</label>' +
             '<input id="splitValue" type="number" min="1" placeholder="مثال: 20" oninput="updateSplitSummary()"></div>' +
-          '<div><label class="field-label">وقت الإرسال اليومي</label>' +
+          '<div><label class="field-label">وقت تجهيز رسائل كل يوم</label>' +
             '<input id="sendTime" type="time" value="' + esc(W.defaultSplitTime || '10:00') + '" oninput="updateSplitSummary()"></div>' +
         '</div>' +
-        '<label class="field-label">تاريخ بداية الإرسال</label>' +
+        '<label class="field-label">تاريخ أول يوم</label>' +
         '<input id="startDate" type="date" value="' + esc(today) + '" min="' + esc(today) + '">' +
         '<div class="field-hint" id="splitSummary"></div>' +
       '</div>' +
-      '<button class="btn-submit" id="startBtn" onclick="startCampaign()">' + icon('rocket', 15) + ' بدء الحملة</button>' +
+      '<button class="btn-submit" id="startBtn" onclick="startCampaign()">' + icon('check', 15) + ' حفظ الحملة</button>' +
       '<div class="form-msg" id="campaignMsg"></div>' +
     '</div>' +
     '<h3 class="section-sub">' + icon('list', 13) + ' حملات هذا الحساب</h3>' +
@@ -679,18 +628,33 @@ function drawCampaignForm(myGen) {
   updateMessagePreview();
   updateSplitSummary();
   loadCampaignList(myGen);
-  every(myGen, 6000, async () => {
-    await Promise.all([loadCampaignList(myGen), loadAccounts().then(refreshAccountState)]);
-  });
+  loadDueBox(myGen);
+  every(myGen, 20000, async () => { await Promise.all([loadCampaignList(myGen), loadDueBox(myGen)]); });
 }
 
 function switchCampaignAccount(id) {
   activeAccountId = Number(id);
   localStorageSet('wasel.account', String(activeAccountId));
-  refreshAccountState();
   const list = document.getElementById('campaignList');
   if (list) list.innerHTML = '<div class="loading-line">جارِ التحميل...</div>';
   loadCampaignList(gen);
+}
+
+/** بطاقة أعلى صفحة الحملات: كل الحملات اللي عندها رسائل جاهزة للإرسال هسه (من كل الحسابات). */
+async function loadDueBox(myGen) {
+  const r = await api('campaigns', { query: { limit: 100 } });
+  if (myGen !== gen || !r.ok) return;
+  const box = document.getElementById('dueBox');
+  if (!box) return;
+  const due = r.items.filter(c => c.status === 'active' && c.due > 0);
+  if (!due.length) { box.innerHTML = ''; return; }
+  const total = due.reduce((s, c) => s + c.due, 0);
+  box.innerHTML = '<div class="card due-card"><div class="card-header" style="margin-bottom:6px"><h4>' + icon('send', 15) + ' جاهزة للإرسال الآن: ' + fmtNum(total) + ' رسالة</h4></div>' +
+    due.map(c =>
+      '<div class="history-row"><div class="grow"><span class="campaign-name">' + esc(firstLine(c.text)) + '</span>' +
+        '<div class="campaign-detail">' + esc(c.account_name) + (c.days > 1 ? ' · مقسّمة على ' + c.days + ' يوم' : '') + '</div></div>' +
+        '<button class="btn-send-small" onclick="openSender(' + c.id + ')">' + icon('whatsapp', 14) + ' إرسال (' + fmtNum(c.due) + ')</button></div>'
+    ).join('') + '</div>';
 }
 
 async function loadCampaignList(myGen) {
@@ -705,7 +669,7 @@ async function loadCampaignList(myGen) {
 }
 
 const CAMPAIGN_STATUS = {
-  active: ['pill-blue', 'جارِ الإرسال'], scheduled: ['pill-amber', 'مجدولة'], done: ['pill-green', 'مكتملة'], cancelled: ['pill-gray', 'ملغاة'],
+  active: ['pill-blue', 'جاهزة للإرسال'], scheduled: ['pill-amber', 'بانتظار موعدها'], done: ['pill-green', 'مكتملة'], cancelled: ['pill-gray', 'ملغاة'],
 };
 
 function campaignStatusPill(c) {
@@ -715,8 +679,8 @@ function campaignStatusPill(c) {
 
 function campaignModeText(c) {
   if (c.mode === 'split') return 'مقسّمة على ' + c.days + ' يوم × ' + c.per_day + ' — الساعة ' + (c.send_time || '');
-  if (c.mode === 'once') return 'مجدولة بموعد ' + c.start_at;
-  return 'إرسال فوري';
+  if (c.mode === 'once') return 'بموعد ' + c.start_at;
+  return 'فورية';
 }
 
 function progressHtml(c) {
@@ -731,16 +695,21 @@ function firstLine(text) {
   return t || '(بدون نص)';
 }
 
+function canSend(c) {
+  return c.status === 'active' && c.due > 0 && c.owner_id === ME.id;
+}
+
 function campaignCardHtml(c) {
   return '<div class="card campaign-card" onclick="openCampaign(' + c.id + ')">' +
     '<div class="top"><div class="grow"><div class="title">' + esc(firstLine(c.text)) + '</div>' +
       '<div class="meta">' + esc(campaignModeText(c)) + ' · أُنشئت ' + esc(c.created_at) +
-      (c.status !== 'done' && c.next_at ? ' · الموعد الجاي ' + esc(c.next_at) : '') + '</div></div>' + campaignStatusPill(c) + '</div>' +
+      (c.status === 'scheduled' && c.next_at ? ' · تجهز ' + esc(c.next_at) : '') + '</div></div>' + campaignStatusPill(c) + '</div>' +
     progressHtml(c) +
-    '<div class="counts"><span class="pill pill-teal">' + fmtNum(c.total) + ' رقم</span><span class="pill pill-green">نجح ' + fmtNum(c.sent) + '</span>' +
-      '<span class="pill pill-red">فشل ' + fmtNum(c.failed) + '</span>' +
+    '<div class="counts"><span class="pill pill-teal">' + fmtNum(c.total) + ' رقم</span><span class="pill pill-green">انرسل ' + fmtNum(c.sent) + '</span>' +
+      (c.failed ? '<span class="pill pill-red">ما عنده واتساب ' + fmtNum(c.failed) + '</span>' : '') +
       (c.pending ? '<span class="pill pill-amber">متبقي ' + fmtNum(c.pending) + '</span>' : '') +
       (c.cancelled ? '<span class="pill pill-gray">ملغاة ' + fmtNum(c.cancelled) + '</span>' : '') + '</div>' +
+    (canSend(c) ? '<button class="btn-send" onclick="event.stopPropagation(); openSender(' + c.id + ')">' + icon('whatsapp', 18) + ' إرسال — ' + fmtNum(c.due) + ' رسالة جاهزة</button>' : '') +
   '</div>';
 }
 
@@ -751,7 +720,8 @@ function campaignRowsHtml(rows, showOwner) {
     '<div class="history-row clickable" onclick="openCampaign(' + c.id + ')">' +
       '<div class="grow"><span class="campaign-name">' + esc(firstLine(c.text)) + '</span>' +
       '<div class="campaign-detail">' + esc((showOwner && c.owner_name ? c.owner_name + ' · ' : '') + (c.account_name || '') + ' · ' + c.created_at) + '</div></div>' +
-      '<div class="side">' + campaignStatusPill(c) + '<span class="pill pill-green">نجح ' + fmtNum(c.sent) + '</span><span class="pill pill-red">فشل ' + fmtNum(c.failed) + '</span></div>' +
+      '<div class="side">' + campaignStatusPill(c) + '<span class="pill pill-green">انرسل ' + fmtNum(c.sent) + '</span>' +
+      (c.pending ? '<span class="pill pill-amber">متبقي ' + fmtNum(c.pending) + '</span>' : '') + '</div>' +
     '</div>'
   ).join('');
 }
@@ -764,7 +734,7 @@ async function startCampaign() {
   form.append('numbers_text', document.getElementById('numbersText').value);
   form.append('text', document.getElementById('text').value.trim());
   form.append('link', document.getElementById('link').value.trim());
-  form.append('delay', document.getElementById('delay').value || String(W.defaultDelay || 15));
+  form.append('delay', document.getElementById('delay').value || String(W.defaultDelay || 10));
   const splitMode = document.getElementById('splitMode').value;
   form.append('split_mode', splitMode);
   if (splitMode === 'none') {
@@ -779,30 +749,30 @@ async function startCampaign() {
 
   if ('Notification' in window && Notification.permission === 'default') Notification.requestPermission();
   btn.disabled = true;
-  setMsg('campaignMsg', 'جارِ إنشاء الحملة...');
+  setMsg('campaignMsg', 'جارِ حفظ الحملة...');
   const r = await api('campaign_create', { form: form });
   btn.disabled = false;
   if (!r.ok) { setMsg('campaignMsg', esc(r.error), 'error'); return; }
   let msg;
-  if (r.mode === 'split') msg = 'تمت الجدولة: ' + fmtNum(r.total) + ' رقم على ' + r.days + ' يوم (~' + r.per_day + ' يومياً)، ابتداءً من ' + esc(r.start_at);
-  else if (r.mode === 'once') msg = 'تمت جدولة ' + fmtNum(r.total) + ' رسالة بموعد ' + esc(r.start_at);
-  else msg = 'بدأت الحملة: ' + fmtNum(r.total) + ' رسالة — جهاز الإرسال يرسلها تلقائياً بالترتيب';
-  if (r.account_state !== 'online') msg += '<br><span style="color:var(--amber)">ملاحظة: جهاز الإرسال لهذا الحساب مو متصل حالياً — الرسائل بتنرسل أول ما يتصل.</span>';
+  if (r.mode === 'split') msg = 'تم الحفظ: ' + fmtNum(r.total) + ' رقم على ' + r.days + ' يوم (~' + r.per_day + ' يومياً)، أول يوم ' + esc(r.start_at) + '. كل يوم بموعده توصلك إشعار وتنفتح رسائله للإرسال.';
+  else if (r.mode === 'once') msg = 'تم الحفظ: ' + fmtNum(r.total) + ' رسالة تجهز للإرسال بموعد ' + esc(r.start_at) + '.';
+  else msg = 'تم الحفظ: ' + fmtNum(r.total) + ' رسالة جاهزة للإرسال.';
+  if (r.due > 0) msg += '<br><button class="btn-send mt-2" onclick="openSender(' + r.id + ')">' + icon('whatsapp', 18) + ' ابدأ الإرسال هسه</button>';
   setMsg('campaignMsg', msg, 'success');
-  toast('تم إنشاء الحملة');
+  toast('تم حفظ الحملة');
   document.getElementById('numbersText').value = '';
   document.getElementById('numbersFile').value = '';
   updateNumbersCount();
   loadCampaignList(gen);
+  loadDueBox(gen);
+  loadAccounts();
 }
 
 /* ---------- تفاصيل حملة ---------- */
 
-let detailId = null;
 let detailReturn = null;
 
 function openCampaign(id) {
-  detailId = id;
   detailReturn = section;
   const myGen = newGen();
   content().innerHTML = '<div class="loading-line">جارِ التحميل...</div>';
@@ -815,40 +785,40 @@ function openCampaign(id) {
     drawCampaignDetail(r);
   };
   load();
-  every(myGen, 5000, load);
+  every(myGen, 15000, load);
 }
 
-function closeCampaign() {
-  detailId = null;
+function backToSection() {
   showSection(detailReturn && SECTIONS.indexOf(detailReturn) !== -1 ? detailReturn : 'campaigns');
 }
 
-const DAY_STATE = { pending: ['pill-amber', 'بانتظار موعده'], running: ['pill-blue', 'شغّال'], done: ['pill-green', 'اكتمل'], cancelled: ['pill-gray', 'ملغى'] };
+const DAY_STATE = { pending: ['pill-amber', 'بانتظار موعده'], ready: ['pill-blue', 'جاهز للإرسال'], done: ['pill-green', 'اكتمل'], cancelled: ['pill-gray', 'ملغى'] };
 
 function drawCampaignDetail(c) {
-  const isOwnerView = !IS_ADMIN || c.owner_name === (ME.name || ME.email);
+  const showOwner = IS_ADMIN && c.owner_id !== ME.id;
   let html =
     '<div class="page-title"><h2>' + icon('info', 18) + ' تفاصيل الحملة</h2>' +
-      '<button class="btn-outline btn-small" onclick="closeCampaign()">' + icon('back', 11) + ' رجوع</button></div>' +
+      '<button class="btn-outline btn-small" onclick="backToSection()">' + icon('back', 11) + ' رجوع</button></div>' +
+    (c.can_send && c.due > 0 ? '<button class="btn-send mb-3" onclick="openSender(' + c.id + ')">' + icon('whatsapp', 18) + ' ابدأ الإرسال — ' + fmtNum(c.due) + ' رسالة جاهزة</button>' : '') +
     '<div class="campaign-detail-card">' +
-      '<div class="detail-row"><span class="label">' + icon('accounts', 13) + ' الحساب</span><span class="value">' + esc(c.account_name || '—') + ' ' + statePill(c.account_state) + '</span></div>' +
-      (IS_ADMIN && !isOwnerView ? '<div class="detail-row"><span class="label">' + icon('branches', 13) + ' الفرع</span><span class="value">' + esc(c.owner_name) + '</span></div>' : '') +
+      '<div class="detail-row"><span class="label">' + icon('accounts', 13) + ' الحساب</span><span class="value">' + esc(c.account_name || '—') + (c.account_phone ? ' <span class="ltr muted-sm">' + esc(fmtPhone(c.account_phone)) + '</span>' : '') + '</span></div>' +
+      (showOwner ? '<div class="detail-row"><span class="label">' + icon('branches', 13) + ' الفرع</span><span class="value">' + esc(c.owner_name) + '</span></div>' : '') +
       '<div class="detail-row"><span class="label">' + icon('info', 13) + ' الحالة</span><span class="value">' + campaignStatusPill(c) + '</span></div>' +
-      '<div class="detail-row"><span class="label">' + icon('calendar', 13) + ' طريقة الإرسال</span><span class="value">' + esc(campaignModeText(c)) + '</span></div>' +
-      '<div class="detail-row"><span class="label">' + icon('hourglass', 13) + ' الفاصل بين الرسائل</span><span class="value">' + c.delay + ' ثانية</span></div>' +
+      '<div class="detail-row"><span class="label">' + icon('calendar', 13) + ' التوقيت</span><span class="value">' + esc(campaignModeText(c)) + '</span></div>' +
+      '<div class="detail-row"><span class="label">' + icon('hourglass', 13) + ' المهلة بين الأرقام</span><span class="value">' + c.delay + ' ثانية</span></div>' +
       '<div class="detail-row"><span class="label">' + icon('clock', 13) + ' أُنشئت</span><span class="value ltr">' + esc(c.created_at) + '</span></div>' +
-      (c.next_at && c.status !== 'done' && c.status !== 'cancelled' ? '<div class="detail-row"><span class="label">' + icon('clock', 13) + ' الرسالة الجاية</span><span class="value ltr">' + esc(c.next_at) + '</span></div>' : '') +
+      (c.status === 'scheduled' && c.next_at ? '<div class="detail-row"><span class="label">' + icon('clock', 13) + ' تجهز الرسائل الجاية</span><span class="value ltr">' + esc(c.next_at) + '</span></div>' : '') +
       (c.finished_at ? '<div class="detail-row"><span class="label">' + icon('checkCircle', 13) + ' انتهت</span><span class="value ltr">' + esc(c.finished_at) + '</span></div>' : '') +
     '</div>' +
     '<div class="stats-mini-row">' +
-      statMiniHtml(fmtNum(c.total), 'الإجمالي', '') + statMiniHtml(fmtNum(c.sent), 'نجح', 'green') +
-      statMiniHtml(fmtNum(c.failed), 'فشل', 'orange') + statMiniHtml(fmtNum(c.pending), 'متبقي', 'primary') +
+      statMiniHtml(fmtNum(c.total), 'الإجمالي', '') + statMiniHtml(fmtNum(c.sent), 'انرسل', 'green') +
+      statMiniHtml(fmtNum(c.failed), 'ما عنده واتساب', 'orange') + statMiniHtml(fmtNum(c.pending), 'متبقي', 'primary') +
     '</div>' + progressHtml(c) +
     '<div class="card mt-3"><div class="card-header"><h4>' + icon('message', 15) + ' نص الرسالة</h4></div><div class="message-preview">' + esc(c.message) + '</div></div>';
 
   if (c.days > 1 && c.days_detail && c.days_detail.length) {
     html += '<div class="card"><div class="card-header"><h4>' + icon('calendar', 15) + ' جدول الأيام</h4></div><div class="table-wrap"><table class="days-table">' +
-      '<tr><th>اليوم</th><th>الموعد</th><th>الأرقام</th><th>نجح</th><th>فشل</th><th>متبقي</th><th>الحالة</th><th></th></tr>' +
+      '<tr><th>اليوم</th><th>يجهز</th><th>الأرقام</th><th>انرسل</th><th>فشل</th><th>متبقي</th><th>الحالة</th><th></th></tr>' +
       c.days_detail.map(d => {
         const st = DAY_STATE[d.state] || ['pill-gray', d.state];
         return '<tr><td class="fw-bold">' + d.day + '/' + c.days + '</td><td class="ltr" style="text-align:right">' + esc(d.scheduled_at) + '</td><td>' + d.total + '</td>' +
@@ -859,24 +829,25 @@ function drawCampaignDetail(c) {
   }
 
   if (c.failures && c.failures.length) {
-    window._failedNumbers = c.failures.map(f => f.phone).join('\n');
-    html += '<div class="card"><div class="card-header"><h4>' + icon('warn', 15) + ' الأرقام الفاشلة (' + c.failures.length + ')</h4>' +
+    window._failedNumbers = c.failures.map(f => '+' + f.phone).join('\n');
+    html += '<div class="card"><div class="card-header"><h4>' + icon('warn', 15) + ' أرقام ما عندها واتساب (' + c.failures.length + ')</h4>' +
       '<button class="btn-outline btn-small" onclick="copyText(window._failedNumbers)">' + icon('copy', 10) + ' نسخ الأرقام</button></div>' +
-      c.failures.map(f => '<div class="history-row"><span class="ltr fw-bold">+' + esc(f.phone) + '</span><span class="muted-sm">' + esc(f.error || 'فشل الإرسال') + '</span></div>').join('') +
+      c.failures.map(f => '<div class="history-row"><span class="ltr fw-bold">' + esc(fmtPhone(f.phone)) + '</span><span class="muted-sm">' + esc(f.error || '') + '</span></div>').join('') +
     '</div>';
   }
 
   html += '<div class="btn-row">' +
-    (c.can_cancel ? '<button class="btn-outline danger" onclick="cancelCampaign(' + c.id + ')">' + icon('ban', 12) + ' إلغاء الحملة (الرسائل المتبقية)</button>' : '') +
-    '<button class="btn-outline" onclick="closeCampaign()">' + icon('back', 12) + ' رجوع</button></div>';
+    (c.can_cancel ? '<button class="btn-outline danger" onclick="cancelCampaign(' + c.id + ')">' + icon('ban', 12) + ' إلغاء الحملة (الأرقام المتبقية)</button>' : '') +
+    '<button class="btn-outline" onclick="backToSection()">' + icon('back', 12) + ' رجوع</button></div>';
   content().innerHTML = html;
 }
 
 async function cancelCampaign(id) {
-  if (!confirm('إلغاء الحملة؟ الرسائل اللي ما انرسلت بعد بتنلغي (اللي انرسلت تبقى بالسجل).')) return;
+  if (!confirm('إلغاء الحملة؟ الأرقام اللي ما انرسلت بعد بتنلغي (اللي انرسلت تبقى بالسجل).')) return;
   const r = await api('campaign_cancel', { body: { id: id } });
   if (!r.ok) { toast(r.error, true); return; }
   toast('تم إلغاء الحملة');
+  loadAccounts();
   openCampaign(id);
 }
 
@@ -888,16 +859,235 @@ async function cancelCampaignDay(id, day) {
   openCampaign(id);
 }
 
+/* ====================================================================== شاشة الإرسال بالضغط */
+
+const OPEN_MODES = {
+  auto: 'تلقائي (مستحسن)',
+  web: 'واتساب ويب بالمتصفح',
+  app: 'تطبيق واتساب على الجهاز',
+  wame: 'رابط wa.me',
+};
+
+let senderCampaignId = null;
+let senderReturn = null;
+let senderState = null;
+let senderBusy = false;
+let senderReadyAt = 0;
+let lastMarked = null;
+let countdownTimer = null;
+
+function isTouchDevice() {
+  return !!(window.matchMedia && window.matchMedia('(pointer: coarse)').matches);
+}
+
+function openMode() {
+  const m = localStorageGet('wasel.openMode') || 'auto';
+  return OPEN_MODES[m] ? m : 'auto';
+}
+
+function effectiveMode() {
+  const m = openMode();
+  if (m !== 'auto') return m;
+  return isTouchDevice() ? 'wame' : 'web';
+}
+
+/** رابط يفتح محادثة الرقم بواتساب والرسالة مكتوبة جاهزة. */
+function waLink(phone, text) {
+  const t = encodeURIComponent(text);
+  switch (effectiveMode()) {
+    case 'app': return { href: 'whatsapp://send?phone=' + phone + '&text=' + t, target: '_self' };
+    case 'wame': return { href: 'https://wa.me/' + phone + '?text=' + t, target: '_blank' };
+    default: return { href: 'https://web.whatsapp.com/send?phone=' + phone + '&text=' + t, target: 'wasel_whatsapp' };
+  }
+}
+
+function setOpenMode(m) {
+  localStorageSet('wasel.openMode', m);
+  drawSender();
+}
+
+function openSender(id) {
+  if (section === null) section = DEFAULT_SECTION;
+  senderReturn = section;
+  senderCampaignId = id;
+  lastMarked = null;
+  senderState = null;
+  senderReadyAt = 0;
+  const myGen = newGen();
+  content().innerHTML = '<div class="loading-line">جارِ التحميل...</div>';
+  fadeContent();
+  window.scrollTo(0, 0);
+  loadSender(myGen);
+  // كل 45 ثانية نجدّد حجز الرقم المعروض ونحدّث الأعداد (أجهزة ثانية يمكن ترسل من نفس الحملة)
+  every(myGen, 45000, () => loadSender(myGen));
+}
+
+function closeSender() {
+  senderCampaignId = null;
+  loadAccounts();
+  showSection(senderReturn && SECTIONS.indexOf(senderReturn) !== -1 ? senderReturn : 'campaigns');
+}
+
+async function loadSender(myGen) {
+  const r = await api('send_next', { query: { id: senderCampaignId, tok: SENDER_TOKEN } });
+  if (myGen !== gen) return;
+  if (!r.ok) { content().innerHTML = '<div class="state-banner bad">' + esc(r.error) + '</div>'; return; }
+  if (senderBusy) return;
+  const unchanged = senderState && JSON.stringify(senderState) === JSON.stringify(r);
+  senderState = r;
+  if (!unchanged) drawSender();   // ما نعيد الرسم إذا ما تغيّر شي (حتى ما تنسكر القائمة المفتوحة)
+}
+
+function senderHintHtml() {
+  const m = effectiveMode();
+  if (m === 'web') return 'ينفتح واتساب ويب بتبويب ثاني والرسالة مكتوبة — اضغط <span class="kbd">Enter</span> هناك للإرسال، وارجع لهذا التبويب تلقى الرقم الجاي جاهز. (تقدر تضغط <span class="kbd">Enter</span> هنا بدل زر الإرسال.)';
+  if (m === 'app') return 'ينفتح تطبيق واتساب على الجهاز والرسالة مكتوبة — اضغط إرسال وارجع هنا.';
+  return 'ينفتح تطبيق واتساب والرسالة مكتوبة — اضغط إرسال بواتساب، وارجع للموقع تلقى الرقم الجاي جاهز.';
+}
+
+function drawSender() {
+  const s = senderState;
+  if (!s) return;
+  const c = s.campaign;
+  const done = c.sent + c.failed;
+  let html =
+    '<div class="page-title"><h2>' + icon('whatsapp', 20) + ' إرسال الحملة</h2>' +
+      '<button class="btn-outline btn-small" onclick="closeSender()">' + icon('back', 11) + ' رجوع</button></div>' +
+    '<div class="card sender-head"><div class="row-wrap">' +
+      '<div class="grow"><div class="title">' + esc(firstLine(c.text)) + '</div>' +
+      '<div class="muted-sm">' + esc(c.account_name) + (c.account_phone ? ' · <span class="ltr">' + esc(fmtPhone(c.account_phone)) + '</span>' : '') +
+        ' · ' + esc(campaignModeText(c)) + '</div></div>' +
+      '<div class="sender-counts"><b>' + fmtNum(done) + '</b>/<span>' + fmtNum(c.total) + '</span></div>' +
+    '</div>' + progressHtml(c) +
+    (c.account_phone ? '<div class="muted-sm mt-2">' + icon('mobile', 11) + ' تأكد إن الواتساب المفتوح بجهازك هو رقم <span class="ltr fw-bold">' + esc(fmtPhone(c.account_phone)) + '</span></div>' : '') +
+    '</div>';
+
+  if (s.next) {
+    const link = waLink(s.next.phone, c.message);
+    const batch = c.days > 1 ? 'اليوم ' + s.next.day + '/' + c.days + ' — ' : '';
+    html +=
+      '<div class="card sender-card">' +
+        '<div class="sender-label">' + esc(batch) + 'الرقم ' + fmtNum(s.batch_done + 1) + ' من ' + fmtNum(s.batch_total) + '</div>' +
+        '<div class="sender-phone ltr">' + esc(fmtPhone(s.next.phone)) + '</div>' +
+        '<a id="sendBtn" class="send-big" href="' + esc(link.href) + '" target="' + esc(link.target) + '" rel="noopener" onclick="return onSendClick(event)">' +
+          '<i class="fab fa-whatsapp"></i><span class="lbl">إرسال عبر واتساب</span></a>' +
+        '<div class="sender-actions">' +
+          '<button class="btn-outline" onclick="markCurrent(\'failed\')">' + icon('xmark', 12) + ' الرقم ما عنده واتساب</button>' +
+          '<button class="btn-outline" onclick="markCurrent(\'skip\')">' + icon('skip', 12) + ' تخطي (آخر الدور)</button>' +
+        '</div>' +
+        '<div class="sender-hint">' + senderHintHtml() + '</div>' +
+      '</div>';
+  } else if (c.status === 'done') {
+    html += '<div class="card sender-card done">' + icon('party', 34) +
+      '<div class="sender-done-title">اكتملت الحملة</div>' +
+      '<div class="muted">انرسل ' + fmtNum(c.sent) + (c.failed ? ' · ' + fmtNum(c.failed) + ' رقم ما عنده واتساب' : '') + '</div>' +
+      '<button class="btn-outline mt-3" onclick="closeSender()">' + icon('back', 12) + ' رجوع للحملات</button></div>';
+  } else if (c.status === 'cancelled') {
+    html += '<div class="card sender-card done">' + icon('ban', 30) + '<div class="sender-done-title">الحملة ملغاة</div></div>';
+  } else if (s.busy_elsewhere) {
+    html += '<div class="card sender-card done">' + icon('mobile', 30) +
+      '<div class="sender-done-title">الأرقام الجاهزة مفتوحة الآن بجهاز ثاني</div>' +
+      '<div class="muted">شخص ثاني من فرعك يرسل نفس الحملة هسه. جرّب بعد دقيقتين.</div>' +
+      '<button class="btn-outline mt-3" onclick="loadSender(gen)">' + icon('refresh', 12) + ' تحديث</button></div>';
+  } else {
+    html += '<div class="card sender-card done">' + icon('checkCircle', 34) +
+      '<div class="sender-done-title">خلصت الرسائل الجاهزة 👍</div>' +
+      (c.next_at ? '<div class="muted">الدفعة الجاية' + (s.next_batch ? ' (' + fmtNum(s.next_batch) + ' رقم)' : '') + ' تجهز <span class="ltr fw-bold">' + esc(c.next_at) + '</span> — يوصلك إشعار بموعدها.</div>' : '') +
+      '<button class="btn-outline mt-3" onclick="closeSender()">' + icon('back', 12) + ' رجوع للحملات</button></div>';
+  }
+
+  if (lastMarked) {
+    const sentLine = lastMarked.result === 'sent'
+      ? icon('checkCircle', 13) + ' آخر رقم <span class="ltr fw-bold">' + esc(fmtPhone(lastMarked.phone)) + '</span> انحسب مُرسَل.'
+      : icon('xmark', 13) + ' آخر رقم <span class="ltr fw-bold">' + esc(fmtPhone(lastMarked.phone)) + '</span> انحسب "ما عنده واتساب".';
+    html += '<div class="last-marked">' + sentLine +
+      (lastMarked.result === 'sent' ? ' <button class="link-btn" onclick="markLast(\'failed\')">ما انرسل؟ الرقم ما عنده واتساب</button>' : '') +
+      ' <button class="link-btn" onclick="markLast(\'undo\')">' + icon('undo', 11) + ' تراجع</button></div>';
+  }
+
+  html += '<details class="card sender-more"><summary>' + icon('message', 13) + ' نص الرسالة وطريقة فتح واتساب</summary>' +
+    '<div class="message-preview mt-2">' + esc(c.message) + '</div>' +
+    '<label class="field-label">طريقة فتح واتساب بهذا الجهاز</label>' +
+    '<select onchange="setOpenMode(this.value)">' +
+      Object.keys(OPEN_MODES).map(k => '<option value="' + k + '"' + (k === openMode() ? ' selected' : '') + '>' + OPEN_MODES[k] + '</option>').join('') +
+    '</select>' +
+    '<div class="field-hint">على الكمبيوتر: "واتساب ويب" يفتح بنفس التبويب كل مرة. وإذا عندك تطبيق واتساب للكمبيوتر اختر "تطبيق واتساب" (أسرع).</div>' +
+  '</details>';
+
+  content().innerHTML = html;
+  startCountdown();
+}
+
+function startCountdown() {
+  clearInterval(countdownTimer);
+  const tick = () => {
+    const btn = document.getElementById('sendBtn');
+    if (!btn) { clearInterval(countdownTimer); return; }
+    const left = Math.ceil((senderReadyAt - Date.now()) / 1000);
+    const lbl = btn.querySelector('.lbl');
+    if (left > 0) {
+      btn.classList.add('waiting');
+      lbl.textContent = 'الرقم جاهز بعد ' + left + ' ث';
+    } else {
+      btn.classList.remove('waiting');
+      lbl.textContent = 'إرسال عبر واتساب';
+      clearInterval(countdownTimer);
+    }
+  };
+  tick();
+  countdownTimer = setInterval(tick, 250);
+}
+
+/** الضغط على "إرسال": الرابط نفسه يفتح واتساب، وبنفس اللحظة نسجّل الرقم كمُرسَل ونجهّز الجاي. */
+function onSendClick(e) {
+  const s = senderState;
+  if (!s || !s.next || senderBusy || Date.now() < senderReadyAt) {
+    e.preventDefault();
+    return false;
+  }
+  markMessage(s.next, 'sent');
+  return true;
+}
+
+function markCurrent(result) {
+  if (senderState && senderState.next && !senderBusy) markMessage(senderState.next, result);
+}
+
+function markLast(result) {
+  if (lastMarked && !senderBusy) markMessage(lastMarked, result);
+}
+
+async function markMessage(msg, result) {
+  senderBusy = true;
+  const myGen = gen;
+  const r = await api('send_mark', {
+    body: { id: senderCampaignId, message_id: msg.id, result: result, tok: SENDER_TOKEN },
+    keepalive: true,
+  });
+  senderBusy = false;
+  if (myGen !== gen) return;
+  if (!r.ok) {
+    toast(result === 'sent' ? 'تعذّر تسجيل الإرسال (' + r.error + ') — تأكد من واتساب قبل ما تعيد' : r.error, true);
+    loadSender(myGen);
+    return;
+  }
+  if (result === 'sent' || result === 'failed') lastMarked = { id: msg.id, phone: msg.phone, result: result };
+  if (result === 'undo') lastMarked = null;
+  if (result === 'sent') senderReadyAt = Date.now() + (r.campaign.delay || 0) * 1000;
+  senderState = r;
+  drawSender();
+}
+
 /* ====================================================================== الإحصائيات (الأدمن) */
 
 function analyticsPerfHtml(s) {
   const finished = s.campaigns_success + s.campaigns_with_failures;
   const rate = finished ? Math.round(s.campaigns_success * 100 / finished) : 0;
   return '<div class="history-row"><span>إجمالي الحملات</span><span class="fw-bold">' + fmtNum(s.campaigns_total) + '</span></div>' +
-    '<div class="history-row"><span>حملات شغّالة أو مجدولة</span><span class="pill pill-blue">' + fmtNum(s.campaigns_active) + '</span></div>' +
-    '<div class="history-row"><span>حملات مكتملة بدون أي فشل</span><span class="pill pill-green">' + fmtNum(s.campaigns_success) + '</span></div>' +
-    '<div class="history-row"><span>حملات مكتملة فيها أرقام فاشلة</span><span class="pill pill-red">' + fmtNum(s.campaigns_with_failures) + '</span></div>' +
-    '<div class="history-row"><span>نسبة الحملات الناجحة بالكامل</span><span class="pill pill-green">' + rate + '%</span></div>';
+    '<div class="history-row"><span>حملات نشطة (فيها أرقام متبقية)</span><span class="pill pill-blue">' + fmtNum(s.campaigns_active) + '</span></div>' +
+    '<div class="history-row"><span>حملات مكتملة كل أرقامها عندها واتساب</span><span class="pill pill-green">' + fmtNum(s.campaigns_success) + '</span></div>' +
+    '<div class="history-row"><span>حملات مكتملة فيها أرقام بدون واتساب</span><span class="pill pill-red">' + fmtNum(s.campaigns_with_failures) + '</span></div>' +
+    '<div class="history-row"><span>نسبة الحملات الكاملة</span><span class="pill pill-green">' + rate + '%</span></div>';
 }
 
 function renderAnalytics(myGen) {
@@ -910,10 +1100,10 @@ function renderAnalytics(myGen) {
   const fill = d => {
     document.getElementById('anStats1').innerHTML =
       statMiniHtml(fmtNum(d.messages_sent), 'إجمالي الرسائل المرسلة', 'primary') + statMiniHtml(d.success_rate + '%', 'معدل النجاح', 'green') +
-      statMiniHtml(fmtNum(d.messages_failed), 'رسائل فاشلة', 'orange') + statMiniHtml(fmtNum(d.sent_today), 'أُرسلت اليوم', 'primary');
+      statMiniHtml(fmtNum(d.messages_failed), 'أرقام بدون واتساب', 'orange') + statMiniHtml(fmtNum(d.sent_today), 'أُرسلت اليوم', 'primary');
     document.getElementById('anStats2').innerHTML =
-      statMiniHtml(fmtNum(d.accounts_total), 'حسابات واتساب', '') + statMiniHtml(fmtNum(d.accounts_connected), 'متصلة الآن', 'green') +
-      statMiniHtml(fmtNum(d.campaigns_active), 'حملات نشطة', 'orange') + statMiniHtml(fmtNum(d.messages_pending), 'بانتظار الإرسال', 'primary');
+      statMiniHtml(fmtNum(d.accounts_total), 'أرقام واتساب', '') + statMiniHtml(fmtNum(d.messages_due), 'جاهزة للإرسال الآن', 'green') +
+      statMiniHtml(fmtNum(d.campaigns_active), 'حملات نشطة', 'orange') + statMiniHtml(fmtNum(d.messages_pending), 'متبقية بالحملات', 'primary');
     document.getElementById('anPerf').innerHTML = analyticsPerfHtml(d);
   };
   if (s) fill(s);
@@ -1114,7 +1304,7 @@ function renderNotifications() {
   let permCard = '';
   if ('Notification' in window) {
     if (Notification.permission === 'default') {
-      permCard = '<div class="card info"><div class="row-wrap"><div class="grow muted">' + icon('bell', 14) + ' فعّل إشعارات المتصفح حتى يوصلك تنبيه أول ما تبدأ أو تخلص أي حملة.</div>' +
+      permCard = '<div class="card info"><div class="row-wrap"><div class="grow muted">' + icon('bell', 14) + ' فعّل إشعارات المتصفح حتى يوصلك تنبيه أول ما تجهز رسائل أي حملة للإرسال.</div>' +
         '<button class="btn-primary-small" onclick="requestNotifPermission()">' + icon('check', 12) + ' تفعيل الإشعارات</button></div></div>';
     } else if (Notification.permission === 'denied') {
       permCard = '<div class="card warn"><div class="muted-sm">' + icon('warn', 13) + ' إشعارات المتصفح محظورة لهذا الموقع. فعّلها من رمز القفل بجانب عنوان الموقع ← الإشعارات ← سماح.</div></div>';
@@ -1182,11 +1372,17 @@ function closeConfirmSheet() {
 function confirmLogout() { document.getElementById('logoutForm').submit(); }
 
 document.addEventListener('keydown', e => {
-  if (e.key === 'Escape') { closeConfirmSheet(); closeAddAccountSheet(); closeInfoSheet(); closeSidebar(); }
+  if (e.key === 'Escape') { closeConfirmSheet(); closeAddAccountSheet(); closeInfoSheet(); closeSidebar(); return; }
+  // بشاشة الإرسال: Enter = إرسال (إذا ما كان المؤشر بحقل كتابة)
+  if (e.key === 'Enter' && senderCampaignId && !e.target.closest('input, textarea, select, button, a')) {
+    const btn = document.getElementById('sendBtn');
+    if (btn && !btn.classList.contains('waiting')) { e.preventDefault(); btn.click(); }
+  }
 });
 
 /* ====================================================================== البدء */
 
 initChrome();
-showSection((location.hash || '').replace('#', '') || NAV[0], { keepHash: true });
+showSection((location.hash || '').replace('#', '') || DEFAULT_SECTION, { keepHash: true });
+loadAccounts();
 pollEvents();

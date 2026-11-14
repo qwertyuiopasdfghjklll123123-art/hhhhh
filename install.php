@@ -43,7 +43,7 @@ function requirement_rows()
         ['إضافة JSON', function_exists('json_encode'), true],
         ['المجلد الرئيسي قابل للكتابة (لإنشاء config.php)', $writableRoot, true],
         ['مجلد uploads قابل للكتابة (شعار الموقع)', is_dir($uploads) && is_writable($uploads), false],
-        ['إضافة zip (تحميل إضافة كروم وقراءة ملفات Excel)', class_exists('ZipArchive'), false],
+        ['إضافة zip (قراءة ملفات Excel)', class_exists('ZipArchive'), false],
         ['إضافة mbstring', extension_loaded('mbstring'), false],
         ['إضافة GD (أيقونات التطبيق من الشعار)', function_exists('imagecreatetruecolor'), false],
     ];
@@ -164,7 +164,7 @@ ol { padding-right:18px; font-size:13px; line-height:1.9; color:#4A6A78; }
   <ol>
     <li>احذف ملف <code>install.php</code> من الاستضافة (للأمان).</li>
     <li>من لوحة الأدمن ← "الفروع": أنشئ حساب دخول لكل فرع.</li>
-    <li>كل فرع يدخل بحسابه ← "حسابي" ← يضيف رقم واتساب ويحمّل إضافة الإرسال على كمبيوتر الفرع.</li>
+    <li>كل فرع يدخل بحسابه ← "حسابي" ← يضيف رقم الواتساب، وبعدها ينشئ حملاته ويرسلها من "الحملات" بالضغط على "إرسال".</li>
   </ol>
   <a class="btn" href="index.php">الذهاب لتسجيل الدخول</a>
 <?php else: ?>

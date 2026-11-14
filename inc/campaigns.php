@@ -1,27 +1,21 @@
 <?php
 /**
- * واصل — منطق الحملات وطابور الإرسال.
+ * واصل — منطق الحملات والإرسال بالضغط.
  *
  * كل حملة تنحفظ كرسائل منفصلة (رقم لكل صف) بجدول campaign_messages ولكل
- * رسالة موعدها (scheduled_at). الإضافة على جهاز الفرع تسأل agent.php كل
- * شوي: "شنو الرسالة الجاية؟" فنعطيها أقدم رسالة مستحقة لحسابها، ونحترم
- * الفاصل الزمني بين الرسائل (next_send_at)، وهي ترجع تبلّغ بالنتيجة.
- * فما نحتاج أي برنامج شغّال بالخلفية على الاستضافة ولا Cron.
+ * رسالة موعدها (scheduled_at). الفرع يفتح الحملة من جواله أو كمبيوتره ويضغط
+ * "إرسال": واتساب ينفتح والرقم والرسالة جاهزين، يضغط إرسال بواتساب، والموقع
+ * يعرض الرقم الجاي تلقائياً. ما يحتاج أي تثبيت ولا خدمة خارجية ولا Cron.
+ *
+ * الرقم المعروض ينحجز للجهاز اللي عرضه (SEND_LOCK_SECONDS) حتى لو اثنين من
+ * الفرع يرسلون نفس الحملة سوا ما ينرسل نفس الرقم مرتين.
  */
 
 require_once __DIR__ . '/core.php';
 
-const ERROR_TEXTS = [
-    'invalid_number' => 'الرقم غير مسجّل على واتساب',
-    'timeout' => 'ما انفتحت المحادثة خلال المهلة',
-    'not_sent' => 'تعذّر تأكيد إرسال الرسالة',
-    'no_send_button' => 'تعذّر الضغط على زر الإرسال',
-    'not_logged_in' => 'واتساب ويب غير مسجّل الدخول',
-];
-
 /**
  * ينشئ حملة ويوزّع أرقامها على المواعيد:
- *  - mode=now: كلها مستحقة فوراً.
+ *  - mode=now: كلها جاهزة للإرسال فوراً.
  *  - mode=once: كلها بموعد واحد ($opts['send_at']).
  *  - mode=split: تقسيم على أيام (عدد ثابت باليوم أو عدد أيام) بوقت يومي ثابت.
  */
@@ -49,13 +43,15 @@ function campaign_create(array $user, array $acc, array $numbers, $bodyText, $li
 
     $days = count($schedule);
     $startAt = $schedule[1][0];
+    // الحملة الفورية ما تحتاج إشعار "صار موعدها" — المستخدم قدّامها هسه
+    $notifiedDay = $mode === 'now' ? 1 : 0;
     $pdo = db();
     $pdo->beginTransaction();
     try {
         q(
-            'INSERT INTO campaigns (owner_id, account_id, body_text, link, message, delay_seconds, mode, total, days, per_day, start_at, send_time, country_code, status, created_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, \'active\', ?)',
-            [$user['id'], $acc['id'], $bodyText, $link, $message, $delay, $mode, count($numbers), $days, $perDay, $startAt, $sendTime, $opts['country_code'], now_dt()]
+            'INSERT INTO campaigns (owner_id, account_id, body_text, link, message, delay_seconds, mode, total, days, per_day, start_at, send_time, country_code, status, notified_day, created_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, \'active\', ?, ?)',
+            [$user['id'], $acc['id'], $bodyText, $link, $message, $delay, $mode, count($numbers), $days, $perDay, $startAt, $sendTime, $opts['country_code'], $notifiedDay, now_dt()]
         );
         $campaignId = (int) $pdo->lastInsertId();
         $rows = [];
@@ -84,7 +80,7 @@ function campaign_create(array $user, array $acc, array $numbers, $bodyText, $li
             $acc['name']
         );
     } elseif ($mode === 'once') {
-        notify($user['id'], 'تمت جدولة حملة', count($numbers) . ' رسالة بموعد ' . substr($startAt, 0, 16), 'info', $acc['name']);
+        notify($user['id'], 'تمت جدولة حملة', count($numbers) . ' رسالة جاهزة للإرسال بموعد ' . substr($startAt, 0, 16), 'info', $acc['name']);
     }
 
     return [
@@ -94,10 +90,11 @@ function campaign_create(array $user, array $acc, array $numbers, $bodyText, $li
         'days' => $days,
         'per_day' => $perDay,
         'start_at' => substr($startAt, 0, 16),
+        'due' => $mode === 'now' ? count($numbers) : (strtotime($startAt) <= time() ? count($schedule[1][1]) : 0),
     ];
 }
 
-/** أعداد رسائل حملة (أو مجموعة حملات) حسب الحالة. */
+/** أعداد رسائل مجموعة حملات حسب الحالة، ومنها "المستحقة الآن" (جاهزة للإرسال). */
 function campaign_counts(array $campaignIds)
 {
     $out = [];
@@ -108,10 +105,11 @@ function campaign_counts(array $campaignIds)
     $rows = q_all(
         "SELECT campaign_id,
                 SUM(status = 'sent') AS sent, SUM(status = 'failed') AS failed,
-                SUM(status IN ('pending','sending')) AS pending, SUM(status = 'cancelled') AS cancelled,
-                MIN(CASE WHEN status = 'pending' THEN scheduled_at END) AS next_at
+                SUM(status = 'pending') AS pending, SUM(status = 'cancelled') AS cancelled,
+                SUM(status = 'pending' AND scheduled_at <= ?) AS due,
+                MIN(CASE WHEN status = 'pending' AND scheduled_at > ? THEN scheduled_at END) AS next_at
          FROM campaign_messages WHERE campaign_id IN ($in) GROUP BY campaign_id",
-        $campaignIds
+        array_merge([now_dt(), now_dt()], $campaignIds)
     );
     foreach ($rows as $r) {
         $out[(int) $r['campaign_id']] = [
@@ -119,6 +117,7 @@ function campaign_counts(array $campaignIds)
             'failed' => (int) $r['failed'],
             'pending' => (int) $r['pending'],
             'cancelled' => (int) $r['cancelled'],
+            'due' => (int) $r['due'],
             'next_at' => $r['next_at'] ? substr($r['next_at'], 0, 16) : null,
         ];
     }
@@ -128,15 +127,18 @@ function campaign_counts(array $campaignIds)
 /** صيغة موحّدة لعرض الحملة بالواجهة. */
 function campaign_public(array $c, array $counts)
 {
-    $k = isset($counts[(int) $c['id']]) ? $counts[(int) $c['id']] : ['sent' => 0, 'failed' => 0, 'pending' => 0, 'cancelled' => 0, 'next_at' => null];
+    $empty = ['sent' => 0, 'failed' => 0, 'pending' => 0, 'cancelled' => 0, 'due' => 0, 'next_at' => null];
+    $k = isset($counts[(int) $c['id']]) ? $counts[(int) $c['id']] : $empty;
     $status = $c['status'];
-    if ($status === 'active' && $k['sent'] + $k['failed'] === 0 && $k['next_at'] && strtotime($k['next_at']) > time()) {
-        $status = 'scheduled';
+    if ($status === 'active' && $k['due'] === 0 && $k['next_at']) {
+        $status = 'scheduled';   // ما فيه شي جاهز هسه — بانتظار موعد اليوم الجاي
     }
     return [
         'id' => (int) $c['id'],
         'account_id' => (int) $c['account_id'],
         'account_name' => isset($c['account_name']) ? $c['account_name'] : '',
+        'account_phone' => isset($c['account_phone']) ? $c['account_phone'] : null,
+        'owner_id' => (int) $c['owner_id'],
         'owner_name' => isset($c['owner_name']) ? $c['owner_name'] : '',
         'text' => $c['body_text'],
         'link' => $c['link'],
@@ -155,18 +157,19 @@ function campaign_public(array $c, array $counts)
         'failed' => $k['failed'],
         'pending' => $k['pending'],
         'cancelled' => $k['cancelled'],
+        'due' => $k['due'],
         'next_at' => $k['next_at'],
     ];
 }
 
-/** يقفل الحملة كـ"مكتملة" إذا ما بقى فيها أي رسالة بانتظار الإرسال، ويرسل إشعار. */
+/** يقفل الحملة كـ"مكتملة" إذا ما بقى فيها أي رقم بانتظار الإرسال، ويرسل إشعار. */
 function campaign_check_done($campaignId)
 {
     $c = q_row('SELECT c.*, a.name AS account_name FROM campaigns c LEFT JOIN wa_accounts a ON a.id = c.account_id WHERE c.id = ?', [(int) $campaignId]);
     if (!$c || $c['status'] !== 'active') {
         return;
     }
-    $left = (int) q_val("SELECT COUNT(*) FROM campaign_messages WHERE campaign_id = ? AND status IN ('pending','sending')", [(int) $campaignId]);
+    $left = (int) q_val("SELECT COUNT(*) FROM campaign_messages WHERE campaign_id = ? AND status = 'pending'", [(int) $campaignId]);
     if ($left > 0) {
         return;
     }
@@ -178,7 +181,7 @@ function campaign_check_done($campaignId)
         notify(
             $c['owner_id'],
             'اكتملت الحملة',
-            'نجح ' . $k['sent'] . ' من ' . $total . '، فشل ' . $k['failed'],
+            'انرسل ' . $k['sent'] . ' من ' . $total . (($k['failed'] > 0) ? '، و' . $k['failed'] . ' رقم ما عنده واتساب' : ''),
             $k['failed'] === 0 ? 'success' : 'warning',
             $c['account_name']
         );
@@ -188,14 +191,14 @@ function campaign_check_done($campaignId)
 function campaign_cancel($campaignId)
 {
     $upd = q("UPDATE campaigns SET status = 'cancelled', finished_at = ? WHERE id = ? AND status = 'active'", [now_dt(), (int) $campaignId]);
-    q("UPDATE campaign_messages SET status = 'cancelled', locked_at = NULL WHERE campaign_id = ? AND status = 'pending'", [(int) $campaignId]);
+    q("UPDATE campaign_messages SET status = 'cancelled', locked_at = NULL, locked_by = NULL WHERE campaign_id = ? AND status = 'pending'", [(int) $campaignId]);
     return $upd->rowCount() === 1;
 }
 
 function campaign_cancel_day($campaignId, $day)
 {
     $n = q(
-        "UPDATE campaign_messages SET status = 'cancelled' WHERE campaign_id = ? AND day_index = ? AND status = 'pending'",
+        "UPDATE campaign_messages SET status = 'cancelled', locked_at = NULL, locked_by = NULL WHERE campaign_id = ? AND day_index = ? AND status = 'pending'",
         [(int) $campaignId, (int) $day]
     )->rowCount();
     campaign_check_done($campaignId);
@@ -208,8 +211,7 @@ function campaign_day_rows($campaignId)
     $rows = q_all(
         "SELECT day_index, MIN(scheduled_at) AS scheduled_at, COUNT(*) AS total,
                 SUM(status = 'sent') AS sent, SUM(status = 'failed') AS failed,
-                SUM(status IN ('pending','sending')) AS pending, SUM(status = 'cancelled') AS cancelled,
-                SUM(status = 'sending') AS sending
+                SUM(status = 'pending') AS pending, SUM(status = 'cancelled') AS cancelled
          FROM campaign_messages WHERE campaign_id = ? GROUP BY day_index ORDER BY day_index",
         [(int) $campaignId]
     );
@@ -219,8 +221,8 @@ function campaign_day_rows($campaignId)
         $sentOrFailed = (int) $r['sent'] + (int) $r['failed'];
         if ($pending === 0) {
             $state = ((int) $r['cancelled'] > 0 && $sentOrFailed === 0) ? 'cancelled' : 'done';
-        } elseif ((int) $r['sending'] > 0 || $sentOrFailed > 0 || strtotime($r['scheduled_at']) <= time()) {
-            $state = 'running';
+        } elseif (strtotime($r['scheduled_at']) <= time()) {
+            $state = 'ready';
         } else {
             $state = 'pending';
         }
@@ -238,183 +240,200 @@ function campaign_day_rows($campaignId)
     return $out;
 }
 
-// --------------------------------------------------------------- طابور الإضافة (agent.php)
-
-function agent_account_by_key($key)
-{
-    if (!is_string($key) || !preg_match('/^[a-f0-9]{40}$/', $key)) {
-        return null;
-    }
-    return q_row('SELECT * FROM wa_accounts WHERE agent_key_hash = ?', [agent_key_hash($key)]);
-}
-
-/** يسجّل تواصل الإضافة وحالة واتساب ويب عندها، ويرسل إشعار عند الربط أول مرة أو عند طلب QR. */
-function agent_touch(array $acc, $state, $version)
-{
-    $allowed = ['ready', 'qr', 'loading', 'conflict', 'paused', 'no_tab'];
-    $state = in_array($state, $allowed, true) ? $state : 'loading';
-    q(
-        'UPDATE wa_accounts SET last_seen_at = ?, wa_state = ?, agent_version = ? WHERE id = ?',
-        [now_dt(), $state, str_cut(preg_replace('/[^0-9A-Za-z.\-]/', '', (string) $version), 20), $acc['id']]
-    );
-    if (empty($acc['last_seen_at'])) {
-        notify($acc['owner_id'], 'تم ربط جهاز الإرسال', 'إضافة واصل صارت متصلة بهذا الحساب', 'success', $acc['name']);
-    } elseif ($state === 'qr' && $acc['wa_state'] !== 'qr') {
-        notify($acc['owner_id'], 'واتساب ويب يحتاج مسح رمز QR', 'افتح تبويب واتساب ويب على جهاز الإرسال وامسح الرمز من جوالك حتى تكمل الحملات', 'warning', $acc['name']);
-    }
-    $acc['wa_state'] = $state;
-    $acc['last_seen_at'] = now_dt();
-    return $acc;
-}
-
-/** يرجّع رسائل علقت "قيد الإرسال" (الإضافة انقطعت بالنص) للطابور، أو يفشّلها بعد عدة محاولات. */
-function agent_recover_stale(array $acc)
-{
-    $stale = q_all(
-        "SELECT id, campaign_id, attempts FROM campaign_messages WHERE account_id = ? AND status = 'sending' AND locked_at < ?",
-        [$acc['id'], now_dt(-AGENT_LOCK_SECONDS)]
-    );
-    foreach ($stale as $m) {
-        if ((int) $m['attempts'] >= MAX_ATTEMPTS) {
-            q("UPDATE campaign_messages SET status = 'failed', error = ?, locked_at = NULL WHERE id = ? AND status = 'sending'", [ERROR_TEXTS['timeout'], $m['id']]);
-            campaign_check_done($m['campaign_id']);
-        } else {
-            q("UPDATE campaign_messages SET status = 'pending', locked_at = NULL WHERE id = ? AND status = 'sending'", [$m['id']]);
-        }
-    }
-}
+// --------------------------------------------------------------- الإرسال بالضغط
 
 /**
- * الرسالة الجاية لهذا الحساب، أو مدة انتظار بالثواني. إذا فيه رسالة لسا
- * "قيد الإرسال" نرجّعها نفسها (الإضافة يمكن انعادت تحميلها وضيّعتها).
+ * الرقم الجاي الجاهز للإرسال بهذه الحملة لهذا التبويب. إذا التبويب عنده رقم
+ * محجوز (مثلاً حدّث الصفحة) نرجّعه نفسه، وإلا نحجز أقدم رقم مستحق ومو محجوز
+ * لجهاز ثاني.
  */
-function agent_next(array $acc)
+function sender_claim($campaignId, $token)
 {
-    agent_recover_stale($acc);
-
-    $current = q_row(
-        "SELECT m.id, m.phone, c.message, c.status AS campaign_status FROM campaign_messages m JOIN campaigns c ON c.id = m.campaign_id
-         WHERE m.account_id = ? AND m.status = 'sending' ORDER BY m.locked_at DESC LIMIT 1",
-        [$acc['id']]
-    );
-    if ($current && $current['campaign_status'] === 'active') {
-        return ['job' => ['id' => (int) $current['id'], 'phone' => $current['phone'], 'text' => $current['message']]];
-    }
-    if ($current) {
-        // الحملة انلغت والإضافة ضيّعت الرسالة قبل ما ترسلها — ما نرسلها
-        q("UPDATE campaign_messages SET status = 'cancelled', locked_at = NULL WHERE id = ? AND status = 'sending'", [$current['id']]);
-    }
-
-    if (!empty($acc['next_send_at'])) {
-        $wait = strtotime($acc['next_send_at']) - time();
-        if ($wait > 0) {
-            return ['wait' => min(max($wait, 2), 120), 'reason' => 'delay'];
-        }
-    }
-
-    $pdo = db();
     $now = now_dt();
+    $lockLimit = now_dt(-SEND_LOCK_SECONDS);
+    // الرقم المعروض حالياً بهذا الجهاز = آخر رقم انحجز له (مثلاً بعد تراجع)، وأي رقم ثاني محجوز له نحرره
+    $mine = q_row(
+        "SELECT id, phone, day_index FROM campaign_messages
+         WHERE campaign_id = ? AND status = 'pending' AND scheduled_at <= ? AND locked_by = ? AND locked_at >= ?
+         ORDER BY locked_at DESC, id DESC LIMIT 1",
+        [(int) $campaignId, $now, $token, $lockLimit]
+    );
+    if ($mine) {
+        q('UPDATE campaign_messages SET locked_at = ? WHERE id = ?', [$now, $mine['id']]);
+        q(
+            "UPDATE campaign_messages SET locked_by = NULL, locked_at = NULL WHERE campaign_id = ? AND locked_by = ? AND id <> ? AND status = 'pending'",
+            [(int) $campaignId, $token, $mine['id']]
+        );
+        return $mine;
+    }
+    $pdo = db();
     $pdo->beginTransaction();
     try {
         $m = q_row(
-            "SELECT m.id, m.phone, m.campaign_id, m.day_index, m.attempts, c.message, c.days, c.owner_id
-             FROM campaign_messages m JOIN campaigns c ON c.id = m.campaign_id
-             WHERE m.account_id = ? AND m.status = 'pending' AND m.scheduled_at <= ? AND c.status = 'active'
-             ORDER BY m.scheduled_at, m.id LIMIT 1 FOR UPDATE",
-            [$acc['id'], $now]
+            "SELECT id, phone, day_index FROM campaign_messages
+             WHERE campaign_id = ? AND status = 'pending' AND scheduled_at <= ?
+               AND (locked_by IS NULL OR locked_at IS NULL OR locked_at < ? OR locked_by = ?)
+             ORDER BY skips, scheduled_at, id LIMIT 1 FOR UPDATE",
+            [(int) $campaignId, $now, $lockLimit, $token]
         );
         if ($m) {
-            q("UPDATE campaign_messages SET status = 'sending', locked_at = ?, attempts = attempts + 1 WHERE id = ?", [$now, $m['id']]);
+            q('UPDATE campaign_messages SET locked_at = ?, locked_by = ? WHERE id = ?', [$now, $token, $m['id']]);
         }
         $pdo->commit();
     } catch (Throwable $e) {
         $pdo->rollBack();
         throw $e;
     }
-
-    if (!$m) {
-        $next = q_val(
-            "SELECT MIN(m.scheduled_at) FROM campaign_messages m JOIN campaigns c ON c.id = m.campaign_id
-             WHERE m.account_id = ? AND m.status = 'pending' AND c.status = 'active'",
-            [$acc['id']]
-        );
-        $wait = $next ? strtotime($next) - time() : 60;
-        return ['wait' => min(max($wait, 5), 60), 'reason' => $next ? 'scheduled' : 'idle'];
-    }
-
-    // أول محاولة لأول رسالة بيوم/حملة = إشعار "بدأ الإرسال"
-    $started = (int) q_val(
-        "SELECT COUNT(*) FROM campaign_messages WHERE campaign_id = ? AND day_index = ? AND id <> ? AND (attempts > 0 OR status IN ('sent','failed'))",
-        [$m['campaign_id'], $m['day_index'], $m['id']]
-    );
-    if ($started === 0 && (int) $m['attempts'] === 0) {
-        $dayTotal = (int) q_val('SELECT COUNT(*) FROM campaign_messages WHERE campaign_id = ? AND day_index = ?', [$m['campaign_id'], $m['day_index']]);
-        if ((int) $m['days'] > 1) {
-            notify($m['owner_id'], 'بدأ يوم من حملة مجدولة', 'اليوم ' . $m['day_index'] . '/' . $m['days'] . ' — جارِ إرسال ' . $dayTotal . ' رسالة', 'info', $acc['name']);
-        } else {
-            notify($m['owner_id'], 'بدأت حملة جديدة', 'جارِ إرسال ' . $dayTotal . ' رسالة', 'info', $acc['name']);
-        }
-    }
-
-    return ['job' => ['id' => (int) $m['id'], 'phone' => $m['phone'], 'text' => $m['message']]];
+    return $m;
 }
 
-/** نتيجة إرسال رسالة من الإضافة. */
-function agent_report(array $acc, $jobId, $ok, $code, $error)
+/** حالة شاشة الإرسال: الرقم الجاي + الأعداد + موعد الدفعة الجاية. */
+function sender_state(array $campaign, $token)
 {
-    $m = q_row(
-        'SELECT m.*, c.delay_seconds, c.owner_id, c.days FROM campaign_messages m JOIN campaigns c ON c.id = m.campaign_id
-         WHERE m.id = ? AND m.account_id = ?',
-        [(int) $jobId, $acc['id']]
-    );
+    $next = $campaign['status'] === 'active' ? sender_claim($campaign['id'], $token) : null;
+    $c = campaign_public($campaign, campaign_counts([(int) $campaign['id']]));
+    $busyElsewhere = 0;
+    if (!$next && $c['due'] > 0) {
+        // كل المستحق محجوز حالياً بأجهزة ثانية من نفس الفرع
+        $busyElsewhere = $c['due'];
+    }
+    $nextBatch = null;
+    if (!$next && $c['next_at']) {
+        $nextBatch = (int) q_val(
+            "SELECT COUNT(*) FROM campaign_messages WHERE campaign_id = ? AND status = 'pending' AND scheduled_at = ?",
+            [$campaign['id'], $c['next_at'] . ':00']
+        );
+    }
+    $todayDone = 0;
+    $todayTotal = 0;
+    if ($next) {
+        $day = q_row(
+            "SELECT COUNT(*) AS total, SUM(status IN ('sent','failed')) AS done FROM campaign_messages WHERE campaign_id = ? AND day_index = ?",
+            [$campaign['id'], $next['day_index']]
+        );
+        $todayDone = (int) $day['done'];
+        $todayTotal = (int) $day['total'];
+    }
+    return [
+        'ok' => true,
+        'campaign' => $c,
+        'next' => $next ? ['id' => (int) $next['id'], 'phone' => $next['phone'], 'day' => (int) $next['day_index']] : null,
+        'batch_done' => $todayDone,
+        'batch_total' => $todayTotal,
+        'busy_elsewhere' => $busyElsewhere,
+        'next_batch' => $nextBatch,
+    ];
+}
+
+/**
+ * يسجّل نتيجة رقم: sent (انفتح بواتساب وانرسل)، failed (ما عنده واتساب)،
+ * skip (يتأجل لآخر الدور)، أو undo (تراجع عن آخر تسجيل).
+ */
+function sender_mark(array $campaign, $messageId, $result, $token)
+{
+    $m = q_row('SELECT * FROM campaign_messages WHERE id = ? AND campaign_id = ?', [(int) $messageId, (int) $campaign['id']]);
     if (!$m) {
-        return ['ignored' => true];
+        return 'الرقم غير موجود بهذه الحملة';
     }
     $now = now_dt();
-    $becameFinal = false;   // هل هذا التبليغ هو اللي حسم مصير الرسالة (حتى ما نكرر الإشعارات)
-    if ($ok) {
-        $becameFinal = $m['status'] !== 'sent';
-        q("UPDATE campaign_messages SET status = 'sent', sent_at = ?, error = NULL, locked_at = NULL WHERE id = ?", [$now, $m['id']]);
-    } elseif ($m['status'] === 'sending' || $m['status'] === 'pending') {
-        $text = array_key_exists((string) $code, ERROR_TEXTS) ? ERROR_TEXTS[(string) $code] : (trim((string) $error) !== '' ? str_cut($error, 200) : 'فشل الإرسال');
-        if ($code === 'not_logged_in') {
-            // مو ذنب الرقم — نرجّعها للطابور بدون ما نحسبها محاولة
-            q("UPDATE campaign_messages SET status = 'pending', attempts = GREATEST(attempts, 1) - 1, locked_at = NULL WHERE id = ?", [$m['id']]);
-        } elseif ($code === 'invalid_number' || (int) $m['attempts'] >= MAX_ATTEMPTS) {
-            $becameFinal = true;
-            q("UPDATE campaign_messages SET status = 'failed', error = ?, locked_at = NULL WHERE id = ?", [$text, $m['id']]);
-        } else {
-            q("UPDATE campaign_messages SET status = 'pending', error = ?, locked_at = NULL, scheduled_at = ? WHERE id = ?", [$text, now_dt(60), $m['id']]);
-        }
+    $recent = $m['sent_at'] && strtotime($m['sent_at']) >= time() - UNDO_SECONDS;
+    switch ($result) {
+        case 'sent':
+            if ($m['status'] !== 'pending') {
+                return null;   // تسجيل مكرر (مثلاً ضغطتين) — نتجاهله
+            }
+            q("UPDATE campaign_messages SET status = 'sent', sent_at = ?, error = NULL, locked_at = NULL, locked_by = NULL WHERE id = ?", [$now, $m['id']]);
+            break;
+        case 'failed':
+            // من الرقم الحالي، أو تصحيح رقم انحسب "انرسل" بس طلع ما عنده واتساب
+            if ($m['status'] === 'pending' || ($m['status'] === 'sent' && $recent)) {
+                q("UPDATE campaign_messages SET status = 'failed', sent_at = ?, error = ?, locked_at = NULL, locked_by = NULL WHERE id = ?", [$now, 'الرقم ما عنده واتساب', $m['id']]);
+            } else {
+                return 'ما يمكن تعديل هذا الرقم';
+            }
+            break;
+        case 'skip':
+            if ($m['status'] !== 'pending') {
+                return null;
+            }
+            // يتأجل لآخر الدور: الأرقام اللي ما انتخطّت تجي قبله
+            q('UPDATE campaign_messages SET skips = LEAST(skips + 1, 250), locked_at = NULL, locked_by = NULL WHERE id = ?', [$m['id']]);
+            break;
+        case 'undo':
+            if (!in_array($m['status'], ['sent', 'failed'], true) || !$recent || $campaign['status'] === 'cancelled') {
+                return 'ما يمكن التراجع عن هذا الرقم';
+            }
+            // نحرر الرقم المعروض حالياً بهذا الجهاز حتى يرجع الرقم المتراجَع عنه هو المعروض
+            q(
+                "UPDATE campaign_messages SET locked_by = NULL, locked_at = NULL WHERE campaign_id = ? AND locked_by = ? AND status = 'pending'",
+                [$campaign['id'], $token]
+            );
+            q("UPDATE campaign_messages SET status = 'pending', sent_at = NULL, error = NULL, locked_at = ?, locked_by = ? WHERE id = ?", [$now, $token, $m['id']]);
+            q("UPDATE campaigns SET status = 'active', finished_at = NULL WHERE id = ? AND status = 'done'", [$campaign['id']]);
+            return null;
+        default:
+            return 'إجراء غير معروف';
     }
-
-    // الفاصل الزمني قبل الرسالة الجاية (مع تفاوت عشوائي بسيط حتى ما يبين الإرسال آلي)
-    $delay = max(MIN_DELAY, (int) $m['delay_seconds']);
-    $jitter = random_int(0, (int) ceil($delay * 0.3));
-    if (!$ok && $code === 'invalid_number') {
-        $delay = MIN_DELAY;
-        $jitter = 0;
-    }
-    q('UPDATE wa_accounts SET next_send_at = ? WHERE id = ?', [now_dt($delay + $jitter), $acc['id']]);
 
     // إشعار انتهاء يوم من حملة مقسّمة (غير اليوم الأخير — له إشعار "اكتملت الحملة")
-    if ((int) $m['days'] > 1 && (int) $m['day_index'] < (int) $m['days']) {
-        $left = (int) q_val("SELECT COUNT(*) FROM campaign_messages WHERE campaign_id = ? AND day_index = ? AND status IN ('pending','sending')", [$m['campaign_id'], $m['day_index']]);
-        if ($left === 0 && $becameFinal) {
-            $k = q_row("SELECT SUM(status = 'sent') AS sent, SUM(status = 'failed') AS failed FROM campaign_messages WHERE campaign_id = ? AND day_index = ?", [$m['campaign_id'], $m['day_index']]);
-            $sent = (int) $k['sent'];
-            $failed = (int) $k['failed'];
+    if ($m['status'] === 'pending' && ($result === 'sent' || $result === 'failed')
+        && (int) $campaign['days'] > 1 && (int) $m['day_index'] < (int) $campaign['days']) {
+        $left = (int) q_val("SELECT COUNT(*) FROM campaign_messages WHERE campaign_id = ? AND day_index = ? AND status = 'pending'", [$campaign['id'], $m['day_index']]);
+        if ($left === 0) {
+            $k = q_row("SELECT SUM(status = 'sent') AS sent, SUM(status = 'failed') AS failed FROM campaign_messages WHERE campaign_id = ? AND day_index = ?", [$campaign['id'], $m['day_index']]);
+            $accName = q_val('SELECT name FROM wa_accounts WHERE id = ?', [$campaign['account_id']]);
             notify(
-                $m['owner_id'],
-                'اكتمل يوم من حملة مجدولة',
-                'اليوم ' . $m['day_index'] . '/' . $m['days'] . ' — نجح ' . $sent . ' من ' . ($sent + $failed) . '، فشل ' . $failed,
-                $failed === 0 ? 'success' : 'warning',
-                $acc['name']
+                $campaign['owner_id'],
+                'خلصت رسائل اليوم ' . $m['day_index'] . '/' . $campaign['days'],
+                'انرسل ' . (int) $k['sent'] . ' من ' . ((int) $k['sent'] + (int) $k['failed']) . ' — الدفعة الجاية بموعدها',
+                'success',
+                $accName
             );
         }
     }
-    campaign_check_done($m['campaign_id']);
-    return ['recorded' => true];
+    campaign_check_done($campaign['id']);
+    return null;
+}
+
+/**
+ * ما فيه شي شغّال بالخلفية على الاستضافة، فإشعار "صار موعد الإرسال" ينضاف
+ * أول ما المستخدم يفتح الموقع (الواجهة تسأل عن الإشعارات كل شوي).
+ */
+function notify_due_campaigns($ownerId)
+{
+    $rows = q_all(
+        "SELECT c.id, c.mode, c.days, c.notified_day, a.name AS account_name FROM campaigns c
+         LEFT JOIN wa_accounts a ON a.id = c.account_id
+         WHERE c.owner_id = ? AND c.status = 'active' AND c.notified_day < c.days",
+        [(int) $ownerId]
+    );
+    if (!$rows) {
+        return;
+    }
+    $ids = array_map(function ($r) {
+        return (int) $r['id'];
+    }, $rows);
+    $in = implode(',', array_fill(0, count($ids), '?'));
+    $due = [];
+    foreach (q_all("SELECT campaign_id, MAX(day_index) AS day FROM campaign_messages WHERE campaign_id IN ($in) AND scheduled_at <= ? GROUP BY campaign_id", array_merge($ids, [now_dt()])) as $r) {
+        $due[(int) $r['campaign_id']] = (int) $r['day'];
+    }
+    foreach ($rows as $c) {
+        $day = isset($due[(int) $c['id']]) ? $due[(int) $c['id']] : 0;
+        if ($day <= (int) $c['notified_day']) {
+            continue;
+        }
+        $upd = q('UPDATE campaigns SET notified_day = ? WHERE id = ? AND notified_day < ?', [$day, $c['id'], $day]);
+        if ($upd->rowCount() !== 1) {
+            continue;   // طلب ثاني سبقنا وأرسل الإشعار
+        }
+        $count = (int) q_val("SELECT COUNT(*) FROM campaign_messages WHERE campaign_id = ? AND status = 'pending' AND scheduled_at <= ?", [$c['id'], now_dt()]);
+        if ($count === 0) {
+            continue;
+        }
+        $title = (int) $c['days'] > 1 ? 'جاهزة للإرسال: اليوم ' . $day . '/' . $c['days'] : 'حان موعد الحملة';
+        notify($ownerId, $title, $count . ' رسالة جاهزة — افتح الحملة واضغط "إرسال"', 'info', $c['account_name']);
+    }
 }
 
 // --------------------------------------------------------------- إحصائيات
@@ -425,26 +444,21 @@ function stats_for($ownerId)
     $where = $ownerId === null ? '1=1' : 'owner_id = ?';
     $params = $ownerId === null ? [] : [(int) $ownerId];
 
-    $accounts = q_all("SELECT * FROM wa_accounts WHERE $where", $params);
-    $online = 0;
-    foreach ($accounts as $a) {
-        if (account_state($a) === 'online') {
-            $online++;
-        }
-    }
+    $accountsTotal = (int) q_val("SELECT COUNT(*) FROM wa_accounts WHERE $where", $params);
     $msg = q_row(
-        "SELECT SUM(m.status = 'sent') AS sent, SUM(m.status = 'failed') AS failed, SUM(m.status IN ('pending','sending') AND c.status = 'active') AS pending
+        "SELECT SUM(m.status = 'sent') AS sent, SUM(m.status = 'failed') AS failed,
+                SUM(m.status = 'pending' AND c.status = 'active') AS pending,
+                SUM(m.status = 'pending' AND c.status = 'active' AND m.scheduled_at <= ?) AS due
          FROM campaign_messages m JOIN campaigns c ON c.id = m.campaign_id WHERE " . ($ownerId === null ? '1=1' : 'c.owner_id = ?'),
-        $params
+        array_merge([now_dt()], $params)
     );
     $sent = (int) $msg['sent'];
     $failed = (int) $msg['failed'];
 
     $camp = q_all("SELECT id, status FROM campaigns WHERE $where", $params);
-    $ids = array_map(function ($c) {
+    $counts = campaign_counts(array_map(function ($c) {
         return (int) $c['id'];
-    }, $camp);
-    $counts = campaign_counts($ids);
+    }, $camp));
     $success = 0;
     $withFailures = 0;
     $active = 0;
@@ -460,17 +474,16 @@ function stats_for($ownerId)
             }
         }
     }
-    $today = date('Y-m-d') . ' 00:00:00';
     $sentToday = (int) q_val(
         "SELECT COUNT(*) FROM campaign_messages m JOIN campaigns c ON c.id = m.campaign_id WHERE m.status = 'sent' AND m.sent_at >= ? AND " . ($ownerId === null ? '1=1' : 'c.owner_id = ?'),
-        array_merge([$today], $params)
+        array_merge([date('Y-m-d') . ' 00:00:00'], $params)
     );
     return [
-        'accounts_total' => count($accounts),
-        'accounts_connected' => $online,
+        'accounts_total' => $accountsTotal,
         'messages_sent' => $sent,
         'messages_failed' => $failed,
         'messages_pending' => (int) $msg['pending'],
+        'messages_due' => (int) $msg['due'],
         'sent_today' => $sentToday,
         'success_rate' => ($sent + $failed) > 0 ? (int) round($sent * 100 / ($sent + $failed)) : 0,
         'campaigns_total' => count($camp),

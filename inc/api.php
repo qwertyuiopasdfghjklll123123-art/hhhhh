@@ -17,12 +17,13 @@ function api_dispatch($action)
         'accounts' => ['GET', 'api_accounts', false],
         'account_create' => ['POST', 'api_account_create', false],
         'account_delete' => ['POST', 'api_account_delete', false],
-        'account_pair_code' => ['POST', 'api_account_pair_code', false],
         'campaigns' => ['GET', 'api_campaigns', false],
         'campaign' => ['GET', 'api_campaign', false],
         'campaign_create' => ['POST', 'api_campaign_create', false],
         'campaign_cancel' => ['POST', 'api_campaign_cancel', false],
         'campaign_cancel_day' => ['POST', 'api_campaign_cancel_day', false],
+        'send_next' => ['GET', 'api_send_next', false],
+        'send_mark' => ['POST', 'api_send_mark', false],
         'events' => ['GET', 'api_events', false],
         'event_read' => ['POST', 'api_event_read', false],
         'events_read_all' => ['POST', 'api_events_read_all', false],
@@ -83,20 +84,16 @@ function generate_password($length = 10)
 
 // --------------------------------------------------------------- حسابات واتساب
 
-function account_public(array $a, $pending = 0, $sentToday = 0)
+function account_public(array $a, array $stats = [])
 {
-    $state = account_state($a);
     return [
         'id' => (int) $a['id'],
         'name' => $a['name'],
-        'state' => $state,
-        'connected' => $state === 'online',
-        'paired' => !empty($a['agent_key_hash']),
-        'last_seen' => $a['last_seen_at'] ? substr($a['last_seen_at'], 0, 16) : null,
-        'last_seen_ago' => $a['last_seen_at'] ? max(0, time() - strtotime($a['last_seen_at'])) : null,
-        'agent_version' => $a['agent_version'],
-        'pending' => (int) $pending,
-        'sent_today' => (int) $sentToday,
+        'phone' => isset($a['phone']) ? $a['phone'] : null,
+        'due' => (int) ($stats['due'] ?? 0),
+        'pending' => (int) ($stats['pending'] ?? 0),
+        'sent_today' => (int) ($stats['sent_today'] ?? 0),
+        'campaigns_active' => (int) ($stats['campaigns_active'] ?? 0),
         'created_at' => substr($a['created_at'], 0, 16),
     ];
 }
@@ -104,16 +101,19 @@ function account_public(array $a, $pending = 0, $sentToday = 0)
 function api_accounts(array $user)
 {
     $rows = q_all('SELECT * FROM wa_accounts WHERE owner_id = ? ORDER BY id', [$user['id']]);
+    $now = now_dt();
     $today = date('Y-m-d') . ' 00:00:00';
     $items = [];
     foreach ($rows as $a) {
-        $pending = q_val(
-            "SELECT COUNT(*) FROM campaign_messages m JOIN campaigns c ON c.id = m.campaign_id
-             WHERE m.account_id = ? AND m.status IN ('pending','sending') AND c.status = 'active'",
-            [$a['id']]
+        $s = q_row(
+            "SELECT SUM(m.status = 'pending') AS pending, SUM(m.status = 'pending' AND m.scheduled_at <= ?) AS due,
+                    COUNT(DISTINCT CASE WHEN m.status = 'pending' THEN c.id END) AS campaigns_active
+             FROM campaign_messages m JOIN campaigns c ON c.id = m.campaign_id
+             WHERE m.account_id = ? AND c.status = 'active'",
+            [$now, $a['id']]
         );
-        $sentToday = q_val("SELECT COUNT(*) FROM campaign_messages WHERE account_id = ? AND status = 'sent' AND sent_at >= ?", [$a['id'], $today]);
-        $items[] = account_public($a, $pending, $sentToday);
+        $s['sent_today'] = q_val("SELECT COUNT(*) FROM campaign_messages WHERE account_id = ? AND status = 'sent' AND sent_at >= ?", [$a['id'], $today]);
+        $items[] = account_public($a, $s);
     }
     json_out(['ok' => true, 'items' => $items]);
 }
@@ -128,7 +128,15 @@ function api_account_create(array $user)
     if ($name === '') {
         $name = 'حساب ' . ($count + 1);
     }
-    q('INSERT INTO wa_accounts (owner_id, name, wa_state, created_at) VALUES (?, ?, \'new\', ?)', [$user['id'], $name, now_dt()]);
+    $phone = null;
+    $rawPhone = input_str('phone', 30);
+    if ($rawPhone !== '') {
+        $phone = clean_number($rawPhone, DEFAULT_COUNTRY_CODE);
+        if ($phone === null) {
+            json_fail('رقم الواتساب غير صحيح — اكتبه مثل 07701234567');
+        }
+    }
+    q('INSERT INTO wa_accounts (owner_id, name, phone, created_at) VALUES (?, ?, ?, ?)', [$user['id'], $name, $phone, now_dt()]);
     $acc = q_row('SELECT * FROM wa_accounts WHERE id = ?', [(int) db()->lastInsertId()]);
     json_out(['ok' => true, 'account' => account_public($acc)]);
 }
@@ -162,20 +170,6 @@ function api_account_delete(array $user)
     json_out(['ok' => true]);
 }
 
-/** رمز ربط يدوي للإضافة (بديل تحميلها من جديد). يولّد مفتاح جديد فيوقف أي ربط سابق. */
-function api_account_pair_code(array $user)
-{
-    $acc = owned_account($user, input_int('id'));
-    if (!$acc) {
-        json_fail('حساب غير موجود', 404);
-    }
-    $key = new_agent_key();
-    q('UPDATE wa_accounts SET agent_key_hash = ? WHERE id = ?', [agent_key_hash($key), $acc['id']]);
-    $payload = json_encode(['u' => base_url(), 'k' => $key, 'n' => $acc['name'], 's' => site_name()], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
-    $code = 'WASEL1.' . rtrim(strtr(base64_encode($payload), '+/', '-_'), '=');
-    json_out(['ok' => true, 'code' => $code]);
-}
-
 // --------------------------------------------------------------- الحملات
 
 function api_campaigns(array $user)
@@ -192,7 +186,7 @@ function api_campaigns(array $user)
     }
     $limit = min(100, max(1, (int) ($_GET['limit'] ?? 50)));
     $rows = q_all(
-        'SELECT c.*, a.name AS account_name, COALESCE(NULLIF(u.name, \'\'), u.email) AS owner_name
+        'SELECT c.*, a.name AS account_name, a.phone AS account_phone, COALESCE(NULLIF(u.name, \'\'), u.email) AS owner_name
          FROM campaigns c LEFT JOIN wa_accounts a ON a.id = c.account_id LEFT JOIN users u ON u.id = c.owner_id
          WHERE ' . implode(' AND ', $where) . ' ORDER BY c.id DESC LIMIT ' . $limit,
         $params
@@ -211,7 +205,7 @@ function api_campaigns(array $user)
 function visible_campaign(array $user, $id)
 {
     $c = q_row(
-        'SELECT c.*, a.name AS account_name, COALESCE(NULLIF(u.name, \'\'), u.email) AS owner_name
+        'SELECT c.*, a.name AS account_name, a.phone AS account_phone, COALESCE(NULLIF(u.name, \'\'), u.email) AS owner_name
          FROM campaigns c LEFT JOIN wa_accounts a ON a.id = c.account_id LEFT JOIN users u ON u.id = c.owner_id WHERE c.id = ?',
         [(int) $id]
     );
@@ -233,11 +227,48 @@ function api_campaign(array $user)
         "SELECT phone, error FROM campaign_messages WHERE campaign_id = ? AND status = 'failed' ORDER BY id LIMIT 300",
         [$c['id']]
     );
-    $acc = q_row('SELECT * FROM wa_accounts WHERE id = ?', [$c['account_id']]);
-    $data['account_state'] = $acc ? account_state($acc) : 'deleted';
     $data['can_cancel'] = $c['status'] === 'active';
+    $data['can_send'] = $c['status'] === 'active' && (int) $c['owner_id'] === (int) $user['id'];
     $data['ok'] = true;
     json_out($data);
+}
+
+/** حملة يملكها المستخدم نفسه — الإرسال يتم فقط من حساب صاحب الحملة. */
+function own_campaign(array $user, $id)
+{
+    $c = visible_campaign($user, $id);
+    return ($c && (int) $c['owner_id'] === (int) $user['id']) ? $c : null;
+}
+
+function api_send_next(array $user)
+{
+    $c = own_campaign($user, (int) ($_GET['id'] ?? 0));
+    if (!$c) {
+        json_fail('حملة غير موجودة', 404);
+    }
+    $token = sender_token($_GET['tok'] ?? '');
+    if (!$token) {
+        json_fail('حدّث الصفحة وحاول مرة ثانية');
+    }
+    json_out(sender_state($c, $token));
+}
+
+function api_send_mark(array $user)
+{
+    $c = own_campaign($user, input_int('id'));
+    if (!$c) {
+        json_fail('حملة غير موجودة', 404);
+    }
+    $token = sender_token(input_str('tok', 40));
+    if (!$token) {
+        json_fail('حدّث الصفحة وحاول مرة ثانية');
+    }
+    $error = sender_mark($c, input_int('message_id'), input_str('result', 10), $token);
+    if ($error !== null) {
+        json_fail($error);
+    }
+    $c = own_campaign($user, $c['id']);   // الحالة يمكن تغيّرت (اكتملت/انفتحت من جديد)
+    json_out(sender_state($c, $token));
 }
 
 function api_campaign_create(array $user)
@@ -315,7 +346,6 @@ function api_campaign_create(array $user)
 
     $result = campaign_create($user, $acc, $numbers, $text, $link, $delay, $opts);
     $result['ok'] = true;
-    $result['account_state'] = account_state($acc);
     json_out($result);
 }
 
@@ -348,6 +378,7 @@ function api_campaign_cancel_day(array $user)
 
 function api_events(array $user)
 {
+    notify_due_campaigns($user['id']);
     $rows = q_all('SELECT * FROM notifications WHERE owner_id = ? ORDER BY id DESC LIMIT 50', [$user['id']]);
     $today = date('Y-m-d');
     $items = [];

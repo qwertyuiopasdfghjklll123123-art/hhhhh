@@ -234,8 +234,9 @@ function render_app_page(array $user)
 <div class="confirm-sheet" id="addAccountSheet">
   <div class="sheet-handle"></div>
   <div class="sheet-title"><i class="fas fa-plus"></i> إضافة حساب واتساب</div>
-  <div class="sheet-message">أدخل اسماً لتمييز هذا الحساب (اختياري)</div>
-  <input type="text" id="newAccountName" maxlength="60" placeholder="مثال: حساب المبيعات" style="margin-bottom:16px" onkeydown="if(event.key==='Enter')submitAddAccount()">
+  <div class="sheet-message">اسم يميّز الرقم اللي ترسل منه الحملات، ورقمه (اختياري — للتذكير وقت الإرسال)</div>
+  <input type="text" id="newAccountName" maxlength="60" placeholder="مثال: واتساب المبيعات" style="margin-bottom:10px" onkeydown="if(event.key==='Enter')submitAddAccount()">
+  <input type="tel" id="newAccountPhone" maxlength="20" dir="ltr" placeholder="رقم الواتساب: 07701234567 (اختياري)" style="margin-bottom:16px;text-align:right" onkeydown="if(event.key==='Enter')submitAddAccount()">
   <div class="sheet-actions">
     <button class="btn-cancel" onclick="closeAddAccountSheet()"><i class="fas fa-times"></i> إلغاء</button>
     <button class="btn-confirm-gold" onclick="submitAddAccount()"><i class="fas fa-plus"></i> إضافة</button>

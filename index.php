@@ -3,8 +3,8 @@
  * واصل — منصة حملات واتساب متعددة الفروع (نسخة PHP لاستضافة cPanel).
  *
  * هذا الملف هو مدخل الموقع: شاشة الدخول، لوحة التحكم، وواجهة JSON
- * (index.php?api=...). الإرسال الفعلي يتم عبر إضافة كروم على جهاز كل فرع
- * تتواصل مع agent.php — فما يحتاج VPS ولا برامج شغّالة على الاستضافة.
+ * (index.php?api=...). الإرسال يتم بالضغط من جوال أو كمبيوتر الفرع (يفتح
+ * واتساب والرقم والرسالة جاهزين) — فما يحتاج VPS ولا تثبيت ولا اشتراك.
  *
  * أول مرة: افتح install.php لإنشاء قاعدة البيانات.
  */
@@ -103,28 +103,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $action === 'logout') {
 }
 
 $user = current_user();
-
-// ----------------------------------------------------------- تحميل إضافة الإرسال
-if (isset($_GET['download']) && $_GET['download'] === 'extension') {
-    if (!$user) {
-        header('Location: ' . base_path());
-        exit;
-    }
-    // التحميل يولّد مفتاح ربط جديد، فنطلب رمز الصفحة حتى ما يقدر موقع ثاني يشغّله من وراك
-    if (!csrf_valid((string) ($_GET['t'] ?? ''))) {
-        http_response_code(403);
-        header('Content-Type: text/html; charset=utf-8');
-        exit('<!doctype html><meta charset="utf-8"><p dir="rtl" style="font-family:sans-serif;padding:30px">انتهت صلاحية الرابط — ارجع لصفحة "حسابي" واضغط "تحميل الإضافة" من جديد.</p>');
-    }
-    $acc = owned_account($user, (int) ($_GET['account'] ?? 0));
-    if (!$acc) {
-        http_response_code(404);
-        exit('حساب غير موجود');
-    }
-    require __DIR__ . '/inc/extension.php';
-    extension_download($user, $acc);
-    exit;
-}
 
 if (!$user) {
     render_login_page();

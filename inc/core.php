@@ -3,7 +3,7 @@
  * واصل — النواة المشتركة لكل ملفات النظام.
  *
  * فيها: إعدادات ثابتة (ومنها بيانات دخول الأدمن)، الاتصال بقاعدة البيانات
- * وإنشاء جداولها، الجلسات (محفوظة بقاعدة البيانات حتى ما تضيع على
+ * وإنشاء جداولها وترقيتها، الجلسات (محفوظة بقاعدة البيانات حتى ما تضيع على
  * الاستضافات المشتركة)، الصلاحيات، وأدوات الأرقام والإشعارات.
  *
  * هذا المجلد (inc) محمي بملف .htaccess فما يُفتح مباشرة من المتصفح.
@@ -11,8 +11,8 @@
  */
 
 define('WASEL_ROOT', dirname(__DIR__));
-define('WASEL_VERSION', '2.0.0');
-define('WASEL_SCHEMA_VERSION', 1);
+define('WASEL_VERSION', '2.1.0');
+define('WASEL_SCHEMA_VERSION', 2);
 
 // =====================================================================
 // بيانات دخول أدمن المنصة — ثابتة بالكود عمداً.
@@ -26,13 +26,12 @@ define('ADMIN_DEFAULT_NAME', 'أدمن المنصة');
 define('DEFAULT_SITE_NAME', 'واصل');
 define('DEFAULT_COUNTRY_CODE', '964');      // العراق — يُضاف تلقائياً لأي رقم ما يبدأ فيه
 define('DEFAULT_MESSAGE', 'هلوو');
-define('DEFAULT_DELAY', 15);                // ثواني بين كل رسالة والثانية
-define('MIN_DELAY', 5);
+define('DEFAULT_DELAY', 10);                // مهلة (ثواني) قبل ما يجهز الرقم الجاي — تحمي الرقم من الحظر
+define('MIN_DELAY', 0);
 define('DEFAULT_SPLIT_TIME', '10:00');
 define('MAX_NUMBERS_PER_CAMPAIGN', 5000);
-define('AGENT_ONLINE_SECONDS', 150);        // الإضافة تُعتبر متصلة إذا تواصلت خلال هالمدة
-define('AGENT_LOCK_SECONDS', 240);          // رسالة "قيد الإرسال" أطول من هالمدة ترجع للطابور
-define('MAX_ATTEMPTS', 3);
+define('SEND_LOCK_SECONDS', 120);           // الرقم المعروض بجهاز يبقى محجوز له هالمدة (حتى ما ينرسل مرتين من جهازين)
+define('UNDO_SECONDS', 1800);               // يمكن التراجع عن "انرسلت" خلال نص ساعة
 define('SESSION_REMEMBER_SECONDS', 30 * 86400);
 define('SESSION_IDLE_SECONDS', 12 * 3600);
 define('LOGO_MAX_BYTES', 2 * 1024 * 1024);
@@ -165,13 +164,8 @@ function wasel_schema()
             id INT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
             owner_id INT UNSIGNED NOT NULL,
             name VARCHAR(190) NOT NULL,
-            agent_key_hash CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NULL,
-            wa_state VARCHAR(20) NOT NULL DEFAULT 'new',
-            agent_version VARCHAR(20) NULL,
-            last_seen_at DATETIME NULL,
-            next_send_at DATETIME NULL,
+            phone VARCHAR(20) NULL,
             created_at DATETIME NOT NULL,
-            UNIQUE KEY uq_agent_key (agent_key_hash),
             KEY idx_owner (owner_id)
         ) $t",
         "CREATE TABLE IF NOT EXISTS campaigns (
@@ -190,6 +184,7 @@ function wasel_schema()
             send_time CHAR(5) NULL,
             country_code VARCHAR(4) NOT NULL DEFAULT '',
             status VARCHAR(12) NOT NULL DEFAULT 'active',
+            notified_day SMALLINT UNSIGNED NOT NULL DEFAULT 0,
             created_at DATETIME NOT NULL,
             finished_at DATETIME NULL,
             KEY idx_owner (owner_id, id),
@@ -203,9 +198,10 @@ function wasel_schema()
             day_index SMALLINT UNSIGNED NOT NULL DEFAULT 1,
             scheduled_at DATETIME NOT NULL,
             status VARCHAR(10) NOT NULL DEFAULT 'pending',
-            attempts TINYINT UNSIGNED NOT NULL DEFAULT 0,
             error VARCHAR(255) NULL,
             locked_at DATETIME NULL,
+            locked_by VARCHAR(40) NULL,
+            skips TINYINT UNSIGNED NOT NULL DEFAULT 0,
             sent_at DATETIME NULL,
             KEY idx_queue (account_id, status, scheduled_at),
             KEY idx_campaign (campaign_id, status, day_index),
@@ -239,11 +235,32 @@ function wasel_schema()
     ];
 }
 
+function column_exists($table, $column)
+{
+    return (int) q_val(
+        'SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND COLUMN_NAME = ?',
+        [$table, $column]
+    ) > 0;
+}
+
 function wasel_migrate()
 {
     foreach (wasel_schema() as $sql) {
         db()->exec($sql);
     }
+    // ترقية قاعدة بيانات النسخة 2.0 (نسخة إضافة كروم) للإرسال بالضغط بدون تثبيت
+    $columns = [
+        ['wa_accounts', 'phone', 'VARCHAR(20) NULL AFTER name'],
+        ['campaigns', 'notified_day', 'SMALLINT UNSIGNED NOT NULL DEFAULT 0 AFTER status'],
+        ['campaign_messages', 'locked_by', 'VARCHAR(40) NULL AFTER locked_at'],
+        ['campaign_messages', 'skips', 'TINYINT UNSIGNED NOT NULL DEFAULT 0 AFTER locked_by'],
+    ];
+    foreach ($columns as $c) {
+        if (!column_exists($c[0], $c[1])) {
+            db()->exec('ALTER TABLE `' . $c[0] . '` ADD COLUMN `' . $c[1] . '` ' . $c[2]);
+        }
+    }
+    q("UPDATE campaign_messages SET status = 'pending', locked_at = NULL WHERE status = 'sending'");
     q('INSERT IGNORE INTO site_settings (id, site_name, schema_version, updated_at) VALUES (1, ?, 0, ?)', [DEFAULT_SITE_NAME, now_dt()]);
     q('UPDATE site_settings SET schema_version = ? WHERE id = 1', [WASEL_SCHEMA_VERSION]);
     ensure_admin_user();
@@ -891,29 +908,6 @@ function notify($ownerId, $title, $body, $kind = 'info', $accountName = null)
 
 // --------------------------------------------------------------- حسابات واتساب
 
-/** حالة الحساب كما تظهر للمستخدم، محسوبة من آخر تواصل للإضافة. */
-function account_state(array $acc)
-{
-    if (empty($acc['last_seen_at'])) {
-        return 'new';
-    }
-    if (time() - strtotime($acc['last_seen_at']) > AGENT_ONLINE_SECONDS) {
-        return 'offline';
-    }
-    $map = ['ready' => 'online', 'qr' => 'qr', 'conflict' => 'conflict', 'paused' => 'paused', 'no_tab' => 'no_tab'];
-    return isset($map[$acc['wa_state']]) ? $map[$acc['wa_state']] : 'loading';
-}
-
-function new_agent_key()
-{
-    return bin2hex(random_bytes(20));
-}
-
-function agent_key_hash($key)
-{
-    return hash('sha256', (string) $key);
-}
-
 /** حساب واتساب يملكه المستخدم (أو أي حساب للأدمن إذا $allowAdmin). */
 function owned_account($user, $accountId, $allowAdmin = false)
 {
@@ -927,15 +921,9 @@ function owned_account($user, $accountId, $allowAdmin = false)
     return null;
 }
 
-/** مجلد مؤقت داخل inc (محمي) لأن بعض الاستضافات تقفل /tmp بـ open_basedir. */
-function temp_dir()
+/** رمز يميّز كل تبويب مفتوح (يولّده المتصفح) — لحجز الرقم المعروض حتى ما ينرسل مرتين من جهازين. */
+function sender_token($raw)
 {
-    $dir = WASEL_ROOT . '/inc/tmp';
-    if (!is_dir($dir)) {
-        @mkdir($dir, 0755, true);
-    }
-    if (is_dir($dir) && is_writable($dir)) {
-        return $dir;
-    }
-    return sys_get_temp_dir();
+    $raw = (string) $raw;
+    return preg_match('/^[A-Za-z0-9]{16,40}$/', $raw) ? $raw : null;
 }
