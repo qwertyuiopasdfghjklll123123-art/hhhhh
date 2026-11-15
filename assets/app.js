@@ -28,6 +28,7 @@ const ICONS = {
   undo: 'fas fa-rotate-left', xmark: 'fas fa-circle-xmark', party: 'fas fa-champagne-glasses', mobile: 'fas fa-mobile-screen',
   bolt: 'fas fa-bolt', plug: 'fas fa-plug', qrcode: 'fas fa-qrcode', pause: 'fas fa-pause', play: 'fas fa-play',
   server: 'fas fa-server', unlink: 'fas fa-link-slash', key: 'fas fa-key', hand: 'fas fa-hand-pointer',
+  download: 'fas fa-download',
 };
 
 function icon(name, size) {
@@ -1734,8 +1735,47 @@ function renderAdmin(myGen) {
  * البوابة الخاصة: تطبيق Node.js صغير (مجلد wasel-gateway) يشتغل على نفس الاستضافة
  * ويشغّل واتساب ويب لأرقام الفروع — فالإرسال بدون أي خدمة خارجية ولا اشتراك.
  */
+/* ---------- لوحة الاستضافة: cPanel و DirectAdmin و هوستنجر — خطوات التفعيل تختلف شوي */
+
+const HOST_PANELS = { cpanel: 'cPanel', directadmin: 'DirectAdmin', hostinger: 'Hostinger (hPanel)' };
+
+function hostPanel(hint) {
+  const p = localStorageGet('wasel.panel');
+  if (HOST_PANELS[p]) return p;
+  return HOST_PANELS[hint] ? hint : 'cpanel';
+}
+
+function setHostPanel(p) {
+  localStorageSet('wasel.panel', p);
+  const gw = document.getElementById('gwBox');
+  if (gw && dataCache.gateway) gw.innerHTML = gatewayBoxHtml(dataCache.gateway);
+  const cr = document.getElementById('cronBox');
+  if (cr && dataCache.cron) cr.innerHTML = cronBoxHtml(dataCache.cron);
+}
+
+function panelChooserHtml(hint) {
+  const cur = hostPanel(hint);
+  return '<div class="panel-chooser"><span>' + icon('server', 12) + ' لوحة استضافتك:</span>' +
+    Object.keys(HOST_PANELS).map(k => '<button type="button" class="' + (k === cur ? 'active' : '') + '" onclick="setHostPanel(\'' + k + '\')"><bdi>' + HOST_PANELS[k] + '</bdi></button>').join('') +
+    '</div><div class="muted-sm mb-2">تعرفها من اسمها أعلى صفحة الاستضافة — هوستنجر لوحتها بنفسجية واسمها hPanel.</div>';
+}
+
+function stepHtml(n, title, body) {
+  return '<div class="step-item"><div class="step-num">' + n + '</div><div class="step-text grow">' + title + (body ? '<small>' + body + '</small>' : '') + '</div></div>';
+}
+
+function kvTableHtml(rows) {
+  return '<table class="kv-table">' + rows.map(r => '<tr><td>' + esc(r[0]) + '</td><td>' + r[1] + '</td></tr>').join('') + '</table>';
+}
+
+/**
+ * البوابة الخاصة: تطبيق Node.js صغير (مجلد wasel-gateway) يشتغل على نفس الاستضافة
+ * ويشغّل واتساب ويب لأرقام الفروع — فالإرسال بدون أي خدمة خارجية ولا اشتراك.
+ */
 function gatewayBoxHtml(d) {
   window._gwKey = d.key;
+  const panel = hostPanel(d.panel);
+  const host = d.host || location.host;
   let status;
   if (!d.configured) {
     status = '<div class="state-banner warn">' + icon('info', 13) + '<div>مو مفعّلة بعد. فعّلها مرة وحدة (حوالي 5 دقايق) وبعدها كل الفروع ترسل تلقائياً من استضافتك نفسها — بدون أي اشتراك ولا حدود باقات.</div></div>';
@@ -1745,27 +1785,48 @@ function gatewayBoxHtml(d) {
   } else {
     status = '<div class="state-banner bad">' + icon('warn', 13) + '<div>' + esc(d.status ? d.status.note : 'البوابة ما ترد') + '</div></div>';
   }
+  const urlHint = panel === 'hostinger' ? 'https://gw.' + host : location.origin + '/wasel-gw';
+  let steps;
+  if (panel === 'hostinger') {
+    steps =
+      stepHtml(1, 'حمّل ملف البوابة', 'جاهز وفيه المفتاح السري، فما تحتاج تضيف أي متغيّرات — لا تشاركه مع أحد.' +
+        '<div class="mt-2"><a class="btn-outline btn-small" href="index.php?api=gateway_download">' + icon('download', 11) + ' تحميل wasel-gateway.zip</a></div>') +
+      stepHtml(2, '<bdi>hPanel</bdi> ← <b><bdi>Websites</bdi></b> ← <b><bdi>Add Website</bdi></b> ← <b><bdi>Node.js</bdi></b>',
+        'اختر رفع ملف (<bdi>Upload</bdi>) وارفع <bdi>wasel-gateway.zip</bdi>، وبإعدادات التشغيل:' + kvTableHtml([
+          ['Node.js version', '20 أو أحدث'],
+          ['Entry file', '<span class="kbd">app.js</span>'],
+          ['Start command', '<span class="kbd">npm start</span>'],
+          ['Build command', 'خلّيه فاضي'],
+          ['Environment variables', 'ما تحتاج (إذا طلب <bdi>WASEL_KEY</bdi> الصق المفتاح من زر "نسخ المفتاح")'],
+        ])) +
+      stepHtml(3, 'اختر له دومين فرعي واضغط <b><bdi>Deploy</bdi></b>', 'مثل <span class="kbd">gw.' + esc(host) + '</span> أو الدومين المؤقت اللي يعطيك ياه. (هوستنجر يوفّر Node.js بباقات Business و Cloud.)') +
+      stepHtml(4, 'الصق رابط التطبيق هنا واضغط "حفظ واختبار"', 'مثل <span class="kbd">' + esc(urlHint) + '</span> — وفعّل "الإرسال بالخلفية" بالأسفل حتى تبقى الأرقام متصلة على مدار الساعة.');
+  } else {
+    const where = panel === 'directadmin'
+      ? '<bdi>DirectAdmin</bdi> ← <b><bdi>Extra Features</bdi></b> (أو <bdi>Advanced Features</bdi>) ← <b><bdi>Setup Node.js App</bdi></b>'
+      : '<bdi>cPanel</bdi> ← <b><bdi>Setup Node.js App</bdi></b>';
+    steps =
+      stepHtml(1, where + ' ← <b><bdi>Create Application</bdi></b>', 'عبّيه هيج واضغط <bdi>Create</bdi>:' + kvTableHtml([
+        ['Node.js version', '20 أو أحدث'],
+        ['Application root', '<span class="kbd">' + esc(d.app_root) + '</span>'],
+        ['Application URL', '<span class="kbd">wasel-gw</span>'],
+        ['Application startup file', '<span class="kbd">app.js</span>'],
+      ]) + (panel === 'directadmin' ? '<div class="mt-1">إذا ما لقيت <bdi>Setup Node.js App</bdi>، اطلب من شركة الاستضافة تفعّل <bdi>CloudLinux Node.js Selector</bdi>.</div>' : '')) +
+      stepHtml(2, 'اضغط <b><bdi>Run NPM Install</bdi></b> وبعدها <b><bdi>Restart</bdi></b>', 'ينزّل مكتبة واتساب على استضافتك (مرة وحدة — دقيقة أو دقيقتين).') +
+      stepHtml(3, 'الصق رابط التطبيق هنا واضغط "حفظ واختبار"', 'مثل <span class="kbd">' + esc(urlHint) + '</span> — وفعّل "الإرسال بالخلفية" بالأسفل حتى تبقى الأرقام متصلة على مدار الساعة.');
+  }
   let keyNote;
-  if (d.folder && d.key_file) keyNote = icon('key', 11) + ' المفتاح السري ينكتب تلقائياً بمجلد البوابة — ما تحتاج تضيفه يدوياً.';
+  if (panel === 'hostinger') keyNote = icon('key', 11) + ' المفتاح السري داخل ملف البوابة اللي حمّلته. إذا غيّرت المفتاح، حمّل الملف من جديد وأعد رفعه (Redeploy).';
+  else if (d.folder && d.key_file) keyNote = icon('key', 11) + ' المفتاح السري ينكتب تلقائياً بمجلد البوابة — ما تحتاج تضيفه يدوياً.';
   else if (d.folder) keyNote = '<span class="text-red">' + icon('warn', 11) + ' ما قدرنا نكتب ملف المفتاح بمجلد البوابة (الصلاحيات).</span> أضف متغيّر <bdi>WASEL_KEY</bdi> بإعدادات تطبيق Node.js بقيمة المفتاح.';
   else keyNote = icon('key', 11) + ' مجلد البوابة مو داخل الموقع — أضف متغيّر <bdi>WASEL_KEY</bdi> بإعدادات تطبيق Node.js (Environment variables) بقيمة المفتاح.';
-  return status +
-    '<div class="step-item mt-2"><div class="step-num">1</div><div class="step-text grow"><bdi>cPanel</bdi> ← <b><bdi>Setup Node.js App</bdi></b> ← <b><bdi>Create Application</bdi></b>، عبّيه هيج واضغط <bdi>Create</bdi>:' +
-      '<table class="kv-table">' +
-        '<tr><td>Node.js version</td><td>20 أو أحدث</td></tr>' +
-        '<tr><td>Application root</td><td><span class="kbd">' + esc(d.app_root) + '</span></td></tr>' +
-        '<tr><td>Application URL</td><td><span class="kbd">wasel-gw</span></td></tr>' +
-        '<tr><td>Application startup file</td><td><span class="kbd">app.js</span></td></tr>' +
-      '</table></div></div>' +
-    '<div class="step-item"><div class="step-num">2</div><div class="step-text">اضغط <b><bdi>Run NPM Install</bdi></b> وبعدها <b><bdi>Restart</bdi></b>' +
-      '<small>ينزّل مكتبة واتساب على استضافتك (مرة وحدة — دقيقة أو دقيقتين).</small></div></div>' +
-    '<div class="step-item"><div class="step-num">3</div><div class="step-text">الصق رابط التطبيق هنا واضغط "حفظ واختبار"' +
-      '<small>مثل <span class="kbd">' + esc(location.origin + '/wasel-gw') + '</span> — وفعّل "الإرسال بالخلفية" بالأسفل حتى تبقى الأرقام متصلة على مدار الساعة.</small></div></div>' +
-    '<input id="gwUrl" dir="ltr" placeholder="https://..." value="' + esc(d.url) + '" onkeydown="if(event.key===\'Enter\')saveGateway()">' +
+  return panelChooserHtml(d.panel) + status + '<div class="mt-2"></div>' + steps +
+    '<input id="gwUrl" dir="ltr" placeholder="' + esc(urlHint) + '" value="' + esc(d.url) + '" onkeydown="if(event.key===\'Enter\')saveGateway()">' +
     '<button class="btn-submit" id="gwBtn" onclick="saveGateway()">' + icon('plug', 14) + ' حفظ واختبار</button>' +
     '<div class="form-msg" id="gwMsg"></div>' +
     '<div class="muted-sm">' + keyNote + '</div>' +
     '<div class="row mt-2"><button class="btn-outline btn-small" onclick="copyText(window._gwKey)">' + icon('copy', 10) + ' نسخ المفتاح (' + esc(d.key_hint) + ')</button>' +
+      (panel !== 'hostinger' ? '<a class="btn-outline btn-small" href="index.php?api=gateway_download">' + icon('download', 10) + ' تحميل البوابة (zip)</a>' : '') +
       '<button class="btn-outline btn-small" onclick="resetGatewayKey()">' + icon('refresh', 10) + ' تغيير المفتاح</button></div>';
 }
 
@@ -1794,21 +1855,38 @@ async function resetGatewayKey() {
   toast('تم تغيير المفتاح');
 }
 
-/** حالة الإرسال بالخلفية + طريقة تفعيله (Cron بـ cPanel أو رابط لخدمة Cron مجانية). */
+/** حالة الإرسال بالخلفية + طريقة تفعيله (Cron بلوحة الاستضافة أو رابط لخدمة Cron مجانية). */
 function cronBoxHtml(d) {
   window._cronCmd = d.command;
   window._cronUrl = d.url;
+  window._cronScript = d.script_abs;
+  const panel = hostPanel(d.panel);
   const status = d.running
     ? '<div class="state-banner ok">' + icon('checkCircle', 13) + '<div>شغّال — آخر تشغيل <span class="ltr">' + esc(d.last_run) + '</span>. الحملات التلقائية تنرسل حتى لو كل المتصفحات مسكّرة.</div></div>'
     : '<div class="state-banner warn">' + icon('warn', 13) + '<div>' + (d.last_run ? 'متوقف — آخر تشغيل كان <span class="ltr">' + esc(d.last_run) + '</span>.' : 'مو مفعّل بعد.') +
       ' بدونه الإرسال التلقائي يشتغل بس ما دام الموقع مفتوح بأي متصفح. فعّله مرة وحدة:</div></div>';
+  let how;
+  if (panel === 'hostinger') {
+    how = stepHtml(1, '<bdi>hPanel</bdi> ← <b><bdi>Advanced</bdi></b> ← <b><bdi>Cron Jobs</bdi></b>',
+        'اختر النوع <bdi>PHP</bdi>، والتوقيت كل دقيقة (<bdi>* * * * *</bdi>)، وبحقل الأمر الصق مسار الملف هذا ← <bdi>Save</bdi>:') +
+      '<div class="code-box">' + esc(d.script_abs) + '</div>' +
+      '<button class="btn-outline btn-small mt-2" onclick="copyText(window._cronScript)">' + icon('copy', 10) + ' نسخ المسار</button>' +
+      '<div class="muted-sm mt-1">وإذا اخترت النوع <bdi>Custom</bdi> الصق الأمر الكامل: <span class="kbd">' + esc(d.command) + '</span></div>';
+  } else if (panel === 'directadmin') {
+    how = stepHtml(1, '<bdi>DirectAdmin</bdi> ← <b><bdi>Advanced Features</bdi></b> ← <b><bdi>Cron Jobs</bdi></b>',
+        'خلّي حقول الوقت كلها نجمة <bdi>*</bdi> (كل دقيقة)، وبحقل <bdi>Command</bdi> الصق هذا السطر ← <bdi>Create</bdi>:') +
+      '<div class="code-box">' + esc(d.command) + '</div>' +
+      '<button class="btn-outline btn-small mt-2" onclick="copyText(window._cronCmd)">' + icon('copy', 10) + ' نسخ الأمر</button>';
+  } else {
+    how = stepHtml(1, '<bdi>cPanel</bdi> ← <b><bdi>Cron Jobs</bdi></b> ← <bdi>Common Settings</bdi>: <b><bdi>Once Per Minute</bdi></b>',
+        'وبحقل <bdi>Command</bdi> الصق هذا السطر، واضغط <bdi>Add New Cron Job</bdi>:') +
+      '<div class="code-box">' + esc(d.command) + '</div>' +
+      '<button class="btn-outline btn-small mt-2" onclick="copyText(window._cronCmd)">' + icon('copy', 10) + ' نسخ الأمر</button>';
+  }
   return status +
-    '<div class="muted-sm mt-2">' + icon('bolt', 11) + ' ' + fmtNum(d.connected_accounts) + ' من ' + fmtNum(d.auto_accounts) + ' رقم مربوط بخدمة API ومتصل الآن.' +
-      (d.curl ? '' : ' <b class="text-red">إضافة cURL غير مفعّلة — فعّلها من cPanel ← Select PHP Version ← Extensions.</b>') + '</div>' +
-    '<div class="step-item"><div class="step-num">1</div><div class="step-text"><bdi>cPanel</bdi> ← <b><bdi>Cron Jobs</bdi></b> ← <bdi>Common Settings</bdi>: <b><bdi>Once Per Minute</bdi></b>' +
-      '<small>وبحقل <bdi>Command</bdi> الصق هذا السطر، واضغط <bdi>Add New Cron Job</bdi>:</small></div></div>' +
-    '<div class="code-box">' + esc(d.command) + '</div>' +
-    '<button class="btn-outline btn-small mt-2" onclick="copyText(window._cronCmd)">' + icon('copy', 10) + ' نسخ الأمر</button>' +
+    '<div class="muted-sm mt-2">' + icon('bolt', 11) + ' ' + fmtNum(d.connected_accounts) + ' من ' + fmtNum(d.auto_accounts) + ' رقم مربوط بالإرسال التلقائي ومتصل الآن.' +
+      (d.curl ? '' : ' <b class="text-red">إضافة cURL غير مفعّلة — فعّلها من إعدادات PHP بالاستضافة.</b>') + '</div>' +
+    how +
     '<div class="step-item mt-2"><div class="step-num">2</div><div class="step-text">أو بدون Cron الاستضافة' +
       '<small>خدمة Cron مجانية (مثل <bdi>cron-job.org</bdi>) تفتح هذا الرابط كل دقيقة. فيه مفتاح سري — لا تشاركه.</small></div></div>' +
     '<div class="code-box">' + esc(d.url) + '</div>' +

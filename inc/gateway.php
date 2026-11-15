@@ -627,7 +627,7 @@ function self_problem(array $r)
         return ['auth_error', 'البوابة الخاصة مو مفعّلة بعد — الأدمن يفعّلها من لوحة التحكم ← البوابة الخاصة'];
     }
     if ($r['error'] !== null) {
-        return ['error', 'البوابة الخاصة ما ترد — تأكد إن تطبيق Node.js شغّال بـ cPanel (' . str_cut($r['error'], 100) . ')'];
+        return ['error', 'البوابة الخاصة ما ترد — تأكد إن تطبيق Node.js شغّال بلوحة الاستضافة وإن الرابط صحيح (' . str_cut($r['error'], 100) . ')'];
     }
     $j = is_array($r['json']) ? $r['json'] : [];
     $err = isset($j['error']) && is_string($j['error']) ? $j['error'] : '';

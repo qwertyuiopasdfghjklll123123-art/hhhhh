@@ -3,11 +3,13 @@
  * بوابة واصل الخاصة — تشغّل "واتساب ويب" لأرقامك على استضافتك نفسها، فموقع واصل
  * يرسل الحملات تلقائياً بدون أي اشتراك بخدمة خارجية وبدون حدود باقات.
  *
- * التشغيل بـ cPanel (مرة وحدة): Setup Node.js App ← Create Application
+ * التشغيل بـ cPanel أو DirectAdmin (مرة وحدة): Setup Node.js App ← Create Application
  *   Node.js version: 20 أو أحدث — Application root: مجلد هذا الملف
  *   Application URL: مثلاً wasel-gw — Application startup file: app.js
- *   ← Create ← Run NPM Install ← Restart. وبعدها بموقع واصل:
- *   لوحة التحكم ← "البوابة الخاصة" ← الصق رابط التطبيق ← حفظ واختبار.
+ *   ← Create ← Run NPM Install ← Restart.
+ * بهوستنجر (hPanel): Websites ← Add Website ← Node.js ← ارفع wasel-gateway.zip (من لوحة
+ *   تحكم واصل) — Entry file: app.js — Start command: npm start ← Deploy.
+ * وبعدها بموقع واصل: لوحة التحكم ← "البوابة الخاصة" ← الصق رابط التطبيق ← حفظ واختبار.
  *
  * على سيرفر عادي (VPS): npm install && WASEL_KEY=المفتاح PORT=3000 node app.js
  *
@@ -23,17 +25,20 @@ const path = require('path');
 const crypto = require('crypto');
 const { pathToFileURL } = require('url');
 
-const VERSION = '1.0.0';
+// إعدادات اختيارية (متقدمة/للاختبار) — نقراها بالاسم حتى لوحات الاستضافة ما تعتبرها متغيّرات لازمة
+const opt = name => process.env[name];
+
+const VERSION = '1.0.1';
 const APP_DIR = __dirname;
-const SESS_DIR = process.env.WASEL_SESSIONS || path.join(os.homedir() || APP_DIR, '.wasel-sessions');
+const SESS_DIR = opt('WASEL_SESSIONS') || path.join(os.homedir() || APP_DIR, '.wasel-sessions');
 const KEY_FILE = path.join(APP_DIR, 'wasel-key.php');
 const PID_FILE = path.join(SESS_DIR, 'gateway.pid');
-const WA_MODULE = process.env.WASEL_WA_MODULE || 'baileys';   // للاختبار فقط يتغيّر
-const TYPING = process.env.WASEL_TYPING !== '0';               // "يكتب..." قبل كل رسالة حتى يبين طبيعي
+const WA_MODULE = opt('WASEL_WA_MODULE') || 'baileys';   // للاختبار فقط يتغيّر
+const TYPING = opt('WASEL_TYPING') !== '0';               // "يكتب..." قبل كل رسالة حتى يبين طبيعي
 
 let logger;
 try {
-  logger = require('pino')({ level: process.env.WASEL_LOG || 'silent' });
+  logger = require('pino')({ level: opt('WASEL_LOG') || 'silent' });
 } catch (e) {
   const noop = () => {};
   logger = { level: 'silent', trace: noop, debug: noop, info: noop, warn: noop, error: noop, fatal: noop, child() { return logger; } };

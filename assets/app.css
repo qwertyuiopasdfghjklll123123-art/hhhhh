@@ -475,3 +475,8 @@ table.days-table tr:last-child td { border-bottom: none; }
 /* لما نافذة من الأسفل مفتوحة، التنبيه يطلع فوق حتى ما يغطي أزرارها */
 .confirm-sheet.show ~ .toast { bottom: auto; top: 24px; transform: translate(-50%, -30px); }
 .confirm-sheet.show ~ .toast.show { transform: translate(-50%, 0); }
+.panel-chooser { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-bottom: 6px; font-size: 12.5px; font-weight: 700; color: var(--text-secondary); }
+.panel-chooser button { border: 1.5px solid rgba(0,107,115,0.14); background: var(--bg); border-radius: 999px; padding: 5px 12px; font-family: inherit;
+  font-size: 12px; font-weight: 700; color: var(--text-secondary); cursor: pointer; }
+.panel-chooser button.active { border-color: var(--primary); background: rgba(0,107,115,0.08); color: var(--primary); }
+a.btn-outline.btn-small { display: inline-flex; }

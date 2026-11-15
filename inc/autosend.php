@@ -59,10 +59,33 @@ function cron_recent()
     return $last !== null && strtotime($last) >= time() - 150;
 }
 
-/** الأمر اللي ينضاف بـ cPanel ← Cron Jobs (كل دقيقة). */
+/** مسار PHP لسطر الأوامر بالاستضافة (cPanel/DirectAdmin غالباً /usr/local/bin/php، وهوستنجر /usr/bin/php). */
+function cron_php_binary()
+{
+    foreach (['/usr/local/bin/php', '/usr/bin/php'] as $bin) {
+        if (@is_file($bin) && @is_executable($bin)) {
+            return $bin;
+        }
+    }
+    return 'php';
+}
+
+/** الأمر اللي ينضاف بـ Cron Jobs بلوحة الاستضافة (كل دقيقة). */
 function cron_command()
 {
-    return '/usr/local/bin/php -q ' . WASEL_ROOT . '/cron.php >/dev/null 2>&1';
+    return cron_php_binary() . ' -q ' . WASEL_ROOT . '/cron.php >/dev/null 2>&1';
+}
+
+/** مسار نسبةً لمجلد المستخدم بالاستضافة (مثل public_html/cron.php أو domains/موقعك/public_html/cron.php). */
+function home_relative($path)
+{
+    return preg_match('#^/home\d*/[^/]+/(.+)$#', $path, $m) ? $m[1] : $path;
+}
+
+/** نوع لوحة الاستضافة على الأغلب (من شكل المسار) — حتى نعرض الخطوات المناسبة أول مرة. */
+function hosting_panel_hint()
+{
+    return preg_match('#/domains/[^/]+/public_html#', WASEL_ROOT) ? 'hostinger' : 'cpanel';
 }
 
 /** حسابات مربوطة بخدمة API وعندها رسائل حان موعدها (بحملات شغّالة ومو موقوفة). */

@@ -49,6 +49,7 @@ function api_dispatch($action)
         'gateway_info' => ['GET', 'api_gateway_info', true],
         'gateway_save' => ['POST', 'api_gateway_save', true],
         'gateway_key_reset' => ['POST', 'api_gateway_key_reset', true],
+        'gateway_download' => ['GET', 'api_gateway_download', true],
         'cron_key_reset' => ['POST', 'api_cron_key_reset', true],
     ];
     if (!isset($routes[$action])) {
@@ -908,6 +909,9 @@ function api_cron_info(array $user)
         'running' => cron_recent(),
         'last_run' => $last ? substr($last, 0, 16) : null,
         'command' => cron_command(),
+        'script' => home_relative(WASEL_ROOT . '/cron.php'),
+        'script_abs' => WASEL_ROOT . '/cron.php',
+        'panel' => hosting_panel_hint(),
         'url' => base_url() . '/cron.php?key=' . $s['cron_key'],
         'auto_accounts' => (int) $acc['auto_total'],
         'connected_accounts' => (int) $acc['connected'],
@@ -924,14 +928,10 @@ function api_cron_key_reset(array $user)
 
 // --------------------------------------------------------------- البوابة الخاصة (بدون اشتراك) — الأدمن
 
-/** مسار مجلد البوابة نسبةً لمجلد المستخدم بالاستضافة (حقل Application root بـ cPanel). */
+/** مسار مجلد البوابة نسبةً لمجلد المستخدم بالاستضافة (حقل Application root). */
 function self_app_root_hint()
 {
-    $dir = WASEL_ROOT . '/wasel-gateway';
-    if (preg_match('#^/home\d*/[^/]+/(.+)$#', $dir, $m)) {
-        return $m[1];
-    }
-    return $dir;
+    return home_relative(WASEL_ROOT . '/wasel-gateway');
 }
 
 function gateway_payload($test = true)
@@ -947,6 +947,9 @@ function gateway_payload($test = true)
         'app_root' => self_app_root_hint(),
         'key_file' => self_folder() !== null && self_write_key_file(),
         'self_accounts' => (int) q_val("SELECT COUNT(*) FROM wa_accounts WHERE provider = 'self'"),
+        'panel' => hosting_panel_hint(),
+        'host' => (string) ($_SERVER['HTTP_HOST'] ?? ''),
+        'zip' => class_exists('ZipArchive'),
         'status' => null,
     ];
     if ($test && $out['configured']) {
@@ -976,4 +979,55 @@ function api_gateway_key_reset(array $user)
     q('UPDATE site_settings SET gateway_key = ? WHERE id = 1', [bin2hex(random_bytes(20))]);
     site_settings(true);
     json_out(gateway_payload(true));
+}
+
+/**
+ * ملف البوابة جاهز للرفع (لهوستنجر أو أي سيرفر): app.js و package.json وملف المفتاح
+ * السري — فما يحتاج يضيف متغيّرات. للأدمن فقط.
+ */
+function api_gateway_download(array $user)
+{
+    $dir = self_folder();
+    if (!$dir || !is_file($dir . '/package.json')) {
+        json_fail('مجلد البوابة wasel-gateway مو موجود بملفات الموقع — ارفع ملفات النسخة الجديدة كاملة', 404);
+    }
+    if (!class_exists('ZipArchive')) {
+        json_fail('إضافة zip غير مفعّلة بالاستضافة — فعّلها من إعدادات PHP، أو اضغط مجلد wasel-gateway يدوياً من مدير الملفات وأضف متغيّر WASEL_KEY', 500);
+    }
+    $tmp = @tempnam(sys_get_temp_dir(), 'wgw');
+    if ($tmp === false) {
+        $tmp = WASEL_ROOT . '/uploads/wgw-' . bin2hex(random_bytes(6)) . '.zip';
+    }
+    $zip = new ZipArchive();
+    if ($zip->open($tmp, ZipArchive::CREATE | ZipArchive::OVERWRITE) !== true) {
+        json_fail('تعذّر تجهيز الملف — حاول مرة ثانية', 500);
+    }
+    $zip->addFile($dir . '/app.js', 'app.js');
+    $zip->addFile($dir . '/package.json', 'package.json');
+    list(, $key) = self_conf();
+    $zip->addFromString('wasel-key.php', "<?php http_response_code(404); exit; ?>\n" . $key . "\n");
+    $zip->addFromString('README.txt', implode("\n", [
+        'بوابة واصل الخاصة — إرسال واتساب تلقائي من استضافتك بدون اشتراك',
+        '',
+        'هوستنجر (hPanel): Websites <- Add Website <- Node.js <- Upload <- ارفع هذا الملف',
+        '  Node.js version: 20 أو أحدث | Entry file: app.js | Start command: npm start | Build command: فاضي',
+        '  اربطه بدومين فرعي (مثل gw.' . (string) ($_SERVER['HTTP_HOST'] ?? 'example.com') . ') <- Deploy',
+        '',
+        'cPanel / DirectAdmin: فك الضغط بمجلد، ثم Setup Node.js App:',
+        '  Application root = المجلد | Application startup file = app.js <- Create <- Run NPM Install <- Restart',
+        '',
+        'سيرفر عادي (VPS): npm install && PORT=3000 node app.js',
+        '',
+        'وبعدها: موقع واصل <- لوحة التحكم <- البوابة الخاصة <- الصق رابط التطبيق <- حفظ واختبار.',
+        'ملف wasel-key.php فيه المفتاح السري — لا تشارك هذا الملف مع أحد.',
+        '',
+    ]));
+    $zip->close();
+    header('Content-Type: application/zip');
+    header('Content-Disposition: attachment; filename="wasel-gateway.zip"');
+    header('Content-Length: ' . filesize($tmp));
+    header('Cache-Control: no-store');
+    readfile($tmp);
+    @unlink($tmp);
+    exit;
 }
