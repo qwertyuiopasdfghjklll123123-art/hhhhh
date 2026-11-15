@@ -11,8 +11,8 @@
  */
 
 define('WASEL_ROOT', dirname(__DIR__));
-define('WASEL_VERSION', '2.1.0');
-define('WASEL_SCHEMA_VERSION', 2);
+define('WASEL_VERSION', '3.0.0');
+define('WASEL_SCHEMA_VERSION', 3);
 
 // =====================================================================
 // بيانات دخول أدمن المنصة — ثابتة بالكود عمداً.
@@ -35,6 +35,13 @@ define('UNDO_SECONDS', 1800);               // يمكن التراجع عن "ا�
 define('SESSION_REMEMBER_SECONDS', 30 * 86400);
 define('SESSION_IDLE_SECONDS', 12 * 3600);
 define('LOGO_MAX_BYTES', 2 * 1024 * 1024);
+
+// الإرسال التلقائي عبر خدمة واتساب API (Green-API / UltraMsg) — بدون تثبيت أي شي
+define('AUTO_MIN_DELAY', 5);                // أقل مهلة (ثواني) بين رسالة والثانية بنفس الرقم مهما كانت مهلة الحملة
+define('AUTO_MAX_ATTEMPTS', 3);             // محاولات الرسالة الوحدة إذا الخدمة ما ردّت
+define('AUTO_TICK_BUDGET', 20);             // ثواني إرسال لكل طلب من المتصفح (لما ما فيه Cron)
+define('AUTO_CRON_BUDGET', 55);             // ثواني إرسال لكل تشغيل Cron (كل دقيقة)
+define('AUTO_URL_BUDGET', 25);              // ثواني إرسال لكل تشغيل عن طريق رابط cron.php?key=
 
 if (!function_exists('str_starts_with')) {
     function str_starts_with($haystack, $needle)
@@ -158,6 +165,8 @@ function wasel_schema()
             logo_file VARCHAR(190) NULL,
             logo_icons TINYINT(1) NOT NULL DEFAULT 0,
             schema_version INT UNSIGNED NOT NULL DEFAULT 0,
+            cron_key VARCHAR(64) NULL,
+            cron_last_run DATETIME NULL,
             updated_at DATETIME NULL
         ) $t",
         "CREATE TABLE IF NOT EXISTS wa_accounts (
@@ -165,6 +174,16 @@ function wasel_schema()
             owner_id INT UNSIGNED NOT NULL,
             name VARCHAR(190) NOT NULL,
             phone VARCHAR(20) NULL,
+            provider VARCHAR(16) NOT NULL DEFAULT 'manual',
+            api_url VARCHAR(190) NULL,
+            api_instance VARCHAR(64) NULL,
+            api_token VARCHAR(190) NULL,
+            api_state VARCHAR(16) NULL,
+            api_note VARCHAR(255) NULL,
+            api_checked_at DATETIME NULL,
+            api_phone VARCHAR(20) NULL,
+            next_send_at DATETIME NULL,
+            sync_at DATETIME NULL,
             created_at DATETIME NOT NULL,
             KEY idx_owner (owner_id)
         ) $t",
@@ -184,6 +203,7 @@ function wasel_schema()
             send_time CHAR(5) NULL,
             country_code VARCHAR(4) NOT NULL DEFAULT '',
             status VARCHAR(12) NOT NULL DEFAULT 'active',
+            paused TINYINT(1) NOT NULL DEFAULT 0,
             notified_day SMALLINT UNSIGNED NOT NULL DEFAULT 0,
             created_at DATETIME NOT NULL,
             finished_at DATETIME NULL,
@@ -202,6 +222,8 @@ function wasel_schema()
             locked_at DATETIME NULL,
             locked_by VARCHAR(40) NULL,
             skips TINYINT UNSIGNED NOT NULL DEFAULT 0,
+            attempts TINYINT UNSIGNED NOT NULL DEFAULT 0,
+            provider_msg_id VARCHAR(100) NULL,
             sent_at DATETIME NULL,
             KEY idx_queue (account_id, status, scheduled_at),
             KEY idx_campaign (campaign_id, status, day_index),
@@ -248,12 +270,27 @@ function wasel_migrate()
     foreach (wasel_schema() as $sql) {
         db()->exec($sql);
     }
-    // ترقية قاعدة بيانات النسخة 2.0 (نسخة إضافة كروم) للإرسال بالضغط بدون تثبيت
+    // ترقية قواعد بيانات النسخ السابقة: 2.0 (إضافة كروم) ← 2.1 (الإرسال بالضغط) ← 3.0 (الإرسال التلقائي عبر API)
     $columns = [
         ['wa_accounts', 'phone', 'VARCHAR(20) NULL AFTER name'],
         ['campaigns', 'notified_day', 'SMALLINT UNSIGNED NOT NULL DEFAULT 0 AFTER status'],
         ['campaign_messages', 'locked_by', 'VARCHAR(40) NULL AFTER locked_at'],
         ['campaign_messages', 'skips', 'TINYINT UNSIGNED NOT NULL DEFAULT 0 AFTER locked_by'],
+        ['wa_accounts', 'provider', "VARCHAR(16) NOT NULL DEFAULT 'manual' AFTER phone"],
+        ['wa_accounts', 'api_url', 'VARCHAR(190) NULL AFTER provider'],
+        ['wa_accounts', 'api_instance', 'VARCHAR(64) NULL AFTER api_url'],
+        ['wa_accounts', 'api_token', 'VARCHAR(190) NULL AFTER api_instance'],
+        ['wa_accounts', 'api_state', 'VARCHAR(16) NULL AFTER api_token'],
+        ['wa_accounts', 'api_note', 'VARCHAR(255) NULL AFTER api_state'],
+        ['wa_accounts', 'api_checked_at', 'DATETIME NULL AFTER api_note'],
+        ['wa_accounts', 'api_phone', 'VARCHAR(20) NULL AFTER api_checked_at'],
+        ['wa_accounts', 'next_send_at', 'DATETIME NULL AFTER api_phone'],
+        ['wa_accounts', 'sync_at', 'DATETIME NULL AFTER next_send_at'],
+        ['campaigns', 'paused', 'TINYINT(1) NOT NULL DEFAULT 0 AFTER status'],
+        ['campaign_messages', 'attempts', 'TINYINT UNSIGNED NOT NULL DEFAULT 0 AFTER skips'],
+        ['campaign_messages', 'provider_msg_id', 'VARCHAR(100) NULL AFTER attempts'],
+        ['site_settings', 'cron_key', 'VARCHAR(64) NULL AFTER schema_version'],
+        ['site_settings', 'cron_last_run', 'DATETIME NULL AFTER cron_key'],
     ];
     foreach ($columns as $c) {
         if (!column_exists($c[0], $c[1])) {
@@ -262,6 +299,8 @@ function wasel_migrate()
     }
     q("UPDATE campaign_messages SET status = 'pending', locked_at = NULL WHERE status = 'sending'");
     q('INSERT IGNORE INTO site_settings (id, site_name, schema_version, updated_at) VALUES (1, ?, 0, ?)', [DEFAULT_SITE_NAME, now_dt()]);
+    // مفتاح سري لتشغيل الإرسال التلقائي من رابط (cron.php?key=...) لمن ما يستخدم Cron الاستضافة
+    q('UPDATE site_settings SET cron_key = ? WHERE id = 1 AND (cron_key IS NULL OR cron_key = \'\')', [bin2hex(random_bytes(16))]);
     q('UPDATE site_settings SET schema_version = ? WHERE id = 1', [WASEL_SCHEMA_VERSION]);
     ensure_admin_user();
 }

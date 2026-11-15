@@ -1,17 +1,19 @@
 <?php
 /**
- * واصل — منطق الحملات والإرسال بالضغط.
+ * واصل — منطق الحملات.
  *
  * كل حملة تنحفظ كرسائل منفصلة (رقم لكل صف) بجدول campaign_messages ولكل
- * رسالة موعدها (scheduled_at). الفرع يفتح الحملة من جواله أو كمبيوتره ويضغط
- * "إرسال": واتساب ينفتح والرقم والرسالة جاهزين، يضغط إرسال بواتساب، والموقع
- * يعرض الرقم الجاي تلقائياً. ما يحتاج أي تثبيت ولا خدمة خارجية ولا Cron.
+ * رسالة موعدها (scheduled_at). طريقة الإرسال حسب حساب الواتساب:
+ *  - مربوط بخدمة API (Green-API / UltraMsg): السيرفر يرسلها تلقائياً بموعدها
+ *    (inc/autosend.php) — بدون ما ينفتح واتساب ولا يضغط أحد شي.
+ *  - يدوي: الفرع يضغط "إرسال" فينفتح واتساب والرقم والرسالة جاهزين.
  *
- * الرقم المعروض ينحجز للجهاز اللي عرضه (SEND_LOCK_SECONDS) حتى لو اثنين من
- * الفرع يرسلون نفس الحملة سوا ما ينرسل نفس الرقم مرتين.
+ * بالإرسال اليدوي الرقم المعروض ينحجز للجهاز اللي عرضه (SEND_LOCK_SECONDS)
+ * حتى لو اثنين من الفرع يرسلون نفس الحملة سوا ما ينرسل نفس الرقم مرتين.
  */
 
 require_once __DIR__ . '/core.php';
+require_once __DIR__ . '/gateway.php';
 
 /**
  * ينشئ حملة ويوزّع أرقامها على المواعيد:
@@ -133,6 +135,20 @@ function campaign_public(array $c, array $counts)
     if ($status === 'active' && $k['due'] === 0 && $k['next_at']) {
         $status = 'scheduled';   // ما فيه شي جاهز هسه — بانتظار موعد اليوم الجاي
     }
+    $provider = isset($c['account_provider']) && $c['account_provider'] ? $c['account_provider'] : 'manual';
+    $auto = $provider !== 'manual';
+    $accountState = $auto ? (string) ($c['account_state'] ?? '') : null;
+    $paused = !empty($c['paused']);
+    $autoState = null;
+    if ($auto && $c['status'] === 'active') {
+        if ($paused) {
+            $autoState = 'paused';
+        } elseif ($k['due'] > 0) {
+            $autoState = $accountState === 'connected' ? 'sending' : 'stalled';
+        } else {
+            $autoState = 'waiting';
+        }
+    }
     return [
         'id' => (int) $c['id'],
         'account_id' => (int) $c['account_id'],
@@ -159,6 +175,13 @@ function campaign_public(array $c, array $counts)
         'cancelled' => $k['cancelled'],
         'due' => $k['due'],
         'next_at' => $k['next_at'],
+        'auto' => $auto,
+        'provider_name' => $auto ? gw_provider_name($provider) : null,
+        'account_state' => $accountState,
+        'paused' => $paused,
+        // للإرسال التلقائي: sending (يُرسل هسه)، waiting (بانتظار موعده)، paused (موقوف مؤقتاً)،
+        // stalled (رسائل جاهزة بس الحساب غير متصل بالخدمة)
+        'auto_state' => $autoState,
     ];
 }
 
@@ -375,16 +398,30 @@ function sender_mark(array $campaign, $messageId, $result, $token)
             return 'إجراء غير معروف';
     }
 
-    // إشعار انتهاء يوم من حملة مقسّمة (غير اليوم الأخير — له إشعار "اكتملت الحملة")
-    if ($m['status'] === 'pending' && ($result === 'sent' || $result === 'failed')
-        && (int) $campaign['days'] > 1 && (int) $m['day_index'] < (int) $campaign['days']) {
-        $left = (int) q_val("SELECT COUNT(*) FROM campaign_messages WHERE campaign_id = ? AND day_index = ? AND status = 'pending'", [$campaign['id'], $m['day_index']]);
+    if ($m['status'] === 'pending' && ($result === 'sent' || $result === 'failed')) {
+        campaign_after_final($campaign, (int) $m['day_index']);
+    } else {
+        campaign_check_done($campaign['id']);
+    }
+    return null;
+}
+
+/**
+ * بعد ما رقم ياخذ نتيجته النهائية (انرسل/فشل) — يدوياً أو تلقائياً: إشعار
+ * انتهاء يوم من حملة مقسّمة (غير اليوم الأخير — له إشعار "اكتملت الحملة")،
+ * وإقفال الحملة إذا خلصت.
+ */
+function campaign_after_final(array $campaign, $dayIndex)
+{
+    $dayIndex = (int) $dayIndex;
+    if ((int) $campaign['days'] > 1 && $dayIndex < (int) $campaign['days']) {
+        $left = (int) q_val("SELECT COUNT(*) FROM campaign_messages WHERE campaign_id = ? AND day_index = ? AND status = 'pending'", [$campaign['id'], $dayIndex]);
         if ($left === 0) {
-            $k = q_row("SELECT SUM(status = 'sent') AS sent, SUM(status = 'failed') AS failed FROM campaign_messages WHERE campaign_id = ? AND day_index = ?", [$campaign['id'], $m['day_index']]);
+            $k = q_row("SELECT SUM(status = 'sent') AS sent, SUM(status = 'failed') AS failed FROM campaign_messages WHERE campaign_id = ? AND day_index = ?", [$campaign['id'], $dayIndex]);
             $accName = q_val('SELECT name FROM wa_accounts WHERE id = ?', [$campaign['account_id']]);
             notify(
                 $campaign['owner_id'],
-                'خلصت رسائل اليوم ' . $m['day_index'] . '/' . $campaign['days'],
+                'خلصت رسائل اليوم ' . $dayIndex . '/' . $campaign['days'],
                 'انرسل ' . (int) $k['sent'] . ' من ' . ((int) $k['sent'] + (int) $k['failed']) . ' — الدفعة الجاية بموعدها',
                 'success',
                 $accName
@@ -392,17 +429,16 @@ function sender_mark(array $campaign, $messageId, $result, $token)
         }
     }
     campaign_check_done($campaign['id']);
-    return null;
 }
 
 /**
- * ما فيه شي شغّال بالخلفية على الاستضافة، فإشعار "صار موعد الإرسال" ينضاف
- * أول ما المستخدم يفتح الموقع (الواجهة تسأل عن الإشعارات كل شوي).
+ * إشعار "صار موعد الإرسال" لكل يوم من الحملة — ينضاف أول ما المستخدم يفتح
+ * الموقع (الواجهة تسأل عن الإشعارات كل شوي).
  */
 function notify_due_campaigns($ownerId)
 {
     $rows = q_all(
-        "SELECT c.id, c.mode, c.days, c.notified_day, a.name AS account_name FROM campaigns c
+        "SELECT c.id, c.mode, c.days, c.notified_day, c.paused, a.name AS account_name, a.provider, a.api_state FROM campaigns c
          LEFT JOIN wa_accounts a ON a.id = c.account_id
          WHERE c.owner_id = ? AND c.status = 'active' AND c.notified_day < c.days",
         [(int) $ownerId]
@@ -431,8 +467,18 @@ function notify_due_campaigns($ownerId)
         if ($count === 0) {
             continue;
         }
-        $title = (int) $c['days'] > 1 ? 'جاهزة للإرسال: اليوم ' . $day . '/' . $c['days'] : 'حان موعد الحملة';
-        notify($ownerId, $title, $count . ' رسالة جاهزة — افتح الحملة واضغط "إرسال"', 'info', $c['account_name']);
+        $dayLabel = (int) $c['days'] > 1 ? 'اليوم ' . $day . '/' . $c['days'] : '';
+        if (!$c['provider'] || $c['provider'] === 'manual') {
+            $title = $dayLabel !== '' ? 'جاهزة للإرسال: ' . $dayLabel : 'حان موعد الحملة';
+            notify($ownerId, $title, $count . ' رسالة جاهزة — افتح الحملة واضغط "إرسال"', 'info', $c['account_name']);
+        } elseif ($c['paused']) {
+            notify($ownerId, 'حان موعد حملة موقوفة مؤقتاً' . ($dayLabel !== '' ? ': ' . $dayLabel : ''), $count . ' رسالة بانتظارك — اضغط "استئناف" بصفحة الحملة حتى تنرسل', 'info', $c['account_name']);
+        } elseif ($c['api_state'] === 'connected') {
+            $title = $dayLabel !== '' ? 'بدأ الإرسال التلقائي: ' . $dayLabel : 'بدأ إرسال الحملة تلقائياً';
+            notify($ownerId, $title, $count . ' رسالة تنرسل تلقائياً وحدة وحدة', 'info', $c['account_name']);
+        } else {
+            notify($ownerId, 'رسائل جاهزة بس الرقم غير مربوط' . ($dayLabel !== '' ? ': ' . $dayLabel : ''), $count . ' رسالة بانتظار ربط الواتساب — افتح "حسابي" وامسح رمز QR', 'warning', $c['account_name']);
+        }
     }
 }
 

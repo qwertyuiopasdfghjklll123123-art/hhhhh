@@ -234,9 +234,13 @@ function render_app_page(array $user)
 <div class="confirm-sheet" id="addAccountSheet">
   <div class="sheet-handle"></div>
   <div class="sheet-title"><i class="fas fa-plus"></i> إضافة حساب واتساب</div>
-  <div class="sheet-message">اسم يميّز الرقم اللي ترسل منه الحملات، ورقمه (اختياري — للتذكير وقت الإرسال)</div>
+  <div class="sheet-message">اسم يميّز الرقم اللي ترسل منه الحملات، ورقمه، وطريقة الإرسال</div>
   <input type="text" id="newAccountName" maxlength="60" placeholder="مثال: واتساب المبيعات" style="margin-bottom:10px" onkeydown="if(event.key==='Enter')submitAddAccount()">
-  <input type="tel" id="newAccountPhone" maxlength="20" dir="ltr" placeholder="رقم الواتساب: 07701234567 (اختياري)" style="margin-bottom:16px;text-align:right" onkeydown="if(event.key==='Enter')submitAddAccount()">
+  <input type="tel" id="newAccountPhone" maxlength="20" dir="ltr" placeholder="رقم الواتساب: 07701234567 (اختياري)" style="margin-bottom:12px;text-align:right" onkeydown="if(event.key==='Enter')submitAddAccount()">
+  <div class="method-toggle" id="newAccountMethod">
+    <button type="button" data-m="auto" class="active" onclick="setNewAccountMethod('auto')"><i class="fas fa-bolt"></i><b>تلقائي عبر API</b><small>السيرفر يرسل بنفسه — بدون ما ينفتح واتساب</small></button>
+    <button type="button" data-m="manual" onclick="setNewAccountMethod('manual')"><i class="fas fa-hand-pointer"></i><b>يدوي بالضغط</b><small>ينفتح واتساب لكل رقم وتضغط إرسال</small></button>
+  </div>
   <div class="sheet-actions">
     <button class="btn-cancel" onclick="closeAddAccountSheet()"><i class="fas fa-times"></i> إلغاء</button>
     <button class="btn-confirm-gold" onclick="submitAddAccount()"><i class="fas fa-plus"></i> إضافة</button>

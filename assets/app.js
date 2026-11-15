@@ -1,5 +1,6 @@
 /* واصل — واجهة لوحة التحكم (صفحة واحدة). البيانات من index.php?api=...
-   الإرسال بالضغط: زر "إرسال" يفتح واتساب والرقم والرسالة جاهزين، والموقع يعرض الرقم الجاي. */
+   الإرسال تلقائي من السيرفر للأرقام المربوطة بخدمة واتساب API (Green-API / UltraMsg) — بدون ما
+   ينفتح واتساب — أو يدوي بالضغط: زر "إرسال" يفتح واتساب والرقم والرسالة جاهزين. */
 'use strict';
 
 const W = window.WASEL || {};
@@ -25,6 +26,8 @@ const ICONS = {
   phone: 'fas fa-phone', message: 'fas fa-comment-dots', hourglass: 'fas fa-hourglass-half', lock: 'fas fa-lock',
   refresh: 'fas fa-rotate', send: 'fas fa-paper-plane', whatsapp: 'fab fa-whatsapp', skip: 'fas fa-forward',
   undo: 'fas fa-rotate-left', xmark: 'fas fa-circle-xmark', party: 'fas fa-champagne-glasses', mobile: 'fas fa-mobile-screen',
+  bolt: 'fas fa-bolt', plug: 'fas fa-plug', qrcode: 'fas fa-qrcode', pause: 'fas fa-pause', play: 'fas fa-play',
+  server: 'fas fa-server', unlink: 'fas fa-link-slash', key: 'fas fa-key', hand: 'fas fa-hand-pointer',
 };
 
 function icon(name, size) {
@@ -215,7 +218,8 @@ async function loadAccounts() {
     accounts = r.items;
     accountsLoaded = true;
     if (!accounts.find(a => a.id === activeAccountId)) activeAccountId = accounts.length ? accounts[0].id : null;
-    const due = accounts.reduce((s, a) => s + a.due, 0);
+    // العدّاد للرسائل اللي تحتاج أحد يضغط "إرسال" — الأرقام المربوطة بالخدمة ترسل بنفسها
+    const due = accounts.reduce((s, a) => s + (a.auto && a.api_state === 'connected' ? 0 : a.due), 0);
     const el = document.getElementById('navDueCount');
     if (el) { el.textContent = due > 99 ? '99+' : String(due); el.classList.toggle('show', due > 0); }
   }
@@ -288,8 +292,32 @@ async function pollEvents() {
     eventsCache = r.items;
     updateBadges(r.unread);
     if (section === 'notifications') renderNotifList();
+    autoInfo = r.auto || null;
+    if (autoInfo && autoInfo.due > 0 && !autoInfo.cron_ok) driveAutoSend();
   }
   eventsTimer = setTimeout(pollEvents, document.hidden ? 60000 : 15000);
+}
+
+/* إذا الإرسال بالخلفية (Cron) مو مفعّل: أي متصفح مفتوح على الموقع "يصحّي" السيرفر حتى يكمّل
+   الإرسال التلقائي. الإرسال نفسه من السيرفر عبر الخدمة — المتصفح ما يفتح واتساب ولا يرسل شي. */
+let autoInfo = null;
+let autoDriving = false;
+const sleepMs = ms => new Promise(res => setTimeout(res, ms));
+
+async function driveAutoSend() {
+  if (autoDriving) return;
+  autoDriving = true;
+  try {
+    for (let i = 0; i < 1000; i++) {
+      const r = await api('autosend', { body: {} });
+      if (!r.ok || r.busy) break;
+      if ((r.sent || r.failed) && document.getElementById('campaignList')) { loadCampaignList(gen); loadDueBox(gen); }
+      if (r.next_in === null || r.next_in === undefined) break;
+      await sleepMs(Math.min(Math.max(r.next_in, 0), 30) * 1000 + 300);
+    }
+  } finally {
+    autoDriving = false;
+  }
 }
 document.addEventListener('visibilitychange', () => {
   if (document.hidden) return;
@@ -306,15 +334,16 @@ function statMiniHtml(value, label, colorClass) {
 
 function homeStatsHtml(d) {
   return statMiniHtml(fmtNum(d.messages_sent), 'رسائل مرسلة', 'primary') +
-    statMiniHtml(fmtNum(d.messages_due), 'جاهزة للإرسال الآن', 'green') +
+    statMiniHtml(fmtNum(d.messages_due), 'بالدور للإرسال الآن', 'green') +
     statMiniHtml(fmtNum(d.campaigns_active), 'حملات نشطة', 'orange') +
     statMiniHtml(d.success_rate + '%', 'معدل النجاح', 'primary');
 }
 
 function accountMiniHtml(a) {
+  const phone = a.api_phone || a.phone;
   return '<div class="account-item">' + avatarHtml(a.name, a.id) +
-    '<div class="info"><div class="name">' + esc(a.name) + '</div><div class="status ltr" style="text-align:right">' + (a.phone ? esc(fmtPhone(a.phone)) : '') + '</div></div>' +
-    (a.due ? '<span class="pill pill-green">' + fmtNum(a.due) + ' جاهزة</span>' : '<span class="pill pill-gray">ما فيه رسائل جاهزة</span>') + '</div>';
+    '<div class="info"><div class="name">' + esc(a.name) + '</div><div class="status ltr" style="text-align:right">' + (phone ? esc(fmtPhone(phone)) : '') + '</div></div>' +
+    (a.auto ? apiStatePill(a.api_state) : (a.due ? '<span class="pill pill-green">' + fmtNum(a.due) + ' جاهزة</span>' : '<span class="pill pill-gray">يدوي</span>')) + '</div>';
 }
 
 function renderHome(myGen) {
@@ -325,8 +354,8 @@ function renderHome(myGen) {
     '<div class="hero-main"><div class="relative-z">' +
       '<div class="hero-icon-main">' + heroIcon + '</div>' +
       '<h1>' + esc(SITE_NAME) + '</h1>' +
-      '<p>حملات واتساب لكل فروعك — اكتب الرسالة والأرقام مرة وحدة، وأرسلها بضغطة لكل رقم من الجوال أو الكمبيوتر.</p>' +
-      '<div class="hero-badges"><span>' + icon('campaigns', 11) + ' إرسال جماعي</span><span>' + icon('calendar', 11) + ' جدولة على أيام</span><span>' + icon('branches', 11) + ' فروع</span></div>' +
+      '<p>حملات واتساب لكل فروعك — اكتب الرسالة والأرقام مرة وحدة، والموقع يرسلها تلقائياً بموعدها عبر خدمة واتساب API (أو بالضغط من الجوال والكمبيوتر).</p>' +
+      '<div class="hero-badges"><span>' + icon('bolt', 11) + ' إرسال تلقائي</span><span>' + icon('calendar', 11) + ' جدولة على أيام</span><span>' + icon('branches', 11) + ' فروع</span></div>' +
     '</div></div>' +
     '<h3 class="welcome-title">مرحباً، ' + esc(displayName) + '</h3>' +
     '<p class="muted-sm">نظرة عامة على نشاط المنصة (كل الفروع)</p>' +
@@ -363,27 +392,64 @@ function renderHome(myGen) {
 /* ====================================================================== حسابي (أرقام الواتساب) */
 
 function howItWorksHtml() {
-  return '<div class="card info"><div class="card-header" style="margin-bottom:8px"><h4>' + icon('info', 15) + ' كيف يشتغل الإرسال؟</h4></div>' +
-    '<div class="step-item"><div class="step-num">1</div><div class="step-text">أضف رقم الواتساب اللي ترسل منه<small>اسم للتمييز ورقمه — بدون أي تثبيت أو ربط.</small></div></div>' +
-    '<div class="step-item"><div class="step-num">2</div><div class="step-text">أنشئ حملة من "الحملات"<small>الأرقام (كتابة أو Excel) والنص والرابط، وإرسال فوري أو مقسّم على أيام.</small></div></div>' +
-    '<div class="step-item"><div class="step-num">3</div><div class="step-text">اضغط "إرسال" بأي جهاز مفتوح عليه هذا الواتساب<small>ينفتح واتساب والرقم والرسالة جاهزين، تضغط إرسال بواتساب، وترجع للموقع تلقى الرقم الجاي جاهز.</small></div></div>' +
+  return '<div class="card info"><div class="card-header" style="margin-bottom:8px"><h4>' + icon('bolt', 15) + ' كيف يشتغل الإرسال التلقائي؟</h4></div>' +
+    '<div class="step-item"><div class="step-num">1</div><div class="step-text">سجّل بخدمة واتساب API (مرة وحدة)<small>Green-API أو UltraMsg — تسجيل بالبريد الإلكتروني فقط، بدون أي تثبيت. Green-API فيها باقة مجانية للتجربة.</small></div></div>' +
+    '<div class="step-item"><div class="step-num">2</div><div class="step-text">اربط رقمك هنا<small>"تفعيل الإرسال التلقائي" ← الصق رقم الـ Instance والرمز ← امسح رمز QR من واتساب جوالك (الأجهزة المرتبطة)، أو اربط برمز من 8 خانات إذا الموقع مفتوح على نفس الجوال.</small></div></div>' +
+    '<div class="step-item"><div class="step-num">3</div><div class="step-text">أنشئ حملة وخلّيها عليه<small>الموقع يرسلها بنفسه بموعدها، رقم رقم بمهلة — بدون ما ينفتح واتساب — وتتابع التقدّم والإشعارات.</small></div></div>' +
+    '<div class="muted-sm mt-2">' + icon('hand', 11) + ' ما عندك اشتراك بعد؟ تقدر ترسل يدوياً: زر "إرسال" يفتح واتساب والرقم والرسالة جاهزين.</div>' +
   '</div>';
 }
 
+/* ---------- حالة الربط بخدمة الواتساب ---------- */
+
+const API_STATE = {
+  connected: ['pill-green', 'متصل — يرسل تلقائياً', 'checkCircle'],
+  qr: ['pill-amber', 'بانتظار ربط الرقم (QR)', 'qrcode'],
+  starting: ['pill-blue', 'الخدمة تجهّز الحساب', 'hourglass'],
+  error: ['pill-red', 'تعذّر الاتصال بالخدمة', 'warn'],
+  auth_error: ['pill-red', 'بيانات API غير صحيحة', 'key'],
+  quota: ['pill-red', 'الباقة/الاشتراك منتهي', 'warn'],
+  blocked: ['pill-red', 'الرقم محظور من واتساب', 'ban'],
+  suspended: ['pill-amber', 'واتساب أوقف الإرسال مؤقتاً', 'warn'],
+};
+const API_BAD_STATES = ['auth_error', 'quota', 'blocked', 'error'];
+
+function apiStateInfo(state) { return API_STATE[state] || API_STATE.error; }
+
+function apiStatePill(state) {
+  const s = apiStateInfo(state);
+  return '<span class="pill ' + s[0] + '">' + icon(s[2], 10) + ' ' + s[1] + '</span>';
+}
+
 function accountCardHtml(acc) {
+  const connected = acc.auto && acc.api_state === 'connected';
+  const phone = acc.api_phone || acc.phone;
+  let banner = '';
+  if (acc.auto && !connected) {
+    const st = apiStateInfo(acc.api_state);
+    banner = '<div class="state-banner ' + (API_BAD_STATES.indexOf(acc.api_state) !== -1 ? 'bad' : 'warn') + '">' + icon(st[2], 13) + '<div>' + esc(acc.api_note || st[1]) + '</div></div>';
+  } else if (!acc.auto) {
+    banner = '<div class="state-banner info">' + icon('bolt', 13) + '<div>هذا الرقم يرسل يدوياً بالضغط. فعّل <b>الإرسال التلقائي</b> حتى الموقع يرسل بنفسه بدون ما ينفتح واتساب.</div></div>';
+  }
+  let mainBtn;
+  if (!acc.auto) mainBtn = '<button class="btn-outline primary" onclick="openApiSheet(' + acc.id + ')">' + icon('bolt', 12) + ' تفعيل الإرسال التلقائي</button>';
+  else if (acc.api_state === 'qr') mainBtn = '<button class="btn-outline primary" onclick="openApiSheet(' + acc.id + ')">' + icon('qrcode', 12) + ' ربط الرقم (QR)</button>';
+  else mainBtn = '<button class="btn-outline' + (connected ? '' : ' primary') + '" onclick="openApiSheet(' + acc.id + ')">' + icon('plug', 12) + ' إعدادات الربط</button>';
   return '<div class="card" id="acc-' + acc.id + '">' +
     '<div class="row">' + avatarHtml(acc.name, acc.id) +
       '<div class="grow"><div class="account-name">' + esc(acc.name) + '</div>' +
-      (acc.phone ? '<div class="muted-sm ltr" style="text-align:right">' + esc(fmtPhone(acc.phone)) + '</div>' : '') + '</div>' +
-      (acc.due ? '<span class="pill pill-green">' + fmtNum(acc.due) + ' رسالة جاهزة</span>' : '') +
+      (phone ? '<div class="muted-sm ltr" style="text-align:right">' + esc(fmtPhone(phone)) + '</div>' : '') + '</div>' +
+      (acc.auto ? '<span class="pill pill-teal">' + icon('bolt', 10) + ' تلقائي · ' + esc(acc.provider_name) + '</span>' : '<span class="pill pill-gray">' + icon('hand', 10) + ' يدوي</span>') +
     '</div>' +
+    (acc.auto ? '<div class="mt-2">' + apiStatePill(acc.api_state) + '</div>' : '') +
+    banner +
     '<div class="acc-stats">' +
-      '<div><b>' + fmtNum(acc.due) + '</b><span>جاهزة للإرسال الآن</span></div>' +
+      '<div><b>' + fmtNum(acc.due) + '</b><span>' + (acc.auto ? 'بالدور للإرسال الآن' : 'جاهزة للإرسال الآن') + '</span></div>' +
       '<div><b>' + fmtNum(acc.pending) + '</b><span>متبقية بالحملات</span></div>' +
       '<div><b>' + fmtNum(acc.sent_today) + '</b><span>أُرسلت اليوم</span></div>' +
     '</div>' +
-    '<div class="btn-row">' +
-      '<button class="btn-outline primary" onclick="openAccountCampaigns(' + acc.id + ')">' + icon('campaigns', 12) + ' حملات هذا الرقم' + (acc.due ? ' — أرسل الجاهز' : '') + '</button>' +
+    '<div class="btn-row">' + mainBtn +
+      '<button class="btn-outline" onclick="openAccountCampaigns(' + acc.id + ')">' + icon('campaigns', 12) + ' حملات هذا الرقم' + (!connected && acc.due ? ' — أرسل الجاهز' : '') + '</button>' +
       '<button class="btn-outline danger" onclick="deleteAccount(' + acc.id + ')">' + icon('trash', 12) + ' حذف</button>' +
     '</div>' +
   '</div>';
@@ -423,9 +489,16 @@ function openAccountCampaigns(id) {
   showSection('campaigns');
 }
 
+let newAccountMethod = 'auto';
+function setNewAccountMethod(m) {
+  newAccountMethod = m;
+  document.querySelectorAll('#newAccountMethod button').forEach(b => b.classList.toggle('active', b.dataset.m === m));
+}
+
 function openAddAccountSheet() {
   document.getElementById('newAccountName').value = '';
   document.getElementById('newAccountPhone').value = '';
+  setNewAccountMethod('auto');
   document.getElementById('addAccountOverlay').classList.add('show');
   document.getElementById('addAccountSheet').classList.add('show');
   setTimeout(() => document.getElementById('newAccountName').focus(), 100);
@@ -443,6 +516,12 @@ async function submitAddAccount() {
   activeAccountId = r.account.id;
   localStorageSet('wasel.account', String(activeAccountId));
   await loadAccounts();
+  if (newAccountMethod === 'auto') {
+    if (section !== 'accounts') showSection('accounts');
+    else renderAccountsList();
+    openApiSheet(r.account.id);
+    return;
+  }
   toast('تمت إضافة الحساب — هسه أنشئ حملة');
   showSection('campaigns');
 }
@@ -465,6 +544,287 @@ function openInfoSheet(html) {
 function closeInfoSheet() {
   document.getElementById('infoOverlay').classList.remove('show');
   document.getElementById('infoSheet').classList.remove('show');
+  if (apiSheet) {
+    stopQrPolling();
+    apiSheet = null;
+    loadAccounts().then(() => { if (section === 'accounts') renderAccountsList(); });
+  }
+}
+
+/* ====================================================================== ربط رقم بخدمة واتساب API */
+
+const PROVIDERS = {
+  greenapi: {
+    name: 'Green-API',
+    tag: 'فيها باقة مجانية للتجربة',
+    steps: [
+      'افتح <a href="https://green-api.com/" target="_blank" rel="noopener">green-api.com</a> وسجّل حساب بالبريد الإلكتروني فقط — بدون أي تثبيت.',
+      'من لوحة التحكم أنشئ <b>Instance</b> — باقة <b>Developer</b> مجانية للتجربة (3 أرقام فقط)، و<b>Business</b> للإرسال الحقيقي.',
+      'انسخ <span class="en">idInstance</span> و<span class="en">apiTokenInstance</span> و<span class="en">apiUrl</span> من صفحة الـ Instance والصقها هنا.',
+    ],
+    fields: [
+      { key: 'instance', label: 'idInstance', ph: 'مثال: 7103123456', mode: 'numeric' },
+      { key: 'token', label: 'apiTokenInstance', ph: 'الرمز الطويل من لوحة Green-API' },
+      { key: 'api_url', label: 'apiUrl (اختياري)', ph: 'https://7103.api.greenapi.com' },
+    ],
+  },
+  ultramsg: {
+    name: 'UltraMsg',
+    tag: 'تجربة مجانية لأيام',
+    steps: [
+      'افتح <a href="https://ultramsg.com/" target="_blank" rel="noopener">ultramsg.com</a> وسجّل حساب بالبريد الإلكتروني.',
+      'أنشئ <b>Instance</b> جديد من لوحة التحكم.',
+      'انسخ <span class="en">Instance ID</span> و<span class="en">Token</span> والصقها هنا.',
+    ],
+    fields: [
+      { key: 'instance', label: 'Instance ID', ph: 'مثال: instance12345' },
+      { key: 'token', label: 'Token', ph: 'الرمز من لوحة UltraMsg' },
+    ],
+  },
+};
+
+let apiSheet = null;   // { id, provider, view: form|qr|done, pair }
+let qrTimer = null;
+
+function stopQrPolling() { clearTimeout(qrTimer); qrTimer = null; }
+function apiAcc() { return apiSheet ? accounts.find(a => a.id === apiSheet.id) : null; }
+
+/** يحدّث بيانات الربط بحساب بالقائمة (بدون ما يمسح أعداد الرسائل). */
+function mergeAccount(a) {
+  if (!a) return;
+  const cur = accounts.find(x => x.id === a.id);
+  if (!cur) return;
+  ['phone', 'provider', 'auto', 'provider_name', 'api_state', 'api_note', 'api_instance', 'api_url', 'api_token_hint', 'api_phone']
+    .forEach(k => { cur[k] = a[k]; });
+  if (section === 'accounts' && document.getElementById('accountsBox')) renderAccountsList();
+}
+
+function openApiSheet(id) {
+  const acc = accounts.find(a => a.id === id);
+  if (!acc) return;
+  stopQrPolling();
+  let provider = acc.auto ? acc.provider : (localStorageGet('wasel.provider') || 'greenapi');
+  if (!PROVIDERS[provider]) provider = 'greenapi';
+  let view = 'form';
+  if (acc.auto && acc.api_state === 'connected') view = 'done';
+  else if (acc.auto && (acc.api_state === 'qr' || acc.api_state === 'starting')) view = 'qr';
+  apiSheet = { id: id, provider: provider, view: view, pair: view === 'qr' && provider === 'greenapi' && isTouchDevice() };
+  openInfoSheet('');
+  drawApiSheet();
+  if (view === 'qr') pollQr(true);
+}
+
+function drawApiSheet() {
+  const acc = apiAcc();
+  if (!acc) return;
+  const body = document.getElementById('infoSheetBody');
+  if (apiSheet.view === 'qr') body.innerHTML = apiQrHtml(acc);
+  else if (apiSheet.view === 'done') body.innerHTML = apiDoneHtml(acc);
+  else body.innerHTML = apiFormHtml(acc);
+}
+
+function apiFormHtml(acc) {
+  const p = PROVIDERS[apiSheet.provider];
+  const same = acc.auto && acc.provider === apiSheet.provider;
+  const value = k => !same ? '' : (k === 'instance' ? (acc.api_instance || '') : k === 'api_url' ? (acc.api_url || '') : '');
+  return '<div class="sheet-title">' + icon('bolt', 16) + ' الإرسال التلقائي — ' + esc(acc.name) + '</div>' +
+    '<div class="sheet-message">الموقع يرسل رسائل حملاتك بنفسه عن طريق خدمة واتساب API — بدون ما ينفتح واتساب وبدون أي تثبيت. تحتاج حساب بوحدة من الخدمتين (مرة وحدة):</div>' +
+    '<div class="provider-tabs">' + Object.keys(PROVIDERS).map(k =>
+      '<button type="button" class="' + (k === apiSheet.provider ? 'active' : '') + '" onclick="setApiProvider(\'' + k + '\')"><b>' + PROVIDERS[k].name + '</b><small>' + PROVIDERS[k].tag + '</small></button>'
+    ).join('') + '</div>' +
+    '<ol class="provider-steps">' + p.steps.map(x => '<li>' + x + '</li>').join('') + '</ol>' +
+    p.fields.map(f =>
+      '<label class="field-label">' + esc(f.label) + '</label>' +
+      '<input id="apiF_' + f.key + '" dir="ltr" autocomplete="off" spellcheck="false"' + (f.mode ? ' inputmode="' + f.mode + '"' : '') +
+      ' placeholder="' + esc(f.key === 'token' && same && acc.api_token_hint ? 'محفوظ (' + acc.api_token_hint + ') — اتركه فاضي حتى ما يتغيّر' : f.ph) + '"' +
+      ' value="' + esc(value(f.key)) + '" onkeydown="if(event.key===\'Enter\')saveApiConfig()">'
+    ).join('') +
+    '<div class="form-msg" id="apiMsg"></div>' +
+    '<div class="sheet-actions mt-2"><button class="btn-cancel" onclick="closeInfoSheet()">إلغاء</button>' +
+    '<button class="btn-confirm-gold" id="apiSaveBtn" onclick="saveApiConfig()">' + icon('plug', 13) + ' حفظ وربط</button></div>' +
+    (acc.auto ? '<div class="center mt-3"><button class="link-btn" onclick="removeApiConfig()">' + icon('hand', 11) + ' إيقاف الإرسال التلقائي والرجوع لليدوي</button></div>' : '');
+}
+
+function setApiProvider(k) {
+  if (!PROVIDERS[k] || !apiSheet) return;
+  apiSheet.provider = k;
+  localStorageSet('wasel.provider', k);
+  drawApiSheet();
+}
+
+async function saveApiConfig() {
+  const acc = apiAcc();
+  if (!acc) return;
+  const get = k => { const el = document.getElementById('apiF_' + k); return el ? el.value.trim() : ''; };
+  const btn = document.getElementById('apiSaveBtn');
+  btn.disabled = true;
+  setMsg('apiMsg', 'جارِ الاتصال بالخدمة والتأكد من البيانات...');
+  const r = await api('account_api_save', { body: { id: acc.id, provider: apiSheet.provider, instance: get('instance'), token: get('token'), api_url: get('api_url') } });
+  if (!apiSheet || apiSheet.id !== acc.id) return;
+  btn.disabled = false;
+  if (!r.ok) { setMsg('apiMsg', esc(r.error), 'error'); return; }
+  mergeAccount(r.account);
+  if (r.state === 'connected') {
+    apiSheet.view = 'done';
+    drawApiSheet();
+    toast('تم الربط — الإرسال صار تلقائي');
+    return;
+  }
+  apiSheet.view = 'qr';
+  apiSheet.pair = apiSheet.provider === 'greenapi' && isTouchDevice();
+  drawApiSheet();
+  applyQrResult(r);
+  pollQr(false);
+}
+
+function apiQrHtml(acc) {
+  const canPair = acc.provider === 'greenapi';
+  const touch = isTouchDevice();
+  let main;
+  if (apiSheet.pair) {
+    main = '<div class="sheet-message">اكتب رقم الواتساب اللي تريد ترسل منه، ويطلع لك رمز من 8 خانات تكتبه بواتساب جوالك — بدون مسح QR.</div>' +
+      '<input id="pairPhone" type="tel" dir="ltr" placeholder="07701234567" value="' + esc(acc.phone ? '+' + acc.phone : '') + '" style="text-align:right">' +
+      '<button class="btn-submit" id="pairBtn" onclick="requestPairCode()">' + icon('key', 14) + ' اطلب رمز الربط</button>' +
+      '<div id="pairResult"></div>' +
+      '<div class="center mt-2"><button class="link-btn" onclick="showQrView()">' + icon('qrcode', 11) + ' الربط بمسح رمز QR بدل الرمز</button></div>';
+  } else {
+    main = '<div class="qr-box" id="qrBox"><div class="qr-wait">' + icon('hourglass', 22) + '<span>جارِ تجهيز الرمز...</span></div></div>' +
+      '<ol class="provider-steps">' +
+        '<li>افتح <b>واتساب</b> بالجوال اللي فيه رقم الإرسال.</li>' +
+        '<li>أندرويد: ⋮ ← <b>الأجهزة المرتبطة</b>. آيفون: الإعدادات ← <b>الأجهزة المرتبطة</b>.</li>' +
+        '<li>اضغط <b>ربط جهاز</b> ووجّه الكاميرا على الرمز.</li>' +
+      '</ol>' +
+      (canPair
+        ? '<div class="state-banner info">' + icon('mobile', 13) + '<div>' + (touch ? 'فاتح الموقع من نفس الجوال؟ ما تقدر تمسح شاشتك — ' : 'ما تقدر تمسح الرمز؟ ') +
+          '<button class="link-btn" onclick="showPairForm()">اربط برمز من 8 خانات بدل QR</button></div></div>'
+        : (touch ? '<div class="state-banner warn">' + icon('mobile', 13) + '<div>إذا الموقع مفتوح على نفس الجوال اللي فيه الواتساب، افتح هذه الصفحة من جهاز ثاني (كمبيوتر أو جوال ثاني) وامسح الرمز بجوالك.</div></div>' : ''));
+  }
+  return '<div class="sheet-title">' + icon(apiSheet.pair ? 'key' : 'qrcode', 16) + ' اربط رقم الواتساب — ' + esc(acc.name) + '</div>' + main +
+    '<div class="form-msg" id="qrMsg"></div>' +
+    '<div class="sheet-actions mt-2"><button class="btn-cancel" onclick="closeInfoSheet()">إغلاق</button>' +
+    '<button class="btn-cancel" onclick="editApiConfig()">' + icon('key', 12) + ' تعديل البيانات</button></div>';
+}
+
+function showPairForm() { apiSheet.pair = true; drawApiSheet(); pollQr(false); }
+function showQrView() { apiSheet.pair = false; drawApiSheet(); pollQr(true); }
+function editApiConfig() { stopQrPolling(); apiSheet.view = 'form'; drawApiSheet(); }
+
+function formatPairCode(c) {
+  c = String(c || '').replace(/[^A-Za-z0-9]/g, '').toUpperCase();
+  return c.length === 8 ? c.slice(0, 4) + '-' + c.slice(4) : c;
+}
+
+async function requestPairCode() {
+  const acc = apiAcc();
+  if (!acc) return;
+  const btn = document.getElementById('pairBtn');
+  btn.disabled = true;
+  setMsg('qrMsg', 'جارِ طلب الرمز من الخدمة...');
+  const r = await api('account_api_pair', { body: { id: acc.id, phone: document.getElementById('pairPhone').value } });
+  if (!apiSheet || apiSheet.id !== acc.id || !document.getElementById('pairBtn')) return;
+  btn.disabled = false;
+  if (!r.ok) { setMsg('qrMsg', esc(r.error), 'error'); return; }
+  setMsg('qrMsg', 'الصفحة تتحدّث تلقائياً أول ما يرتبط الرقم');
+  document.getElementById('pairResult').innerHTML =
+    '<div class="pair-code ltr">' + esc(formatPairCode(r.code)) + '</div>' +
+    '<ol class="provider-steps">' +
+      '<li>افتح واتساب بجوالك ← <b>الأجهزة المرتبطة</b> ← <b>ربط جهاز</b>.</li>' +
+      '<li>اضغط <b>الربط برقم الهاتف بدلاً من ذلك</b> <bdi class="muted-sm">(Link with phone number instead)</bdi>.</li>' +
+      '<li>اكتب الرمز بالأعلى — صالح لدقيقتين تقريباً (إذا انتهى اطلب رمز جديد).</li>' +
+    '</ol>';
+  pollQr(false);
+}
+
+/** كل 5 ثواني نسأل عن حالة الربط (ونجيب رمز QR الجديد) لحد ما يصير "متصل". */
+function pollQr(immediate) {
+  stopQrPolling();
+  if (!apiSheet) return;
+  const myId = apiSheet.id;
+  const tick = async () => {
+    if (!apiSheet || apiSheet.id !== myId || apiSheet.view !== 'qr') return;
+    const r = await api('account_api_status', { query: { id: myId, qr: apiSheet.pair ? 0 : 1 } });
+    if (!apiSheet || apiSheet.id !== myId || apiSheet.view !== 'qr') return;
+    if (r.ok) {
+      mergeAccount(r.account);
+      if (r.state === 'connected') {
+        apiSheet.view = 'done';
+        drawApiSheet();
+        toast('تم ربط الرقم — الإرسال صار تلقائي');
+        return;
+      }
+      applyQrResult(r);
+    }
+    qrTimer = setTimeout(tick, 5000);
+  };
+  qrTimer = setTimeout(tick, immediate ? 50 : 5000);
+}
+
+function applyQrResult(r) {
+  if (!apiSheet || apiSheet.view !== 'qr') return;
+  const bad = r.state !== 'qr' && r.state !== 'starting';
+  if (apiSheet.pair) {
+    if (bad && r.note) setMsg('qrMsg', esc(r.note), 'error');
+    return;
+  }
+  const box = document.getElementById('qrBox');
+  if (box) {
+    if (r.qr) {
+      const img = box.querySelector('img');
+      if (img) { if (img.getAttribute('src') !== r.qr) img.setAttribute('src', r.qr); }
+      else box.innerHTML = '<img alt="QR" src="' + esc(r.qr) + '">';
+    } else {
+      box.innerHTML = '<div class="qr-wait">' + icon(bad ? 'warn' : 'hourglass', 22) + '<span>' + esc(r.note || 'جارِ تجهيز الرمز...') + '</span></div>';
+    }
+  }
+  if (r.qr) setMsg('qrMsg', 'امسح الرمز — الصفحة تتحدّث تلقائياً أول ما يرتبط الرقم');
+  else setMsg('qrMsg', bad ? esc(r.note || '') : '', bad ? 'error' : '');
+}
+
+function apiDoneHtml(acc) {
+  return '<div class="sheet-title">' + icon('checkCircle', 16) + ' الإرسال التلقائي شغّال</div>' +
+    '<div class="done-box">' + icon('bolt', 30) +
+      '<div class="t">' + esc(acc.name) + ' مربوط بـ ' + esc(acc.provider_name) + '</div>' +
+      (acc.api_phone ? '<div class="ltr fw-bold">' + esc(fmtPhone(acc.api_phone)) + '</div>' : '') +
+      '<div class="muted-sm mt-1">أي حملة من هذا الرقم تنرسل تلقائياً من السيرفر بموعدها — ما تحتاج تفتح واتساب ولا تضغط شي.</div>' +
+    '</div>' +
+    cronHintHtml() +
+    '<div class="btn-row"><button class="btn-outline primary" onclick="closeInfoSheet(); openAccountCampaigns(' + acc.id + ')">' + icon('campaigns', 12) + ' أنشئ حملة</button>' +
+      '<button class="btn-outline" onclick="editApiConfig()">' + icon('key', 12) + ' تعديل البيانات</button></div>' +
+    '<div class="btn-row"><button class="btn-outline" onclick="logoutApi()">' + icon('unlink', 12) + ' فصل الرقم (لربط رقم ثاني)</button>' +
+      '<button class="btn-outline danger" onclick="removeApiConfig()">' + icon('hand', 12) + ' رجوع للإرسال اليدوي</button></div>' +
+    '<div class="sheet-actions mt-3"><button class="btn-cancel" onclick="closeInfoSheet()">إغلاق</button></div>';
+}
+
+/** تنبيه إذا الإرسال بالخلفية (Cron) مو مفعّل. */
+function cronHintHtml() {
+  if (!autoInfo || autoInfo.cron_ok) return '';
+  return '<div class="state-banner warn">' + icon('info', 13) + '<div>' + (IS_ADMIN
+    ? 'الإرسال يكمّل ما دام الموقع مفتوح بأي جهاز. حتى يرسل والموقع مسكّر فعّل <a href="#admin" onclick="closeInfoSheet(); showSection(\'admin\'); return false">الإرسال بالخلفية</a> من لوحة التحكم (خطوة وحدة بـ cPanel).'
+    : 'الإرسال يكمّل ما دام الموقع مفتوح بأي جهاز. حتى يرسل والموقع مسكّر، الأدمن يفعّل "الإرسال بالخلفية" من لوحة التحكم.') + '</div></div>';
+}
+
+async function logoutApi() {
+  const acc = apiAcc();
+  if (!acc) return;
+  if (!confirm('فصل رقم الواتساب عن الخدمة؟ الإرسال التلقائي يتوقف لحد ما تربط رقم من جديد.')) return;
+  const r = await api('account_api_logout', { body: { id: acc.id } });
+  if (!r.ok) { toast(r.error, true); return; }
+  mergeAccount(r.account);
+  apiSheet.view = 'qr';
+  apiSheet.pair = acc.provider === 'greenapi' && isTouchDevice();
+  drawApiSheet();
+  pollQr(true);
+}
+
+async function removeApiConfig() {
+  const acc = apiAcc();
+  if (!acc) return;
+  if (!confirm('إيقاف الإرسال التلقائي لهذا الرقم والرجوع للإرسال اليدوي بالضغط؟ (بيانات الخدمة تنمسح من الموقع)')) return;
+  const r = await api('account_api_remove', { body: { id: acc.id } });
+  if (!r.ok) { toast(r.error, true); return; }
+  mergeAccount(r.account);
+  closeInfoSheet();
+  toast('رجع الرقم للإرسال اليدوي');
 }
 
 /* ====================================================================== الحملات */
@@ -555,12 +915,12 @@ function updateSplitSummary() {
   const v = parseInt(document.getElementById('splitValue').value, 10);
   const time = document.getElementById('sendTime').value || '10:00';
   if (mode === 'none' || !n || !v || v < 1) {
-    out.textContent = 'مثال: 80 رقم مع "عدد ثابت كل يوم" = 20 ← كل يوم تنفتح 20 رسالة جاهزة للإرسال على 4 أيام.';
+    out.textContent = 'مثال: 80 رقم مع "عدد ثابت كل يوم" = 20 ← كل يوم 20 رسالة على 4 أيام.';
     return;
   }
   const perDay = mode === 'count' ? v : Math.ceil(n / v);
   const days = Math.ceil(n / perDay);
-  out.textContent = fmtNum(n) + ' رقم ← ' + days + ' يوم × ' + perDay + ' رقم باليوم، تجهز كل يوم الساعة ' + time + ' (أرقام ملف Excel تنضاف للحساب عند الحفظ).';
+  out.textContent = fmtNum(n) + ' رقم ← ' + days + ' يوم × ' + perDay + ' رقم باليوم، تبدأ كل يوم الساعة ' + time + ' (أرقام ملف Excel تنضاف للحساب عند الحفظ).';
 }
 
 function onSplitModeChange() {
@@ -573,7 +933,21 @@ function onSplitModeChange() {
 }
 
 function accountOptionLabel(a) {
-  return a.name + (a.phone ? ' — ' + fmtPhone(a.phone) : '');
+  const phone = a.api_phone || a.phone;
+  return a.name + (phone ? ' — ' + fmtPhone(phone) : '') + (a.auto ? ' (تلقائي)' : ' (يدوي)');
+}
+
+/** سطر تحت اختيار الحساب: الحملة بتنرسل تلقائياً أو يدوياً. */
+function accMethodHintHtml(acc) {
+  if (!acc) return '';
+  if (acc.auto && acc.api_state === 'connected') {
+    return '<span class="text-gold">' + icon('bolt', 11) + ' الإرسال تلقائي من السيرفر عبر ' + esc(acc.provider_name) + ' — بعد الحفظ ينرسل كل شي بنفسه بموعده.</span>';
+  }
+  if (acc.auto) {
+    return '<span class="text-red">' + icon('warn', 11) + ' الرقم مربوط بـ ' + esc(acc.provider_name) + ' بس غير متصل حالياً (' + esc(apiStateInfo(acc.api_state)[1]) + ').</span> ' +
+      '<button class="link-btn" type="button" onclick="openApiSheet(' + acc.id + ')">اربطه</button> حتى يرسل تلقائياً، أو أرسل يدوياً بالضغط.';
+  }
+  return icon('hand', 11) + ' هذا الرقم يرسل يدوياً بالضغط. <button class="link-btn" type="button" onclick="openApiSheet(' + acc.id + ')">فعّل الإرسال التلقائي</button>';
 }
 
 function renderCampaigns(myGen) {
@@ -584,7 +958,7 @@ function renderCampaigns(myGen) {
     if (!accounts.length) {
       c.innerHTML = '<div class="page-title"><h2>' + icon('campaigns', 18) + ' الحملات</h2></div>' +
         '<div class="card info"><div class="empty-state" style="padding:20px 10px">' + icon('accounts', 34) +
-        'أضف رقم الواتساب اللي ترسل منه أولاً — خطوة وحدة بدون أي تثبيت.<br><button class="btn-primary-small mt-3" onclick="openAddAccountSheet()">' + icon('plus', 12) + ' إضافة رقم واتساب</button></div></div>';
+        'أضف رقم الواتساب اللي ترسل منه أولاً واربطه بالإرسال التلقائي — بدون أي تثبيت.<br><button class="btn-primary-small mt-3" onclick="openAddAccountSheet()">' + icon('plus', 12) + ' إضافة رقم واتساب</button></div></div>';
       return;
     }
     drawCampaignForm(myGen);
@@ -606,6 +980,7 @@ function drawCampaignForm(myGen) {
       '<select id="accPicker" onchange="switchCampaignAccount(this.value)">' +
         accounts.map(a => '<option value="' + a.id + '"' + (a.id === acc.id ? ' selected' : '') + '>' + esc(accountOptionLabel(a)) + '</option>').join('') +
       '</select>' +
+      '<div class="field-hint" id="accMethodHint">' + accMethodHintHtml(acc) + '</div>' +
       '<label class="field-label">رمز الدولة الافتراضي (يُضاف تلقائياً لأي رقم ما يبدأ فيه)</label>' +
       countryCodeSelectHtml() +
       '<label class="field-label">الأرقام — رقم بكل سطر أو مفصولة بفواصل (بدون حاجة لرمز الدولة)</label>' +
@@ -624,8 +999,8 @@ function drawCampaignForm(myGen) {
       '<div class="field-grid">' +
         '<div><label class="field-label">مهلة بين رقم والثاني (ثواني)</label>' +
           '<input id="delay" type="number" min="' + (W.minDelay || 0) + '" value="' + (W.defaultDelay || 10) + '">' +
-          '<div class="field-hint">تحمي رقمك من الحظر — 10 ثواني أو أكثر أفضل.</div></div>' +
-        '<div><label class="field-label">' + icon('calendar', 12) + ' متى تجهز الرسائل للإرسال</label>' +
+          '<div class="field-hint">تحمي رقمك من الحظر — 10 إلى 30 ثانية أفضل (بالإرسال التلقائي ينضاف لها فرق عشوائي بسيط).</div></div>' +
+        '<div><label class="field-label">' + icon('calendar', 12) + ' متى تنرسل الرسائل</label>' +
           '<select id="splitMode" onchange="onSplitModeChange()">' +
             '<option value="none">هسه، أو بموعد واحد</option>' +
             '<option value="count">مقسّمة على أيام — عدد ثابت كل يوم</option>' +
@@ -633,14 +1008,14 @@ function drawCampaignForm(myGen) {
           '</select></div>' +
       '</div>' +
       '<div id="singleScheduleBox">' +
-        '<label class="field-label">موعد (اختياري — اتركه فاضي حتى تبدأ الإرسال هسه)</label>' +
+        '<label class="field-label">موعد (اختياري — اتركه فاضي حتى يبدأ الإرسال هسه)</label>' +
         '<input id="sendAt" type="datetime-local">' +
       '</div>' +
       '<div id="splitBox" style="display:none">' +
         '<div class="field-grid">' +
           '<div><label class="field-label" id="splitValueLabel">عدد الأرقام باليوم الواحد</label>' +
             '<input id="splitValue" type="number" min="1" placeholder="مثال: 20" oninput="updateSplitSummary()"></div>' +
-          '<div><label class="field-label">وقت تجهيز رسائل كل يوم</label>' +
+          '<div><label class="field-label">وقت بدء رسائل كل يوم</label>' +
             '<input id="sendTime" type="time" value="' + esc(W.defaultSplitTime || '10:00') + '" oninput="updateSplitSummary()"></div>' +
         '</div>' +
         '<label class="field-label">تاريخ أول يوم</label>' +
@@ -662,26 +1037,41 @@ function drawCampaignForm(myGen) {
 function switchCampaignAccount(id) {
   activeAccountId = Number(id);
   localStorageSet('wasel.account', String(activeAccountId));
+  const hint = document.getElementById('accMethodHint');
+  if (hint) hint.innerHTML = accMethodHintHtml(accounts.find(a => a.id === activeAccountId));
   const list = document.getElementById('campaignList');
   if (list) list.innerHTML = '<div class="loading-line">جارِ التحميل...</div>';
   loadCampaignList(gen);
 }
 
-/** بطاقة أعلى صفحة الحملات: كل الحملات اللي عندها رسائل جاهزة للإرسال هسه (من كل الحسابات). */
+/** بطاقات أعلى صفحة الحملات (من كل الحسابات): اللي تنرسل تلقائياً هسه، واللي تنتظر أحد يضغط "إرسال". */
 async function loadDueBox(myGen) {
   const r = await api('campaigns', { query: { limit: 100 } });
   if (myGen !== gen || !r.ok) return;
   const box = document.getElementById('dueBox');
   if (!box) return;
-  const due = r.items.filter(c => c.status === 'active' && c.due > 0);
-  if (!due.length) { box.innerHTML = ''; return; }
-  const total = due.reduce((s, c) => s + c.due, 0);
-  box.innerHTML = '<div class="card due-card"><div class="card-header" style="margin-bottom:6px"><h4>' + icon('send', 15) + ' جاهزة للإرسال الآن: ' + fmtNum(total) + ' رسالة</h4></div>' +
-    due.map(c =>
-      '<div class="history-row"><div class="grow"><span class="campaign-name">' + esc(firstLine(c.text)) + '</span>' +
-        '<div class="campaign-detail">' + esc(c.account_name) + (c.days > 1 ? ' · مقسّمة على ' + c.days + ' يوم' : '') + '</div></div>' +
-        '<button class="btn-send-small" onclick="openSender(' + c.id + ')">' + icon('whatsapp', 14) + ' إرسال (' + fmtNum(c.due) + ')</button></div>'
-    ).join('') + '</div>';
+  const sending = r.items.filter(c => c.auto_state === 'sending');
+  const manual = r.items.filter(c => c.status === 'active' && c.due > 0 && canSend(c));
+  let html = '';
+  if (sending.length) {
+    html += '<div class="card auto-card"><div class="card-header" style="margin-bottom:6px"><h4>' + icon('bolt', 15) + ' يُرسل تلقائياً الآن</h4>' +
+      '<span class="pill pill-green"><span class="live-dot"></span> ' + fmtNum(sending.reduce((s, c) => s + c.due, 0)) + ' رسالة بالدور</span></div>' +
+      sending.map(c =>
+        '<div class="history-row clickable" onclick="openCampaign(' + c.id + ')"><div class="grow"><span class="campaign-name">' + esc(firstLine(c.text)) + '</span>' +
+          '<div class="campaign-detail">' + esc(c.account_name) + ' · انرسل ' + fmtNum(c.sent) + ' من ' + fmtNum(c.total) + '</div>' + progressHtml(c) + '</div></div>'
+      ).join('') + cronHintHtml() + '</div>';
+  }
+  if (manual.length) {
+    const total = manual.reduce((s, c) => s + c.due, 0);
+    html += '<div class="card due-card"><div class="card-header" style="margin-bottom:6px"><h4>' + icon('send', 15) + ' جاهزة للإرسال بالضغط: ' + fmtNum(total) + ' رسالة</h4></div>' +
+      manual.map(c =>
+        '<div class="history-row"><div class="grow"><span class="campaign-name">' + esc(firstLine(c.text)) + '</span>' +
+          '<div class="campaign-detail">' + esc(c.account_name) + (c.days > 1 ? ' · مقسّمة على ' + c.days + ' يوم' : '') +
+          (c.auto_state === 'stalled' ? ' · <span class="text-red">الرقم غير متصل بالخدمة</span>' : '') + '</div></div>' +
+          '<button class="btn-send-small" onclick="openSender(' + c.id + ')">' + icon('whatsapp', 14) + ' إرسال (' + fmtNum(c.due) + ')</button></div>'
+      ).join('') + '</div>';
+  }
+  box.innerHTML = html;
 }
 
 async function loadCampaignList(myGen) {
@@ -699,7 +1089,16 @@ const CAMPAIGN_STATUS = {
   active: ['pill-blue', 'جاهزة للإرسال'], scheduled: ['pill-amber', 'بانتظار موعدها'], done: ['pill-green', 'مكتملة'], cancelled: ['pill-gray', 'ملغاة'],
 };
 
+const AUTO_STATE = {
+  sending: ['pill-green', 'يُرسل تلقائياً'], waiting: ['pill-amber', 'تلقائي — بانتظار موعدها'],
+  paused: ['pill-gray', 'موقوفة مؤقتاً'], stalled: ['pill-red', 'متوقفة — الرقم غير متصل'],
+};
+
 function campaignStatusPill(c) {
+  if (c.auto_state && AUTO_STATE[c.auto_state]) {
+    const a = AUTO_STATE[c.auto_state];
+    return '<span class="pill ' + a[0] + '">' + (c.auto_state === 'sending' ? '<span class="live-dot"></span> ' : '') + a[1] + '</span>';
+  }
   const s = CAMPAIGN_STATUS[c.status] || ['pill-gray', c.status];
   return '<span class="pill ' + s[0] + '">' + s[1] + '</span>';
 }
@@ -722,8 +1121,9 @@ function firstLine(text) {
   return t || '(بدون نص)';
 }
 
+/** الإرسال بالضغط: للحسابات اليدوية، أو التلقائية إذا الرقم انفصل عن الخدمة (حتى ما يوقف الشغل). */
 function canSend(c) {
-  return c.status === 'active' && c.due > 0 && c.owner_id === ME.id;
+  return c.status === 'active' && c.due > 0 && c.owner_id === ME.id && (!c.auto || c.auto_state === 'stalled');
 }
 
 function campaignCardHtml(c) {
@@ -733,10 +1133,11 @@ function campaignCardHtml(c) {
       (c.status === 'scheduled' && c.next_at ? ' · تجهز ' + esc(c.next_at) : '') + '</div></div>' + campaignStatusPill(c) + '</div>' +
     progressHtml(c) +
     '<div class="counts"><span class="pill pill-teal">' + fmtNum(c.total) + ' رقم</span><span class="pill pill-green">انرسل ' + fmtNum(c.sent) + '</span>' +
-      (c.failed ? '<span class="pill pill-red">ما عنده واتساب ' + fmtNum(c.failed) + '</span>' : '') +
+      (c.failed ? '<span class="pill pill-red">ما وصلت ' + fmtNum(c.failed) + '</span>' : '') +
       (c.pending ? '<span class="pill pill-amber">متبقي ' + fmtNum(c.pending) + '</span>' : '') +
       (c.cancelled ? '<span class="pill pill-gray">ملغاة ' + fmtNum(c.cancelled) + '</span>' : '') + '</div>' +
-    (canSend(c) ? '<button class="btn-send" onclick="event.stopPropagation(); openSender(' + c.id + ')">' + icon('whatsapp', 18) + ' إرسال — ' + fmtNum(c.due) + ' رسالة جاهزة</button>' : '') +
+    (c.auto_state === 'sending' ? '<div class="auto-line">' + icon('bolt', 12) + ' يُرسل تلقائياً عبر ' + esc(c.provider_name) + ' — ' + fmtNum(c.due) + ' رسالة بالدور</div>' : '') +
+    (canSend(c) ? '<button class="btn-send" onclick="event.stopPropagation(); openSender(' + c.id + ')">' + icon('whatsapp', 18) + (c.auto ? ' إرسال يدوي' : ' إرسال') + ' — ' + fmtNum(c.due) + ' رسالة جاهزة</button>' : '') +
   '</div>';
 }
 
@@ -780,11 +1181,15 @@ async function startCampaign() {
   const r = await api('campaign_create', { form: form });
   btn.disabled = false;
   if (!r.ok) { setMsg('campaignMsg', esc(r.error), 'error'); return; }
+  const usedAcc = accounts.find(a => a.id === Number(document.getElementById('accPicker').value));
+  const auto = !!(usedAcc && usedAcc.auto && usedAcc.api_state === 'connected');
   let msg;
-  if (r.mode === 'split') msg = 'تم الحفظ: ' + fmtNum(r.total) + ' رقم على ' + r.days + ' يوم (~' + r.per_day + ' يومياً)، أول يوم ' + esc(r.start_at) + '. كل يوم بموعده توصلك إشعار وتنفتح رسائله للإرسال.';
-  else if (r.mode === 'once') msg = 'تم الحفظ: ' + fmtNum(r.total) + ' رسالة تجهز للإرسال بموعد ' + esc(r.start_at) + '.';
-  else msg = 'تم الحفظ: ' + fmtNum(r.total) + ' رسالة جاهزة للإرسال.';
-  if (r.due > 0) msg += '<br><button class="btn-send mt-2" onclick="openSender(' + r.id + ')">' + icon('whatsapp', 18) + ' ابدأ الإرسال هسه</button>';
+  if (r.mode === 'split') msg = 'تم الحفظ: ' + fmtNum(r.total) + ' رقم على ' + r.days + ' يوم (~' + r.per_day + ' يومياً)، أول يوم ' + esc(r.start_at) + '. ' +
+    (auto ? 'كل يوم بموعده تنرسل رسائله تلقائياً.' : 'كل يوم بموعده توصلك إشعار وتنفتح رسائله للإرسال.');
+  else if (r.mode === 'once') msg = 'تم الحفظ: ' + fmtNum(r.total) + ' رسالة ' + (auto ? 'تنرسل تلقائياً' : 'تجهز للإرسال') + ' بموعد ' + esc(r.start_at) + '.';
+  else msg = auto ? 'تم الحفظ: بدأ الإرسال التلقائي لـ ' + fmtNum(r.total) + ' رسالة — تتابع التقدّم من القائمة بالأسفل.' : 'تم الحفظ: ' + fmtNum(r.total) + ' رسالة جاهزة للإرسال.';
+  if (r.due > 0 && !auto) msg += '<br><button class="btn-send mt-2" onclick="openSender(' + r.id + ')">' + icon('whatsapp', 18) + ' ابدأ الإرسال هسه</button>';
+  if (auto && r.due > 0 && (!autoInfo || !autoInfo.cron_ok)) driveAutoSend();
   setMsg('campaignMsg', msg, 'success');
   toast('تم حفظ الحملة');
   document.getElementById('numbersText').value = '';
@@ -812,7 +1217,7 @@ function openCampaign(id) {
     drawCampaignDetail(r);
   };
   load();
-  every(myGen, 15000, load);
+  every(myGen, 10000, load);
 }
 
 function backToSection() {
@@ -821,25 +1226,55 @@ function backToSection() {
 
 const DAY_STATE = { pending: ['pill-amber', 'بانتظار موعده'], ready: ['pill-blue', 'جاهز للإرسال'], done: ['pill-green', 'اكتمل'], cancelled: ['pill-gray', 'ملغى'] };
 
+function autoBannerHtml(c) {
+  if (!c.auto || c.status !== 'active') return '';
+  if (c.auto_state === 'paused') {
+    return '<div class="state-banner warn mb-3">' + icon('pause', 13) + '<div class="grow">الإرسال التلقائي موقوف مؤقتاً لهذه الحملة — ولا رسالة تنرسل لحد ما تضغط "استئناف".</div></div>';
+  }
+  if (c.auto_state === 'stalled') {
+    const st = apiStateInfo(c.account_state);
+    return '<div class="state-banner bad mb-3">' + icon('warn', 13) + '<div class="grow">' + fmtNum(c.due) + ' رسالة جاهزة بس رقم الواتساب غير متصل بالخدمة (' + esc(st[1]) + '). ' +
+      (c.owner_id === ME.id ? 'اربطه من <a href="#accounts" onclick="showSection(\'accounts\'); return false">حسابي</a>، أو أرسل يدوياً بالضغط.' : 'صاحب الحملة لازم يربط الرقم من جديد.') + '</div></div>';
+  }
+  if (c.auto_state === 'sending') {
+    return '<div class="state-banner ok mb-3">' + icon('bolt', 13) + '<div class="grow">يُرسل تلقائياً عبر ' + esc(c.provider_name) + ' — رسالة كل ~' + Math.max(c.delay, 5) + ' ثانية تقريباً. تقدر تسكّر الصفحة' +
+      (autoInfo && !autoInfo.cron_ok ? ' (الإرسال يكمّل ما دام الموقع مفتوح بأي جهاز — أو فعّل الإرسال بالخلفية)' : '') + '.</div></div>';
+  }
+  if (c.auto_state === 'waiting' && c.next_at) {
+    return '<div class="state-banner info mb-3">' + icon('clock', 13) + '<div class="grow">تنرسل تلقائياً بموعدها: <span class="ltr fw-bold">' + esc(c.next_at) + '</span></div></div>';
+  }
+  return '';
+}
+
+async function setCampaignPaused(id, paused) {
+  const r = await api('campaign_pause', { body: { id: id, paused: paused ? 1 : 0 } });
+  if (!r.ok) { toast(r.error, true); return; }
+  toast(paused ? 'تم إيقاف الإرسال مؤقتاً' : 'رجع الإرسال التلقائي');
+  if (!paused && (!autoInfo || !autoInfo.cron_ok)) driveAutoSend();
+  openCampaign(id);
+}
+
 function drawCampaignDetail(c) {
   const showOwner = IS_ADMIN && c.owner_id !== ME.id;
   let html =
     '<div class="page-title"><h2>' + icon('info', 18) + ' تفاصيل الحملة</h2>' +
       '<button class="btn-outline btn-small" onclick="backToSection()">' + icon('back', 11) + ' رجوع</button></div>' +
-    (c.can_send && c.due > 0 ? '<button class="btn-send mb-3" onclick="openSender(' + c.id + ')">' + icon('whatsapp', 18) + ' ابدأ الإرسال — ' + fmtNum(c.due) + ' رسالة جاهزة</button>' : '') +
+    autoBannerHtml(c) +
+    (c.can_send && c.due > 0 ? '<button class="btn-send mb-3" onclick="openSender(' + c.id + ')">' + icon('whatsapp', 18) + (c.auto ? ' إرسال يدوي' : ' ابدأ الإرسال') + ' — ' + fmtNum(c.due) + ' رسالة جاهزة</button>' : '') +
     '<div class="campaign-detail-card">' +
       '<div class="detail-row"><span class="label">' + icon('accounts', 13) + ' الحساب</span><span class="value">' + esc(c.account_name || '—') + (c.account_phone ? ' <span class="ltr muted-sm">' + esc(fmtPhone(c.account_phone)) + '</span>' : '') + '</span></div>' +
       (showOwner ? '<div class="detail-row"><span class="label">' + icon('branches', 13) + ' الفرع</span><span class="value">' + esc(c.owner_name) + '</span></div>' : '') +
       '<div class="detail-row"><span class="label">' + icon('info', 13) + ' الحالة</span><span class="value">' + campaignStatusPill(c) + '</span></div>' +
+      '<div class="detail-row"><span class="label">' + icon(c.auto ? 'bolt' : 'hand', 13) + ' طريقة الإرسال</span><span class="value">' + (c.auto ? 'تلقائي عبر ' + esc(c.provider_name) : 'يدوي بالضغط') + '</span></div>' +
       '<div class="detail-row"><span class="label">' + icon('calendar', 13) + ' التوقيت</span><span class="value">' + esc(campaignModeText(c)) + '</span></div>' +
       '<div class="detail-row"><span class="label">' + icon('hourglass', 13) + ' المهلة بين الأرقام</span><span class="value">' + c.delay + ' ثانية</span></div>' +
       '<div class="detail-row"><span class="label">' + icon('clock', 13) + ' أُنشئت</span><span class="value ltr">' + esc(c.created_at) + '</span></div>' +
-      (c.status === 'scheduled' && c.next_at ? '<div class="detail-row"><span class="label">' + icon('clock', 13) + ' تجهز الرسائل الجاية</span><span class="value ltr">' + esc(c.next_at) + '</span></div>' : '') +
+      (c.status === 'scheduled' && c.next_at ? '<div class="detail-row"><span class="label">' + icon('clock', 13) + ' موعد الرسائل الجاية</span><span class="value ltr">' + esc(c.next_at) + '</span></div>' : '') +
       (c.finished_at ? '<div class="detail-row"><span class="label">' + icon('checkCircle', 13) + ' انتهت</span><span class="value ltr">' + esc(c.finished_at) + '</span></div>' : '') +
     '</div>' +
     '<div class="stats-mini-row">' +
       statMiniHtml(fmtNum(c.total), 'الإجمالي', '') + statMiniHtml(fmtNum(c.sent), 'انرسل', 'green') +
-      statMiniHtml(fmtNum(c.failed), 'ما عنده واتساب', 'orange') + statMiniHtml(fmtNum(c.pending), 'متبقي', 'primary') +
+      statMiniHtml(fmtNum(c.failed), 'ما وصلت', 'orange') + statMiniHtml(fmtNum(c.pending), 'متبقي', 'primary') +
     '</div>' + progressHtml(c) +
     '<div class="card mt-3"><div class="card-header"><h4>' + icon('message', 15) + ' نص الرسالة</h4></div><div class="message-preview">' + esc(c.message) + '</div></div>';
 
@@ -857,13 +1292,16 @@ function drawCampaignDetail(c) {
 
   if (c.failures && c.failures.length) {
     window._failedNumbers = c.failures.map(f => '+' + f.phone).join('\n');
-    html += '<div class="card"><div class="card-header"><h4>' + icon('warn', 15) + ' أرقام ما عندها واتساب (' + c.failures.length + ')</h4>' +
+    html += '<div class="card"><div class="card-header"><h4>' + icon('warn', 15) + ' أرقام ما وصلتها الرسالة (' + c.failures.length + ')</h4>' +
       '<button class="btn-outline btn-small" onclick="copyText(window._failedNumbers)">' + icon('copy', 10) + ' نسخ الأرقام</button></div>' +
       c.failures.map(f => '<div class="history-row"><span class="ltr fw-bold">' + esc(fmtPhone(f.phone)) + '</span><span class="muted-sm">' + esc(f.error || '') + '</span></div>').join('') +
     '</div>';
   }
 
   html += '<div class="btn-row">' +
+    (c.can_pause ? (c.paused
+      ? '<button class="btn-outline primary" onclick="setCampaignPaused(' + c.id + ', false)">' + icon('play', 12) + ' استئناف الإرسال التلقائي</button>'
+      : '<button class="btn-outline" onclick="setCampaignPaused(' + c.id + ', true)">' + icon('pause', 12) + ' إيقاف مؤقت</button>') : '') +
     (c.can_cancel ? '<button class="btn-outline danger" onclick="cancelCampaign(' + c.id + ')">' + icon('ban', 12) + ' إلغاء الحملة (الأرقام المتبقية)</button>' : '') +
     '<button class="btn-outline" onclick="backToSection()">' + icon('back', 12) + ' رجوع</button></div>';
   content().innerHTML = html;
@@ -958,7 +1396,11 @@ function closeSender() {
 async function loadSender(myGen) {
   const r = await api('send_next', { query: { id: senderCampaignId, tok: SENDER_TOKEN } });
   if (myGen !== gen) return;
-  if (!r.ok) { content().innerHTML = '<div class="state-banner bad">' + esc(r.error) + '</div>'; return; }
+  if (!r.ok) {
+    content().innerHTML = '<div class="state-banner bad">' + icon('info', 13) + '<div>' + esc(r.error) + '</div></div>' +
+      '<button class="btn-outline mt-3" onclick="closeSender()">' + icon('back', 12) + ' رجوع</button>';
+    return;
+  }
   if (senderBusy) return;
   const unchanged = senderState && JSON.stringify(senderState) === JSON.stringify(r);
   senderState = r;
@@ -1127,9 +1569,9 @@ function renderAnalytics(myGen) {
   const fill = d => {
     document.getElementById('anStats1').innerHTML =
       statMiniHtml(fmtNum(d.messages_sent), 'إجمالي الرسائل المرسلة', 'primary') + statMiniHtml(d.success_rate + '%', 'معدل النجاح', 'green') +
-      statMiniHtml(fmtNum(d.messages_failed), 'أرقام بدون واتساب', 'orange') + statMiniHtml(fmtNum(d.sent_today), 'أُرسلت اليوم', 'primary');
+      statMiniHtml(fmtNum(d.messages_failed), 'رسائل ما وصلت', 'orange') + statMiniHtml(fmtNum(d.sent_today), 'أُرسلت اليوم', 'primary');
     document.getElementById('anStats2').innerHTML =
-      statMiniHtml(fmtNum(d.accounts_total), 'أرقام واتساب', '') + statMiniHtml(fmtNum(d.messages_due), 'جاهزة للإرسال الآن', 'green') +
+      statMiniHtml(fmtNum(d.accounts_total), 'أرقام واتساب', '') + statMiniHtml(fmtNum(d.messages_due), 'بالدور للإرسال الآن', 'green') +
       statMiniHtml(fmtNum(d.campaigns_active), 'حملات نشطة', 'orange') + statMiniHtml(fmtNum(d.messages_pending), 'متبقية بالحملات', 'primary');
     document.getElementById('anPerf').innerHTML = analyticsPerfHtml(d);
   };
@@ -1242,6 +1684,8 @@ async function submitBranchPassword(id) {
 function renderAdmin(myGen) {
   content().innerHTML =
     '<div class="page-title"><h2>' + icon('admin', 18) + ' لوحة التحكم</h2></div>' +
+    '<div class="card" id="cronCard"><div class="card-header"><h4>' + icon('server', 15) + ' الإرسال التلقائي بالخلفية</h4></div>' +
+      '<div id="cronBox">' + (dataCache.cron ? cronBoxHtml(dataCache.cron) : '<div class="loading-line">جارِ التحميل...</div>') + '</div></div>' +
     '<div class="card"><div class="card-header"><h4>' + icon('image', 15) + ' هوية الموقع</h4></div>' +
       '<div class="row" style="gap:16px;align-items:flex-start">' +
         '<div class="logo-preview" id="logoPreview">' + (LOGO_URL ? '<img src="' + esc(LOGO_URL) + '" alt="">' : esc(SITE_NAME.charAt(0))) + '</div>' +
@@ -1258,11 +1702,43 @@ function renderAdmin(myGen) {
     '<div class="card"><div class="card-header"><h4>' + icon('users', 15) + ' كل حسابات المنصة</h4></div>' +
       '<div id="adminAccountsBox">' + (dataCache.adminUsers ? adminUsersHtml(dataCache.adminUsers) : '<div class="loading-line">جارِ التحميل...</div>') + '</div></div>';
   (async () => {
-    const [lb, au] = await Promise.all([api('leaderboard'), api('admin_users')]);
+    const [lb, au, cr] = await Promise.all([api('leaderboard'), api('admin_users'), api('cron_info')]);
     if (myGen !== gen) return;
+    if (cr.ok) { dataCache.cron = cr; document.getElementById('cronBox').innerHTML = cronBoxHtml(cr); }
     if (lb.ok) { dataCache.leaderboard = lb.items; document.getElementById('leaderboardBox').innerHTML = leaderboardHtml(lb.items); }
     if (au.ok) { dataCache.adminUsers = au.items; document.getElementById('adminAccountsBox').innerHTML = adminUsersHtml(au.items); }
   })();
+}
+
+/** حالة الإرسال بالخلفية + طريقة تفعيله (Cron بـ cPanel أو رابط لخدمة Cron مجانية). */
+function cronBoxHtml(d) {
+  window._cronCmd = d.command;
+  window._cronUrl = d.url;
+  const status = d.running
+    ? '<div class="state-banner ok">' + icon('checkCircle', 13) + '<div>شغّال — آخر تشغيل <span class="ltr">' + esc(d.last_run) + '</span>. الحملات التلقائية تنرسل حتى لو كل المتصفحات مسكّرة.</div></div>'
+    : '<div class="state-banner warn">' + icon('warn', 13) + '<div>' + (d.last_run ? 'متوقف — آخر تشغيل كان <span class="ltr">' + esc(d.last_run) + '</span>.' : 'مو مفعّل بعد.') +
+      ' بدونه الإرسال التلقائي يشتغل بس ما دام الموقع مفتوح بأي متصفح. فعّله مرة وحدة:</div></div>';
+  return status +
+    '<div class="muted-sm mt-2">' + icon('bolt', 11) + ' ' + fmtNum(d.connected_accounts) + ' من ' + fmtNum(d.auto_accounts) + ' رقم مربوط بخدمة API ومتصل الآن.' +
+      (d.curl ? '' : ' <b class="text-red">إضافة cURL غير مفعّلة — فعّلها من cPanel ← Select PHP Version ← Extensions.</b>') + '</div>' +
+    '<div class="step-item"><div class="step-num">1</div><div class="step-text"><bdi>cPanel</bdi> ← <b><bdi>Cron Jobs</bdi></b> ← <bdi>Common Settings</bdi>: <b><bdi>Once Per Minute</bdi></b>' +
+      '<small>وبحقل <bdi>Command</bdi> الصق هذا السطر، واضغط <bdi>Add New Cron Job</bdi>:</small></div></div>' +
+    '<div class="code-box">' + esc(d.command) + '</div>' +
+    '<button class="btn-outline btn-small mt-2" onclick="copyText(window._cronCmd)">' + icon('copy', 10) + ' نسخ الأمر</button>' +
+    '<div class="step-item mt-2"><div class="step-num">2</div><div class="step-text">أو بدون Cron الاستضافة' +
+      '<small>خدمة Cron مجانية (مثل <bdi>cron-job.org</bdi>) تفتح هذا الرابط كل دقيقة. فيه مفتاح سري — لا تشاركه.</small></div></div>' +
+    '<div class="code-box">' + esc(d.url) + '</div>' +
+    '<div class="row mt-2"><button class="btn-outline btn-small" onclick="copyText(window._cronUrl)">' + icon('copy', 10) + ' نسخ الرابط</button>' +
+      '<button class="btn-outline btn-small" onclick="resetCronKey()">' + icon('refresh', 10) + ' تغيير المفتاح</button></div>';
+}
+
+async function resetCronKey() {
+  if (!confirm('تغيير المفتاح السري؟ الرابط القديم يتوقف — لازم تحدّثه بخدمة الـ Cron إذا تستخدمه.')) return;
+  const r = await api('cron_key_reset', { body: {} });
+  if (!r.ok) { toast(r.error, true); return; }
+  toast('تم تغيير المفتاح');
+  const cr = await api('cron_info');
+  if (cr.ok) { dataCache.cron = cr; const box = document.getElementById('cronBox'); if (box) box.innerHTML = cronBoxHtml(cr); }
 }
 
 function leaderboardHtml(rows) {
@@ -1331,7 +1807,7 @@ function renderNotifications() {
   let permCard = '';
   if ('Notification' in window) {
     if (Notification.permission === 'default') {
-      permCard = '<div class="card info"><div class="row-wrap"><div class="grow muted">' + icon('bell', 14) + ' فعّل إشعارات المتصفح حتى يوصلك تنبيه أول ما تجهز رسائل أي حملة للإرسال.</div>' +
+      permCard = '<div class="card info"><div class="row-wrap"><div class="grow muted">' + icon('bell', 14) + ' فعّل إشعارات المتصفح حتى يوصلك تنبيه بمواعيد الحملات وانتهائها، وإذا رقم انفصل عن الإرسال التلقائي.</div>' +
         '<button class="btn-primary-small" onclick="requestNotifPermission()">' + icon('check', 12) + ' تفعيل الإشعارات</button></div></div>';
     } else if (Notification.permission === 'denied') {
       permCard = '<div class="card warn"><div class="muted-sm">' + icon('warn', 13) + ' إشعارات المتصفح محظورة لهذا الموقع. فعّلها من رمز القفل بجانب عنوان الموقع ← الإشعارات ← سماح.</div></div>';
@@ -1411,5 +1887,10 @@ document.addEventListener('keydown', e => {
 
 initChrome();
 showSection((location.hash || '').replace('#', '') || DEFAULT_SECTION, { keepHash: true });
+// روابط مثل index.php#campaigns تفتح القسم حتى لو الصفحة مفتوحة أصلاً
+window.addEventListener('hashchange', () => {
+  const s = (location.hash || '').replace('#', '');
+  if (s && s !== section && SECTIONS.indexOf(s) !== -1) showSection(s, { keepHash: true });
+});
 loadAccounts();
 pollEvents();

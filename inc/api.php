@@ -9,6 +9,7 @@
  */
 
 require_once __DIR__ . '/campaigns.php';
+require_once __DIR__ . '/autosend.php';
 
 function api_dispatch($action)
 {
@@ -17,6 +18,13 @@ function api_dispatch($action)
         'accounts' => ['GET', 'api_accounts', false],
         'account_create' => ['POST', 'api_account_create', false],
         'account_delete' => ['POST', 'api_account_delete', false],
+        'account_api_save' => ['POST', 'api_account_api_save', false],
+        'account_api_status' => ['GET', 'api_account_api_status', false],
+        'account_api_pair' => ['POST', 'api_account_api_pair', false],
+        'account_api_logout' => ['POST', 'api_account_api_logout', false],
+        'account_api_remove' => ['POST', 'api_account_api_remove', false],
+        'autosend' => ['POST', 'api_autosend', false],
+        'campaign_pause' => ['POST', 'api_campaign_pause', false],
         'campaigns' => ['GET', 'api_campaigns', false],
         'campaign' => ['GET', 'api_campaign', false],
         'campaign_create' => ['POST', 'api_campaign_create', false],
@@ -37,6 +45,8 @@ function api_dispatch($action)
         'leaderboard' => ['GET', 'api_leaderboard', true],
         'site_identity' => ['GET', 'api_site_identity', true],
         'site_identity_save' => ['POST', 'api_site_identity_save', true],
+        'cron_info' => ['GET', 'api_cron_info', true],
+        'cron_key_reset' => ['POST', 'api_cron_key_reset', true],
     ];
     if (!isset($routes[$action])) {
         json_fail('طلب غير معروف', 404);
@@ -86,6 +96,8 @@ function generate_password($length = 10)
 
 function account_public(array $a, array $stats = [])
 {
+    $provider = !empty($a['provider']) ? $a['provider'] : 'manual';
+    $auto = $provider !== 'manual';
     return [
         'id' => (int) $a['id'],
         'name' => $a['name'],
@@ -95,6 +107,16 @@ function account_public(array $a, array $stats = [])
         'sent_today' => (int) ($stats['sent_today'] ?? 0),
         'campaigns_active' => (int) ($stats['campaigns_active'] ?? 0),
         'created_at' => substr($a['created_at'], 0, 16),
+        // الإرسال التلقائي: الخدمة وحالة الربط (الرمز السري ما يطلع للمتصفح أبداً — بس آخر 4 أحرف)
+        'provider' => $provider,
+        'auto' => $auto,
+        'provider_name' => $auto ? gw_provider_name($provider) : null,
+        'api_state' => $auto ? ((string) $a['api_state'] !== '' ? $a['api_state'] : 'error') : null,
+        'api_note' => $auto ? (string) $a['api_note'] : '',
+        'api_instance' => $auto ? $a['api_instance'] : null,
+        'api_url' => $auto && $provider === 'greenapi' ? $a['api_url'] : null,
+        'api_token_hint' => $auto && !empty($a['api_token']) ? '••••' . substr((string) $a['api_token'], -4) : null,
+        'api_phone' => $auto ? $a['api_phone'] : null,
     ];
 }
 
@@ -170,6 +192,184 @@ function api_account_delete(array $user)
     json_out(['ok' => true]);
 }
 
+// --------------------------------------------------------------- الإرسال التلقائي (ربط الحساب بخدمة API)
+
+/** يحفظ بيانات خدمة الواتساب (بعد ما يجرّب الاتصال فيها) — ويرجّع رمز QR إذا الرقم يحتاج ربط. */
+function api_account_api_save(array $user)
+{
+    $acc = owned_account($user, input_int('id'));
+    if (!$acc) {
+        json_fail('حساب غير موجود', 404);
+    }
+    $provider = input_str('provider', 16);
+    if (!array_key_exists($provider, gw_providers())) {
+        json_fail('اختر خدمة الإرسال');
+    }
+    $instance = preg_replace('/\s+/', '', input_str('instance', 80));
+    $token = preg_replace('/\s+/', '', input_str('token', 200));
+    if ($token === '' && $acc['provider'] === $provider && !empty($acc['api_token'])) {
+        $token = $acc['api_token'];   // تعديل بدون إعادة كتابة الرمز
+    }
+    if ($provider === 'greenapi') {
+        if (!preg_match('/^\d{6,15}$/', $instance)) {
+            json_fail('رقم idInstance لازم يكون أرقام فقط — انسخه من لوحة Green-API');
+        }
+    } else {
+        if (preg_match('/^\d+$/', $instance)) {
+            $instance = 'instance' . $instance;
+        }
+        if (!preg_match('/^[A-Za-z0-9_-]{3,64}$/', $instance)) {
+            json_fail('رقم الـ Instance غير صحيح (مثل instance12345) — انسخه من لوحة UltraMsg');
+        }
+    }
+    if (!preg_match('/^[A-Za-z0-9_-]{8,190}$/', $token)) {
+        json_fail('الرمز (Token) غير صحيح — انسخه كامل من لوحة الخدمة');
+    }
+    $candidates = [null];
+    if ($provider === 'greenapi') {
+        $url = green_api_url_normalize(input_str('api_url', 190));
+        if ($url === null) {
+            json_fail('رابط apiUrl غير صحيح — انسخه من لوحة Green-API (مثل https://7103.api.greenapi.com)');
+        }
+        $candidates = $url !== '' ? [$url] : green_api_url_candidates($instance);
+    }
+
+    // نجرّب الاتصال قبل الحفظ حتى نكتشف أي خطأ بالبيانات فوراً
+    $test = array_merge($acc, ['provider' => $provider, 'api_instance' => $instance, 'api_token' => $token]);
+    $st = null;
+    $apiUrl = null;
+    foreach ($candidates as $u) {
+        $test['api_url'] = $u;
+        $st = gw_check_state($test);
+        $apiUrl = $u;
+        if ($st['state'] !== 'error') {
+            break;   // وصلنا للخدمة — هذا الرابط الصحيح
+        }
+    }
+    if ($st['state'] === 'auth_error') {
+        json_fail($st['note'] . ' — تأكد إنك نسخته كامل من لوحة ' . gw_provider_name($provider));
+    }
+    if ($st['state'] === 'error') {
+        json_fail($st['note']);
+    }
+
+    $changed = $acc['provider'] !== $provider || (string) $acc['api_instance'] !== $instance;
+    q(
+        'UPDATE wa_accounts SET provider = ?, api_url = ?, api_instance = ?, api_token = ?, api_state = ?, api_note = ?, api_checked_at = ?, next_send_at = NULL'
+        . ($changed ? ', api_phone = NULL' : '') . ' WHERE id = ?',
+        [$provider, $apiUrl, $instance, $token, $st['state'], str_cut($st['note'], 255), now_dt(), $acc['id']]
+    );
+    $acc = q_row('SELECT * FROM wa_accounts WHERE id = ?', [$acc['id']]);
+    $out = ['ok' => true, 'state' => $st['state'], 'note' => $st['note'], 'qr' => null];
+    if ($st['state'] === 'connected') {
+        $acc = account_store_state($acc, $st, false);   // يجيب رقم الواتساب المربوط
+    } elseif ($st['state'] === 'qr') {
+        $qr = gw_qr($acc);
+        $out['qr'] = $qr['qr'];
+        if ($qr['state'] !== 'qr') {
+            $acc = account_store_state($acc, $qr, false);
+            $out['state'] = $qr['state'];
+            $out['note'] = $qr['note'];
+        } elseif ($qr['note'] !== '') {
+            $out['note'] = $qr['note'];
+        }
+    }
+    $out['account'] = account_public(q_row('SELECT * FROM wa_accounts WHERE id = ?', [$acc['id']]));
+    json_out($out);
+}
+
+/** حالة الربط (والواجهة تسأل كل كم ثانية وهي تعرض رمز QR لحد ما يصير "متصل"). */
+function api_account_api_status(array $user)
+{
+    $acc = owned_account($user, (int) ($_GET['id'] ?? 0));
+    if (!$acc) {
+        json_fail('حساب غير موجود', 404);
+    }
+    if ($acc['provider'] === 'manual') {
+        json_out(['ok' => true, 'state' => null, 'note' => '', 'qr' => null, 'account' => account_public($acc)]);
+    }
+    $st = gw_check_state($acc);
+    $out = ['ok' => true, 'state' => $st['state'], 'note' => $st['note'], 'qr' => null];
+    if ($st['state'] === 'qr' && !empty($_GET['qr'])) {
+        $qr = gw_qr($acc);
+        $out['qr'] = $qr['qr'];
+        $st = gw_state($qr['state'], $qr['note'] !== '' ? $qr['note'] : $st['note']);
+        $out['state'] = $st['state'];
+        $out['note'] = $st['note'];
+    }
+    // الخطأ المؤقت أثناء عرض الرمز ما يغيّر حالة الحساب المحفوظة (يمكن الاتصال تقطّع لحظة)
+    if ($st['state'] !== 'error' || $acc['api_state'] !== 'connected') {
+        $acc = account_store_state($acc, $st, false);
+    }
+    $out['account'] = account_public(q_row('SELECT * FROM wa_accounts WHERE id = ?', [$acc['id']]));
+    json_out($out);
+}
+
+/** ربط برمز من 8 خانات بدل QR — للي فاتح الموقع من نفس الجوال اللي فيه الواتساب (ما يقدر يمسح شاشته). */
+function api_account_api_pair(array $user)
+{
+    $acc = owned_account($user, input_int('id'));
+    if (!$acc || $acc['provider'] === 'manual') {
+        json_fail('حساب غير موجود', 404);
+    }
+    $phone = clean_number(input_str('phone', 30), DEFAULT_COUNTRY_CODE);
+    if ($phone === null) {
+        json_fail('اكتب رقم الواتساب اللي تريد تربطه (مثل 07701234567)');
+    }
+    $r = gw_pair_code($acc, $phone);
+    if (!$r['ok']) {
+        json_fail($r['note']);
+    }
+    if (empty($acc['phone'])) {
+        q('UPDATE wa_accounts SET phone = ? WHERE id = ?', [$phone, $acc['id']]);
+    }
+    json_out(['ok' => true, 'code' => $r['code'], 'phone' => $phone]);
+}
+
+/** يفصل رقم الواتساب عن الخدمة (حتى تربط رقم ثاني بنفس الاشتراك). */
+function api_account_api_logout(array $user)
+{
+    $acc = owned_account($user, input_int('id'));
+    if (!$acc || $acc['provider'] === 'manual') {
+        json_fail('حساب غير موجود', 404);
+    }
+    if (!gw_logout($acc)) {
+        json_fail('تعذّر فصل الرقم من الخدمة — حاول مرة ثانية أو افصله من لوحة ' . gw_provider_name($acc['provider']));
+    }
+    q('UPDATE wa_accounts SET api_phone = NULL WHERE id = ?', [$acc['id']]);
+    $acc['api_phone'] = null;
+    account_store_state($acc, gw_state('qr', 'تم فصل الرقم — امسح رمز QR لربط رقم'), false);
+    json_out(['ok' => true, 'account' => account_public(q_row('SELECT * FROM wa_accounts WHERE id = ?', [$acc['id']]))]);
+}
+
+/** يرجّع الحساب للإرسال اليدوي ويمسح بيانات الخدمة من الموقع. */
+function api_account_api_remove(array $user)
+{
+    $acc = owned_account($user, input_int('id'));
+    if (!$acc) {
+        json_fail('حساب غير موجود', 404);
+    }
+    q(
+        "UPDATE wa_accounts SET provider = 'manual', api_url = NULL, api_instance = NULL, api_token = NULL, api_state = NULL,
+         api_note = NULL, api_checked_at = NULL, api_phone = NULL, next_send_at = NULL, sync_at = NULL WHERE id = ?",
+        [$acc['id']]
+    );
+    json_out(['ok' => true, 'account' => account_public(q_row('SELECT * FROM wa_accounts WHERE id = ?', [$acc['id']]))]);
+}
+
+/**
+ * المتصفح المفتوح يكمّل الإرسال التلقائي (لما ما فيه Cron): كل طلب يرسل
+ * لحد AUTO_TICK_BUDGET ثانية. القفل يضمن تشغيل واحد بس بنفس الوقت.
+ */
+function api_autosend(array $user)
+{
+    session_write_close();
+    ignore_user_abort(true);
+    @set_time_limit(AUTO_TICK_BUDGET + 90);
+    $r = auto_send_run(AUTO_TICK_BUDGET);
+    json_out($r);
+}
+
 // --------------------------------------------------------------- الحملات
 
 function api_campaigns(array $user)
@@ -186,7 +386,8 @@ function api_campaigns(array $user)
     }
     $limit = min(100, max(1, (int) ($_GET['limit'] ?? 50)));
     $rows = q_all(
-        'SELECT c.*, a.name AS account_name, a.phone AS account_phone, COALESCE(NULLIF(u.name, \'\'), u.email) AS owner_name
+        'SELECT c.*, a.name AS account_name, a.phone AS account_phone, a.provider AS account_provider, a.api_state AS account_state,
+                COALESCE(NULLIF(u.name, \'\'), u.email) AS owner_name
          FROM campaigns c LEFT JOIN wa_accounts a ON a.id = c.account_id LEFT JOIN users u ON u.id = c.owner_id
          WHERE ' . implode(' AND ', $where) . ' ORDER BY c.id DESC LIMIT ' . $limit,
         $params
@@ -205,7 +406,8 @@ function api_campaigns(array $user)
 function visible_campaign(array $user, $id)
 {
     $c = q_row(
-        'SELECT c.*, a.name AS account_name, a.phone AS account_phone, COALESCE(NULLIF(u.name, \'\'), u.email) AS owner_name
+        'SELECT c.*, a.name AS account_name, a.phone AS account_phone, a.provider AS account_provider, a.api_state AS account_state,
+                COALESCE(NULLIF(u.name, \'\'), u.email) AS owner_name
          FROM campaigns c LEFT JOIN wa_accounts a ON a.id = c.account_id LEFT JOIN users u ON u.id = c.owner_id WHERE c.id = ?',
         [(int) $id]
     );
@@ -228,9 +430,22 @@ function api_campaign(array $user)
         [$c['id']]
     );
     $data['can_cancel'] = $c['status'] === 'active';
-    $data['can_send'] = $c['status'] === 'active' && (int) $c['owner_id'] === (int) $user['id'];
+    $data['can_send'] = $c['status'] === 'active' && (int) $c['owner_id'] === (int) $user['id'] && manual_send_allowed($c);
+    $data['can_pause'] = $c['status'] === 'active' && $data['auto'];
     $data['ok'] = true;
     json_out($data);
+}
+
+/**
+ * الإرسال بالضغط مسموح للحسابات اليدوية، وللحسابات التلقائية بس إذا الرقم
+ * انفصل عن الخدمة (حتى ما يوقف شغل الفرع) — وإلا السيرفر هو اللي يرسل.
+ */
+function manual_send_allowed(array $c)
+{
+    if (empty($c['account_provider']) || $c['account_provider'] === 'manual') {
+        return true;
+    }
+    return $c['account_state'] !== 'connected' && empty($c['paused']);
 }
 
 /** حملة يملكها المستخدم نفسه — الإرسال يتم فقط من حساب صاحب الحملة. */
@@ -246,6 +461,9 @@ function api_send_next(array $user)
     if (!$c) {
         json_fail('حملة غير موجودة', 404);
     }
+    if (!manual_send_allowed($c)) {
+        json_fail('هذه الحملة تنرسل تلقائياً من السيرفر — ما تحتاج تضغط شي', 409);
+    }
     $token = sender_token($_GET['tok'] ?? '');
     if (!$token) {
         json_fail('حدّث الصفحة وحاول مرة ثانية');
@@ -258,6 +476,9 @@ function api_send_mark(array $user)
     $c = own_campaign($user, input_int('id'));
     if (!$c) {
         json_fail('حملة غير موجودة', 404);
+    }
+    if (!manual_send_allowed($c)) {
+        json_fail('الرقم رجع مربوط بالخدمة — الإرسال صار تلقائي من السيرفر', 409);
     }
     $token = sender_token(input_str('tok', 40));
     if (!$token) {
@@ -361,6 +582,21 @@ function api_campaign_cancel(array $user)
     json_out(['ok' => true]);
 }
 
+/** إيقاف مؤقت/استئناف الإرسال التلقائي لحملة. */
+function api_campaign_pause(array $user)
+{
+    $c = visible_campaign($user, input_int('id'));
+    if (!$c) {
+        json_fail('حملة غير موجودة', 404);
+    }
+    if ($c['status'] !== 'active') {
+        json_fail('الحملة مو شغّالة حالياً (يمكن خلصت أو انلغت)');
+    }
+    $paused = input_int('paused') ? 1 : 0;
+    q('UPDATE campaigns SET paused = ? WHERE id = ?', [$paused, $c['id']]);
+    json_out(['ok' => true, 'paused' => (bool) $paused]);
+}
+
 function api_campaign_cancel_day(array $user)
 {
     $c = visible_campaign($user, input_int('id'));
@@ -395,7 +631,7 @@ function api_events(array $user)
         ];
     }
     $unread = (int) q_val('SELECT COUNT(*) FROM notifications WHERE owner_id = ? AND is_read = 0', [$user['id']]);
-    json_out(['ok' => true, 'items' => $items, 'unread' => $unread]);
+    json_out(['ok' => true, 'items' => $items, 'unread' => $unread, 'auto' => auto_overview($user['is_admin'])]);
 }
 
 function api_event_read(array $user)
@@ -646,4 +882,32 @@ function api_site_identity_save(array $user)
     q('UPDATE site_settings SET site_name = ?, logo_file = ?, logo_icons = ?, updated_at = ? WHERE id = 1', [$name, $logo, $icons, now_dt()]);
     site_settings(true);
     json_out(['ok' => true, 'site_name' => $name, 'has_logo' => (bool) $logo, 'logo_url' => site_logo_url()]);
+}
+
+// --------------------------------------------------------------- الإرسال بالخلفية (Cron) — الأدمن
+
+function api_cron_info(array $user)
+{
+    $s = site_settings(true);
+    $last = $s['cron_last_run'];
+    $acc = q_row(
+        "SELECT SUM(provider <> 'manual') AS auto_total, SUM(provider <> 'manual' AND api_state = 'connected') AS connected FROM wa_accounts"
+    );
+    json_out([
+        'ok' => true,
+        'running' => cron_recent(),
+        'last_run' => $last ? substr($last, 0, 16) : null,
+        'command' => cron_command(),
+        'url' => base_url() . '/cron.php?key=' . $s['cron_key'],
+        'auto_accounts' => (int) $acc['auto_total'],
+        'connected_accounts' => (int) $acc['connected'],
+        'curl' => function_exists('curl_init'),
+    ]);
+}
+
+function api_cron_key_reset(array $user)
+{
+    q('UPDATE site_settings SET cron_key = ? WHERE id = 1', [bin2hex(random_bytes(16))]);
+    $s = site_settings(true);
+    json_out(['ok' => true, 'url' => base_url() . '/cron.php?key=' . $s['cron_key']]);
 }
