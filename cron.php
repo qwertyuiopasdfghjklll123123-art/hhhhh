@@ -10,6 +10,7 @@
  */
 if (PHP_SAPI !== 'cli') { http_response_code(403); exit("CLI only\n"); }
 require __DIR__ . '/core/bootstrap.php';
+wsl_run_pending_migrations(); // يضمن وجود أعمدة/جداول المحفظة لو كان الموقع يعمل من قبل هذا التحديث ولم يُزَر عبر المتصفح بعد
 
 $lockFile = DATA_DIR . '/cache/cron.lock';
 $fp = fopen($lockFile, 'c+');
@@ -33,9 +34,14 @@ function cron_send_next_due(): bool {
         }
         $didWork = true;
         try {
-            gateway_send($c['account_id'], $next['phone'], $c['text']);
+            wsl_wallet_charge_and_send((int)$c['owner'], $c['account_id'], $next['phone'], $c['text']);
             $conn->execute("UPDATE campaign_numbers SET status='sent' WHERE id=?", [$next['id']]);
             $conn->execute('UPDATE campaigns SET sent=sent+1, next_send_at=? WHERE id=?', [time() + (int)$c['delay_seconds'], $c['id']]);
+        } catch (InsufficientBalanceException $e) {
+            // رصيد غير كافٍ: نوقف الحملة مؤقتاً (مثل زر "إيقاف مؤقت") بدل فشل كل رقم تباعاً
+            // - المستخدم يشحن رصيده ثم يستأنف من حيث توقف، بلا خسارة أي رقم بالطابور.
+            $conn->execute("UPDATE campaigns SET status='paused' WHERE id=?", [$c['id']]);
+            add_event((int)$c['owner'], $c['account_id'], 'توقفت الحملة مؤقتاً', 'الرصيد غير كافٍ لإكمال الإرسال. اشحن محفظتك من الإعدادات ← المحفظة ثم استأنف الحملة.', 'warning');
         } catch (GatewayException $e) {
             $conn->execute("UPDATE campaign_numbers SET status='failed' WHERE id=?", [$next['id']]);
             $conn->execute('UPDATE campaigns SET failed=failed+1, next_send_at=? WHERE id=?', [time() + (int)$c['delay_seconds'], $c['id']]);
@@ -70,9 +76,11 @@ function cron_subscriber_reminders(): void {
             $msg = str_replace(['{name}', '{days}'], [$r['name'], '0'],
                 ($settings['expired_message'] ?? '') ?: 'مرحباً {name}، اشتراكك انتهى اليوم. تواصل معنا للتجديد.');
             try {
-                gateway_send($sender, $r['phone'], $msg);
+                wsl_wallet_charge_and_send((int)$r['owner'], $sender, $r['phone'], $msg);
                 $conn->execute('UPDATE subscribers SET expired_sent=1 WHERE id=?', [$r['id']]);
                 $conn->commit();
+            } catch (InsufficientBalanceException $e) {
+                // لا نحدّد expired_sent حتى يُشحَن الرصيد - يُعاد المحاولة تلقائياً بالتشغيلة القادمة
             } catch (GatewayException $e) { log_app_error('WARNING', 'subscriber expiry message failed: ' . $e->getMessage()); }
         } elseif (!py_truthy($r['reminder_sent']) && $daysLeft > 0 && $daysLeft <= $reminderBefore) {
             $sender = wsl_find_sending_account((int)$r['owner']);
@@ -80,13 +88,17 @@ function cron_subscriber_reminders(): void {
             $msg = str_replace(['{name}', '{days}'], [$r['name'], (string)$daysLeft],
                 ($settings['reminder_message'] ?? '') ?: 'مرحباً {name}، اشتراكك سينتهي خلال {days} أيام. تواصل معنا للتجديد.');
             try {
-                gateway_send($sender, $r['phone'], $msg);
+                wsl_wallet_charge_and_send((int)$r['owner'], $sender, $r['phone'], $msg);
                 $conn->execute('UPDATE subscribers SET reminder_sent=1 WHERE id=?', [$r['id']]);
                 $conn->commit();
+            } catch (InsufficientBalanceException $e) {
+                // لا نحدّد reminder_sent حتى يُشحَن الرصيد - يُعاد المحاولة تلقائياً بالتشغيلة القادمة
             } catch (GatewayException $e) { log_app_error('WARNING', 'subscriber reminder message failed: ' . $e->getMessage()); }
         }
     }
 }
+
+@file_put_contents(cron_heartbeat_file(), (string)time(), LOCK_EX); // لمركز الأمان بلوحة الأدمن: يعرف آخر تشغيلة فعلية للكرون
 
 try { cron_subscriber_reminders(); } catch (Throwable $e) { log_app_error('WARNING', 'cron_subscriber_reminders: ' . $e->getMessage()); }
 Conn::shutdown();

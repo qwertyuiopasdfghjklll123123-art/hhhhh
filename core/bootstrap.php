@@ -99,11 +99,12 @@ error_reporting(E_ALL);
 @set_time_limit(120);
 
 define('LOGO_DIR', DATA_DIR . '/wsl_logo');
-foreach (['', '/logs', '/cache', '/wsl_logo'] as $d) {
+define('PM_IMG_DIR', DATA_DIR . '/pm_images');
+foreach (['', '/logs', '/cache', '/wsl_logo', '/pm_images'] as $d) {
     if (!is_dir(DATA_DIR . $d)) @mkdir(DATA_DIR . $d, 0775, true);
 }
 
-foreach (['py', 'sqlsplit', 'error_handler', 'db', 'session', 'response', 'router', 'http', 'core', 'schema', 'hooks', 'security', 'wa_provider', 'gateway'] as $lib) {
+foreach (['py', 'sqlsplit', 'error_handler', 'db', 'session', 'response', 'router', 'http', 'core', 'schema', 'hooks', 'security', 'wa_provider', 'gateway', 'payments', 'wallet'] as $lib) {
     require_once APP_DIR . "/lib/$lib.php";
 }
 install_error_handlers();

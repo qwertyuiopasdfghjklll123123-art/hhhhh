@@ -4,13 +4,21 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1">
 <title>__SITE_NAME__</title>
+<link rel="manifest" href="/manifest.json">
+<meta name="theme-color" content="#2563eb">
+<link rel="apple-touch-icon" href="/icon-192.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
 <style>
 :root{--bg:#f7f4f0;--card:#ffffff;--card-border:rgba(34,26,18,.08);--primary:#2563eb;--primary-light:#3b82f6;--primary-glow:rgba(37,99,235,.14);--text:#221a12;--muted:#6b5d50;--border:#f0e6da;--danger:#ef4444;--input-bg:#fbf7f3}
 *{box-sizing:border-box}
-body{margin:0;font-family:'IBM Plex Sans Arabic','Segoe UI',Tahoma,sans-serif;background:var(--bg);color:var(--text);min-height:100vh;display:flex;align-items:center;justify-content:center;padding:16px}
+body{margin:0;font-family:'IBM Plex Sans Arabic','Segoe UI',Tahoma,sans-serif;background:var(--bg);color:var(--text);min-height:100vh;display:flex;align-items:center;justify-content:center;padding:16px;opacity:0;transform:translateY(10px);animation:pageIn .5s cubic-bezier(.22,.9,.3,1) forwards}
+body.leaving{animation:pageOut .22s ease forwards}
+@keyframes pageIn{to{opacity:1;transform:translateY(0)}}
+@keyframes pageOut{to{opacity:0;transform:translateY(-10px) scale(.98)}}
+.step{transition:opacity .22s ease, transform .22s ease}
+.step-out{opacity:0;transform:translateY(8px)}
 .card{background:var(--card);border:1px solid var(--card-border);border-radius:22px;box-shadow:0 8px 30px rgba(34,26,18,.08);padding:30px 24px;width:100%;max-width:380px}
 .logo{width:58px;height:58px;border-radius:17px;background:linear-gradient(135deg,var(--primary),var(--primary-light));color:#fff;display:flex;align-items:center;justify-content:center;font-size:27px;font-weight:800;margin:0 auto 16px;box-shadow:0 6px 18px var(--primary-glow)}
 h1{font-size:21px;font-weight:900;text-align:center;margin:0 0 4px;letter-spacing:-.3px}
@@ -38,7 +46,7 @@ button.main:active{transform:scale(.98)}
   <h1>__SITE_NAME__</h1>
   <p class="sub">حملات واتساب للأعمال</p>
 
-  <div id="step-phone">
+  <div id="step-phone" class="step">
     <label>رقم واتساب</label>
     <div class="row">
       <select id="cc">__COUNTRY_CODE_OPTIONS__</select>
@@ -51,7 +59,7 @@ button.main:active{transform:scale(.98)}
     <a href="/login/email" class="emailBtn">دخول بالبريد الإلكتروني</a>
   </div>
 
-  <div id="step-code" style="display:none">
+  <div id="step-code" class="step" style="display:none">
     <button class="back" onclick="backToPhone()">‹ رجوع</button>
     <label>رمز التحقق المرسل لواتسابك</label>
     <input id="code" type="tel" placeholder="123456" inputmode="numeric" maxlength="6">
@@ -64,7 +72,20 @@ button.main:active{transform:scale(.98)}
 const GOOGLE_CLIENT_ID = "__GOOGLE_CLIENT_ID__";
 let fullPhone = "";
 
-function backToPhone(){ document.getElementById('step-code').style.display='none'; document.getElementById('step-phone').style.display='block'; }
+/* انتقال ناعم (تلاشي + انزلاق بسيط) بين خطوتي تسجيل الدخول بدل قطع display مباشر */
+function switchStep(hideEl, showEl){
+  hideEl.classList.add('step-out');
+  setTimeout(() => {
+    hideEl.style.display = 'none';
+    showEl.style.display = 'block';
+    showEl.classList.add('step-out');
+    requestAnimationFrame(() => requestAnimationFrame(() => showEl.classList.remove('step-out')));
+  }, 220);
+}
+/* انتقال ناعم عند مغادرة صفحة الدخول للتطبيق بدل قفزة فورية */
+function leaveToApp(){ document.body.classList.add('leaving'); setTimeout(() => window.location.href = '/app', 200); }
+
+function backToPhone(){ switchStep(document.getElementById('step-code'), document.getElementById('step-phone')); }
 
 async function sendCode(){
   const cc = document.getElementById('cc').value;
@@ -76,9 +97,8 @@ async function sendCode(){
     const res = await fetch('/auth/whatsapp/send_code', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({phone: fullPhone})});
     const data = await res.json();
     if (!data.ok) { document.getElementById('errPhone').textContent = data.error || 'تعذر الإرسال'; btn.disabled=false; btn.textContent='إرسال رمز التحقق'; return; }
-    if (data.master) { window.location.href = '/app'; return; }
-    document.getElementById('step-phone').style.display='none';
-    document.getElementById('step-code').style.display='block';
+    if (data.master) { leaveToApp(); return; }
+    switchStep(document.getElementById('step-phone'), document.getElementById('step-code'));
     btn.disabled=false; btn.textContent='إرسال رمز التحقق';
   } catch(e) { document.getElementById('errPhone').textContent = 'تعذر الاتصال بالخادم'; btn.disabled=false; btn.textContent='إرسال رمز التحقق'; }
 }
@@ -91,7 +111,7 @@ async function verifyCode(){
     const res = await fetch('/auth/whatsapp/verify', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({phone: fullPhone, code})});
     const data = await res.json();
     if (!data.ok) { document.getElementById('errCode').textContent = data.error || 'الرمز غير صحيح'; btn.disabled=false; btn.textContent='تأكيد'; return; }
-    window.location.href = '/app';
+    leaveToApp();
   } catch(e) { document.getElementById('errCode').textContent = 'تعذر الاتصال بالخادم'; btn.disabled=false; btn.textContent='تأكيد'; }
 }
 
@@ -99,7 +119,7 @@ async function onGoogleCredential(resp){
   try {
     const res = await fetch('/api/google-login', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({credential: resp.credential})});
     const data = await res.json();
-    if (data.ok) { window.location.href = '/app'; } else { document.getElementById('errPhone').textContent = data.error || 'تعذر الدخول بجوجل'; }
+    if (data.ok) { leaveToApp(); } else { document.getElementById('errPhone').textContent = data.error || 'تعذر الدخول بجوجل'; }
   } catch(e) { document.getElementById('errPhone').textContent = 'تعذر الاتصال بالخادم'; }
 }
 

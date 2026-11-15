@@ -14,6 +14,8 @@ route('/admin/site_settings', function () {
         'whatsapp_subscribe_number' => $s['whatsapp_subscribe_number'],
         'whatsapp_support_number' => $s['whatsapp_support_number'],
         'plan_price_iqd' => $s['plan_price_iqd'] !== null ? (int)$s['plan_price_iqd'] : PLAN_PRICE_IQD,
+        'price_per_message_iqd' => (int)py_or($s['price_per_message_iqd'], 0),
+        'usd_to_iqd_rate' => (int)py_or($s['usd_to_iqd_rate'], 1310),
     ]);
 }, ['GET']);
 
@@ -26,12 +28,14 @@ route('/admin/site_settings', function () {
     if (!in_array($cc, $known, true)) $cc = DEFAULT_COUNTRY_CODE_FALLBACK;
     $conn = get_db();
     $conn->execute(
-        'UPDATE site_settings SET site_name=?, default_country_code=?, whatsapp_subscribe_number=?, whatsapp_support_number=?, plan_price_iqd=? WHERE id=1',
+        'UPDATE site_settings SET site_name=?, default_country_code=?, whatsapp_subscribe_number=?, whatsapp_support_number=?, plan_price_iqd=?, price_per_message_iqd=?, usd_to_iqd_rate=? WHERE id=1',
         [
             mb_substr(trim((string)($data['site_name'] ?? '')), 0, 60, 'UTF-8'), $cc,
             preg_replace('/\D/', '', (string)($data['whatsapp_subscribe_number'] ?? '')),
             preg_replace('/\D/', '', (string)($data['whatsapp_support_number'] ?? '')),
             max(0, (int)($data['plan_price_iqd'] ?? PLAN_PRICE_IQD)),
+            max(0, (int)($data['price_per_message_iqd'] ?? 0)),
+            max(1, (int)($data['usd_to_iqd_rate'] ?? 1310)),
         ]
     );
     $conn->commit();
@@ -41,11 +45,17 @@ route('/admin/site_settings', function () {
 route('/admin/customers', function () {
     if (($r = require_admin()) !== null) return $r;
     $rows = get_db()->execute('SELECT * FROM users ORDER BY id ASC')->fetchall();
-    return jsonify(array_map(fn($u) => [
-        'id' => (int)$u['id'], 'email' => $u['email'], 'phone' => $u['phone'], 'name' => $u['name'],
-        'is_admin' => py_truthy($u['is_admin']), 'plan_active' => effective_plan_active($u),
-        'trial_ends_at' => $u['trial_ends_at'], 'plan_ends_at' => $u['plan_ends_at'], 'created_at' => $u['created_at'],
-    ], $rows));
+    $now = time();
+    return jsonify(array_map(function ($u) use ($now) {
+        $trialT = $u['trial_ends_at'] ? strtotime($u['trial_ends_at']) : false;
+        return [
+            'id' => (int)$u['id'], 'email' => $u['email'], 'phone' => $u['phone'], 'name' => $u['name'],
+            'is_admin' => py_truthy($u['is_admin']), 'plan_active' => effective_plan_active($u),
+            'trial_ends_at' => $u['trial_ends_at'], 'trial_active' => $trialT !== false && $now < $trialT,
+            'plan_ends_at' => $u['plan_ends_at'], 'balance_iqd' => (int)py_or($u['balance_iqd'], 0),
+            'created_at' => $u['created_at'],
+        ];
+    }, $rows));
 }, ['GET']);
 
 route('/admin/customers/<int:userId>/plan', function ($userId) {

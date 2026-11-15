@@ -90,7 +90,9 @@ route('/api/v1/send', function () {
     get_db()->execute('UPDATE api_keys SET last_used_at=? WHERE id=?', [now_str(), $keyRow['id']]);
     get_db()->commit();
     try {
-        gateway_send($keyRow['account_id'], $phone, $message);
+        wsl_wallet_charge_and_send((int)$keyRow['owner'], $keyRow['account_id'], $phone, $message);
+    } catch (InsufficientBalanceException $e) {
+        return jsonify(['ok' => false, 'error' => $e->getMessage()], 402);
     } catch (GatewayException $e) {
         return jsonify(['ok' => false, 'error' => 'فشل الإرسال: ' . $e->getMessage()], 502);
     }

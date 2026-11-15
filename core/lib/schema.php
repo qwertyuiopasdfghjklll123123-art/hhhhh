@@ -47,10 +47,47 @@ function bootstrap_admin_from_config(): ?string {
     return 'تم إنشاء حساب الأدمن ' . $email . ' تلقائياً.';
 }
 
+/**
+ * ترقية التنصيبات الموجودة فعلاً (قبل إضافة المحفظة/طرق الدفع): أعمدة جديدة على جداول
+ * قديمة لا يضيفها CREATE TABLE IF NOT EXISTS. كل سطر مستقل وآمن عند التكرار (يتجاهل
+ * خطأ "duplicate column" لو كان العمود موجوداً أصلاً من تنصيب جديد).
+ */
+function run_column_migrations(PDO $pdo): void {
+    $alters = [
+        "ALTER TABLE users ADD COLUMN balance_iqd INT NOT NULL DEFAULT 0",
+        "ALTER TABLE site_settings ADD COLUMN price_per_message_iqd INT NOT NULL DEFAULT 0",
+        "ALTER TABLE site_settings ADD COLUMN usd_to_iqd_rate INT NOT NULL DEFAULT 1310",
+    ];
+    foreach ($alters as $sql) {
+        try { $pdo->exec($sql); } catch (Throwable $e) {}
+    }
+}
+
 function init_db(): void {
     $conn = get_db();
     create_schema($conn->pdo);
+    run_column_migrations($conn->pdo);
     $conn->commit();
     $msg = bootstrap_admin_from_config();
+    wsl_ensure_payment_method_singletons();
     if ($msg !== null) echo $msg . "\n";
+}
+
+/**
+ * ترقية موقع يعمل أصلاً فعلياً (أدمن موجود من قبل) لنسخة أحدث فيها أعمدة/صفوف جديدة.
+ * init_db() أعلاه ينفَّذ مرة واحدة فقط لحظة التنصيب الأول (public/index.php يستدعيها
+ * فقط لو ما فيه أدمن بعد) فلا يصل لموقع يعمل من قبل بعد نشر هذا التحديث. هذه الدالة
+ * بالعكس: رخيصة تماماً (فحص ملف واحد) فتستطيع الاستدعاء من كل طلب بأمان، وتنفّذ
+ * الترقية الفعلية مرة واحدة بس عبر ملف علامة بـ data/cache، مثل آلية session_epoch.
+ */
+function wsl_run_pending_migrations(): void {
+    $marker = DATA_DIR . '/cache/schema_version';
+    $current = 2; // زِد هذا الرقم كل ما أُضيفت ترقية/بذرة جديدة بـ run_column_migrations أو wsl_ensure_payment_method_singletons
+    $have = is_file($marker) ? (int)trim((string)@file_get_contents($marker)) : 0;
+    if ($have >= $current) return;
+    $conn = get_db();
+    run_column_migrations($conn->pdo);
+    $conn->commit();
+    wsl_ensure_payment_method_singletons();
+    @file_put_contents($marker, (string)$current, LOCK_EX);
 }

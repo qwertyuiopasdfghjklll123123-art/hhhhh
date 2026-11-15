@@ -13,6 +13,7 @@ CREATE TABLE IF NOT EXISTS users (
     trial_ends_at VARCHAR(32),
     trial_ended_notified TINYINT NOT NULL DEFAULT 0,
     plan_ends_at VARCHAR(32),
+    balance_iqd INT NOT NULL DEFAULT 0,
     created_at VARCHAR(32) NOT NULL DEFAULT ''
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin;
 
@@ -54,7 +55,9 @@ CREATE TABLE IF NOT EXISTS site_settings (
     default_country_code VARCHAR(8) DEFAULT '964',
     whatsapp_subscribe_number VARCHAR(32) DEFAULT '',
     whatsapp_support_number VARCHAR(32) DEFAULT '',
-    plan_price_iqd INT
+    plan_price_iqd INT,
+    price_per_message_iqd INT NOT NULL DEFAULT 0,
+    usd_to_iqd_rate INT NOT NULL DEFAULT 1310
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin;
 
 CREATE TABLE IF NOT EXISTS subscribers (
@@ -141,4 +144,46 @@ CREATE TABLE IF NOT EXISTS api_keys (
     revoked TINYINT NOT NULL DEFAULT 0,
     INDEX idx_api_keys_owner (owner),
     INDEX idx_api_keys_hash (key_hash)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin;
+
+-- طرق الدفع (شحن محفظة واصل): يدوي / Binance Pay / آسياسيل. "Super Key" يُضاف كطريقة
+-- يدوية (method_type='manual') من لوحة الأدمن - ما فيه API حقيقي معروف لها فنعتمد
+-- تحويلاً يدوياً بموافقة الأدمن مثل باقي الطرق اليدوية.
+CREATE TABLE IF NOT EXISTS payment_methods (
+    id INT PRIMARY KEY AUTO_INCREMENT,
+    name VARCHAR(190) NOT NULL,
+    icon VARCHAR(60) NOT NULL DEFAULT 'fa-solid fa-credit-card',
+    method_type VARCHAR(16) NOT NULL DEFAULT 'manual',
+    number VARCHAR(190) DEFAULT '',
+    exchange_rate VARCHAR(32) DEFAULT '',
+    currency VARCHAR(16) DEFAULT 'IQD',
+    note TEXT,
+    image VARCHAR(190) DEFAULT '',
+    method_extras MEDIUMTEXT,
+    active TINYINT NOT NULL DEFAULT 1,
+    sort_order INT NOT NULL DEFAULT 0,
+    created_at VARCHAR(32) NOT NULL DEFAULT ''
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin;
+
+-- طلبات شحن المحفظة: يدوي (ينتظر موافقة الأدمن) أو تلقائي (Binance/آسياسيل بعد التحقق).
+CREATE TABLE IF NOT EXISTS recharge_requests (
+    id INT PRIMARY KEY AUTO_INCREMENT,
+    user_id INT NOT NULL,
+    amount_iqd INT NOT NULL,
+    method VARCHAR(190) NOT NULL,
+    status VARCHAR(16) NOT NULL DEFAULT 'pending',
+    receipt MEDIUMTEXT,
+    ext_ref VARCHAR(190) DEFAULT NULL,
+    auto TINYINT NOT NULL DEFAULT 0,
+    created_at VARCHAR(32) NOT NULL DEFAULT '',
+    UNIQUE KEY uq_recharge_ext_ref (ext_ref),
+    INDEX idx_recharge_user (user_id),
+    INDEX idx_recharge_status (status)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin;
+
+-- حالة تدفّق تحويل آسياسيل المرحلي (OTP مزدوج) لكل مستخدم - صف واحد مؤقت أثناء العملية.
+CREATE TABLE IF NOT EXISTS asiacell_flows (
+    user_id INT PRIMARY KEY,
+    data MEDIUMTEXT NOT NULL,
+    created_at VARCHAR(32) NOT NULL DEFAULT ''
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin;

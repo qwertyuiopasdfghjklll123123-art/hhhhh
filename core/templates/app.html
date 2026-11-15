@@ -4,6 +4,9 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1">
 <title>__SITE_NAME__</title>
+<link rel="manifest" href="/manifest.json">
+<meta name="theme-color" content="#2563eb">
+<link rel="apple-touch-icon" href="/icon-192.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
@@ -16,8 +19,12 @@ body{margin:0;font-family:'IBM Plex Sans Arabic','Segoe UI',Tahoma,sans-serif;ba
 .topbar .logo{width:34px;height:34px;border-radius:11px;background:linear-gradient(135deg,var(--primary),var(--primary-light));color:#fff;display:flex;align-items:center;justify-content:center;font-size:15px;font-weight:800;box-shadow:0 4px 14px var(--primary-glow)}
 .bell{position:relative;width:38px;height:38px;border-radius:12px;background:var(--card);border:1.5px solid var(--card-border);font-size:15px;cursor:pointer;display:flex;align-items:center;justify-content:center;color:var(--primary)}
 .dot{position:absolute;top:-3px;left:-3px;width:9px;height:9px;background:var(--danger);border-radius:50%;display:none;border:2px solid var(--bg)}
-#content{padding:6px 16px;max-width:560px;margin:0 auto}
+#content{padding:6px 16px;max-width:560px;margin:0 auto;animation:fadeUp .25s ease}
+@keyframes fadeUp{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:translateY(0)}}
 .page-title{font-size:19px;font-weight:900;margin:6px 0 14px;letter-spacing:-.3px}
+.back-row{display:flex;align-items:center;gap:10px;margin:6px 0 14px}
+.back-row .back-btn{width:34px;height:34px;border-radius:11px;background:var(--card);border:1.5px solid var(--card-border);display:flex;align-items:center;justify-content:center;cursor:pointer;font-size:15px;flex-shrink:0}
+.back-row .page-title{margin:0}
 .card{background:var(--card);border:1px solid var(--card-border);border-radius:16px;padding:16px;margin-bottom:14px;box-shadow:var(--shadow)}
 .card-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px}
 .card-header h4{margin:0;font-size:13.5px;font-weight:800;display:flex;align-items:center;gap:6px}
@@ -38,7 +45,7 @@ label{font-size:11.5px;color:var(--text3);font-weight:700;display:block;margin:1
 .row{display:flex;gap:8px;align-items:center}
 .list-row{display:flex;align-items:center;justify-content:space-between;padding:11px 0;border-bottom:1px solid var(--card-border)}
 .list-row:last-child{border-bottom:none}
-.pill{font-size:10.5px;padding:4px 10px;border-radius:20px;font-weight:800}
+.pill{font-size:10.5px;padding:4px 10px;border-radius:20px;font-weight:800;white-space:nowrap}
 .pill-green{background:rgba(16,185,129,.12);color:#0a8a63}
 .pill-amber{background:rgba(245,158,11,.14);color:#b45309}
 .pill-red{background:rgba(239,68,68,.12);color:var(--danger)}
@@ -60,10 +67,35 @@ label{font-size:11.5px;color:var(--text3);font-weight:700;display:block;margin:1
 a.link{color:var(--primary);text-decoration:none;font-size:12.5px;font-weight:700}
 .toast{position:fixed;bottom:90px;left:50%;transform:translateX(-50%);background:var(--text);color:#fff;padding:11px 20px;border-radius:30px;font-size:13px;z-index:100;display:none;box-shadow:var(--shadow-lg);font-weight:600}
 .icon-wrap{width:38px;height:38px;border-radius:12px;display:flex;align-items:center;justify-content:center;font-size:16px;color:#fff;flex-shrink:0}
-.ic-green{background:linear-gradient(135deg,#10b981,#34d399)}.ic-blue{background:linear-gradient(135deg,var(--primary),var(--primary-light))}.ic-purple{background:linear-gradient(135deg,#7c3aed,#a78bfa)}.ic-amber{background:linear-gradient(135deg,#f59e0b,#fbbf24)}
+.ic-green{background:linear-gradient(135deg,#10b981,#34d399)}.ic-blue{background:linear-gradient(135deg,var(--primary),var(--primary-light))}.ic-purple{background:linear-gradient(135deg,#7c3aed,#a78bfa)}.ic-amber{background:linear-gradient(135deg,#f59e0b,#fbbf24)}.ic-dark{background:#334155}.ic-gold{background:linear-gradient(135deg,#eab308,#fbbf24)}
 .settings-item{display:flex;align-items:center;gap:12px;padding:13px 0;border-bottom:1px solid var(--card-border);cursor:pointer;font-weight:700;font-size:13.5px}
 .settings-item:active{opacity:.7}
 .settings-item:last-child{border-bottom:none}
+.settings-item .meta{margin-right:auto;color:var(--text3);font-size:11.5px;font-weight:700}
+.group-label{font-size:11px;color:var(--text3);font-weight:800;margin:18px 4px 8px;letter-spacing:.3px}
+.wallet-hero{background:linear-gradient(135deg,var(--primary),#1d4ed8);border-radius:18px;padding:20px;color:#fff;margin-bottom:14px;box-shadow:0 10px 26px -6px rgba(37,99,235,.45)}
+.wallet-hero .lbl{font-size:12px;opacity:.85;font-weight:700}
+.wallet-hero .amt{font-size:30px;font-weight:900;margin-top:4px;letter-spacing:-.5px}
+.pm-tile{display:flex;align-items:center;gap:12px;padding:13px;border:1.5px solid var(--card-border);border-radius:14px;margin-bottom:9px;cursor:pointer;background:var(--input-bg)}
+.pm-tile:active{opacity:.75}
+.pm-tile .pm-ic{font-size:22px;width:38px;text-align:center}
+.pm-tile b{font-size:13.5px}
+.pm-tile .sub{font-size:11px;color:var(--text3);font-weight:600}
+.tier-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:10px 0}
+.tier-btn{padding:12px 6px;border-radius:12px;border:1.5px solid var(--border);background:var(--input-bg);font-weight:800;font-size:13px;cursor:pointer;text-align:center}
+.tier-btn.sel{border-color:var(--primary);background:var(--primary-bg);color:var(--primary)}
+.chk-row{display:flex;gap:8px;flex-wrap:wrap;margin:10px 0}
+.lvl-dot{width:9px;height:9px;border-radius:50%;flex-shrink:0;margin-top:3px}
+.lvl-ok{background:var(--green)}.lvl-warn{background:var(--warn)}.lvl-bad{background:var(--danger)}.lvl-info{background:#94a3b8}
+.sec-check{display:flex;gap:10px;padding:10px 0;border-bottom:1px solid var(--card-border)}
+.sec-check:last-child{border-bottom:none}
+.sec-check b{font-size:12.5px;display:block}
+.sec-check span{font-size:11px;color:var(--text3)}
+.audit-row{font-size:11px;color:var(--text3);padding:7px 0;border-bottom:1px dashed var(--card-border);font-family:monospace;direction:ltr;text-align:right}
+.img-prev{max-width:100%;border-radius:12px;margin:8px 0;display:block}
+.tabs{display:flex;gap:6px;margin-bottom:12px;background:var(--input-bg);border-radius:12px;padding:4px}
+.tabs button{flex:1;border:none;background:none;padding:9px 4px;border-radius:9px;font-size:12px;font-weight:800;color:var(--text3);cursor:pointer;font-family:inherit}
+.tabs button.active{background:var(--card);color:var(--primary);box-shadow:var(--shadow)}
 </style>
 </head>
 <body>
@@ -92,13 +124,14 @@ let gen = 0;
 function toast(msg){ const t=document.getElementById('toast'); t.textContent=msg; t.style.display='block'; setTimeout(()=>t.style.display='none', 2500); }
 function closeSheet(){ document.getElementById('overlay').classList.remove('open'); }
 function openSheet(html){ document.getElementById('sheet').innerHTML = html; document.getElementById('overlay').classList.add('open'); }
+function sheetOpen(){ return document.getElementById('overlay').classList.contains('open'); }
 function esc(s){ return (s||'').toString().replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+function backRow(title, to){ return `<div class="back-row"><button class="back-btn" onclick="showSection('${to}')">→</button><div class="page-title">${esc(title)}</div></div>`; }
 
 async function api(path, opts={}){
   const res = await fetch(path, {headers: opts.json !== false ? {'Content-Type':'application/json'} : {}, ...opts});
   let data = null; try { data = await res.json(); } catch(e) {}
-  // مسارات ترجع مصفوفة مباشرة (/accounts, /subscribers, /admin/customers...) تترجع كما
-  // هي - دمجها بـ {status, ...data} يحوّل المصفوفة لكائن بمفاتيح رقمية ويكسر .map/.filter
+  // مسارات ترجع مصفوفة مباشرة - دمجها بـ {status, ...data} يحوّل المصفوفة لكائن بمفاتيح رقمية ويكسر .map/.filter
   if (Array.isArray(data)) return data;
   return {status: res.status, ...(data || {})};
 }
@@ -107,21 +140,52 @@ async function apiForm(path, formData, method='POST'){
   let data = {}; try { data = await res.json(); } catch(e) {}
   return {status: res.status, ...data};
 }
+function readFileAsDataUrl(file){ return new Promise((resolve,reject)=>{ const fr=new FileReader(); fr.onload=()=>resolve(fr.result); fr.onerror=reject; fr.readAsDataURL(file); }); }
 
-function showSection(name){
+/* ---------------------------------------------------------------- التوجيه (روابط مباشرة للأدمن فقط) */
+const SECTION_PATH = {
+  home:'/app', accounts:'/app/accounts', campaigns:'/app/campaigns', settings:'/app/settings',
+  notifications:'/app/notifications', wallet:'/app/wallet', autoreply:'/app/autoreply',
+  subscribers:'/app/subscribers', apikeys:'/app/apikeys',
+  admin_users:'/app/admin', admin_security:'/app/admin/security',
+  admin_payments:'/app/admin/payments', admin_recharge:'/app/admin/recharge', admin_site:'/app/admin/site',
+};
+const PATH_SECTION = Object.fromEntries(Object.entries(SECTION_PATH).map(([k,v])=>[v,k]));
+const renderers = {
+  home: renderHome, accounts: renderAccounts, campaigns: renderCampaigns, settings: renderSettings,
+  notifications: renderNotifications, wallet: renderWallet, autoreply: renderAutoReply,
+  subscribers: renderSubscribers, apikeys: renderApiKeys,
+  admin_users: renderAdminUsers, admin_security: renderAdminSecurity,
+  admin_payments: renderAdminPayments, admin_recharge: renderAdminRecharge, admin_site: renderAdminSiteSettings,
+};
+
+function showSection(name, opts={}){
+  if (!renderers[name]) name = 'home';
   document.querySelectorAll('.bottom-nav button').forEach(b => b.classList.toggle('active', b.dataset.s === name));
   const myGen = ++gen;
-  const renderers = {home: renderHome, accounts: renderAccounts, campaigns: renderCampaigns, settings: renderSettings, notifications: renderNotifications};
-  (renderers[name] || renderHome)(myGen);
+  // المستخدم العادي يبقى دائماً على /app بدون تغيير الرابط؛ الأدمن وحده يحصل على رابط مباشر لكل قسم
+  if (IS_ADMIN && !opts.noHistory) {
+    const path = SECTION_PATH[name] || '/app';
+    if (location.pathname !== path) history.pushState({section:name}, '', path);
+  }
+  renderers[name](myGen);
 }
+window.addEventListener('popstate', (e) => {
+  const name = (e.state && e.state.section) || PATH_SECTION[location.pathname] || 'home';
+  showSection(name, {noHistory:true});
+});
 
 /* ---------------------------------------------------------------- الرئيسية */
 async function renderHome(myGen){
   document.getElementById('content').innerHTML = '<div class="page-title">الرئيسية</div><div class="card"><div class="empty">...</div></div>';
-  const s = await api('/dashboard/stats');
+  const [s, w] = await Promise.all([api('/dashboard/stats'), api('/wallet/balance')]);
   if (myGen !== gen) return;
   document.getElementById('content').innerHTML = `
     <div class="page-title">أهلاً، ${esc(USERNAME)} 👋</div>
+    ${w.metering_enabled ? `<div class="card" style="cursor:pointer" onclick="showSection('wallet')">
+      <div class="row" style="justify-content:space-between">
+        <span class="t-sm">💰 رصيد محفظتك</span><b style="color:var(--primary)">${(w.balance_iqd||0).toLocaleString()} د.ع</b>
+      </div></div>` : ''}
     <div class="card">
       <div class="stat-grid">
         <div class="stat"><b>${s.accounts_connected||0}/${s.accounts_total||0}</b><span>حسابات متصلة</span></div>
@@ -231,8 +295,6 @@ async function renderCampaigns(myGen){
     <div class="card"><div class="card-header"><h4>حملات جارية</h4></div><div id="cRunning"><div class="empty">...</div></div></div>`;
   loadRunning(myGen);
   const box = document.getElementById('cRunning');
-  const orig = loadRunning;
-  // يعيد استخدام نفس دالة الرئيسية بس تكتب بهذا الصندوق - أسهل نعرّف مجدداً مختصرة
   (async () => {
     const rows = await api('/dashboard/running_campaigns');
     if (myGen !== gen) return;
@@ -275,30 +337,175 @@ async function renderSettings(myGen){
     <div class="page-title">الإعدادات</div>
     <div class="card">
       <div class="settings-item" onclick="showSection('accounts')"><span class="icon-wrap ic-green">📱</span> حسابات واتساب</div>
-      <div class="settings-item" onclick="openAutoReply()"><span class="icon-wrap ic-blue">🤖</span> الرد الآلي</div>
-      <div class="settings-item" onclick="openSubscribers()"><span class="icon-wrap ic-purple">👥</span> المشتركين (عملائي)</div>
-      <div class="settings-item" onclick="openApiKeys()"><span class="icon-wrap ic-amber">🔑</span> مفاتيح API</div>
-      ${IS_ADMIN ? `<div class="settings-item" onclick="openAdmin()"><span class="icon-wrap" style="background:#334155">🛠️</span> لوحة الأدمن</div>` : ''}
+      <div class="settings-item" onclick="showSection('wallet')"><span class="icon-wrap ic-gold">💰</span> المحفظة</div>
+      <div class="settings-item" onclick="showSection('autoreply')"><span class="icon-wrap ic-blue">🤖</span> الرد الآلي</div>
+      <div class="settings-item" onclick="showSection('subscribers')"><span class="icon-wrap ic-purple">👥</span> المشتركين (عملائي)</div>
+      <div class="settings-item" onclick="showSection('apikeys')"><span class="icon-wrap ic-amber">🔑</span> مفاتيح API</div>
     </div>
+    ${IS_ADMIN ? `
+    <div class="group-label">لوحة الأدمن</div>
+    <div class="card">
+      <div class="settings-item" onclick="showSection('admin_users')"><span class="icon-wrap ic-dark">👤</span> المستخدمين والاشتراكات</div>
+      <div class="settings-item" onclick="showSection('admin_recharge')"><span class="icon-wrap ic-dark">🧾</span> طلبات الشحن</div>
+      <div class="settings-item" onclick="showSection('admin_payments')"><span class="icon-wrap ic-dark">💳</span> طرق الدفع</div>
+      <div class="settings-item" onclick="showSection('admin_security')"><span class="icon-wrap ic-dark">🛡️</span> الأمان</div>
+      <div class="settings-item" onclick="showSection('admin_site')"><span class="icon-wrap ic-dark">⚙️</span> إعدادات الموقع</div>
+    </div>` : ''}
     <div class="card">
       <button class="btn btn-danger" style="width:100%" onclick="doLogout()">تسجيل الخروج</button>
     </div>`;
 }
 async function doLogout(){ gen++; await fetch('/logout', {method:'POST'}); window.location.href = '/'; }
 
-/* -------- الرد الآلي -------- */
-async function openAutoReply(){
-  if (!accounts.length) accounts = await api('/accounts');
-  if (!accounts.length) { toast('وصّل حساب واتساب أول'); return; }
-  openSheet(`<h3>الرد الآلي</h3><label>الحساب</label><select id="arAcc" onchange="loadAutoReply()">${accounts.map(a=>`<option value="${a.id}">${esc(a.name)}</option>`).join('')}</select><div id="arBox">...</div>`);
-  loadAutoReply();
+/* ---------------------------------------------------------------- المحفظة */
+let _pmCache = null;
+async function renderWallet(myGen){
+  document.getElementById('content').innerHTML = backRow('المحفظة', 'settings') + '<div class="card"><div class="empty">...</div></div>';
+  const [w, pm] = await Promise.all([api('/wallet/balance'), api('/payment-methods')]);
+  if (myGen !== gen) return;
+  _pmCache = pm.methods || [];
+  const methodIcon = {binance:'🟡', asiacell:'📶', manual:'💳'};
+  document.getElementById('content').innerHTML = backRow('المحفظة', 'settings') + `
+    <div class="wallet-hero">
+      <div class="lbl">رصيدك الحالي</div>
+      <div class="amt">${(w.balance_iqd||0).toLocaleString()} د.ع</div>
+      ${w.metering_enabled ? `<div class="lbl" style="margin-top:8px">سعر كل رسالة: ${(w.price_per_message_iqd||0).toLocaleString()} د.ع</div>` : `<div class="lbl" style="margin-top:8px">الإرسال مجاني حالياً (التسعير بالرسالة غير مفعّل)</div>`}
+    </div>
+    <div class="card"><div class="card-header"><h4>اشحن محفظتك</h4></div>
+      <div id="pmList">${_pmCache.length ? _pmCache.map(m => `
+        <div class="pm-tile" onclick="openRecharge(${m.id})">
+          <span class="pm-ic">${methodIcon[m.method_type]||'💳'}</span>
+          <div><b>${esc(m.name)}</b><div class="sub">${m.method_type==='binance'?'Binance Pay (USD)':(m.method_type==='asiacell'?'تحويل رصيد آسياسيل':'دفع يدوي')}</div></div>
+        </div>`).join('') : '<div class="empty">لا توجد طرق شحن مفعّلة حالياً، تواصل مع الإدارة</div>'}</div>
+    </div>
+    <div id="rechargeBox"></div>`;
 }
-function sheetOpen(){ return document.getElementById('overlay').classList.contains('open'); }
+function openRecharge(pmId){
+  const m = (_pmCache||[]).find(x => x.id === pmId);
+  if (!m) return;
+  const box = document.getElementById('rechargeBox');
+  if (m.method_type === 'binance') box.innerHTML = rechargeBinanceHtml(m);
+  else if (m.method_type === 'asiacell') box.innerHTML = rechargeAsiacellHtml(m);
+  else box.innerHTML = rechargeManualHtml(m);
+  box.scrollIntoView({behavior:'smooth', block:'start'});
+}
+function rechargeManualHtml(m){
+  return `<div class="card"><div class="card-header"><h4>${esc(m.name)}</h4></div>
+    ${m.image ? `<img class="img-prev" src="/pm-image/${esc(m.image)}">` : ''}
+    ${m.number ? `<p class="t-sm">الرقم/الحساب: <b style="direction:ltr;display:inline-block">${esc(m.number)}</b></p>` : ''}
+    ${m.note ? `<p class="t-sm muted">${esc(m.note)}</p>` : ''}
+    <label>المبلغ المدفوع (د.ع)</label><input id="mAmount" type="number" min="1">
+    <label>صورة إثبات الدفع</label><input id="mReceiptFile" type="file" accept="image/*">
+    <label>أو رقم العملية/ملاحظة نصية</label><input id="mReceiptText" placeholder="اختياري لو رفعت صورة">
+    <button class="btn btn-primary" style="margin-top:12px" onclick="submitManualRecharge(${m.id})">إرسال طلب الشحن</button>`;
+}
+async function submitManualRecharge(pmId){
+  const m = (_pmCache||[]).find(x => x.id === pmId);
+  const amount = parseInt(document.getElementById('mAmount').value || '0');
+  if (amount <= 0) { toast('أدخل مبلغاً صحيحاً'); return; }
+  const file = document.getElementById('mReceiptFile').files[0];
+  let receipt = document.getElementById('mReceiptText').value.trim();
+  if (file) receipt = await readFileAsDataUrl(file);
+  if (!receipt) { toast('أرفق صورة إثبات أو اكتب رقم العملية'); return; }
+  const r = await api('/wallet/recharge/submit', {method:'POST', body: JSON.stringify({amount_iqd: amount, method: m.name, receipt})});
+  if (!r.ok) { toast(r.msg || 'فشل'); return; }
+  toast(r.msg); showSection('wallet');
+}
+function rechargeBinanceHtml(m){
+  return `<div class="card"><div class="card-header"><h4>Binance Pay</h4></div>
+    ${m.qr_code ? `<div class="qrbox"><img src="/pm-image/${esc(m.qr_code)}" style="width:180px;height:180px"></div>` : ''}
+    ${m.number ? `<p class="t-sm">Binance ID: <b style="direction:ltr;display:inline-block">${esc(m.number)}</b></p>` : ''}
+    <p class="t-sm muted">ادفع المبلغ بالدولار عبر Binance Pay، ثم أدخل رقم العملية (Order ID) والمبلغ بالدولار هنا للتحقق التلقائي:</p>
+    <label>المبلغ بالدولار (USD)</label><input id="bAmount" type="number" step="0.01" min="0.01">
+    <label>رقم العملية (Order ID)</label><input id="bOrderId">
+    <button class="btn btn-primary" style="margin-top:12px" onclick="submitBinanceRecharge()">تحقق وأضف الرصيد</button>`;
+}
+async function submitBinanceRecharge(){
+  const amount = parseFloat(document.getElementById('bAmount').value || '0');
+  const orderId = document.getElementById('bOrderId').value.trim();
+  if (amount <= 0 || !orderId) { toast('أكمل المبلغ ورقم العملية'); return; }
+  const r = await api('/wallet/recharge/binance/verify', {method:'POST', body: JSON.stringify({amount_usd: amount, order_id: orderId})});
+  if (!r.ok) { toast(r.msg || 'فشل التحقق'); return; }
+  toast(r.msg); showSection('wallet');
+}
+function rechargeAsiacellHtml(m){
+  const tiers = m.tiers || [];
+  return `<div class="card"><div class="card-header"><h4>آسياسيل</h4></div>
+    <p class="t-sm muted">اختر المبلغ، ثم أدخل رقم آسياسيل الذي سيحوّل منه الرصيد:</p>
+    <div class="tier-grid">${tiers.map(t => `<button type="button" class="tier-btn" data-iqd="${t.iqd}" onclick="selectAsiaTier(this)">${Number(t.iqd).toLocaleString()} د.ع${t.bonus>0?`<br><span style="font-size:10px">+${t.bonus} هدية</span>`:''}</button>`).join('')}</div>
+    <label>رقم آسياسيل (07xxxxxxxxx)</label><input id="aPhone" type="tel" placeholder="0770xxxxxxx">
+    <button class="btn btn-primary" style="margin-top:12px" onclick="startAsiaRecharge()">بدء التحويل</button>
+    <div id="aStepBox"></div>`;
+}
+let _asiaSelectedTier = null;
+function selectAsiaTier(btn){
+  document.querySelectorAll('.tier-btn').forEach(b => b.classList.remove('sel'));
+  btn.classList.add('sel');
+  _asiaSelectedTier = parseInt(btn.dataset.iqd);
+}
+async function startAsiaRecharge(){
+  const phone = document.getElementById('aPhone').value.trim();
+  if (!_asiaSelectedTier) { toast('اختر مبلغ الشحن'); return; }
+  const r = await api('/wallet/recharge/asiacell/start', {method:'POST', body: JSON.stringify({phone, amount_iqd: _asiaSelectedTier})});
+  if (!r.ok) { toast(r.msg || 'فشل'); return; }
+  document.getElementById('aStepBox').innerHTML = `
+    <p class="t-sm muted" style="margin-top:12px">وصلك رمز تحقق من آسياسيل برسالة SMS، أدخله هنا:</p>
+    <label>رمز التحقق</label><input id="aSms" inputmode="numeric">
+    <button class="btn btn-primary" style="margin-top:10px" onclick="verifyAsiaSms()">تأكيد</button>`;
+}
+async function verifyAsiaSms(){
+  const code = document.getElementById('aSms').value.trim();
+  const r = await api('/wallet/recharge/asiacell/verify-sms', {method:'POST', body: JSON.stringify({code})});
+  if (!r.ok) { toast(r.msg || 'فشل'); return; }
+  document.getElementById('aStepBox').innerHTML = `
+    <p class="t-sm muted" style="margin-top:12px">وصلك رمز تأكيد ثانٍ لتحويل ${r.chunk_amount.toLocaleString()} د.ع، أدخله:</p>
+    <label>رمز التأكيد</label><input id="aConfirm" inputmode="numeric">
+    <button class="btn btn-primary" style="margin-top:10px" onclick="confirmAsiaTransfer()">تأكيد التحويل</button>
+    <button class="btn btn-outline" style="margin-top:8px" onclick="cancelAsiaRecharge()">إلغاء</button>`;
+}
+async function confirmAsiaTransfer(){
+  const code = document.getElementById('aConfirm').value.trim();
+  const r = await api('/wallet/recharge/asiacell/confirm', {method:'POST', body: JSON.stringify({code})});
+  if (!r.ok && !r.partial_stopped) { toast(r.msg || 'فشل'); return; }
+  if (r.done) { toast('تم شحن رصيدك بنجاح'); showSection('wallet'); return; }
+  if (r.partial_stopped) { toast(r.msg); showSection('wallet'); return; }
+  document.getElementById('aStepBox').innerHTML = `
+    <p class="t-sm muted" style="margin-top:12px">تم تحويل ${r.paid.toLocaleString()} من ${r.total.toLocaleString()} د.ع. المتابعة بتحويل ${r.next_chunk.toLocaleString()} د.ع - أدخل رمز التحقق الجديد:</p>
+    <label>رمز التحقق</label><input id="aSms2" inputmode="numeric">
+    <button class="btn btn-primary" style="margin-top:10px" onclick="verifyAsiaSmsAgain()">تأكيد</button>`;
+}
+async function verifyAsiaSmsAgain(){
+  const code = document.getElementById('aSms2').value.trim();
+  const r = await api('/wallet/recharge/asiacell/verify-sms', {method:'POST', body: JSON.stringify({code})});
+  if (!r.ok) { toast(r.msg || 'فشل'); return; }
+  document.getElementById('aStepBox').innerHTML = `
+    <p class="t-sm muted" style="margin-top:12px">أدخل رمز التأكيد لتحويل ${r.chunk_amount.toLocaleString()} د.ع:</p>
+    <label>رمز التأكيد</label><input id="aConfirm" inputmode="numeric">
+    <button class="btn btn-primary" style="margin-top:10px" onclick="confirmAsiaTransfer()">تأكيد التحويل</button>`;
+}
+async function cancelAsiaRecharge(){
+  const r = await api('/wallet/recharge/asiacell/cancel', {method:'POST', body: JSON.stringify({})});
+  toast(r.credited_iqd > 0 ? `تم استرداد ${r.credited_iqd.toLocaleString()} د.ع` : 'تم الإلغاء');
+  showSection('wallet');
+}
 
-async function loadAutoReply(){
+/* ---------------------------------------------------------------- الرد الآلي */
+async function renderAutoReply(myGen){
+  if (!accounts.length) accounts = await api('/accounts');
+  if (myGen !== gen) return;
+  if (!accounts.length) {
+    document.getElementById('content').innerHTML = backRow('الرد الآلي', 'settings') + '<div class="card"><div class="empty">وصّل حساب واتساب أول من قسم "حسابي"</div></div>';
+    return;
+  }
+  document.getElementById('content').innerHTML = backRow('الرد الآلي', 'settings') +
+    `<div class="card"><label>الحساب</label><select id="arAcc" onchange="loadAutoReply()">${accounts.map(a=>`<option value="${a.id}">${esc(a.name)}</option>`).join('')}</select><div id="arBox">...</div></div>`;
+  loadAutoReply(myGen);
+}
+async function loadAutoReply(myGen){
   const accId = document.getElementById('arAcc').value;
   const d = await api(`/accounts/${accId}/auto_reply`);
-  if (!sheetOpen()) return;
+  if (myGen !== undefined && myGen !== gen) return;
+  if (!document.getElementById('arBox')) return;
   const rules = d.rules || [];
   document.getElementById('arBox').innerHTML = `
     <label class="row" style="margin-top:12px"><input type="checkbox" id="arEnabled" ${d.enabled?'checked':''} style="width:auto"> تفعيل الرد الآلي</label>
@@ -312,19 +519,20 @@ async function saveAutoReply(accId){
     keyword: row.querySelector('.ar-kw').value.trim(), reply: row.querySelector('.ar-rp').value.trim()
   })).filter(r => r.keyword && r.reply);
   const r = await api(`/accounts/${accId}/auto_reply`, {method:'POST', body: JSON.stringify({enabled: document.getElementById('arEnabled').checked, rules})});
-  if (r.ok) { toast('تم الحفظ'); closeSheet(); } else toast(r.error||'فشل');
+  if (r.ok) toast('تم الحفظ'); else toast(r.error||'فشل');
 }
 
-/* -------- المشتركين -------- */
-async function openSubscribers(){
-  openSheet('<h3>المشتركين</h3><div id="subBox">...</div>');
-  await loadSubscribers();
+/* ---------------------------------------------------------------- المشتركين */
+async function renderSubscribers(myGen){
+  document.getElementById('content').innerHTML = backRow('المشتركين', 'settings') + '<div class="card"><div id="subBox">...</div></div>';
+  await loadSubscribers(myGen);
 }
-async function loadSubscribers(){
+async function loadSubscribers(myGen){
   const subs = await api('/subscribers');
-  if (!sheetOpen()) return;
+  if (myGen !== undefined && myGen !== gen) return;
+  if (!document.getElementById('subBox')) return;
   document.getElementById('subBox').innerHTML = `
-    <div style="max-height:280px;overflow:auto">${subs.length ? subs.map(s => `
+    <div style="max-height:320px;overflow:auto">${subs.length ? subs.map(s => `
       <div class="list-row"><span class="t-sm">${esc(s.name)}<br><span class="muted">${esc(s.phone)} · ${s.days_left!==null?(s.days_left>=0?('باقي '+s.days_left+' يوم'):'منتهي'):''}</span></span>
       <span class="row" style="width:auto"><button class="btn btn-sm btn-outline" onclick="renewSub(${s.id})">تجديد</button><button class="btn btn-sm btn-danger" onclick="delSub(${s.id})">حذف</button></span></div>`).join('') : '<div class="empty">ما فيه مشتركين بعد</div>'}</div>
     <label style="margin-top:14px">اسم المشترك</label><input id="subName">
@@ -343,17 +551,18 @@ async function addSub(){
 async function delSub(id){ if(!confirm('حذف المشترك؟'))return; await api(`/subscribers/${id}/delete`, {method:'POST'}); loadSubscribers(); }
 async function renewSub(id){ await api(`/subscribers/${id}/renew`, {method:'POST', body: JSON.stringify({})}); loadSubscribers(); toast('تم التجديد'); }
 
-/* -------- مفاتيح API -------- */
-async function openApiKeys(){
-  openSheet('<h3>مفاتيح API</h3><div id="akBox">...</div>');
-  await loadApiKeys();
+/* ---------------------------------------------------------------- مفاتيح API */
+async function renderApiKeys(myGen){
+  document.getElementById('content').innerHTML = backRow('مفاتيح API', 'settings') + '<div class="card"><div id="akBox">...</div></div>';
+  await loadApiKeys(myGen);
 }
-async function loadApiKeys(){
+async function loadApiKeys(myGen){
   const d = await api('/api_keys');
-  if (!sheetOpen()) return;
+  if (myGen !== undefined && myGen !== gen) return;
+  if (!document.getElementById('akBox')) return;
   if (!d.plan_active) { document.getElementById('akBox').innerHTML = '<div class="empty">مفاتيح API تحتاج اشتراك مفعّل (مو فترة تجربة)</div>'; return; }
   if (!accounts.length) accounts = await api('/accounts');
-  if (!sheetOpen()) return;
+  if (!document.getElementById('akBox')) return;
   const conn = connectedAccounts();
   document.getElementById('akBox').innerHTML = `
     <div>${d.keys.length ? d.keys.map(k => `
@@ -365,24 +574,218 @@ async function loadApiKeys(){
 async function genKey(){
   const r = await api('/api_keys', {method:'POST', body: JSON.stringify({account_id: document.getElementById('akAcc').value})});
   if (!r.ok) { toast(r.error); return; }
-  openSheet(`<h3>مفتاحك الجديد</h3><p class="t-sm muted">هذا المفتاح يُعرض مرة واحدة بس - خزّنه الآن:</p><input readonly value="${esc(r.key)}" style="font-family:monospace" onclick="this.select()"><button class="btn btn-primary" style="margin-top:12px" onclick="openApiKeys()">تمام، خزّنته</button>`);
+  openSheet(`<h3>مفتاحك الجديد</h3><p class="t-sm muted">هذا المفتاح يُعرض مرة واحدة بس - خزّنه الآن:</p><input readonly value="${esc(r.key)}" style="font-family:monospace" onclick="this.select()"><button class="btn btn-primary" style="margin-top:12px" onclick="closeSheet();loadApiKeys()">تمام، خزّنته</button>`);
 }
 async function revokeKey(id){ await api(`/api_keys/${id}`, {method:'DELETE'}); loadApiKeys(); }
 
-/* -------- لوحة الأدمن -------- */
-async function openAdmin(){
-  openSheet('<h3>لوحة الأدمن</h3><div id="adBox">...</div>');
+/* ---------------------------------------------------------------- لوحة الأدمن: المستخدمين */
+async function renderAdminUsers(myGen){
+  document.getElementById('content').innerHTML = backRow('المستخدمين والاشتراكات', 'settings') + '<div class="card"><div class="empty">...</div></div>';
   const customers = await api('/admin/customers');
-  if (!sheetOpen()) return;
-  document.getElementById('adBox').innerHTML = `
-    <div style="max-height:300px;overflow:auto">${customers.map(c => `
-      <div class="list-row"><span class="t-sm">${esc(c.name||c.email||c.phone||('#'+c.id))}<br><span class="muted">${c.plan_active?'مفعّل':'غير مفعّل'}</span></span>
-      <span class="row" style="width:auto">
-        <button class="btn btn-sm btn-primary" onclick="setPlan(${c.id},true)">تفعيل 30 يوم</button>
-        <button class="btn btn-sm btn-outline" onclick="setPlan(${c.id},false)">إيقاف</button>
-      </span></div>`).join('')}</div>`;
+  if (myGen !== gen) return;
+  document.getElementById('content').innerHTML = backRow('المستخدمين والاشتراكات', 'settings') + `
+    <div class="card">${customers.map(c => `
+      <div class="list-row" style="flex-direction:column;align-items:stretch;gap:6px">
+        <div class="row" style="justify-content:space-between">
+          <span class="t-sm"><b>${esc(c.name||c.email||c.phone||('#'+c.id))}</b>${c.is_admin?' <span class="pill pill-gray">أدمن</span>':''}</span>
+          <span class="pill ${c.plan_active?'pill-green':(c.trial_active?'pill-amber':'pill-red')}">${c.plan_active?'مشترك':(c.trial_active?'تجربة مجانية':'غير مفعّل')}</span>
+        </div>
+        <span class="t-sm muted">${esc(c.email||'')} ${c.phone?('· '+esc(c.phone)):''} · رصيد: ${(c.balance_iqd||0).toLocaleString()} د.ع</span>
+        ${c.trial_ends_at ? `<span class="t-sm muted">نهاية التجربة: ${esc(c.trial_ends_at)}</span>` : ''}
+        ${c.plan_ends_at ? `<span class="t-sm muted">نهاية الاشتراك: ${esc(c.plan_ends_at)}</span>` : ''}
+        <div class="row">
+          <button class="btn btn-sm btn-primary" onclick="setPlan(${c.id},true)">تفعيل 30 يوم</button>
+          <button class="btn btn-sm btn-outline" onclick="setPlan(${c.id},false)">إيقاف</button>
+        </div>
+      </div>`).join('')}</div>`;
 }
-async function setPlan(uid, active){ await api(`/admin/customers/${uid}/plan`, {method:'POST', body: JSON.stringify({active, days:30})}); toast('تم التحديث'); openAdmin(); }
+async function setPlan(uid, active){ await api(`/admin/customers/${uid}/plan`, {method:'POST', body: JSON.stringify({active, days:30})}); toast('تم التحديث'); renderAdminUsers(gen); }
+
+/* ---------------------------------------------------------------- لوحة الأدمن: طلبات الشحن */
+async function renderAdminRecharge(myGen){
+  document.getElementById('content').innerHTML = backRow('طلبات الشحن', 'settings') + '<div class="card"><div class="empty">...</div></div>';
+  const d = await api('/admin/recharge-requests');
+  if (myGen !== gen) return;
+  const reqs = d.requests || [];
+  document.getElementById('content').innerHTML = backRow('طلبات الشحن', 'settings') +
+    `<div class="row" style="margin-bottom:10px"><span class="pill pill-amber">معلّقة ${d.pending||0}</span><span class="pill pill-green">مقبولة ${d.approved||0}</span><span class="pill pill-red">مرفوضة ${d.rejected||0}</span></div>
+    <div class="card">${reqs.length ? reqs.map(r => `
+      <div class="list-row" style="flex-direction:column;align-items:stretch;gap:6px" id="rr-${r.id}">
+        <div class="row" style="justify-content:space-between">
+          <span class="t-sm"><b>${esc(r.user_name||r.user_email||('#'+r.user_id))}</b> · ${esc(r.method)}</span>
+          <span class="pill ${r.status==='pending'?'pill-amber':(r.status==='approved'?'pill-green':'pill-red')}">${r.status==='pending'?'معلّق':(r.status==='approved'?'مقبول':'مرفوض')}</span>
+        </div>
+        <span class="t-sm muted">${(r.amount_iqd||0).toLocaleString()} د.ع · ${esc(r.created_at)} ${r.auto?'· تلقائي':''}</span>
+        <div class="row">
+          ${r.has_receipt ? `<button class="btn btn-sm btn-outline" onclick="toggleReceipt(${r.id})">عرض الإثبات</button>` : ''}
+          ${r.status==='pending' ? `<button class="btn btn-sm btn-primary" onclick="rechargeAction(${r.id},'approve')">قبول</button>
+            <button class="btn btn-sm btn-danger" onclick="rechargeAction(${r.id},'reject')">رفض</button>` : ''}
+        </div>
+        <div id="rrc-${r.id}"></div>
+      </div>`).join('') : '<div class="empty">ما فيه طلبات شحن</div>'}</div>`;
+}
+async function toggleReceipt(id){
+  const box = document.getElementById(`rrc-${id}`);
+  if (box.innerHTML) { box.innerHTML = ''; return; }
+  const r = await api(`/admin/recharge-requests/${id}/receipt`);
+  if (!r.ok) { toast('تعذر جلب الإثبات'); return; }
+  box.innerHTML = r.receipt.startsWith('data:image') ? `<img class="img-prev" src="${r.receipt}">` : `<p class="t-sm" style="word-break:break-all">${esc(r.receipt)}</p>`;
+}
+async function rechargeAction(id, action){
+  const r = await api(`/admin/recharge-requests/${id}/action`, {method:'POST', body: JSON.stringify({action})});
+  if (!r.ok) { toast(r.msg); return; }
+  toast(r.msg); renderAdminRecharge(gen);
+}
+
+/* ---------------------------------------------------------------- لوحة الأدمن: طرق الدفع */
+async function renderAdminPayments(myGen){
+  document.getElementById('content').innerHTML = backRow('طرق الدفع', 'settings') + '<div class="card"><div class="empty">...</div></div>';
+  const d = await api('/admin/payment-methods');
+  if (myGen !== gen) return;
+  const methods = d.methods || [];
+  const binance = methods.find(m => m.method_type === 'binance');
+  const asiacell = methods.find(m => m.method_type === 'asiacell');
+  const manual = methods.filter(m => m.method_type === 'manual');
+  document.getElementById('content').innerHTML = backRow('طرق الدفع', 'settings') + `
+    <div class="card"><div class="card-header"><h4>🟡 Binance Pay</h4><label class="row" style="width:auto;margin:0"><input type="checkbox" id="binActive" ${binance&&binance.active?'checked':''} style="width:auto">مفعّلة</label></div>
+      <label>Binance ID (المعرّف الذي يستقبل الدفعات)</label><input id="binId" value="${esc(binance?binance.number:'')}">
+      <label>API Key ${binance&&binance.has_binance_keys?'<span class="pill pill-green">محفوظ</span>':''}</label><input id="binKey" placeholder="اتركه فارغاً للاحتفاظ بالحالي">
+      <label>API Secret</label><input id="binSecret" type="password" placeholder="اتركه فارغاً للاحتفاظ بالحالي">
+      <label>صورة QR (اختياري)</label><input id="binQr" type="file" accept="image/*">
+      <button class="btn btn-primary" style="margin-top:12px" onclick="saveBinance()">حفظ إعدادات Binance</button>
+    </div>
+    <div class="card"><div class="card-header"><h4>📶 آسياسيل</h4><label class="row" style="width:auto;margin:0"><input type="checkbox" id="asiaActive" ${asiacell&&asiacell.active?'checked':''} style="width:auto">مفعّلة</label></div>
+      <label>رقم آسياسيل المستقبل (07xxxxxxxxx)</label><input id="asiaNumber" value="${esc(asiacell?asiacell.number:'')}">
+      <label>نسبة الخصم (كم دينار رصيد هاتف = 1 دينار محفظة، مثال 1 = بلا خصم، 1.15 = خصم 15%)</label><input id="asiaRate" type="number" step="0.01" value="${asiacell&&asiacell.exchange_rate?asiacell.exchange_rate:1}">
+      <label>أعلى مبلغ بالتحويلة الواحدة (د.ع)</label><input id="asiaMax" type="number" value="${asiacell&&asiacell.max_transfer?asiacell.max_transfer:10000}">
+      <label>ملاحظة تظهر للمستخدم</label><textarea id="asiaNote" rows="2">${esc(asiacell?asiacell.note:'')}</textarea>
+      <div class="group-label" style="margin-top:14px">الشرائح (هدية اختيارية لكل مبلغ)</div>
+      <div id="asiaTiers">${(asiacell&&asiacell.tiers?asiacell.tiers:[]).map(t => `
+        <div class="row" style="margin:6px 0" data-tier="${t.iqd}"><span class="t-sm" style="width:90px">${Number(t.iqd).toLocaleString()} د.ع</span><input type="number" class="tier-bonus" value="${t.bonus||0}" placeholder="هدية"></div>`).join('')}</div>
+      <button class="btn btn-primary" style="margin-top:12px" onclick="saveAsiacell()">حفظ إعدادات آسياسيل</button>
+    </div>
+    <div class="card"><div class="card-header"><h4>💳 طرق يدوية أخرى</h4></div>
+      <div id="manualList">${manual.map(m => manualPmRow(m)).join('')}</div>
+      <button class="btn btn-outline btn-sm" style="margin-top:8px" onclick="showAddManualPm('Super Key')">➕ أضف Super Key</button>
+      <button class="btn btn-outline btn-sm" style="margin-top:8px" onclick="showAddManualPm('')">➕ أضف طريقة يدوية أخرى</button>
+      <div id="addPmBox"></div>
+    </div>`;
+}
+function manualPmRow(m){
+  return `<div class="list-row"><span class="t-sm">${esc(m.name)} ${m.active?'':'<span class="pill pill-gray">معطّلة</span>'}<br><span class="muted">${esc(m.number||'')}</span></span>
+    <span class="row" style="width:auto"><button class="btn btn-sm btn-outline" onclick="toggleManualPm(${m.id},${m.active?'false':'true'})">${m.active?'تعطيل':'تفعيل'}</button>
+    <button class="btn btn-sm btn-danger" onclick="deleteManualPm(${m.id})">حذف</button></span></div>`;
+}
+function showAddManualPm(prefillName){
+  document.getElementById('addPmBox').innerHTML = `
+    <div class="group-label">طريقة يدوية جديدة</div>
+    <label>الاسم</label><input id="npmName" value="${esc(prefillName)}">
+    <label>الرقم/الحساب المستقبل</label><input id="npmNumber">
+    <label>العملة</label><input id="npmCurrency" value="IQD">
+    <label>ملاحظة تظهر للمستخدم</label><textarea id="npmNote" rows="2" placeholder="مثال: اشتر بطاقة Super Key بالمبلغ المطلوب وأرسل الكود هنا"></textarea>
+    <label>شعار (اختياري)</label><input id="npmImage" type="file" accept="image/*">
+    <button class="btn btn-primary" style="margin-top:10px" onclick="addManualPm()">إضافة</button>`;
+}
+async function addManualPm(){
+  const name = document.getElementById('npmName').value.trim();
+  if (!name) { toast('اكتب اسم الطريقة'); return; }
+  const file = document.getElementById('npmImage').files[0];
+  const body = {name, number: document.getElementById('npmNumber').value.trim(), currency: document.getElementById('npmCurrency').value.trim()||'IQD', note: document.getElementById('npmNote').value.trim()};
+  if (file) body.image_data = await readFileAsDataUrl(file);
+  const r = await api('/admin/payment-methods', {method:'POST', body: JSON.stringify(body)});
+  if (!r.ok) { toast(r.msg); return; }
+  toast(r.msg); renderAdminPayments(gen);
+}
+async function toggleManualPm(id, active){
+  await api(`/admin/payment-methods/${id}`, {method:'PUT', body: JSON.stringify({active: active==='true'||active===true})});
+  renderAdminPayments(gen);
+}
+async function deleteManualPm(id){
+  if (!confirm('حذف طريقة الدفع هذه؟')) return;
+  await api(`/admin/payment-methods/${id}`, {method:'DELETE'});
+  renderAdminPayments(gen);
+}
+async function saveBinance(){
+  const file = document.getElementById('binQr').files[0];
+  const body = {active: document.getElementById('binActive').checked, binance_id: document.getElementById('binId').value.trim(),
+    api_key: document.getElementById('binKey').value.trim(), api_secret: document.getElementById('binSecret').value.trim()};
+  if (file) body.qr_data = await readFileAsDataUrl(file);
+  const r = await api('/admin/payment-methods/binance', {method:'POST', body: JSON.stringify(body)});
+  if (!r.ok) { toast(r.msg); return; }
+  toast(r.msg); renderAdminPayments(gen);
+}
+async function saveAsiacell(){
+  const tiers = [...document.querySelectorAll('#asiaTiers [data-tier]')].map(row => ({iqd: parseInt(row.dataset.tier), bonus: parseFloat(row.querySelector('.tier-bonus').value||'0')}));
+  const body = {active: document.getElementById('asiaActive').checked, receiver_msisdn: document.getElementById('asiaNumber').value.trim(),
+    exchange_rate: parseFloat(document.getElementById('asiaRate').value||'1'), max_transfer: parseInt(document.getElementById('asiaMax').value||'10000'),
+    note: document.getElementById('asiaNote').value.trim(), tiers};
+  const r = await api('/admin/payment-methods/asiacell', {method:'POST', body: JSON.stringify(body)});
+  if (!r.ok) { toast(r.msg); return; }
+  toast(r.msg); renderAdminPayments(gen);
+}
+
+/* ---------------------------------------------------------------- لوحة الأدمن: الأمان */
+async function renderAdminSecurity(myGen){
+  document.getElementById('content').innerHTML = backRow('الأمان', 'settings') + '<div class="card"><div class="empty">...</div></div>';
+  const d = await api('/admin/security/status');
+  if (myGen !== gen) return;
+  const lvlPill = {bad:'pill-red', warn:'pill-amber', ok:'pill-green', info:'pill-gray'};
+  document.getElementById('content').innerHTML = backRow('الأمان', 'settings') + `
+    <div class="row" style="margin-bottom:10px">
+      <span class="pill pill-red">خطر ${d.counts.bad||0}</span><span class="pill pill-amber">تنبيه ${d.counts.warn||0}</span>
+      <span class="pill pill-green">سليم ${d.counts.ok||0}</span><span class="pill pill-gray">معلومة ${d.counts.info||0}</span>
+    </div>
+    <div class="card">${(d.checks||[]).map(c => `
+      <div class="sec-check"><span class="lvl-dot lvl-${c.level}"></span><div><b>${esc(c.title)}</b>${c.detail?`<span>${esc(c.detail)}</span>`:''}</div></div>`).join('')}</div>
+    <div class="card"><div class="card-header"><h4>إلغاء كل الجلسات</h4></div>
+      <p class="t-sm muted">يُخرج جميع المستخدمين (بما فيك) فوراً - استخدمها عند الشك بأن جلسة تسربت.</p>
+      <label>كلمة مرورك للتأكيد</label><input id="revokePw" type="password">
+      <button class="btn btn-danger" style="width:100%;margin-top:8px" onclick="revokeSessions()">إلغاء كل الجلسات الآن</button>
+    </div>
+    <div class="card"><div class="card-header"><h4>سجل تدقيق عمليات الأدمن (آخر ${(d.audit||[]).length})</h4></div>
+      <div style="max-height:260px;overflow:auto">${(d.audit||[]).length ? d.audit.slice().reverse().map(a => `<div class="audit-row">${esc(JSON.stringify(a))}</div>`).join('') : '<div class="empty">لا يوجد سجل بعد</div>'}</div>
+    </div>`;
+}
+async function revokeSessions(){
+  if (!confirm('هذا يخرجك أنت أيضاً وتحتاج تسجيل الدخول من جديد. متأكد؟')) return;
+  const password = document.getElementById('revokePw').value;
+  const r = await api('/admin/security/revoke-sessions', {method:'POST', body: JSON.stringify({password})});
+  if (!r.ok) { toast(r.msg); return; }
+  toast(r.msg);
+  setTimeout(() => window.location.href = '/', 800);
+}
+
+/* ---------------------------------------------------------------- لوحة الأدمن: إعدادات الموقع */
+async function renderAdminSiteSettings(myGen){
+  document.getElementById('content').innerHTML = backRow('إعدادات الموقع', 'settings') + '<div class="card"><div class="empty">...</div></div>';
+  const s = await api('/admin/site_settings');
+  if (myGen !== gen) return;
+  document.getElementById('content').innerHTML = backRow('إعدادات الموقع', 'settings') + `
+    <div class="card">
+      <label>اسم الموقع</label><input id="ssName" value="${esc(s.site_name||'')}">
+      <label>رمز الدولة الافتراضي للأرقام المحلية</label>
+      <select id="ssCc">${COUNTRY_CODES.map(c=>`<option value="${c[0]}" ${c[0]===s.default_country_code?'selected':''}>${esc(c[1])}</option>`).join('')}</select>
+      <label>رقم واتساب الاشتراكات</label><input id="ssSubNum" value="${esc(s.whatsapp_subscribe_number||'')}">
+      <label>رقم واتساب الدعم</label><input id="ssSupNum" value="${esc(s.whatsapp_support_number||'')}">
+      <label>سعر الاشتراك الشهري (د.ع)</label><input id="ssPlanPrice" type="number" value="${s.plan_price_iqd||0}">
+    </div>
+    <div class="card"><div class="card-header"><h4>تسعير المحفظة بالرسالة</h4></div>
+      <label>سعر الرسالة الواحدة (د.ع) - صفر = الإرسال مجاني بلا خصم محفظة</label><input id="ssMsgPrice" type="number" min="0" value="${s.price_per_message_iqd||0}">
+      <label>سعر صرف الدولار بالدينار (لشحن Binance)</label><input id="ssUsdRate" type="number" min="1" value="${s.usd_to_iqd_rate||1310}">
+      <button class="btn btn-primary" style="margin-top:12px" onclick="saveSiteSettings()">حفظ كل الإعدادات</button>
+    </div>`;
+}
+async function saveSiteSettings(){
+  const body = {
+    site_name: document.getElementById('ssName').value.trim(), default_country_code: document.getElementById('ssCc').value,
+    whatsapp_subscribe_number: document.getElementById('ssSubNum').value.trim(), whatsapp_support_number: document.getElementById('ssSupNum').value.trim(),
+    plan_price_iqd: parseInt(document.getElementById('ssPlanPrice').value||'0'),
+    price_per_message_iqd: parseInt(document.getElementById('ssMsgPrice').value||'0'),
+    usd_to_iqd_rate: parseInt(document.getElementById('ssUsdRate').value||'1310'),
+  };
+  const r = await api('/admin/site_settings', {method:'POST', body: JSON.stringify(body)});
+  if (r.ok) toast('تم الحفظ'); else toast('فشل الحفظ');
+}
 
 /* ---------------------------------------------------------------- الإشعارات */
 async function renderNotifications(myGen){
@@ -408,8 +811,12 @@ async function pollNotifDot(){
   if (document.getElementById('notifDot')) setTimeout(pollNotifDot, 15000); // يتوقف من نفسه لو انتقلنا لصفحة ثانية (تسجيل خروج)
 }
 
-showSection('home');
+/* بداية التشغيل: المستخدم العادي يبقى دائماً على /app بصرف النظر عن الرابط الحالي؛
+   الأدمن يفتح على القسم الذي يطابق الرابط الحالي (دعم الروابط المباشرة والتحديث) */
+if (!IS_ADMIN && location.pathname !== '/app') history.replaceState(null, '', '/app');
+showSection(IS_ADMIN ? (PATH_SECTION[location.pathname] || 'home') : 'home', {noHistory:true});
 pollNotifDot();
+if ('serviceWorker' in navigator) { try { navigator.serviceWorker.register('/sw.js'); } catch(e){} }
 </script>
 </body>
 </html>
