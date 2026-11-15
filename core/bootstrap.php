@@ -40,8 +40,14 @@ function wsl_setup_problem(string $title, array $steps, int $code = 503): void {
 // WSL_CONFIG: مسار بديل لملف الإعدادات (لأدوات سطر الأوامر والاختبارات)
 $__wsl_config = getenv('WSL_CONFIG') ?: APP_DIR . '/config.php';
 if (!is_file($__wsl_config)) {
+    // بالمتصفح: حوّل مباشرة لمثبّت ويب (public/install.php) يكتب config.php تلقائياً بدل
+    // تعديله يدوياً عبر File Manager. سطر الأوامر (tools/*.php) يبقى يحتاج التعديل اليدوي.
+    if (PHP_SAPI !== 'cli' && strncmp((string)($_SERVER['REQUEST_URI'] ?? ''), '/install.php', 13) !== 0) {
+        header('Location: /install.php');
+        exit;
+    }
     wsl_setup_problem('ملف الإعدادات غير موجود', [
-        'الملف <code>core/config.php</code> غير موجود: انسخ <code>core/config.sample.php</code> إليه واكتب بياناتك.',
+        'الملف <code>core/config.php</code> غير موجود: افتح <code>https://دومينك/install.php</code> بالمتصفح (مثبّت تلقائي)، أو انسخ <code>core/config.sample.php</code> إلى <code>core/config.php</code> يدوياً واكتب بياناتك.',
         'اكتب بيانات قاعدة البيانات داخله (<code>DB_NAME / DB_USER / DB_PASS</code>) ثم أعد تحميل الصفحة.',
     ]);
 }

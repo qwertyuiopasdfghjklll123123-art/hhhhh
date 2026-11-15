@@ -29,6 +29,7 @@ button.main:active{transform:scale(.98)}
 .mini{text-align:center;margin-top:16px;font-size:11.5px}
 .mini a{color:var(--muted);text-decoration:none;font-weight:600}
 .back{background:none;border:none;color:var(--primary);font-size:13px;font-weight:700;cursor:pointer;margin-bottom:6px;padding:0}
+.emailBtn{display:block;width:100%;margin-top:14px;padding:13px;border:1.5px solid var(--border);border-radius:13px;background:var(--input-bg);color:var(--text);font-size:14px;font-weight:700;text-align:center;text-decoration:none}
 </style>
 </head>
 <body>
@@ -47,7 +48,7 @@ button.main:active{transform:scale(.98)}
     <div class="err" id="errPhone"></div>
     <div class="divider" id="googleDivider" style="display:none">أو</div>
     <div id="gsi"></div>
-    <div class="mini"><a href="/login/email">دخول بالبريد الإلكتروني (حساب قديم)</a></div>
+    <a href="/login/email" class="emailBtn">دخول بالبريد الإلكتروني</a>
   </div>
 
   <div id="step-code" style="display:none">

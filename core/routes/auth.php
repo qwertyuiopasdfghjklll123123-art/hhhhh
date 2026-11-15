@@ -21,8 +21,32 @@ route('/logout', function () {
 
 /* ---------------------------------------------------------------- بريد + كلمة مرور (احتياطي) */
 
+/** صفحة دخول/تسجيل بالبريد - منفذ احتياطي حقيقي (مو Placeholder): يحتاجه أول أدمن
+ * لتسجيل دخوله بـ ADMIN_EMAIL/ADMIN_PASSWORD قبل ما يربط أي حساب واتساب (ولا طريقة
+ * دخول ثانية تشتغل قبل ربط أول حساب - واتساب يحتاج مُرسِل رموز متصل أصلاً، وجوجل يحتاج
+ * GOOGLE_CLIENT_ID مُعبّى). */
+function wsl_auth_email_html(string $mode): string {
+    $s = get_site_settings();
+    $html = file_get_contents(APP_DIR . '/templates/auth_email.html');
+    $isSignup = $mode === 'signup';
+    $installed = !$isSignup && req_args('installed') === '1';
+    $tokens = [
+        '__SITE_NAME__' => htmlspecialchars($s['site_name'] ?: 'واصل', ENT_QUOTES),
+        '__TITLE__' => $isSignup ? 'إنشاء حساب' : 'تسجيل الدخول',
+        '__INSTALLED_NOTE__' => $installed ? '<div class="note">✓ تم تثبيت موقعك بنجاح - سجّل دخولك بالبريد وكلمة المرور اللي كتبتهم بالتثبيت</div>' : '',
+        '__ACTION__' => $isSignup ? '/signup/email' : '/login/email',
+        '__BUTTON_TEXT__' => $isSignup ? 'إنشاء الحساب' : 'دخول',
+        '__MIN_PW__' => $isSignup ? '8' : '1',
+        '__NAME_FIELD__' => $isSignup ? '<label>الاسم</label><input id="name" name="name" type="text" required autocomplete="name">' : '',
+        '__SWITCH_HTML__' => $isSignup
+            ? 'عندك حساب؟ <a href="/login/email">سجّل الدخول</a>'
+            : 'ما عندك حساب؟ <a href="/signup/email">أنشئ حساب</a>',
+    ];
+    return str_replace(array_keys($tokens), array_values($tokens), $html);
+}
+
 route('/login/email', function () {
-    if (req_method() === 'GET') return make_response('صفحة تسجيل الدخول (بريد) - واجهة لاحقاً');
+    if (req_method() === 'GET') return make_response(wsl_auth_email_html('login'), 200, 'text/html; charset=utf-8');
     $email = mb_strtolower(trim((string)req_form('email', '')), 'UTF-8');
     $password = (string)req_form('password', '');
     if (($thr = login_throttle_check($email)) !== null) return $thr;
@@ -38,7 +62,7 @@ route('/login/email', function () {
 }, ['GET', 'POST']);
 
 route('/signup/email', function () {
-    if (req_method() === 'GET') return make_response('صفحة إنشاء حساب (بريد) - واجهة لاحقاً');
+    if (req_method() === 'GET') return make_response(wsl_auth_email_html('signup'), 200, 'text/html; charset=utf-8');
     $name = trim((string)req_form('name', ''));
     $email = mb_strtolower(trim((string)req_form('email', '')), 'UTF-8');
     $password = (string)req_form('password', '');
