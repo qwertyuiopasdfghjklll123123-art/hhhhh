@@ -6,6 +6,7 @@
  */
 
 require_once __DIR__ . '/core.php';
+require_once __DIR__ . '/gateway.php';
 
 function asset($path)
 {
@@ -169,6 +170,7 @@ function render_app_page(array $user)
         'maxNumbers' => MAX_NUMBERS_PER_CAMPAIGN,
         'today' => date('Y-m-d'),
         'version' => WASEL_VERSION,
+        'gatewayReady' => self_ready(),
     ];
     $bootJson = json_encode($boot, JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT);
     $csrf = h(csrf_token());

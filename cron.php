@@ -11,6 +11,7 @@
  *     https://دومينك/cron.php?key=المفتاح
  *
  * بدون الطريقتين الإرسال التلقائي يشتغل بس ما دام الموقع مفتوح بأي متصفح.
+ * ويبقي البوابة الخاصة (تطبيق Node.js) شغّالة والأرقام متصلة على مدار الساعة.
  */
 
 require __DIR__ . '/inc/core.php';
@@ -57,6 +58,11 @@ if (!$cli) {
 $budget = $cli ? AUTO_CRON_BUDGET : AUTO_URL_BUDGET;
 @set_time_limit($cli ? 0 : $budget + 90);
 q('UPDATE site_settings SET cron_last_run = ? WHERE id = 1', [now_dt()]);
+
+// البوابة الخاصة: نناديها كل دقيقة حتى تبقى شغّالة والأرقام متصلة (cPanel يطفّي تطبيق Node.js الخامل)
+if (self_ready() && (int) q_val("SELECT COUNT(*) FROM wa_accounts WHERE provider = 'self'") > 0) {
+    self_info();
+}
 
 try {
     $r = auto_send_run($budget);

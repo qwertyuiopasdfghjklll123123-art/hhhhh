@@ -6,3 +6,6 @@ inc/tmp/
 error_log
 .DS_Store
 Thumbs.db
+# البوابة الخاصة: مكتباتها تنزل على السيرفر (Run NPM Install) ومفتاحها يكتبه الموقع
+wasel-gateway/node_modules/
+wasel-gateway/wasel-key.php

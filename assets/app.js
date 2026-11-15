@@ -393,8 +393,8 @@ function renderHome(myGen) {
 
 function howItWorksHtml() {
   return '<div class="card info"><div class="card-header" style="margin-bottom:8px"><h4>' + icon('bolt', 15) + ' كيف يشتغل الإرسال التلقائي؟</h4></div>' +
-    '<div class="step-item"><div class="step-num">1</div><div class="step-text">سجّل بخدمة واتساب API (مرة وحدة)<small>Green-API أو UltraMsg — تسجيل بالبريد الإلكتروني فقط، بدون أي تثبيت. Green-API فيها باقة مجانية للتجربة.</small></div></div>' +
-    '<div class="step-item"><div class="step-num">2</div><div class="step-text">اربط رقمك هنا<small>"تفعيل الإرسال التلقائي" ← الصق رقم الـ Instance والرمز ← امسح رمز QR من واتساب جوالك (الأجهزة المرتبطة)، أو اربط برمز من 8 خانات إذا الموقع مفتوح على نفس الجوال.</small></div></div>' +
+    '<div class="step-item"><div class="step-num">1</div><div class="step-text">اختر طريقة الإرسال (مرة وحدة)<small><b>سيرفرك الخاص</b>: بدون أي اشتراك ولا حدود — الأدمن يفعّل البوابة الخاصة من لوحة التحكم. أو خدمة جاهزة مثل Green-API (تسجيل بالبريد).</small></div></div>' +
+    '<div class="step-item"><div class="step-num">2</div><div class="step-text">اربط رقمك هنا<small>"تفعيل الإرسال التلقائي" ← "حفظ وربط" ← امسح رمز QR من واتساب جوالك (الأجهزة المرتبطة)، أو اربط برمز من 8 خانات إذا الموقع مفتوح على نفس الجوال.</small></div></div>' +
     '<div class="step-item"><div class="step-num">3</div><div class="step-text">أنشئ حملة وخلّيها عليه<small>الموقع يرسلها بنفسه بموعدها، رقم رقم بمهلة — بدون ما ينفتح واتساب — وتتابع التقدّم والإشعارات.</small></div></div>' +
     '<div class="muted-sm mt-2">' + icon('hand', 11) + ' ما عندك اشتراك بعد؟ تقدر ترسل يدوياً: زر "إرسال" يفتح واتساب والرقم والرسالة جاهزين.</div>' +
   '</div>';
@@ -554,6 +554,15 @@ function closeInfoSheet() {
 /* ====================================================================== ربط رقم بخدمة واتساب API */
 
 const PROVIDERS = {
+  self: {
+    name: 'سيرفرك الخاص',
+    tag: 'بدون اشتراك ولا حدود',
+    steps: [
+      'ما يحتاج تسجيل بأي موقع ولا اشتراك — الإرسال يطلع من استضافتك نفسها (البوابة الخاصة اللي يفعّلها الأدمن مرة وحدة).',
+      'اضغط "حفظ وربط"، وامسح رمز QR من واتساب جوالك — أو اربط برمز من 8 خانات إذا الموقع مفتوح على نفس الجوال.',
+    ],
+    fields: [],
+  },
   greenapi: {
     name: 'Green-API',
     tag: 'فيها باقة مجانية للتجربة',
@@ -599,16 +608,19 @@ function mergeAccount(a) {
   if (section === 'accounts' && document.getElementById('accountsBox')) renderAccountsList();
 }
 
+/** الربط برمز من 8 خانات (بدل QR) — مدعوم بالبوابة الخاصة و Green-API. */
+function pairSupported(provider) { return provider === 'self' || provider === 'greenapi'; }
+
 function openApiSheet(id) {
   const acc = accounts.find(a => a.id === id);
   if (!acc) return;
   stopQrPolling();
-  let provider = acc.auto ? acc.provider : (localStorageGet('wasel.provider') || 'greenapi');
+  let provider = acc.auto ? acc.provider : (localStorageGet('wasel.provider') || (W.gatewayReady ? 'self' : 'greenapi'));
   if (!PROVIDERS[provider]) provider = 'greenapi';
   let view = 'form';
   if (acc.auto && acc.api_state === 'connected') view = 'done';
   else if (acc.auto && (acc.api_state === 'qr' || acc.api_state === 'starting')) view = 'qr';
-  apiSheet = { id: id, provider: provider, view: view, pair: view === 'qr' && provider === 'greenapi' && isTouchDevice() };
+  apiSheet = { id: id, provider: provider, view: view, pair: view === 'qr' && pairSupported(provider) && isTouchDevice() };
   openInfoSheet('');
   drawApiSheet();
   if (view === 'qr') pollQr(true);
@@ -628,11 +640,16 @@ function apiFormHtml(acc) {
   const same = acc.auto && acc.provider === apiSheet.provider;
   const value = k => !same ? '' : (k === 'instance' ? (acc.api_instance || '') : k === 'api_url' ? (acc.api_url || '') : '');
   return '<div class="sheet-title">' + icon('bolt', 16) + ' الإرسال التلقائي — ' + esc(acc.name) + '</div>' +
-    '<div class="sheet-message">الموقع يرسل رسائل حملاتك بنفسه عن طريق خدمة واتساب API — بدون ما ينفتح واتساب وبدون أي تثبيت. تحتاج حساب بوحدة من الخدمتين (مرة وحدة):</div>' +
+    '<div class="sheet-message">الموقع يرسل رسائل حملاتك بنفسه — بدون ما ينفتح واتساب وبدون أي تثبيت. اختر طريقة الإرسال (مرة وحدة):</div>' +
     '<div class="provider-tabs">' + Object.keys(PROVIDERS).map(k =>
       '<button type="button" class="' + (k === apiSheet.provider ? 'active' : '') + '" onclick="setApiProvider(\'' + k + '\')"><b>' + PROVIDERS[k].name + '</b><small>' + PROVIDERS[k].tag + '</small></button>'
     ).join('') + '</div>' +
     '<ol class="provider-steps">' + p.steps.map(x => '<li>' + x + '</li>').join('') + '</ol>' +
+    (apiSheet.provider === 'self' && !W.gatewayReady
+      ? '<div class="state-banner warn">' + icon('info', 13) + '<div>البوابة الخاصة مو مفعّلة بعد. ' + (IS_ADMIN
+          ? 'فعّلها مرة وحدة من <a href="#admin" onclick="closeInfoSheet(); showSection(\'admin\'); return false">لوحة التحكم ← البوابة الخاصة</a>.'
+          : 'اطلب من أدمن المنصة يفعّلها من لوحة التحكم، أو استخدم خدمة جاهزة مثل Green-API.') + '</div></div>'
+      : '') +
     p.fields.map(f =>
       '<label class="field-label">' + esc(f.label) + '</label>' +
       '<input id="apiF_' + f.key + '" dir="ltr" autocomplete="off" spellcheck="false"' + (f.mode ? ' inputmode="' + f.mode + '"' : '') +
@@ -641,7 +658,7 @@ function apiFormHtml(acc) {
     ).join('') +
     '<div class="form-msg" id="apiMsg"></div>' +
     '<div class="sheet-actions mt-2"><button class="btn-cancel" onclick="closeInfoSheet()">إلغاء</button>' +
-    '<button class="btn-confirm-gold" id="apiSaveBtn" onclick="saveApiConfig()">' + icon('plug', 13) + ' حفظ وربط</button></div>' +
+    '<button class="btn-confirm-gold" id="apiSaveBtn" onclick="saveApiConfig()"' + (apiSheet.provider === 'self' && !W.gatewayReady ? ' disabled' : '') + '>' + icon('plug', 13) + ' حفظ وربط</button></div>' +
     (acc.auto ? '<div class="center mt-3"><button class="link-btn" onclick="removeApiConfig()">' + icon('hand', 11) + ' إيقاف الإرسال التلقائي والرجوع لليدوي</button></div>' : '');
 }
 
@@ -671,14 +688,14 @@ async function saveApiConfig() {
     return;
   }
   apiSheet.view = 'qr';
-  apiSheet.pair = apiSheet.provider === 'greenapi' && isTouchDevice();
+  apiSheet.pair = pairSupported(apiSheet.provider) && isTouchDevice();
   drawApiSheet();
   applyQrResult(r);
   pollQr(false);
 }
 
 function apiQrHtml(acc) {
-  const canPair = acc.provider === 'greenapi';
+  const canPair = pairSupported(acc.provider);
   const touch = isTouchDevice();
   let main;
   if (apiSheet.pair) {
@@ -811,7 +828,7 @@ async function logoutApi() {
   if (!r.ok) { toast(r.error, true); return; }
   mergeAccount(r.account);
   apiSheet.view = 'qr';
-  apiSheet.pair = acc.provider === 'greenapi' && isTouchDevice();
+  apiSheet.pair = pairSupported(acc.provider) && isTouchDevice();
   drawApiSheet();
   pollQr(true);
 }
@@ -1684,6 +1701,8 @@ async function submitBranchPassword(id) {
 function renderAdmin(myGen) {
   content().innerHTML =
     '<div class="page-title"><h2>' + icon('admin', 18) + ' لوحة التحكم</h2></div>' +
+    '<div class="card" id="gwCard"><div class="card-header"><h4>' + icon('server', 15) + ' البوابة الخاصة — إرسال بدون اشتراك ولا حدود</h4></div>' +
+      '<div id="gwBox">' + (dataCache.gateway ? gatewayBoxHtml(dataCache.gateway) : '<div class="loading-line">جارِ التحميل...</div>') + '</div></div>' +
     '<div class="card" id="cronCard"><div class="card-header"><h4>' + icon('server', 15) + ' الإرسال التلقائي بالخلفية</h4></div>' +
       '<div id="cronBox">' + (dataCache.cron ? cronBoxHtml(dataCache.cron) : '<div class="loading-line">جارِ التحميل...</div>') + '</div></div>' +
     '<div class="card"><div class="card-header"><h4>' + icon('image', 15) + ' هوية الموقع</h4></div>' +
@@ -1702,12 +1721,77 @@ function renderAdmin(myGen) {
     '<div class="card"><div class="card-header"><h4>' + icon('users', 15) + ' كل حسابات المنصة</h4></div>' +
       '<div id="adminAccountsBox">' + (dataCache.adminUsers ? adminUsersHtml(dataCache.adminUsers) : '<div class="loading-line">جارِ التحميل...</div>') + '</div></div>';
   (async () => {
-    const [lb, au, cr] = await Promise.all([api('leaderboard'), api('admin_users'), api('cron_info')]);
+    const [lb, au, cr, gw] = await Promise.all([api('leaderboard'), api('admin_users'), api('cron_info'), api('gateway_info')]);
     if (myGen !== gen) return;
+    if (gw.ok) { dataCache.gateway = gw; W.gatewayReady = gw.configured; document.getElementById('gwBox').innerHTML = gatewayBoxHtml(gw); }
     if (cr.ok) { dataCache.cron = cr; document.getElementById('cronBox').innerHTML = cronBoxHtml(cr); }
     if (lb.ok) { dataCache.leaderboard = lb.items; document.getElementById('leaderboardBox').innerHTML = leaderboardHtml(lb.items); }
     if (au.ok) { dataCache.adminUsers = au.items; document.getElementById('adminAccountsBox').innerHTML = adminUsersHtml(au.items); }
   })();
+}
+
+/**
+ * البوابة الخاصة: تطبيق Node.js صغير (مجلد wasel-gateway) يشتغل على نفس الاستضافة
+ * ويشغّل واتساب ويب لأرقام الفروع — فالإرسال بدون أي خدمة خارجية ولا اشتراك.
+ */
+function gatewayBoxHtml(d) {
+  window._gwKey = d.key;
+  let status;
+  if (!d.configured) {
+    status = '<div class="state-banner warn">' + icon('info', 13) + '<div>مو مفعّلة بعد. فعّلها مرة وحدة (حوالي 5 دقايق) وبعدها كل الفروع ترسل تلقائياً من استضافتك نفسها — بدون أي اشتراك ولا حدود باقات.</div></div>';
+  } else if (d.status && d.status.ok) {
+    status = '<div class="state-banner ok">' + icon('checkCircle', 13) + '<div>شغّالة — نسخة <bdi>' + esc(d.status.version) + '</bdi> — ' +
+      fmtNum(d.status.connected) + ' رقم متصل الآن. الفروع تختار "سيرفرك الخاص" لما تفعّل الإرسال التلقائي.</div></div>';
+  } else {
+    status = '<div class="state-banner bad">' + icon('warn', 13) + '<div>' + esc(d.status ? d.status.note : 'البوابة ما ترد') + '</div></div>';
+  }
+  let keyNote;
+  if (d.folder && d.key_file) keyNote = icon('key', 11) + ' المفتاح السري ينكتب تلقائياً بمجلد البوابة — ما تحتاج تضيفه يدوياً.';
+  else if (d.folder) keyNote = '<span class="text-red">' + icon('warn', 11) + ' ما قدرنا نكتب ملف المفتاح بمجلد البوابة (الصلاحيات).</span> أضف متغيّر <bdi>WASEL_KEY</bdi> بإعدادات تطبيق Node.js بقيمة المفتاح.';
+  else keyNote = icon('key', 11) + ' مجلد البوابة مو داخل الموقع — أضف متغيّر <bdi>WASEL_KEY</bdi> بإعدادات تطبيق Node.js (Environment variables) بقيمة المفتاح.';
+  return status +
+    '<div class="step-item mt-2"><div class="step-num">1</div><div class="step-text grow"><bdi>cPanel</bdi> ← <b><bdi>Setup Node.js App</bdi></b> ← <b><bdi>Create Application</bdi></b>، عبّيه هيج واضغط <bdi>Create</bdi>:' +
+      '<table class="kv-table">' +
+        '<tr><td>Node.js version</td><td>20 أو أحدث</td></tr>' +
+        '<tr><td>Application root</td><td><span class="kbd">' + esc(d.app_root) + '</span></td></tr>' +
+        '<tr><td>Application URL</td><td><span class="kbd">wasel-gw</span></td></tr>' +
+        '<tr><td>Application startup file</td><td><span class="kbd">app.js</span></td></tr>' +
+      '</table></div></div>' +
+    '<div class="step-item"><div class="step-num">2</div><div class="step-text">اضغط <b><bdi>Run NPM Install</bdi></b> وبعدها <b><bdi>Restart</bdi></b>' +
+      '<small>ينزّل مكتبة واتساب على استضافتك (مرة وحدة — دقيقة أو دقيقتين).</small></div></div>' +
+    '<div class="step-item"><div class="step-num">3</div><div class="step-text">الصق رابط التطبيق هنا واضغط "حفظ واختبار"' +
+      '<small>مثل <span class="kbd">' + esc(location.origin + '/wasel-gw') + '</span> — وفعّل "الإرسال بالخلفية" بالأسفل حتى تبقى الأرقام متصلة على مدار الساعة.</small></div></div>' +
+    '<input id="gwUrl" dir="ltr" placeholder="https://..." value="' + esc(d.url) + '" onkeydown="if(event.key===\'Enter\')saveGateway()">' +
+    '<button class="btn-submit" id="gwBtn" onclick="saveGateway()">' + icon('plug', 14) + ' حفظ واختبار</button>' +
+    '<div class="form-msg" id="gwMsg"></div>' +
+    '<div class="muted-sm">' + keyNote + '</div>' +
+    '<div class="row mt-2"><button class="btn-outline btn-small" onclick="copyText(window._gwKey)">' + icon('copy', 10) + ' نسخ المفتاح (' + esc(d.key_hint) + ')</button>' +
+      '<button class="btn-outline btn-small" onclick="resetGatewayKey()">' + icon('refresh', 10) + ' تغيير المفتاح</button></div>';
+}
+
+async function saveGateway() {
+  const btn = document.getElementById('gwBtn');
+  btn.disabled = true;
+  setMsg('gwMsg', 'جارِ الاتصال بالبوابة...');
+  const r = await api('gateway_save', { body: { url: document.getElementById('gwUrl').value.trim() } });
+  btn.disabled = false;
+  if (!r.ok) { setMsg('gwMsg', esc(r.error), 'error'); return; }
+  dataCache.gateway = r;
+  W.gatewayReady = r.configured;
+  const box = document.getElementById('gwBox');
+  if (box) box.innerHTML = gatewayBoxHtml(r);
+  if (r.status && r.status.ok) toast('البوابة الخاصة شغّالة ✓');
+  else if (r.configured) toast('انحفظ الرابط بس البوابة ما ردّت — شوف السبب بالأعلى', true);
+}
+
+async function resetGatewayKey() {
+  if (!confirm('تغيير المفتاح السري للبوابة؟ إذا ضايفه كمتغيّر WASEL_KEY بتطبيق Node.js لازم تحدّثه هناك.')) return;
+  const r = await api('gateway_key_reset', { body: {} });
+  if (!r.ok) { toast(r.error, true); return; }
+  dataCache.gateway = r;
+  const box = document.getElementById('gwBox');
+  if (box) box.innerHTML = gatewayBoxHtml(r);
+  toast('تم تغيير المفتاح');
 }
 
 /** حالة الإرسال بالخلفية + طريقة تفعيله (Cron بـ cPanel أو رابط لخدمة Cron مجانية). */

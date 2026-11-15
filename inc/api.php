@@ -46,6 +46,9 @@ function api_dispatch($action)
         'site_identity' => ['GET', 'api_site_identity', true],
         'site_identity_save' => ['POST', 'api_site_identity_save', true],
         'cron_info' => ['GET', 'api_cron_info', true],
+        'gateway_info' => ['GET', 'api_gateway_info', true],
+        'gateway_save' => ['POST', 'api_gateway_save', true],
+        'gateway_key_reset' => ['POST', 'api_gateway_key_reset', true],
         'cron_key_reset' => ['POST', 'api_cron_key_reset', true],
     ];
     if (!isset($routes[$action])) {
@@ -113,7 +116,7 @@ function account_public(array $a, array $stats = [])
         'provider_name' => $auto ? gw_provider_name($provider) : null,
         'api_state' => $auto ? ((string) $a['api_state'] !== '' ? $a['api_state'] : 'error') : null,
         'api_note' => $auto ? (string) $a['api_note'] : '',
-        'api_instance' => $auto ? $a['api_instance'] : null,
+        'api_instance' => $auto && $provider !== 'self' ? $a['api_instance'] : null,
         'api_url' => $auto && $provider === 'greenapi' ? $a['api_url'] : null,
         'api_token_hint' => $auto && !empty($a['api_token']) ? '••••' . substr((string) $a['api_token'], -4) : null,
         'api_phone' => $auto ? $a['api_phone'] : null,
@@ -210,7 +213,14 @@ function api_account_api_save(array $user)
     if ($token === '' && $acc['provider'] === $provider && !empty($acc['api_token'])) {
         $token = $acc['api_token'];   // تعديل بدون إعادة كتابة الرمز
     }
-    if ($provider === 'greenapi') {
+    if ($provider === 'self') {
+        // البوابة الخاصة: ما تحتاج أي بيانات — كل رقم له جلسة باسم ثابت بالبوابة
+        if (!self_ready()) {
+            json_fail('البوابة الخاصة مو مفعّلة بعد — ' . ($user['is_admin'] ? 'فعّلها من لوحة التحكم ← البوابة الخاصة' : 'اطلب من أدمن المنصة يفعّلها من لوحة التحكم'));
+        }
+        $instance = $acc['provider'] === 'self' && !empty($acc['api_instance']) ? $acc['api_instance'] : 'acc' . (int) $acc['id'] . '-' . bin2hex(random_bytes(4));
+        $token = null;
+    } elseif ($provider === 'greenapi') {
         if (!preg_match('/^\d{6,15}$/', $instance)) {
             json_fail('رقم idInstance لازم يكون أرقام فقط — انسخه من لوحة Green-API');
         }
@@ -222,7 +232,7 @@ function api_account_api_save(array $user)
             json_fail('رقم الـ Instance غير صحيح (مثل instance12345) — انسخه من لوحة UltraMsg');
         }
     }
-    if (!preg_match('/^[A-Za-z0-9_-]{8,190}$/', $token)) {
+    if ($provider !== 'self' && !preg_match('/^[A-Za-z0-9_-]{8,190}$/', $token)) {
         json_fail('الرمز (Token) غير صحيح — انسخه كامل من لوحة الخدمة');
     }
     $candidates = [null];
@@ -247,7 +257,7 @@ function api_account_api_save(array $user)
         }
     }
     if ($st['state'] === 'auth_error') {
-        json_fail($st['note'] . ' — تأكد إنك نسخته كامل من لوحة ' . gw_provider_name($provider));
+        json_fail($provider === 'self' ? $st['note'] : $st['note'] . ' — تأكد إنك نسخته كامل من لوحة ' . gw_provider_name($provider));
     }
     if ($st['state'] === 'error') {
         json_fail($st['note']);
@@ -910,4 +920,60 @@ function api_cron_key_reset(array $user)
     q('UPDATE site_settings SET cron_key = ? WHERE id = 1', [bin2hex(random_bytes(16))]);
     $s = site_settings(true);
     json_out(['ok' => true, 'url' => base_url() . '/cron.php?key=' . $s['cron_key']]);
+}
+
+// --------------------------------------------------------------- البوابة الخاصة (بدون اشتراك) — الأدمن
+
+/** مسار مجلد البوابة نسبةً لمجلد المستخدم بالاستضافة (حقل Application root بـ cPanel). */
+function self_app_root_hint()
+{
+    $dir = WASEL_ROOT . '/wasel-gateway';
+    if (preg_match('#^/home\d*/[^/]+/(.+)$#', $dir, $m)) {
+        return $m[1];
+    }
+    return $dir;
+}
+
+function gateway_payload($test = true)
+{
+    $s = site_settings(true);
+    $out = [
+        'ok' => true,
+        'url' => (string) $s['gateway_url'],
+        'configured' => self_ready(),
+        'key_hint' => '••••' . substr((string) $s['gateway_key'], -4),
+        'key' => (string) $s['gateway_key'],
+        'folder' => self_folder() !== null,
+        'app_root' => self_app_root_hint(),
+        'key_file' => self_folder() !== null && self_write_key_file(),
+        'self_accounts' => (int) q_val("SELECT COUNT(*) FROM wa_accounts WHERE provider = 'self'"),
+        'status' => null,
+    ];
+    if ($test && $out['configured']) {
+        $out['status'] = self_info();
+    }
+    return $out;
+}
+
+function api_gateway_info(array $user)
+{
+    json_out(gateway_payload(true));
+}
+
+function api_gateway_save(array $user)
+{
+    $url = self_url_normalize(input_str('url', 255));
+    if ($url === null) {
+        json_fail('الرابط غير صحيح — الصق رابط تطبيق Node.js مثل https://' . ($_SERVER['HTTP_HOST'] ?? 'example.com') . '/wasel-gw');
+    }
+    q('UPDATE site_settings SET gateway_url = ? WHERE id = 1', [$url === '' ? null : $url]);
+    site_settings(true);
+    json_out(gateway_payload(true));
+}
+
+function api_gateway_key_reset(array $user)
+{
+    q('UPDATE site_settings SET gateway_key = ? WHERE id = 1', [bin2hex(random_bytes(20))]);
+    site_settings(true);
+    json_out(gateway_payload(true));
 }

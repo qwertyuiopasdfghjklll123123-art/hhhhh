@@ -11,8 +11,8 @@
  */
 
 define('WASEL_ROOT', dirname(__DIR__));
-define('WASEL_VERSION', '3.0.0');
-define('WASEL_SCHEMA_VERSION', 3);
+define('WASEL_VERSION', '3.1.0');
+define('WASEL_SCHEMA_VERSION', 4);
 
 // =====================================================================
 // بيانات دخول أدمن المنصة — ثابتة بالكود عمداً.
@@ -36,7 +36,7 @@ define('SESSION_REMEMBER_SECONDS', 30 * 86400);
 define('SESSION_IDLE_SECONDS', 12 * 3600);
 define('LOGO_MAX_BYTES', 2 * 1024 * 1024);
 
-// الإرسال التلقائي عبر خدمة واتساب API (Green-API / UltraMsg) — بدون تثبيت أي شي
+// الإرسال التلقائي: عبر البوابة الخاصة على استضافتك (بدون اشتراك) أو خدمة واتساب API (Green-API / UltraMsg)
 define('AUTO_MIN_DELAY', 5);                // أقل مهلة (ثواني) بين رسالة والثانية بنفس الرقم مهما كانت مهلة الحملة
 define('AUTO_MAX_ATTEMPTS', 3);             // محاولات الرسالة الوحدة إذا الخدمة ما ردّت
 define('AUTO_TICK_BUDGET', 20);             // ثواني إرسال لكل طلب من المتصفح (لما ما فيه Cron)
@@ -167,6 +167,8 @@ function wasel_schema()
             schema_version INT UNSIGNED NOT NULL DEFAULT 0,
             cron_key VARCHAR(64) NULL,
             cron_last_run DATETIME NULL,
+            gateway_url VARCHAR(255) NULL,
+            gateway_key VARCHAR(64) NULL,
             updated_at DATETIME NULL
         ) $t",
         "CREATE TABLE IF NOT EXISTS wa_accounts (
@@ -291,6 +293,8 @@ function wasel_migrate()
         ['campaign_messages', 'provider_msg_id', 'VARCHAR(100) NULL AFTER attempts'],
         ['site_settings', 'cron_key', 'VARCHAR(64) NULL AFTER schema_version'],
         ['site_settings', 'cron_last_run', 'DATETIME NULL AFTER cron_key'],
+        ['site_settings', 'gateway_url', 'VARCHAR(255) NULL AFTER cron_last_run'],
+        ['site_settings', 'gateway_key', 'VARCHAR(64) NULL AFTER gateway_url'],
     ];
     foreach ($columns as $c) {
         if (!column_exists($c[0], $c[1])) {
@@ -301,6 +305,8 @@ function wasel_migrate()
     q('INSERT IGNORE INTO site_settings (id, site_name, schema_version, updated_at) VALUES (1, ?, 0, ?)', [DEFAULT_SITE_NAME, now_dt()]);
     // مفتاح سري لتشغيل الإرسال التلقائي من رابط (cron.php?key=...) لمن ما يستخدم Cron الاستضافة
     q('UPDATE site_settings SET cron_key = ? WHERE id = 1 AND (cron_key IS NULL OR cron_key = \'\')', [bin2hex(random_bytes(16))]);
+    // مفتاح البوابة الخاصة (تطبيق Node.js على نفس الاستضافة) — موقع واصل يكتبه بملف داخل مجلد البوابة
+    q('UPDATE site_settings SET gateway_key = ? WHERE id = 1 AND (gateway_key IS NULL OR gateway_key = \'\')', [bin2hex(random_bytes(20))]);
     q('UPDATE site_settings SET schema_version = ? WHERE id = 1', [WASEL_SCHEMA_VERSION]);
     ensure_admin_user();
 }

@@ -1,11 +1,13 @@
 <?php
 /**
- * واصل — الربط مع خدمات واتساب API (الإرسال التلقائي بدون أي تثبيت).
+ * واصل — الربط مع "واتساب ويب" للإرسال التلقائي (بدون أي تثبيت على أجهزة الفروع).
  *
- * الخدمة (Green-API أو UltraMsg) تشغّل "واتساب ويب" على سيرفراتها: تسجّل
- * فيها بالبريد، تنسخ رقم الـ Instance والرمز (Token) لواصل، وتمسح رمز QR
- * مرة وحدة من واتساب جوالك (الأجهزة المرتبطة ← ربط جهاز). بعدها موقعك يرسل
- * الرسائل بنفسه من السيرفر — بدون ما ينفتح واتساب بأي جهاز.
+ * طريقتين:
+ *  - self: البوابة الخاصة (مجلد wasel-gateway — تطبيق Node.js على استضافتك
+ *    نفسها من cPanel ← Setup Node.js App). بدون أي اشتراك أو حدود باقات.
+ *  - greenapi / ultramsg: خدمة خارجية تشغّل واتساب ويب على سيرفراتها (اشتراك).
+ * بالحالتين تمسح رمز QR مرة وحدة من واتساب جوالك (الأجهزة المرتبطة ← ربط جهاز)
+ * أو تكتب رمز ربط من 8 خانات، وبعدها موقعك يرسل الرسائل بنفسه.
  *
  * كل دالة ترجع حالة موحّدة للحساب:
  *   connected  متصل وجاهز للإرسال
@@ -24,6 +26,7 @@ require_once __DIR__ . '/core.php';
 function gw_providers()
 {
     return [
+        'self' => ['name' => 'سيرفرك الخاص', 'site' => '', 'console' => ''],
         'greenapi' => ['name' => 'Green-API', 'site' => 'https://green-api.com/', 'console' => 'https://console.green-api.com/'],
         'ultramsg' => ['name' => 'UltraMsg', 'site' => 'https://ultramsg.com/', 'console' => 'https://user.ultramsg.com/'],
     ];
@@ -51,6 +54,9 @@ function gw_http($method, $url, array $opts = [])
 {
     $timeout = isset($opts['timeout']) ? (int) $opts['timeout'] : 25;
     $headers = ['Accept: application/json, image/*;q=0.8, */*;q=0.5', 'User-Agent: Wasel/' . WASEL_VERSION];
+    if (!empty($opts['headers'])) {
+        $headers = array_merge($headers, $opts['headers']);
+    }
     $body = null;
     if (array_key_exists('json', $opts)) {
         $body = json_encode($opts['json'], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
@@ -535,11 +541,227 @@ function ultra_failed_statuses(array $acc)
     return $out;
 }
 
+// --------------------------------------------------------------- البوابة الخاصة (Node.js على نفس الاستضافة)
+
+/** رابط البوابة ومفتاحها (من لوحة تحكم الأدمن). */
+function self_conf()
+{
+    $s = site_settings();
+    return [rtrim((string) ($s['gateway_url'] ?? ''), '/'), (string) ($s['gateway_key'] ?? '')];
+}
+
+function self_ready()
+{
+    return self_conf()[0] !== '';
+}
+
+/** رابط صالح للبوابة (http/https فقط، بدون استعلام). */
+function self_url_normalize($url)
+{
+    $url = trim((string) $url);
+    if ($url === '') {
+        return '';
+    }
+    if (!preg_match('#^[a-z]+://#i', $url)) {
+        $url = 'https://' . $url;
+    }
+    $p = parse_url($url);
+    if (!$p || empty($p['host']) || !in_array(strtolower($p['scheme'] ?? ''), ['http', 'https'], true) || isset($p['user']) || isset($p['query'])) {
+        return null;
+    }
+    $path = isset($p['path']) ? rtrim($p['path'], '/') : '';
+    if (preg_match('#/api(/.*)?$#', $path)) {
+        $path = preg_replace('#/api(/.*)?$#', '', $path);   // لصق رابط فيه /api/... بالغلط
+    }
+    return strtolower($p['scheme']) . '://' . strtolower($p['host']) . (isset($p['port']) ? ':' . (int) $p['port'] : '') . $path;
+}
+
+/** مسار مجلد البوابة داخل الموقع (إذا موجود) — حتى نكتب المفتاح فيه تلقائياً. */
+function self_folder()
+{
+    $dir = WASEL_ROOT . '/wasel-gateway';
+    return is_dir($dir) && is_file($dir . '/app.js') ? $dir : null;
+}
+
+/**
+ * يكتب المفتاح السري بملف wasel-key.php داخل مجلد البوابة — البوابة تقراه
+ * تلقائياً. ملف PHP يطلع فاضي إذا أحد فتحه من المتصفح.
+ */
+function self_write_key_file()
+{
+    $dir = self_folder();
+    if (!$dir) {
+        return false;
+    }
+    list(, $key) = self_conf();
+    $php = "<?php http_response_code(404); exit; ?>\n" . $key . "\n";
+    $file = $dir . '/wasel-key.php';
+    if (is_file($file) && (string) @file_get_contents($file) === $php) {
+        return true;
+    }
+    if (@file_put_contents($file, $php, LOCK_EX) === false) {
+        return false;
+    }
+    @chmod($file, 0640);
+    return true;
+}
+
+function self_call($method, $path, array $query = [], $body = null, $timeout = 25)
+{
+    list($base, $key) = self_conf();
+    if ($base === '') {
+        return ['status' => 0, 'body' => '', 'type' => '', 'json' => null, 'error' => 'not_configured', 'maybe_sent' => false];
+    }
+    $url = $base . $path . ($query ? '?' . http_build_query($query, '', '&') : '');
+    $opts = ['timeout' => $timeout, 'headers' => ['X-Wasel-Key: ' . $key]];
+    if ($body !== null) {
+        $opts['json'] = $body;
+    }
+    return gw_http($method, $url, $opts);
+}
+
+/** مشكلة بالاتصال بالبوابة نفسها — أو null إذا ردّت طبيعي. */
+function self_problem(array $r)
+{
+    if ($r['error'] === 'not_configured') {
+        return ['auth_error', 'البوابة الخاصة مو مفعّلة بعد — الأدمن يفعّلها من لوحة التحكم ← البوابة الخاصة'];
+    }
+    if ($r['error'] !== null) {
+        return ['error', 'البوابة الخاصة ما ترد — تأكد إن تطبيق Node.js شغّال بـ cPanel (' . str_cut($r['error'], 100) . ')'];
+    }
+    $j = is_array($r['json']) ? $r['json'] : [];
+    $err = isset($j['error']) && is_string($j['error']) ? $j['error'] : '';
+    if ($r['status'] === 401) {
+        return ['auth_error', 'مفتاح البوابة غير متطابق — من لوحة التحكم اضغط "حفظ واختبار" للبوابة، أو حدّث متغيّر WASEL_KEY بتطبيق Node.js'];
+    }
+    if ($r['status'] === 503 && $err === 'no_key') {
+        return ['auth_error', 'البوابة ما عندها مفتاح — من لوحة التحكم اضغط "حفظ واختبار" للبوابة'];
+    }
+    if ($r['status'] === 503) {
+        return ['starting', 'البوابة تشتغل — ثواني'];
+    }
+    if ($r['status'] !== 200 || !$j) {
+        return ['error', 'رد غير متوقع من البوابة (' . $r['status'] . ') — تأكد من رابط تطبيق Node.js'];
+    }
+    return null;
+}
+
+function self_map_state(array $j)
+{
+    $note = isset($j['note']) && is_string($j['note']) ? $j['note'] : '';
+    switch ($j['state'] ?? '') {
+        case 'connected':
+            return gw_state('connected');
+        case 'qr':
+            return gw_state('qr', 'الرقم غير مربوط — امسح رمز QR من واتساب جوالك');
+        case 'starting':
+            return gw_state('starting', 'البوابة تتصل بواتساب — ثواني');
+    }
+    return gw_state('error', $note !== '' ? $note : 'خطأ بالبوابة الخاصة');
+}
+
+function self_state(array $acc)
+{
+    $r = self_call('GET', '/api/state', ['session' => $acc['api_instance']], null, 20);
+    if ($p = self_problem($r)) {
+        return gw_state($p[0], $p[1]);
+    }
+    return self_map_state($r['json']);
+}
+
+function self_qr(array $acc)
+{
+    $r = self_call('GET', '/api/qr', ['session' => $acc['api_instance']], null, 30);
+    if ($p = self_problem($r)) {
+        return gw_state($p[0], $p[1]) + ['qr' => null];
+    }
+    $j = $r['json'];
+    $st = self_map_state($j);
+    $qr = isset($j['qr']) && is_string($j['qr']) && preg_match('#^data:image/png;base64,[A-Za-z0-9+/=]+$#', $j['qr']) ? $j['qr'] : null;
+    if ($st['state'] === 'qr' && !$qr) {
+        $st['note'] = 'الرمز يتجهّز — ثواني ويظهر';
+    }
+    return $st + ['qr' => $qr];
+}
+
+function self_send(array $acc, $phone, $text)
+{
+    $r = self_call('POST', '/api/send', [], ['session' => $acc['api_instance'], 'phone' => $phone, 'text' => $text], 60);
+    if ($r['error'] !== null && $r['error'] !== 'not_configured') {
+        return ['result' => $r['maybe_sent'] ? 'maybe' : 'retry', 'note' => 'تعذّر الاتصال بالبوابة: ' . str_cut($r['error'], 120)];
+    }
+    if ($p = self_problem($r)) {
+        return $p[0] === 'error' ? ['result' => 'retry', 'note' => $p[1]] : ['result' => 'account', 'state' => $p[0], 'note' => $p[1]];
+    }
+    $j = $r['json'];
+    if (!empty($j['ok'])) {
+        return ['result' => 'ok', 'id' => isset($j['id']) && is_string($j['id']) ? str_cut($j['id'], 100) : null];
+    }
+    switch ($j['error'] ?? '') {
+        case 'not_on_whatsapp':
+            return ['result' => 'invalid', 'note' => 'الرقم ما عنده واتساب'];
+        case 'not_connected':
+            $st = self_map_state(['state' => $j['state'] ?? 'starting']);
+            return ['result' => 'account', 'state' => $st['state'], 'note' => $st['note']];
+    }
+    return ['result' => 'retry', 'note' => 'البوابة: ' . str_cut((string) ($j['message'] ?? $j['error'] ?? 'خطأ'), 150)];
+}
+
+function self_pair_code(array $acc, $phone)
+{
+    $r = self_call('POST', '/api/pair', [], ['session' => $acc['api_instance'], 'phone' => $phone], 45);
+    if ($p = self_problem($r)) {
+        return ['ok' => false, 'state' => $p[0], 'note' => $p[1]];
+    }
+    $j = $r['json'];
+    if (!empty($j['ok']) && !empty($j['code'])) {
+        return ['ok' => true, 'code' => str_cut(preg_replace('/[^A-Za-z0-9-]/', '', (string) $j['code']), 20)];
+    }
+    if (($j['error'] ?? '') === 'already_connected') {
+        return ['ok' => false, 'state' => 'connected', 'note' => 'الرقم مربوط أصلاً'];
+    }
+    return ['ok' => false, 'state' => 'qr', 'note' => 'البوابة ما جهّزت رمز الربط بعد — حاول بعد ثواني'];
+}
+
+function self_logout(array $acc)
+{
+    $r = self_call('POST', '/api/logout', [], ['session' => $acc['api_instance']], 30);
+    return self_problem($r) === null && !empty($r['json']['ok']);
+}
+
+function self_phone(array $acc)
+{
+    $r = self_call('GET', '/api/state', ['session' => $acc['api_instance']], null, 20);
+    if (self_problem($r) === null && !empty($r['json']['phone']) && is_string($r['json']['phone'])) {
+        $d = preg_replace('/\D+/', '', $r['json']['phone']);
+        return strlen($d) >= 8 && strlen($d) <= 15 ? $d : null;
+    }
+    return null;
+}
+
+/** فحص البوابة من لوحة التحكم (ويبقيها شغّالة: الـ Cron يناديها كل دقيقة). */
+function self_info()
+{
+    $r = self_call('GET', '/api/info', [], null, 15);
+    if ($p = self_problem($r)) {
+        return ['ok' => false, 'note' => $p[1]];
+    }
+    $j = $r['json'];
+    return [
+        'ok' => true,
+        'version' => isset($j['version']) ? (string) $j['version'] : '',
+        'sessions' => (int) ($j['sessions'] ?? 0),
+        'connected' => (int) ($j['connected'] ?? 0),
+    ];
+}
+
 // --------------------------------------------------------------- واجهة موحّدة
 
 function gw_check_state(array $acc)
 {
     switch ($acc['provider']) {
+        case 'self':
+            return self_state($acc);
         case 'greenapi':
             return green_state($acc);
         case 'ultramsg':
@@ -551,6 +773,8 @@ function gw_check_state(array $acc)
 function gw_qr(array $acc)
 {
     switch ($acc['provider']) {
+        case 'self':
+            return self_qr($acc);
         case 'greenapi':
             return green_qr($acc);
         case 'ultramsg':
@@ -570,6 +794,8 @@ function gw_qr(array $acc)
 function gw_send(array $acc, $phone, $text)
 {
     switch ($acc['provider']) {
+        case 'self':
+            return self_send($acc, $phone, $text);
         case 'greenapi':
             return green_send($acc, $phone, $text);
         case 'ultramsg':
@@ -578,9 +804,12 @@ function gw_send(array $acc, $phone, $text)
     return ['result' => 'account', 'state' => 'auth_error', 'note' => 'خدمة غير معروفة'];
 }
 
-/** رمز ربط برقم الهاتف — Green-API فقط (UltraMsg تدعم مسح QR بس). */
+/** رمز ربط برقم الهاتف — البوابة الخاصة و Green-API (UltraMsg تدعم مسح QR بس). */
 function gw_pair_code(array $acc, $phone)
 {
+    if ($acc['provider'] === 'self') {
+        return self_pair_code($acc, $phone);
+    }
     if ($acc['provider'] === 'greenapi') {
         return green_pair_code($acc, $phone);
     }
@@ -590,6 +819,8 @@ function gw_pair_code(array $acc, $phone)
 function gw_logout(array $acc)
 {
     switch ($acc['provider']) {
+        case 'self':
+            return self_logout($acc);
         case 'greenapi':
             return green_logout($acc);
         case 'ultramsg':
@@ -601,6 +832,8 @@ function gw_logout(array $acc)
 function gw_phone(array $acc)
 {
     switch ($acc['provider']) {
+        case 'self':
+            return self_phone($acc);
         case 'greenapi':
             return green_phone($acc);
         case 'ultramsg':
@@ -631,16 +864,20 @@ function account_store_state(array $acc, array $st, $notify = true)
 {
     $state = $st['state'];
     $note = str_cut((string) ($st['note'] ?? ''), 255);
+    $old = (string) $acc['api_state'];
+    $wasWorking = $old === 'connected' || !empty($acc['api_phone']);
     q('UPDATE wa_accounts SET api_state = ?, api_note = ?, api_checked_at = ? WHERE id = ?', [$state, $note, now_dt(), (int) $acc['id']]);
-    if ($state === 'connected' && empty($acc['api_phone'])) {
+    if ($state === 'connected' && (empty($acc['api_phone']) || $old !== 'connected')) {
+        // اتصل (أو رجع اتصل): نقرأ الرقم المربوط — يمكن انربط رقم غير الأول
         $phone = gw_phone($acc);
         if ($phone) {
             q('UPDATE wa_accounts SET api_phone = ?, phone = COALESCE(phone, ?) WHERE id = ?', [$phone, $phone, (int) $acc['id']]);
             $acc['api_phone'] = $phone;
         }
+    } elseif ($state === 'qr' && !empty($acc['api_phone'])) {
+        q('UPDATE wa_accounts SET api_phone = NULL WHERE id = ?', [(int) $acc['id']]);   // انفصل الرقم
+        $acc['api_phone'] = null;
     }
-    $old = (string) $acc['api_state'];
-    $wasWorking = $old === 'connected' || !empty($acc['api_phone']);
     if ($notify && $wasWorking && $old !== $state && gw_state_needs_action($state) && !gw_state_needs_action($old)) {
         $titles = [
             'qr' => 'انفصل رقم الواتساب عن الإرسال التلقائي',
