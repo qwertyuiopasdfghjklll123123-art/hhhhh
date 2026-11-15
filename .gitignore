@@ -6,3 +6,7 @@ secret.key
 numbers.txt
 __pycache__/
 *.pyc
+
+# نسخة PHP (php/) - إعدادات محلية وبيانات لا تُرفع لـ git
+php/core/config.php
+php/data/
