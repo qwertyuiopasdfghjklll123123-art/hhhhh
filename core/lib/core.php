@@ -44,6 +44,54 @@ const COUNTRY_CODES = [
     ['63', '🇵🇭 +63'], ['64', '🇳🇿 +64'], ['61', '🇦🇺 +61'],
 ];
 
+/** الاشتراك فعّال فعلياً: plan_active=1 وما انتهت مدته (لو الأدمن حدد مدة عند التفعيل) */
+function effective_plan_active(Row $user): bool {
+    if (!py_truthy($user['plan_active'])) return false;
+    $ends = $user['plan_ends_at'];
+    if (!$ends) return true;
+    $t = strtotime($ends);
+    return $t === false ? true : time() < $t;
+}
+
+/** مفعّل باشتراك حقيقي، أو لسا داخل فترة التجربة المجانية */
+function user_has_access(Row $user): bool {
+    if (effective_plan_active($user)) return true;
+    $trial = $user['trial_ends_at'];
+    if (!$trial) return false;
+    $t = strtotime($trial);
+    return $t !== false && time() < $t;
+}
+
+/** يستخرج أرقاماً من نص (فاصلة/سطر جديد) - ٨ أرقام فأكثر بعد تنظيف أي رمز غير رقمي */
+function numbers_from_text(string $text): array {
+    $out = [];
+    foreach (preg_split('/[,\n\r]+/', $text) as $part) {
+        $digits = preg_replace('/\D/', '', $part);
+        if (strlen($digits) >= 8) $out[] = $digits;
+    }
+    return $out;
+}
+
+/** يضيف رمز الدولة لرقم محلي ما يبدأ فيه أصلاً (رقم دولي كامل يترجع بدون تغيير) */
+function apply_country_code(string $number, string $countryCode): string {
+    if ($countryCode === '' || str_starts_with($number, $countryCode)) return $number;
+    if (str_starts_with($number, '0')) $number = substr($number, 1);
+    return $countryCode . $number;
+}
+
+/** إشعار للمستخدم (يظهر بقسم الإشعارات) - EVENTS_MAX=50 بالأصل، هنا نحذف الزائد كل إضافة بدل الاحتفاظ بكل شي للأبد */
+function add_event(int $owner, ?string $account, string $title, string $body, string $kind = 'info'): void {
+    $conn = get_db();
+    $conn->execute('INSERT INTO events (owner, account, title, body, kind, created_at) VALUES (?,?,?,?,?,?)',
+        [$owner, $account, $title, $body, $kind, gmdate('H:i')]);
+    $conn->commit();
+    $conn->execute(
+        'DELETE FROM events WHERE owner=? AND id NOT IN (SELECT id FROM (SELECT id FROM events WHERE owner=? ORDER BY id DESC LIMIT 50) t)',
+        [$owner, $owner]
+    );
+    $conn->commit();
+}
+
 function get_site_settings(): Row {
     $row = get_db()->execute('SELECT * FROM site_settings WHERE id=1')->fetchone();
     if ($row) return $row;

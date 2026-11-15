@@ -37,17 +37,19 @@ define('MASTER_ADMIN_CODE', '');
 // (Web application) → Authorized JavaScript origins: https://YOUR_DOMAIN
 define('GOOGLE_CLIENT_ID', '');           // اتركه فاضياً لتعطيل زر «الدخول بجوجل»
 
-// -------------------- مزوّد إرسال رسائل واتساب (الأكواد + الحملات) --------------------
-// shared hosting ما تدعم تشغيل متصفح Chrome/Selenium (أتمتة واتساب ويب المباشرة)، فالإرسال
-// يصير عبر مزوّد واتساب خارجي (API). اختر driver واحداً واكتب بياناته - راجع ملف
-// core/lib/wa_provider.php للتفاصيل والمزوّدين المدعومين.
-define('WA_PROVIDER_DRIVER', 'none');     // 'none' (معطّل مؤقتاً) | 'cloud_api' (Meta الرسمي) | 'ultramsg' | 'http_generic'
-define('WA_PROVIDER_CONFIG', [
-    // أمثلة حسب WA_PROVIDER_DRIVER المختار - راجع core/lib/wa_provider.php
-    // cloud_api:   'phone_number_id' => '...', 'access_token' => '...'
-    // ultramsg:    'instance_id' => '...', 'token' => '...'
-    // http_generic:'send_url' => '...', 'headers' => [...]
-]);
+// -------------------- بوابة واتساب الخاصة (wasel-gateway) --------------------
+// تطبيق Node.js منفصل (مجلد wasel-gateway/ بجذر المشروع) يشغّل حسابات واتساب عبر Baileys
+// (بدون متصفح، يعمل على استضافة مشتركة عبر DirectAdmin ← Setup Node.js App). هذا الموقع
+// (PHP) يتصل به فقط عبر HTTP - راجع wasel-gateway/README.md للتركيب على الاستضافة.
+define('GATEWAY_BASE_URL', 'http://127.0.0.1:3000');   // رابط البوابة (Application URL بـ DirectAdmin)
+define('GATEWAY_TOKEN', '');                            // نفس GATEWAY_TOKEN المضبوط بإعدادات تطبيق Node.js
+
+// -------------------- مزوّد إرسال رسائل واتساب (احتياطي/متقدّم) --------------------
+// بديل اختياري عن wasel-gateway أعلاه - لو تفضّل مزوّد واتساب تجاري جاهز (Meta الرسمي أو
+// أي مزوّد خارجي) بدل تشغيل بوابتك الخاصة. اتركه 'none' لو تستخدم wasel-gateway (الافتراضي
+// والموصى به). راجع core/lib/wa_provider.php للتفاصيل.
+define('WA_PROVIDER_DRIVER', 'none');     // 'none' | 'cloud_api' (Meta الرسمي) | 'http_generic'
+define('WA_PROVIDER_CONFIG', []);
 
 // -------------------- خطة الاشتراك --------------------
 define('PLAN_NAME', 'الخطة الاحترافية');

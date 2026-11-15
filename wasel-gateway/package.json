@@ -1,0 +1,20 @@
+{
+  "name": "wasel-gateway",
+  "version": "1.0.0",
+  "private": true,
+  "description": "بوابة واتساب لمنصة واصل - تشغّل حسابات واتساب متعددة (بدون متصفح/Chrome) وتعرض HTTP API بسيط يستخدمه موقع واصل (PHP) لربط/فصل الحسابات وإرسال الرسائل واستلام الواردة.",
+  "type": "module",
+  "main": "app.js",
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "start": "node app.js"
+  },
+  "dependencies": {
+    "@whiskeysockets/baileys": "7.0.0-rc14",
+    "express": "^4.19.2",
+    "pino": "^9.6.0",
+    "qrcode": "^1.5.4"
+  }
+}

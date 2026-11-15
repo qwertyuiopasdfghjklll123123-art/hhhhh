@@ -88,6 +88,47 @@ CREATE TABLE IF NOT EXISTS otp_codes (
     attempts INT NOT NULL DEFAULT 0
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin;
 
+-- حملات الإرسال الجماعي - جديد بالنسخة PHP: webapp.py يحتفظ بطابور كل حملة بالذاكرة
+-- (acc["campaign"]["pending_numbers"]) لأن عمليته تبقى شغالة؛ هنا cron.php يحتاج يقرأ
+-- ويكمل الطابور بين كل تشغيلة، فلازم جدول حقيقي.
+CREATE TABLE IF NOT EXISTS campaigns (
+    id INT PRIMARY KEY AUTO_INCREMENT,
+    account_id VARCHAR(32) NOT NULL,
+    owner INT NOT NULL,
+    status VARCHAR(16) NOT NULL DEFAULT 'running',
+    text TEXT NOT NULL,
+    delay_seconds INT NOT NULL DEFAULT 15,
+    total INT NOT NULL DEFAULT 0,
+    sent INT NOT NULL DEFAULT 0,
+    failed INT NOT NULL DEFAULT 0,
+    next_send_at BIGINT NOT NULL DEFAULT 0,
+    started_at VARCHAR(32) NOT NULL DEFAULT '',
+    created_at VARCHAR(32) NOT NULL DEFAULT '',
+    INDEX idx_campaigns_account (account_id),
+    INDEX idx_campaigns_owner (owner),
+    INDEX idx_campaigns_status (status, next_send_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin;
+
+CREATE TABLE IF NOT EXISTS campaign_numbers (
+    id INT PRIMARY KEY AUTO_INCREMENT,
+    campaign_id INT NOT NULL,
+    phone VARCHAR(32) NOT NULL,
+    status VARCHAR(16) NOT NULL DEFAULT 'pending',
+    INDEX idx_cn_campaign_status (campaign_id, status, id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin;
+
+CREATE TABLE IF NOT EXISTS events (
+    id INT PRIMARY KEY AUTO_INCREMENT,
+    owner INT NOT NULL,
+    account VARCHAR(190),
+    title VARCHAR(190) NOT NULL,
+    body TEXT NOT NULL,
+    kind VARCHAR(16) NOT NULL DEFAULT 'info',
+    is_read TINYINT NOT NULL DEFAULT 0,
+    created_at VARCHAR(16) NOT NULL,
+    INDEX idx_events_owner (owner, id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin;
+
 CREATE TABLE IF NOT EXISTS api_keys (
     id INT PRIMARY KEY AUTO_INCREMENT,
     owner INT NOT NULL,

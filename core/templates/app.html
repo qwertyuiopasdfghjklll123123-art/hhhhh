@@ -1,0 +1,415 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1">
+<title>__SITE_NAME__</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#f7f4f0;--card:#ffffff;--card-border:rgba(34,26,18,.08);--text:#221a12;--muted:#6b5d50;--text3:#998a7c;--primary:#2563eb;--primary-light:#3b82f6;--primary-glow:rgba(37,99,235,.14);--primary-bg:rgba(37,99,235,.08);--input-bg:#fbf7f3;--border:#f0e6da;--shadow:0 2px 10px rgba(34,26,18,.05);--shadow-lg:0 8px 30px rgba(34,26,18,.08);--danger:#ef4444;--warn:#f59e0b;--purple:#7c3aed;--green:#10b981}
+*{box-sizing:border-box}
+body{margin:0;font-family:'IBM Plex Sans Arabic','Segoe UI',Tahoma,sans-serif;background:var(--bg);color:var(--text);padding-bottom:90px}
+.topbar{position:sticky;top:0;background:var(--bg);padding:14px 16px 10px;display:flex;align-items:center;justify-content:space-between;z-index:10}
+.topbar .brand{display:flex;align-items:center;gap:8px;font-weight:900;font-size:16px;letter-spacing:-.3px}
+.topbar .logo{width:34px;height:34px;border-radius:11px;background:linear-gradient(135deg,var(--primary),var(--primary-light));color:#fff;display:flex;align-items:center;justify-content:center;font-size:15px;font-weight:800;box-shadow:0 4px 14px var(--primary-glow)}
+.bell{position:relative;width:38px;height:38px;border-radius:12px;background:var(--card);border:1.5px solid var(--card-border);font-size:15px;cursor:pointer;display:flex;align-items:center;justify-content:center;color:var(--primary)}
+.dot{position:absolute;top:-3px;left:-3px;width:9px;height:9px;background:var(--danger);border-radius:50%;display:none;border:2px solid var(--bg)}
+#content{padding:6px 16px;max-width:560px;margin:0 auto}
+.page-title{font-size:19px;font-weight:900;margin:6px 0 14px;letter-spacing:-.3px}
+.card{background:var(--card);border:1px solid var(--card-border);border-radius:16px;padding:16px;margin-bottom:14px;box-shadow:var(--shadow)}
+.card-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px}
+.card-header h4{margin:0;font-size:13.5px;font-weight:800;display:flex;align-items:center;gap:6px}
+.stat-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.stat{background:var(--input-bg);border:1px solid var(--border);border-radius:14px;padding:14px 10px;text-align:center}
+.stat b{font-size:21px;display:block;color:var(--primary);font-weight:900}
+.stat span{font-size:11px;color:var(--text3);font-weight:600}
+.btn{padding:12px 16px;border:none;border-radius:12px;font-size:13.5px;font-weight:800;cursor:pointer;transition:transform .15s}
+.btn:active{transform:scale(.97)}
+.btn-primary{background:linear-gradient(135deg,var(--primary),var(--primary-light));color:#fff;width:100%;box-shadow:0 4px 16px var(--primary-glow)}
+.btn-outline{background:var(--card);border:1.5px solid var(--card-border);color:var(--text)}
+.btn-danger{background:rgba(239,68,68,.07);border:1.5px solid rgba(239,68,68,.25);color:var(--danger)}
+.btn-sm{padding:7px 12px;font-size:12px;border-radius:9px}
+.btn:disabled{opacity:.5;cursor:default;transform:none}
+input,textarea,select{width:100%;padding:12px 13px;border:1.5px solid var(--border);border-radius:11px;font-size:14px;background:var(--input-bg);font-family:inherit;color:var(--text)}
+input:focus,textarea:focus,select:focus{outline:none;border-color:var(--primary)}
+label{font-size:11.5px;color:var(--text3);font-weight:700;display:block;margin:10px 0 5px}
+.row{display:flex;gap:8px;align-items:center}
+.list-row{display:flex;align-items:center;justify-content:space-between;padding:11px 0;border-bottom:1px solid var(--card-border)}
+.list-row:last-child{border-bottom:none}
+.pill{font-size:10.5px;padding:4px 10px;border-radius:20px;font-weight:800}
+.pill-green{background:rgba(16,185,129,.12);color:#0a8a63}
+.pill-amber{background:rgba(245,158,11,.14);color:#b45309}
+.pill-red{background:rgba(239,68,68,.12);color:var(--danger)}
+.pill-gray{background:var(--input-bg);color:var(--text3);border:1px solid var(--border)}
+.empty{text-align:center;color:var(--text3);font-size:13px;padding:30px 10px}
+.bottom-nav{position:fixed;bottom:0;left:0;right:0;z-index:20;pointer-events:none}
+.bnav-inner{pointer-events:all;height:62px;border-radius:22px;margin:0 14px 16px;display:flex;align-items:center;justify-content:space-around;padding:0 6px;background:var(--card);border:1px solid var(--card-border);box-shadow:0 10px 24px -8px rgba(34,26,18,.25);max-width:528px;margin-inline:auto}
+.bottom-nav button{flex:1;background:none;border:none;padding:7px 4px;font-size:10.5px;color:var(--text3);cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:3px;border-radius:16px;font-weight:700;font-family:inherit}
+.bottom-nav button.active{color:var(--primary);background:var(--primary-bg)}
+.bottom-nav .ic{font-size:18px}
+.overlay{position:fixed;inset:0;background:rgba(20,15,10,.5);display:none;align-items:flex-end;justify-content:center;z-index:50}
+.overlay.open{display:flex}
+.sheet{background:var(--card);border-radius:22px 22px 0 0;padding:22px 18px 28px;width:100%;max-width:560px;max-height:85vh;overflow:auto;box-shadow:var(--shadow-lg)}
+.sheet h3{margin:0 0 14px;font-size:16px;font-weight:900}
+.muted{color:var(--text3)}
+.t-sm{font-size:12px}
+.qrbox{display:flex;justify-content:center;padding:16px;background:var(--input-bg);border:1px solid var(--border);border-radius:16px;margin:10px 0}
+.qrbox img{width:220px;height:220px;border-radius:8px}
+a.link{color:var(--primary);text-decoration:none;font-size:12.5px;font-weight:700}
+.toast{position:fixed;bottom:90px;left:50%;transform:translateX(-50%);background:var(--text);color:#fff;padding:11px 20px;border-radius:30px;font-size:13px;z-index:100;display:none;box-shadow:var(--shadow-lg);font-weight:600}
+.icon-wrap{width:38px;height:38px;border-radius:12px;display:flex;align-items:center;justify-content:center;font-size:16px;color:#fff;flex-shrink:0}
+.ic-green{background:linear-gradient(135deg,#10b981,#34d399)}.ic-blue{background:linear-gradient(135deg,var(--primary),var(--primary-light))}.ic-purple{background:linear-gradient(135deg,#7c3aed,#a78bfa)}.ic-amber{background:linear-gradient(135deg,#f59e0b,#fbbf24)}
+.settings-item{display:flex;align-items:center;gap:12px;padding:13px 0;border-bottom:1px solid var(--card-border);cursor:pointer;font-weight:700;font-size:13.5px}
+.settings-item:active{opacity:.7}
+.settings-item:last-child{border-bottom:none}
+</style>
+</head>
+<body>
+<div class="topbar">
+  <div class="brand"><span class="logo">و</span> __SITE_NAME__</div>
+  <button class="bell" onclick="showSection('notifications')">🔔<span class="dot" id="notifDot"></span></button>
+</div>
+<div id="content"></div>
+<div class="bottom-nav"><div class="bnav-inner">
+  <button data-s="home" onclick="showSection('home')"><span class="ic">🏠</span>الرئيسية</button>
+  <button data-s="accounts" onclick="showSection('accounts')"><span class="ic">📱</span>حسابي</button>
+  <button data-s="campaigns" onclick="showSection('campaigns')"><span class="ic">📣</span>الحملات</button>
+  <button data-s="settings" onclick="showSection('settings')"><span class="ic">⚙️</span>الإعدادات</button>
+</div></div>
+<div class="overlay" id="overlay" onclick="if(event.target===this)closeSheet()"><div class="sheet" id="sheet"></div></div>
+<div class="toast" id="toast"></div>
+
+<script>
+const IS_ADMIN = __IS_ADMIN__;
+const USERNAME = "__USERNAME__";
+const COUNTRY_CODES = __COUNTRY_CODES_JSON__;
+const DEFAULT_CC = "__DEFAULT_COUNTRY_CODE__";
+let accounts = [];
+let gen = 0;
+
+function toast(msg){ const t=document.getElementById('toast'); t.textContent=msg; t.style.display='block'; setTimeout(()=>t.style.display='none', 2500); }
+function closeSheet(){ document.getElementById('overlay').classList.remove('open'); }
+function openSheet(html){ document.getElementById('sheet').innerHTML = html; document.getElementById('overlay').classList.add('open'); }
+function esc(s){ return (s||'').toString().replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+
+async function api(path, opts={}){
+  const res = await fetch(path, {headers: opts.json !== false ? {'Content-Type':'application/json'} : {}, ...opts});
+  let data = null; try { data = await res.json(); } catch(e) {}
+  // مسارات ترجع مصفوفة مباشرة (/accounts, /subscribers, /admin/customers...) تترجع كما
+  // هي - دمجها بـ {status, ...data} يحوّل المصفوفة لكائن بمفاتيح رقمية ويكسر .map/.filter
+  if (Array.isArray(data)) return data;
+  return {status: res.status, ...(data || {})};
+}
+async function apiForm(path, formData, method='POST'){
+  const res = await fetch(path, {method, body: formData});
+  let data = {}; try { data = await res.json(); } catch(e) {}
+  return {status: res.status, ...data};
+}
+
+function showSection(name){
+  document.querySelectorAll('.bottom-nav button').forEach(b => b.classList.toggle('active', b.dataset.s === name));
+  const myGen = ++gen;
+  const renderers = {home: renderHome, accounts: renderAccounts, campaigns: renderCampaigns, settings: renderSettings, notifications: renderNotifications};
+  (renderers[name] || renderHome)(myGen);
+}
+
+/* ---------------------------------------------------------------- الرئيسية */
+async function renderHome(myGen){
+  document.getElementById('content').innerHTML = '<div class="page-title">الرئيسية</div><div class="card"><div class="empty">...</div></div>';
+  const s = await api('/dashboard/stats');
+  if (myGen !== gen) return;
+  document.getElementById('content').innerHTML = `
+    <div class="page-title">أهلاً، ${esc(USERNAME)} 👋</div>
+    <div class="card">
+      <div class="stat-grid">
+        <div class="stat"><b>${s.accounts_connected||0}/${s.accounts_total||0}</b><span>حسابات متصلة</span></div>
+        <div class="stat"><b>${s.messages_sent||0}</b><span>رسالة مُرسَلة</span></div>
+        <div class="stat"><b>${s.success_rate||0}%</b><span>نسبة النجاح</span></div>
+        <div class="stat"><b>${s.campaigns_total||0}</b><span>حملة سابقة</span></div>
+      </div>
+    </div>
+    <div class="card"><div class="card-header"><h4>حملات جارية</h4></div><div id="runningBox"><div class="empty">...</div></div></div>
+    <div class="card"><div class="card-header"><h4>آخر الحملات</h4></div><div id="histBox"><div class="empty">...</div></div></div>`;
+  loadRunning(myGen);
+  const hist = await api('/dashboard/campaigns');
+  if (myGen !== gen) return;
+  document.getElementById('histBox').innerHTML = hist.length ? hist.map(h => `
+    <div class="list-row"><span class="t-sm">${esc(h.account_name)} · ${esc(h.time)}</span>
+    <span class="pill ${h.failed>0?'pill-amber':'pill-green'}">${h.sent}/${h.total}</span></div>`).join('') : '<div class="empty">ما فيه حملات بعد</div>';
+}
+async function loadRunning(myGen){
+  const rows = await api('/dashboard/running_campaigns');
+  const box = document.getElementById('runningBox');
+  if (myGen !== gen || !box) return; // تغيّر القسم أو انتقلنا لصفحة ثانية (تسجيل خروج) وهذا الطلب لسا معلّق
+  box.innerHTML = rows.length ? rows.map(r => runningCampaignHtml(r.account_id, r, r.account_name)).join('') : '<div class="empty">ما فيه حملة جارية حالياً</div>';
+}
+
+/* ---------------------------------------------------------------- الحسابات */
+async function renderAccounts(myGen){
+  document.getElementById('content').innerHTML = '<div class="page-title">حساباتي</div><div class="card"><div class="empty">...</div></div>';
+  accounts = await api('/accounts');
+  if (myGen !== gen) return;
+  document.getElementById('content').innerHTML = `
+    <div class="page-title">حساباتي</div>
+    <div class="card"><div id="accList"></div>
+      <button class="btn btn-primary" style="margin-top:10px" onclick="addAccount()">+ إضافة حساب واتساب</button>
+    </div>`;
+  renderAccList();
+  pollAccounts(myGen);
+}
+function renderAccList(){
+  const box = document.getElementById('accList');
+  if (!box) return;
+  box.innerHTML = accounts.length ? accounts.map(a => `
+    <div class="list-row">
+      <span>${esc(a.name)} ${a.otp_sender ? '<span class="pill pill-gray">مرسل الأكواد</span>' : ''}</span>
+      <span class="row" style="width:auto">
+        <span class="pill ${a.logged_in?'pill-green':'pill-amber'}">${a.logged_in?'متصل':(a.status==='qr'?'مسح الباركود':'غير متصل')}</span>
+        ${!a.logged_in ? `<button class="btn btn-sm btn-outline" onclick="showQr('${a.id}')">ربط</button>` : ''}
+        <button class="btn btn-sm btn-danger" onclick="deleteAccount('${a.id}')">حذف</button>
+      </span>
+    </div>`).join('') : '<div class="empty">ما عندك حساب واتساب بعد</div>';
+}
+async function pollAccounts(myGen){
+  if (myGen !== gen) return;
+  accounts = await api('/accounts');
+  if (myGen !== gen) return;
+  renderAccList();
+  setTimeout(() => pollAccounts(myGen), 4000);
+}
+async function addAccount(){
+  const r = await api('/accounts', {method:'POST', body: JSON.stringify({name:''})});
+  if (!r.ok && r.status >= 400) { toast(r.error||'فشل'); return; }
+  accounts = await api('/accounts');
+  renderAccList();
+  showQr(r.id);
+}
+function showQr(accId){
+  openSheet(`<h3>اربط حساب واتساب</h3><p class="t-sm muted">افتح واتساب بجوالك ← الأجهزة المرتبطة ← ربط جهاز، وامسح الرمز:</p>
+    <div class="qrbox"><img id="qrImg" src="/accounts/${accId}/qr?t=${Date.now()}" onerror="this.style.display='none'"></div>
+    <p class="t-sm muted" style="text-align:center">إذا ما ظهر الرمز، انتظر ثواني وأعد فتح هذه النافذة</p>
+    <button class="btn btn-outline" style="width:100%" onclick="closeSheet()">إغلاق</button>`);
+  let tries = 0;
+  const iv = setInterval(() => {
+    if (!document.getElementById('overlay').classList.contains('open') || ++tries > 60) { clearInterval(iv); return; }
+    const img = document.getElementById('qrImg');
+    if (img) { img.style.display=''; img.src = `/accounts/${accId}/qr?t=${Date.now()}`; }
+  }, 2500);
+}
+async function deleteAccount(accId){
+  if (!confirm('حذف هذا الحساب نهائياً؟')) return;
+  await api(`/accounts/${accId}/logout`, {method:'POST'});
+  accounts = await api('/accounts');
+  renderAccList();
+}
+
+/* ---------------------------------------------------------------- الحملات */
+function connectedAccounts(){ return accounts.filter(a => a.logged_in); }
+async function renderCampaigns(myGen){
+  accounts = await api('/accounts');
+  if (myGen !== gen) return;
+  const conn = connectedAccounts();
+  document.getElementById('content').innerHTML = `
+    <div class="page-title">الحملات</div>
+    ${conn.length ? `
+    <div class="card">
+      <div class="card-header"><h4>حملة جديدة</h4></div>
+      <label>الحساب المُرسِل</label>
+      <select id="cAcc">${conn.map(a=>`<option value="${a.id}">${esc(a.name)}</option>`).join('')}</select>
+      <label>الأرقام (رقم بكل سطر أو مفصولة بفاصلة)</label>
+      <textarea id="cNumbers" rows="4" placeholder="07701234567"></textarea>
+      <label>رمز الدولة الافتراضي للأرقام المحلية</label>
+      <select id="cCc">${COUNTRY_CODES.map(c=>`<option value="${c[0]}" ${c[0]===DEFAULT_CC?'selected':''}>${esc(c[1])}</option>`).join('')}</select>
+      <label>نص الرسالة</label>
+      <textarea id="cText" rows="3" placeholder="هلوو"></textarea>
+      <label>الفاصل بين كل رسالة (ثانية)</label>
+      <input id="cDelay" type="number" value="15" min="1">
+      <button class="btn btn-primary" style="margin-top:12px" onclick="startCampaign()">بدء الحملة</button>
+    </div>` : `<div class="card"><div class="empty">وصّل حساب واتساب أول من قسم "حسابي" حتى تقدر تبدأ حملة</div></div>`}
+    <div class="card"><div class="card-header"><h4>حملات جارية</h4></div><div id="cRunning"><div class="empty">...</div></div></div>`;
+  loadRunning(myGen);
+  const box = document.getElementById('cRunning');
+  const orig = loadRunning;
+  // يعيد استخدام نفس دالة الرئيسية بس تكتب بهذا الصندوق - أسهل نعرّف مجدداً مختصرة
+  (async () => {
+    const rows = await api('/dashboard/running_campaigns');
+    if (myGen !== gen) return;
+    box.innerHTML = rows.length ? rows.map(r => runningCampaignHtml(r.account_id, r, r.account_name)).join('') : '<div class="empty">ما فيه حملة جارية حالياً</div>';
+  })();
+}
+async function startCampaign(){
+  const accId = document.getElementById('cAcc').value;
+  const fd = new FormData();
+  fd.append('numbers_text', document.getElementById('cNumbers').value);
+  fd.append('country_code', document.getElementById('cCc').value);
+  fd.append('text', document.getElementById('cText').value);
+  fd.append('delay', document.getElementById('cDelay').value);
+  const r = await apiForm(`/accounts/${accId}/campaign`, fd);
+  if (!r.ok) { toast(r.error || 'فشل بدء الحملة'); return; }
+  toast(`بدأت الحملة - ${r.total} رقم`);
+  showSection('campaigns');
+}
+function runningCampaignHtml(accId, r, accName){
+  if (!r.running && !r.paused) return '';
+  const pct = r.total ? Math.round(((r.sent+r.failed)/r.total)*100) : 0;
+  return `<div class="list-row" style="flex-direction:column;align-items:stretch;gap:6px">
+    <div class="row" style="justify-content:space-between">
+      <span class="t-sm"><b>${esc(accName||'')}</b> - ${r.sent}/${r.total} (فشل ${r.failed})</span>
+      <span class="pill ${r.paused?'pill-amber':'pill-green'}">${r.paused?'موقوفة مؤقتاً':'جارية'} ${pct}%</span>
+    </div>
+    <div class="row">
+      ${r.running ? `<button class="btn btn-sm btn-outline" onclick="pauseCampaign('${accId}')">إيقاف مؤقت</button>` : ''}
+      ${r.paused ? `<button class="btn btn-sm btn-primary" onclick="resumeCampaign('${accId}')">استئناف</button>
+                     <button class="btn btn-sm btn-danger" onclick="cancelCampaign('${accId}')">إلغاء نهائي</button>` : ''}
+    </div></div>`;
+}
+async function pauseCampaign(accId){ await api(`/accounts/${accId}/campaign/stop`, {method:'POST'}); showSection('campaigns'); }
+async function resumeCampaign(accId){ const r = await api(`/accounts/${accId}/campaign/resume`, {method:'POST'}); if(!r.ok) toast(r.error); showSection('campaigns'); }
+async function cancelCampaign(accId){ if(!confirm('إلغاء الحملة نهائياً؟')) return; await api(`/accounts/${accId}/campaign/cancel`, {method:'POST'}); showSection('campaigns'); }
+
+/* ---------------------------------------------------------------- الإعدادات */
+async function renderSettings(myGen){
+  document.getElementById('content').innerHTML = `
+    <div class="page-title">الإعدادات</div>
+    <div class="card">
+      <div class="settings-item" onclick="showSection('accounts')"><span class="icon-wrap ic-green">📱</span> حسابات واتساب</div>
+      <div class="settings-item" onclick="openAutoReply()"><span class="icon-wrap ic-blue">🤖</span> الرد الآلي</div>
+      <div class="settings-item" onclick="openSubscribers()"><span class="icon-wrap ic-purple">👥</span> المشتركين (عملائي)</div>
+      <div class="settings-item" onclick="openApiKeys()"><span class="icon-wrap ic-amber">🔑</span> مفاتيح API</div>
+      ${IS_ADMIN ? `<div class="settings-item" onclick="openAdmin()"><span class="icon-wrap" style="background:#334155">🛠️</span> لوحة الأدمن</div>` : ''}
+    </div>
+    <div class="card">
+      <button class="btn btn-danger" style="width:100%" onclick="doLogout()">تسجيل الخروج</button>
+    </div>`;
+}
+async function doLogout(){ gen++; await fetch('/logout', {method:'POST'}); window.location.href = '/'; }
+
+/* -------- الرد الآلي -------- */
+async function openAutoReply(){
+  if (!accounts.length) accounts = await api('/accounts');
+  if (!accounts.length) { toast('وصّل حساب واتساب أول'); return; }
+  openSheet(`<h3>الرد الآلي</h3><label>الحساب</label><select id="arAcc" onchange="loadAutoReply()">${accounts.map(a=>`<option value="${a.id}">${esc(a.name)}</option>`).join('')}</select><div id="arBox">...</div>`);
+  loadAutoReply();
+}
+function sheetOpen(){ return document.getElementById('overlay').classList.contains('open'); }
+
+async function loadAutoReply(){
+  const accId = document.getElementById('arAcc').value;
+  const d = await api(`/accounts/${accId}/auto_reply`);
+  if (!sheetOpen()) return;
+  const rules = d.rules || [];
+  document.getElementById('arBox').innerHTML = `
+    <label class="row" style="margin-top:12px"><input type="checkbox" id="arEnabled" ${d.enabled?'checked':''} style="width:auto"> تفعيل الرد الآلي</label>
+    <div id="arRules">${rules.map((r,i)=>arRuleRow(r.keyword,r.reply,i)).join('')}</div>
+    <button class="btn btn-outline btn-sm" onclick="document.getElementById('arRules').insertAdjacentHTML('beforeend', arRuleRow('','',Date.now()))">+ إضافة قاعدة</button>
+    <button class="btn btn-primary" style="margin-top:12px" onclick="saveAutoReply('${accId}')">حفظ</button>`;
+}
+function arRuleRow(kw,rp,i){ return `<div class="row" style="margin:8px 0" data-rule="${i}"><input placeholder="كلمة مفتاحية" value="${esc(kw)}" class="ar-kw"><input placeholder="الرد" value="${esc(rp)}" class="ar-rp"><button class="btn btn-sm btn-danger" onclick="this.parentElement.remove()">×</button></div>`; }
+async function saveAutoReply(accId){
+  const rules = [...document.querySelectorAll('#arRules [data-rule]')].map(row => ({
+    keyword: row.querySelector('.ar-kw').value.trim(), reply: row.querySelector('.ar-rp').value.trim()
+  })).filter(r => r.keyword && r.reply);
+  const r = await api(`/accounts/${accId}/auto_reply`, {method:'POST', body: JSON.stringify({enabled: document.getElementById('arEnabled').checked, rules})});
+  if (r.ok) { toast('تم الحفظ'); closeSheet(); } else toast(r.error||'فشل');
+}
+
+/* -------- المشتركين -------- */
+async function openSubscribers(){
+  openSheet('<h3>المشتركين</h3><div id="subBox">...</div>');
+  await loadSubscribers();
+}
+async function loadSubscribers(){
+  const subs = await api('/subscribers');
+  if (!sheetOpen()) return;
+  document.getElementById('subBox').innerHTML = `
+    <div style="max-height:280px;overflow:auto">${subs.length ? subs.map(s => `
+      <div class="list-row"><span class="t-sm">${esc(s.name)}<br><span class="muted">${esc(s.phone)} · ${s.days_left!==null?(s.days_left>=0?('باقي '+s.days_left+' يوم'):'منتهي'):''}</span></span>
+      <span class="row" style="width:auto"><button class="btn btn-sm btn-outline" onclick="renewSub(${s.id})">تجديد</button><button class="btn btn-sm btn-danger" onclick="delSub(${s.id})">حذف</button></span></div>`).join('') : '<div class="empty">ما فيه مشتركين بعد</div>'}</div>
+    <label style="margin-top:14px">اسم المشترك</label><input id="subName">
+    <label>رقم واتساب</label><input id="subPhone" type="tel">
+    <label>مدة الاشتراك (يوم)</label><input id="subDays" type="number" value="30">
+    <button class="btn btn-primary" style="margin-top:10px" onclick="addSub()">إضافة مشترك</button>`;
+}
+async function addSub(){
+  const r = await api('/subscribers', {method:'POST', body: JSON.stringify({
+    name: document.getElementById('subName').value, phone: document.getElementById('subPhone').value,
+    duration_days: parseInt(document.getElementById('subDays').value||'30')
+  })});
+  if (!r.ok) { toast(r.error); return; }
+  loadSubscribers();
+}
+async function delSub(id){ if(!confirm('حذف المشترك؟'))return; await api(`/subscribers/${id}/delete`, {method:'POST'}); loadSubscribers(); }
+async function renewSub(id){ await api(`/subscribers/${id}/renew`, {method:'POST', body: JSON.stringify({})}); loadSubscribers(); toast('تم التجديد'); }
+
+/* -------- مفاتيح API -------- */
+async function openApiKeys(){
+  openSheet('<h3>مفاتيح API</h3><div id="akBox">...</div>');
+  await loadApiKeys();
+}
+async function loadApiKeys(){
+  const d = await api('/api_keys');
+  if (!sheetOpen()) return;
+  if (!d.plan_active) { document.getElementById('akBox').innerHTML = '<div class="empty">مفاتيح API تحتاج اشتراك مفعّل (مو فترة تجربة)</div>'; return; }
+  if (!accounts.length) accounts = await api('/accounts');
+  if (!sheetOpen()) return;
+  const conn = connectedAccounts();
+  document.getElementById('akBox').innerHTML = `
+    <div>${d.keys.length ? d.keys.map(k => `
+      <div class="list-row"><span class="t-sm" style="font-family:monospace">${esc(k.key_prefix)}••••</span>
+      ${k.revoked ? '<span class="pill pill-red">ملغى</span>' : `<span class="row" style="width:auto"><span class="pill ${k.account_connected?'pill-green':'pill-amber'}">${k.account_connected?'متصل':'متوقف'}</span><button class="btn btn-sm btn-danger" onclick="revokeKey(${k.id})">إلغاء</button></span>`}</div>`).join('') : '<div class="empty">ما عندك مفاتيح بعد</div>'}</div>
+    ${conn.length ? `<label style="margin-top:14px">الحساب</label><select id="akAcc">${conn.map(a=>`<option value="${a.id}">${esc(a.name)}</option>`).join('')}</select>
+    <button class="btn btn-primary" style="margin-top:10px" onclick="genKey()">توليد مفتاح جديد</button>` : '<p class="t-sm muted" style="margin-top:12px">وصّل حساباً حتى تولّد مفتاحاً له</p>'}`;
+}
+async function genKey(){
+  const r = await api('/api_keys', {method:'POST', body: JSON.stringify({account_id: document.getElementById('akAcc').value})});
+  if (!r.ok) { toast(r.error); return; }
+  openSheet(`<h3>مفتاحك الجديد</h3><p class="t-sm muted">هذا المفتاح يُعرض مرة واحدة بس - خزّنه الآن:</p><input readonly value="${esc(r.key)}" style="font-family:monospace" onclick="this.select()"><button class="btn btn-primary" style="margin-top:12px" onclick="openApiKeys()">تمام، خزّنته</button>`);
+}
+async function revokeKey(id){ await api(`/api_keys/${id}`, {method:'DELETE'}); loadApiKeys(); }
+
+/* -------- لوحة الأدمن -------- */
+async function openAdmin(){
+  openSheet('<h3>لوحة الأدمن</h3><div id="adBox">...</div>');
+  const customers = await api('/admin/customers');
+  if (!sheetOpen()) return;
+  document.getElementById('adBox').innerHTML = `
+    <div style="max-height:300px;overflow:auto">${customers.map(c => `
+      <div class="list-row"><span class="t-sm">${esc(c.name||c.email||c.phone||('#'+c.id))}<br><span class="muted">${c.plan_active?'مفعّل':'غير مفعّل'}</span></span>
+      <span class="row" style="width:auto">
+        <button class="btn btn-sm btn-primary" onclick="setPlan(${c.id},true)">تفعيل 30 يوم</button>
+        <button class="btn btn-sm btn-outline" onclick="setPlan(${c.id},false)">إيقاف</button>
+      </span></div>`).join('')}</div>`;
+}
+async function setPlan(uid, active){ await api(`/admin/customers/${uid}/plan`, {method:'POST', body: JSON.stringify({active, days:30})}); toast('تم التحديث'); openAdmin(); }
+
+/* ---------------------------------------------------------------- الإشعارات */
+async function renderNotifications(myGen){
+  document.getElementById('content').innerHTML = '<div class="page-title">الإشعارات</div><div class="card"><div class="empty">...</div></div>';
+  const rows = await api('/events?since=0');
+  if (myGen !== gen) return;
+  document.getElementById('content').innerHTML = `<div class="page-title">الإشعارات</div>
+    ${rows.length ? `<button class="btn btn-outline" style="margin-bottom:10px" onclick="markAllRead()">تحديد الكل كمقروء</button>` : ''}
+    <div class="card">${rows.length ? rows.slice().reverse().map(e => `
+      <div class="list-row" style="opacity:${e.read?0.6:1}"><span class="t-sm"><b>${esc(e.title)}</b><br><span class="muted">${esc(e.body)} · ${esc(e.time)}</span></span>
+      <button class="btn btn-sm btn-outline" onclick="delNotif(${e.id})">حذف</button></div>`).join('') : '<div class="empty">ما فيه إشعارات</div>'}</div>`;
+  document.getElementById('notifDot').style.display = rows.some(e=>!e.read) ? 'block' : 'none';
+}
+async function markAllRead(){ await api('/events/read_all', {method:'POST'}); showSection('notifications'); }
+async function delNotif(id){ await api(`/events/${id}`, {method:'DELETE'}); showSection('notifications'); }
+
+async function pollNotifDot(){
+  try {
+    const rows = await api('/events?since=0');
+    const dot = document.getElementById('notifDot');
+    if (dot) dot.style.display = Array.isArray(rows) && rows.some(e=>!e.read) ? 'block' : 'none';
+  } catch(e){}
+  if (document.getElementById('notifDot')) setTimeout(pollNotifDot, 15000); // يتوقف من نفسه لو انتقلنا لصفحة ثانية (تسجيل خروج)
+}
+
+showSection('home');
+pollNotifDot();
+</script>
+</body>
+</html>

@@ -68,6 +68,8 @@ defined('ADMIN_NAME') or define('ADMIN_NAME', 'الأدمن');
 defined('MASTER_ADMIN_PHONE') or define('MASTER_ADMIN_PHONE', '');
 defined('MASTER_ADMIN_CODE') or define('MASTER_ADMIN_CODE', '');
 defined('GOOGLE_CLIENT_ID') or define('GOOGLE_CLIENT_ID', '');
+defined('GATEWAY_BASE_URL') or define('GATEWAY_BASE_URL', 'http://127.0.0.1:3000');
+defined('GATEWAY_TOKEN') or define('GATEWAY_TOKEN', '');
 defined('WA_PROVIDER_DRIVER') or define('WA_PROVIDER_DRIVER', 'none');
 defined('WA_PROVIDER_CONFIG') or define('WA_PROVIDER_CONFIG', []);
 defined('PLAN_NAME') or define('PLAN_NAME', 'الخطة الاحترافية');
@@ -95,7 +97,7 @@ foreach (['', '/logs', '/cache', '/wsl_logo'] as $d) {
     if (!is_dir(DATA_DIR . $d)) @mkdir(DATA_DIR . $d, 0775, true);
 }
 
-foreach (['py', 'sqlsplit', 'error_handler', 'db', 'session', 'response', 'router', 'http', 'core', 'schema', 'hooks', 'security', 'wa_provider'] as $lib) {
+foreach (['py', 'sqlsplit', 'error_handler', 'db', 'session', 'response', 'router', 'http', 'core', 'schema', 'hooks', 'security', 'wa_provider', 'gateway'] as $lib) {
     require_once APP_DIR . "/lib/$lib.php";
 }
 install_error_handlers();

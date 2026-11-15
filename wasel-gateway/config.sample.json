@@ -1,0 +1,5 @@
+{
+  "gateway_token": "CHANGE_ME_TO_A_LONG_RANDOM_SECRET",
+  "webhook_url": "https://your-domain.com/webhook/wa_incoming",
+  "log_level": "warn"
+}

@@ -7,6 +7,9 @@ numbers.txt
 __pycache__/
 *.pyc
 
-# نسخة PHP (php/) - إعدادات محلية وبيانات لا تُرفع لـ git
-php/core/config.php
-php/data/
+# نسخة PHP + بوابة واتساب - إعدادات محلية وبيانات لا تُرفع لـ git
+core/config.php
+data/
+wasel-gateway/node_modules/
+wasel-gateway/sessions/
+wasel-gateway/config.json

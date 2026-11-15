@@ -122,25 +122,57 @@ function wsl_otp_set(string $phone, string $code): void {
     $conn->commit();
 }
 
+/** حساب واتساب المصمَّم لإرسال رموز الدخول (otp_sender=1 بجدول wa_accounts) إن كان متصلاً حالياً */
+function wsl_find_otp_sender_account(): ?string {
+    $row = get_db()->execute('SELECT id FROM wa_accounts WHERE otp_sender=1 LIMIT 1')->fetchone();
+    if (!$row) return null;
+    return (gateway_status($row['id'])['status'] ?? '') === 'connected' ? $row['id'] : null;
+}
+
+/** يسجّل دخول صاحب هذا الرقم بالجلسة الحالية - ينشئ حسابه لو ما كان موجود (ويرقّيه أدمن لو is_master) */
+function wsl_login_by_phone(string $phone, bool $isMaster): bool {
+    $conn = get_db();
+    $user = $conn->execute('SELECT * FROM users WHERE phone=?', [$phone])->fetchone();
+    $isNew = $user === null;
+    if (!$user) {
+        $isAdmin = $isMaster || (int)$conn->execute('SELECT COUNT(*) AS n FROM users')->fetchone()['n'] === 0;
+        $conn->execute(
+            'INSERT INTO users (phone, is_admin, created_at, trial_ends_at) VALUES (?,?,?,?)',
+            [$phone, $isAdmin ? 1 : 0, now_str(), gmdate('Y-m-d H:i', time() + TRIAL_DAYS * 86400)]
+        );
+        $conn->commit();
+        $user = $conn->execute('SELECT * FROM users WHERE phone=?', [$phone])->fetchone();
+    } elseif ($isMaster && !py_truthy($user['is_admin'])) {
+        $conn->execute('UPDATE users SET is_admin=1 WHERE id=?', [$user['id']]);
+        $conn->commit();
+        $user = $conn->execute('SELECT * FROM users WHERE id=?', [$user['id']])->fetchone();
+    }
+    wsl_login_user($user);
+    return $isNew;
+}
+
 route('/auth/whatsapp/send_code', function () {
     $phone = preg_replace('/\D/', '', (string)(req_data()['phone'] ?? ''));
     if (strlen($phone) < 8) return jsonify(['ok' => false, 'error' => 'أدخل رقم واتساب صحيح مع مفتاح الدولة'], 400);
 
     if (MASTER_ADMIN_PHONE !== '' && $phone === MASTER_ADMIN_PHONE) {
+        // حساب أدمن ثابت يدخل مباشرة بدون أي رمز - يفيد لدخول صاحب المنصة نفسه حتى لو ما
+        // فيه حساب واتساب متصل بعد لإرسال الرموز (نفس سلوك webapp.py بالضبط)
+        wsl_login_by_phone($phone, true);
         return jsonify(['ok' => true, 'master' => true]);
     }
     if (($thr = request_throttle('otpsend', $phone, 5, 20)) !== null) return $thr;
 
-    $provider = wa_provider();
-    if (!$provider->isReady()) {
+    $sender = wsl_find_otp_sender_account();
+    if (!$sender) {
         return jsonify(['ok' => false, 'error' => 'تسجيل الدخول عبر واتساب غير مفعّل حالياً، تواصل مع إدارة المنصة'], 400);
     }
     $code = (string)random_int(100000, 999999);
     wsl_otp_set($phone, $code);
     try {
-        $provider->sendText($phone, "رمز التحقق الخاص بك في واصل: $code\nصالح لمدة 10 دقائق.");
-    } catch (WaProviderException $e) {
-        log_app_error('WARNING', 'wa_provider send_code failed: ' . $e->getMessage());
+        gateway_send($sender, $phone, "رمز التحقق الخاص بك في واصل: $code\nصالح لمدة 10 دقائق.");
+    } catch (GatewayException $e) {
+        log_app_error('WARNING', 'otp send_code failed: ' . $e->getMessage());
         return jsonify(['ok' => false, 'error' => 'تعذر إرسال الرمز، تأكد إن الرقم يستخدم واتساب وحاول مرة أخرى'], 502);
     }
     return jsonify(['ok' => true, 'sending' => false]);
@@ -165,23 +197,7 @@ route('/auth/whatsapp/verify', function () {
         $conn->commit();
     }
 
-    $conn = get_db();
-    $user = $conn->execute('SELECT * FROM users WHERE phone=?', [$phone])->fetchone();
-    $isNew = $user === null;
-    if (!$user) {
-        $isAdmin = $isMaster || (int)$conn->execute('SELECT COUNT(*) AS n FROM users')->fetchone()['n'] === 0;
-        $conn->execute(
-            'INSERT INTO users (phone, is_admin, created_at, trial_ends_at) VALUES (?,?,?,?)',
-            [$phone, $isAdmin ? 1 : 0, now_str(), gmdate('Y-m-d H:i', time() + TRIAL_DAYS * 86400)]
-        );
-        $conn->commit();
-        $user = $conn->execute('SELECT * FROM users WHERE phone=?', [$phone])->fetchone();
-    } elseif ($isMaster && !py_truthy($user['is_admin'])) {
-        $conn->execute('UPDATE users SET is_admin=1 WHERE id=?', [$user['id']]);
-        $conn->commit();
-        $user = $conn->execute('SELECT * FROM users WHERE id=?', [$user['id']])->fetchone();
-    }
-    wsl_login_user($user);
+    $isNew = wsl_login_by_phone($phone, $isMaster);
     return jsonify(['ok' => true, 'is_new' => $isNew]);
 }, ['POST']);
 
