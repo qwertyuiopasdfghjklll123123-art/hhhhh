@@ -1,10 +1,10 @@
 <?php
 /**
- * واصل — محرك الإرسال التلقائي (عبر خدمة واتساب API).
+ * واصل — محرك الإرسال التلقائي (عبر البوابة الخاصة).
  *
  * يشتغل من cron.php (مهمة مجدولة كل دقيقة من cPanel)، أو من المتصفح ما دام
  * الموقع مفتوح بأي جهاز (احتياط إذا الـ Cron مو مفعّل). بكل تشغيل يمر على
- * حسابات الواتساب المربوطة بخدمة API واللي عندها رسائل حان موعدها، ويرسل
+ * أرقام الواتساب المربوطة بالبوابة واللي عندها رسائل حان موعدها، ويرسل
  * رسالة وحدة لكل حساب كل "مهلة" ثواني (مع فرق عشوائي بسيط حتى ما يبين آلي).
  *
  * قفل بقاعدة البيانات (GET_LOCK) يضمن ما يشتغل تشغيلين بنفس الوقت، فما
@@ -88,12 +88,12 @@ function hosting_panel_hint()
     return preg_match('#/domains/[^/]+/public_html#', WASEL_ROOT) ? 'hostinger' : 'cpanel';
 }
 
-/** حسابات مربوطة بخدمة API وعندها رسائل حان موعدها (بحملات شغّالة ومو موقوفة). */
+/** أرقام مربوطة بالبوابة وعندها رسائل حان موعدها (بحملات شغّالة ومو موقوفة). */
 function auto_due_accounts()
 {
     return q_all(
         "SELECT a.* FROM wa_accounts a
-         WHERE a.provider <> 'manual' AND EXISTS (
+         WHERE a.provider = 'self' AND EXISTS (
             SELECT 1 FROM campaign_messages m JOIN campaigns c ON c.id = m.campaign_id
             WHERE m.account_id = a.id AND m.status = 'pending' AND m.scheduled_at <= ?
               AND c.status = 'active' AND c.paused = 0)
@@ -102,7 +102,7 @@ function auto_due_accounts()
     );
 }
 
-/** هل لازم نسأل الخدمة عن حالة الحساب من جديد؟ */
+/** هل لازم نسأل البوابة عن حالة الرقم من جديد؟ */
 function auto_state_stale(array $acc)
 {
     if (empty($acc['api_checked_at'])) {
@@ -117,7 +117,7 @@ function auto_state_stale(array $acc)
         case '':
             return $age >= 60;
     }
-    // حالات تحتاج تدخّل (QR، اشتراك، حظر) — نفحص كل 10 دقايق، يمكن انحلّت من لوحة الخدمة
+    // حالات تحتاج تدخّل (ربط الرقم، البوابة متوقفة) — نفحص كل 10 دقايق، يمكن انحلّت
     return $age >= 600;
 }
 
@@ -153,7 +153,7 @@ function auto_send_one(array $acc, array $m)
         case 'maybe':
             q(
                 "UPDATE campaign_messages SET status = 'sent', sent_at = ?, error = ?, provider_msg_id = ?, locked_at = NULL, locked_by = NULL WHERE id = ?",
-                [now_dt(), $res['result'] === 'maybe' ? 'غير مؤكد: انقطع الاتصال بالخدمة أثناء الإرسال' : null, isset($res['id']) ? $res['id'] : null, (int) $m['id']]
+                [now_dt(), $res['result'] === 'maybe' ? 'غير مؤكد: انقطع الاتصال بالبوابة أثناء الإرسال' : null, isset($res['id']) ? $res['id'] : null, (int) $m['id']]
             );
             $out = 'sent';
             break;
@@ -197,46 +197,12 @@ function auto_send_one(array $acc, array $m)
     return $out;
 }
 
-/**
- * الخدمة تبلّغ لاحقاً إذا رسالة ما وصلت (الرقم ما عنده واتساب) — نحدّث سجل
- * آخر ساعة ونص لكل حساب، مرة كل 10 دقايق، ولحد 3 حسابات بكل تشغيل.
- */
-function auto_sync_statuses($maxAccounts = 3)
-{
-    $rows = q_all(
-        "SELECT a.* FROM wa_accounts a
-         WHERE a.provider <> 'manual' AND a.api_state = 'connected' AND (a.sync_at IS NULL OR a.sync_at < ?)
-           AND EXISTS (SELECT 1 FROM campaign_messages m WHERE m.account_id = a.id AND m.status = 'sent'
-                       AND m.provider_msg_id IS NOT NULL AND m.sent_at >= ?)
-         ORDER BY a.sync_at LIMIT " . (int) $maxAccounts,
-        [now_dt(-600), now_dt(-5400)]
-    );
-    foreach ($rows as $acc) {
-        q('UPDATE wa_accounts SET sync_at = ? WHERE id = ?', [now_dt(), (int) $acc['id']]);
-        $map = gw_failed_statuses($acc);
-        if (!$map) {
-            continue;
-        }
-        foreach (array_chunk(array_keys($map), 200) as $chunk) {
-            $chunk = array_map('strval', $chunk);
-            $in = implode(',', array_fill(0, count($chunk), '?'));
-            $msgs = q_all(
-                "SELECT id, provider_msg_id FROM campaign_messages WHERE account_id = ? AND status = 'sent' AND provider_msg_id IN ($in)",
-                array_merge([(int) $acc['id']], $chunk)
-            );
-            foreach ($msgs as $m) {
-                q("UPDATE campaign_messages SET status = 'failed', error = ? WHERE id = ? AND status = 'sent'", [$map[$m['provider_msg_id']], (int) $m['id']]);
-            }
-        }
-    }
-}
-
 /** بعد كم ثانية يصير فيه رسالة تلقائية جاهزة (0 = هسه)، أو null إذا ما فيه شي. */
 function auto_next_in()
 {
     $v = q_val(
         "SELECT MIN(COALESCE(a.next_send_at, '2000-01-01 00:00:00')) FROM wa_accounts a
-         WHERE a.provider <> 'manual' AND a.api_state = 'connected' AND EXISTS (
+         WHERE a.provider = 'self' AND a.api_state = 'connected' AND EXISTS (
             SELECT 1 FROM campaign_messages m JOIN campaigns c ON c.id = m.campaign_id
             WHERE m.account_id = a.id AND m.status = 'pending' AND m.scheduled_at <= ?
               AND c.status = 'active' AND c.paused = 0)",
@@ -260,7 +226,6 @@ function auto_send_run($budget)
     try {
         // رسائل حجزها تشغيل سابق وانقطع بنصه (القفل صار عندنا، فأكيد ما أحد يرسلها هسه)
         q("UPDATE campaign_messages SET locked_at = NULL, locked_by = NULL WHERE locked_by = 'auto' AND status = 'pending'");
-        auto_sync_statuses();
         $checked = [];
         while (microtime(true) - $started < $budget - 1) {
             $accounts = auto_due_accounts();
@@ -286,7 +251,7 @@ function auto_send_run($budget)
             if ($ready) {
                 $m = auto_next_message($ready['id']);
                 if (!$m) {
-                    // كل المستحق محجوز لجهاز يرسل يدوياً — نرجع له بعد شوي
+                    // كل المستحق محجوز حالياً — نرجع له بعد شوي
                     q('UPDATE wa_accounts SET next_send_at = ? WHERE id = ?', [now_dt(15), (int) $ready['id']]);
                     continue;
                 }
@@ -327,7 +292,7 @@ function auto_overview($isAdmin = true)
          JOIN campaigns c ON c.id = m.campaign_id
          JOIN wa_accounts a ON a.id = m.account_id
          WHERE m.status = 'pending' AND m.scheduled_at <= ? AND c.status = 'active' AND c.paused = 0
-           AND a.provider <> 'manual' AND (a.api_state IS NULL OR a.api_state IN ('connected', 'starting', 'error'))",
+           AND a.provider = 'self' AND (a.api_state IS NULL OR a.api_state IN ('connected', 'starting', 'error'))",
         [now_dt()]
     );
     return ['due' => $isAdmin ? $due : min(1, $due), 'cron_ok' => cron_recent()];

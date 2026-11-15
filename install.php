@@ -41,7 +41,7 @@ function requirement_rows()
         ['إصدار PHP 7.4 أو أحدث (الحالي ' . PHP_VERSION . ')', version_compare(PHP_VERSION, '7.4.0', '>='), true],
         ['إضافة PDO MySQL (pdo_mysql)', extension_loaded('pdo_mysql'), true],
         ['إضافة JSON', function_exists('json_encode'), true],
-        ['إضافة cURL (الإرسال التلقائي عبر خدمة واتساب API)', function_exists('curl_init'), false],
+        ['إضافة cURL (اتصال الموقع بالبوابة الخاصة للإرسال)', function_exists('curl_init'), false],
         ['المجلد الرئيسي قابل للكتابة (لإنشاء config.php)', $writableRoot, true],
         ['مجلد uploads قابل للكتابة (شعار الموقع)', is_dir($uploads) && is_writable($uploads), false],
         ['إضافة zip (قراءة ملفات Excel)', class_exists('ZipArchive'), false],
@@ -167,7 +167,7 @@ ol { padding-right:18px; font-size:13px; line-height:1.9; color:#4A6A78; }
     <li>من لوحة الأدمن ← "الفروع": أنشئ حساب دخول لكل فرع.</li>
     <li>للإرسال التلقائي بدون أي اشتراك: لوحة التحكم ← "البوابة الخاصة" ← اتبع الخطوات (cPanel ← Setup Node.js App — مرة وحدة).</li>
     <li>لوحة التحكم ← "الإرسال التلقائي بالخلفية" ← انسخ الأمر لـ cPanel ← Cron Jobs (كل دقيقة).</li>
-    <li>كل فرع يدخل بحسابه ← "حسابي" ← يضيف رقم الواتساب ← "تفعيل الإرسال التلقائي" ← يمسح رمز QR مرة وحدة، وبعدها حملاته تنرسل بنفسها.</li>
+    <li>كل فرع يدخل بحسابه ← "حسابي" ← "إضافة رقم" ← يمسح رمز QR من واتساب جواله مرة وحدة، وبعدها حملاته تنرسل بنفسها.</li>
   </ol>
   <a class="btn" href="index.php">الذهاب لتسجيل الدخول</a>
 <?php else: ?>

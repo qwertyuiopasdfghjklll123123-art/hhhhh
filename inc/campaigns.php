@@ -3,13 +3,9 @@
  * واصل — منطق الحملات.
  *
  * كل حملة تنحفظ كرسائل منفصلة (رقم لكل صف) بجدول campaign_messages ولكل
- * رسالة موعدها (scheduled_at). طريقة الإرسال حسب حساب الواتساب:
- *  - مربوط بخدمة API (Green-API / UltraMsg): السيرفر يرسلها تلقائياً بموعدها
- *    (inc/autosend.php) — بدون ما ينفتح واتساب ولا يضغط أحد شي.
- *  - يدوي: الفرع يضغط "إرسال" فينفتح واتساب والرقم والرسالة جاهزين.
- *
- * بالإرسال اليدوي الرقم المعروض ينحجز للجهاز اللي عرضه (SEND_LOCK_SECONDS)
- * حتى لو اثنين من الفرع يرسلون نفس الحملة سوا ما ينرسل نفس الرقم مرتين.
+ * رسالة موعدها (scheduled_at). السيرفر يرسلها تلقائياً بموعدها عبر البوابة
+ * الخاصة (inc/autosend.php) من رقم الواتساب المربوط — بدون ما ينفتح واتساب
+ * ولا يضغط أحد شي. إذا الرقم مو مربوط، الرسائل تنتظر لحد ما ينربط.
  */
 
 require_once __DIR__ . '/core.php';
@@ -82,7 +78,7 @@ function campaign_create(array $user, array $acc, array $numbers, $bodyText, $li
             $acc['name']
         );
     } elseif ($mode === 'once') {
-        notify($user['id'], 'تمت جدولة حملة', count($numbers) . ' رسالة جاهزة للإرسال بموعد ' . substr($startAt, 0, 16), 'info', $acc['name']);
+        notify($user['id'], 'تمت جدولة حملة', count($numbers) . ' رسالة تنرسل تلقائياً بموعد ' . substr($startAt, 0, 16), 'info', $acc['name']);
     }
 
     return [
@@ -135,12 +131,11 @@ function campaign_public(array $c, array $counts)
     if ($status === 'active' && $k['due'] === 0 && $k['next_at']) {
         $status = 'scheduled';   // ما فيه شي جاهز هسه — بانتظار موعد اليوم الجاي
     }
-    $provider = isset($c['account_provider']) && $c['account_provider'] ? $c['account_provider'] : 'manual';
-    $auto = $provider !== 'manual';
-    $accountState = $auto ? (string) ($c['account_state'] ?? '') : null;
+    // كل الأرقام ترسل عبر البوابة الخاصة — الرقم اللي مو مربوط تنتظر رسائله (stalled)
+    $accountState = isset($c['account_provider']) && $c['account_provider'] === 'self' ? (string) ($c['account_state'] ?? '') : '';
     $paused = !empty($c['paused']);
     $autoState = null;
-    if ($auto && $c['status'] === 'active') {
+    if ($c['status'] === 'active') {
         if ($paused) {
             $autoState = 'paused';
         } elseif ($k['due'] > 0) {
@@ -175,12 +170,10 @@ function campaign_public(array $c, array $counts)
         'cancelled' => $k['cancelled'],
         'due' => $k['due'],
         'next_at' => $k['next_at'],
-        'auto' => $auto,
-        'provider_name' => $auto ? gw_provider_name($provider) : null,
-        'account_state' => $accountState,
+        'account_state' => $accountState !== '' ? $accountState : 'qr',
         'paused' => $paused,
-        // للإرسال التلقائي: sending (يُرسل هسه)، waiting (بانتظار موعده)، paused (موقوف مؤقتاً)،
-        // stalled (رسائل جاهزة بس الحساب غير متصل بالخدمة)
+        // sending (يُرسل هسه)، waiting (بانتظار موعده)، paused (موقوف مؤقتاً)،
+        // stalled (رسائل جاهزة بس الرقم غير مربوط/غير متصل بالبوابة)
         'auto_state' => $autoState,
     ];
 }
@@ -263,151 +256,8 @@ function campaign_day_rows($campaignId)
     return $out;
 }
 
-// --------------------------------------------------------------- الإرسال بالضغط
-
 /**
- * الرقم الجاي الجاهز للإرسال بهذه الحملة لهذا التبويب. إذا التبويب عنده رقم
- * محجوز (مثلاً حدّث الصفحة) نرجّعه نفسه، وإلا نحجز أقدم رقم مستحق ومو محجوز
- * لجهاز ثاني.
- */
-function sender_claim($campaignId, $token)
-{
-    $now = now_dt();
-    $lockLimit = now_dt(-SEND_LOCK_SECONDS);
-    // الرقم المعروض حالياً بهذا الجهاز = آخر رقم انحجز له (مثلاً بعد تراجع)، وأي رقم ثاني محجوز له نحرره
-    $mine = q_row(
-        "SELECT id, phone, day_index FROM campaign_messages
-         WHERE campaign_id = ? AND status = 'pending' AND scheduled_at <= ? AND locked_by = ? AND locked_at >= ?
-         ORDER BY locked_at DESC, id DESC LIMIT 1",
-        [(int) $campaignId, $now, $token, $lockLimit]
-    );
-    if ($mine) {
-        q('UPDATE campaign_messages SET locked_at = ? WHERE id = ?', [$now, $mine['id']]);
-        q(
-            "UPDATE campaign_messages SET locked_by = NULL, locked_at = NULL WHERE campaign_id = ? AND locked_by = ? AND id <> ? AND status = 'pending'",
-            [(int) $campaignId, $token, $mine['id']]
-        );
-        return $mine;
-    }
-    $pdo = db();
-    $pdo->beginTransaction();
-    try {
-        $m = q_row(
-            "SELECT id, phone, day_index FROM campaign_messages
-             WHERE campaign_id = ? AND status = 'pending' AND scheduled_at <= ?
-               AND (locked_by IS NULL OR locked_at IS NULL OR locked_at < ? OR locked_by = ?)
-             ORDER BY skips, scheduled_at, id LIMIT 1 FOR UPDATE",
-            [(int) $campaignId, $now, $lockLimit, $token]
-        );
-        if ($m) {
-            q('UPDATE campaign_messages SET locked_at = ?, locked_by = ? WHERE id = ?', [$now, $token, $m['id']]);
-        }
-        $pdo->commit();
-    } catch (Throwable $e) {
-        $pdo->rollBack();
-        throw $e;
-    }
-    return $m;
-}
-
-/** حالة شاشة الإرسال: الرقم الجاي + الأعداد + موعد الدفعة الجاية. */
-function sender_state(array $campaign, $token)
-{
-    $next = $campaign['status'] === 'active' ? sender_claim($campaign['id'], $token) : null;
-    $c = campaign_public($campaign, campaign_counts([(int) $campaign['id']]));
-    $busyElsewhere = 0;
-    if (!$next && $c['due'] > 0) {
-        // كل المستحق محجوز حالياً بأجهزة ثانية من نفس الفرع
-        $busyElsewhere = $c['due'];
-    }
-    $nextBatch = null;
-    if (!$next && $c['next_at']) {
-        $nextBatch = (int) q_val(
-            "SELECT COUNT(*) FROM campaign_messages WHERE campaign_id = ? AND status = 'pending' AND scheduled_at = ?",
-            [$campaign['id'], $c['next_at'] . ':00']
-        );
-    }
-    $todayDone = 0;
-    $todayTotal = 0;
-    if ($next) {
-        $day = q_row(
-            "SELECT COUNT(*) AS total, SUM(status IN ('sent','failed')) AS done FROM campaign_messages WHERE campaign_id = ? AND day_index = ?",
-            [$campaign['id'], $next['day_index']]
-        );
-        $todayDone = (int) $day['done'];
-        $todayTotal = (int) $day['total'];
-    }
-    return [
-        'ok' => true,
-        'campaign' => $c,
-        'next' => $next ? ['id' => (int) $next['id'], 'phone' => $next['phone'], 'day' => (int) $next['day_index']] : null,
-        'batch_done' => $todayDone,
-        'batch_total' => $todayTotal,
-        'busy_elsewhere' => $busyElsewhere,
-        'next_batch' => $nextBatch,
-    ];
-}
-
-/**
- * يسجّل نتيجة رقم: sent (انفتح بواتساب وانرسل)، failed (ما عنده واتساب)،
- * skip (يتأجل لآخر الدور)، أو undo (تراجع عن آخر تسجيل).
- */
-function sender_mark(array $campaign, $messageId, $result, $token)
-{
-    $m = q_row('SELECT * FROM campaign_messages WHERE id = ? AND campaign_id = ?', [(int) $messageId, (int) $campaign['id']]);
-    if (!$m) {
-        return 'الرقم غير موجود بهذه الحملة';
-    }
-    $now = now_dt();
-    $recent = $m['sent_at'] && strtotime($m['sent_at']) >= time() - UNDO_SECONDS;
-    switch ($result) {
-        case 'sent':
-            if ($m['status'] !== 'pending') {
-                return null;   // تسجيل مكرر (مثلاً ضغطتين) — نتجاهله
-            }
-            q("UPDATE campaign_messages SET status = 'sent', sent_at = ?, error = NULL, locked_at = NULL, locked_by = NULL WHERE id = ?", [$now, $m['id']]);
-            break;
-        case 'failed':
-            // من الرقم الحالي، أو تصحيح رقم انحسب "انرسل" بس طلع ما عنده واتساب
-            if ($m['status'] === 'pending' || ($m['status'] === 'sent' && $recent)) {
-                q("UPDATE campaign_messages SET status = 'failed', sent_at = ?, error = ?, locked_at = NULL, locked_by = NULL WHERE id = ?", [$now, 'الرقم ما عنده واتساب', $m['id']]);
-            } else {
-                return 'ما يمكن تعديل هذا الرقم';
-            }
-            break;
-        case 'skip':
-            if ($m['status'] !== 'pending') {
-                return null;
-            }
-            // يتأجل لآخر الدور: الأرقام اللي ما انتخطّت تجي قبله
-            q('UPDATE campaign_messages SET skips = LEAST(skips + 1, 250), locked_at = NULL, locked_by = NULL WHERE id = ?', [$m['id']]);
-            break;
-        case 'undo':
-            if (!in_array($m['status'], ['sent', 'failed'], true) || !$recent || $campaign['status'] === 'cancelled') {
-                return 'ما يمكن التراجع عن هذا الرقم';
-            }
-            // نحرر الرقم المعروض حالياً بهذا الجهاز حتى يرجع الرقم المتراجَع عنه هو المعروض
-            q(
-                "UPDATE campaign_messages SET locked_by = NULL, locked_at = NULL WHERE campaign_id = ? AND locked_by = ? AND status = 'pending'",
-                [$campaign['id'], $token]
-            );
-            q("UPDATE campaign_messages SET status = 'pending', sent_at = NULL, error = NULL, locked_at = ?, locked_by = ? WHERE id = ?", [$now, $token, $m['id']]);
-            q("UPDATE campaigns SET status = 'active', finished_at = NULL WHERE id = ? AND status = 'done'", [$campaign['id']]);
-            return null;
-        default:
-            return 'إجراء غير معروف';
-    }
-
-    if ($m['status'] === 'pending' && ($result === 'sent' || $result === 'failed')) {
-        campaign_after_final($campaign, (int) $m['day_index']);
-    } else {
-        campaign_check_done($campaign['id']);
-    }
-    return null;
-}
-
-/**
- * بعد ما رقم ياخذ نتيجته النهائية (انرسل/فشل) — يدوياً أو تلقائياً: إشعار
+ * بعد ما رقم ياخذ نتيجته النهائية (انرسل/فشل): إشعار
  * انتهاء يوم من حملة مقسّمة (غير اليوم الأخير — له إشعار "اكتملت الحملة")،
  * وإقفال الحملة إذا خلصت.
  */
@@ -468,12 +318,9 @@ function notify_due_campaigns($ownerId)
             continue;
         }
         $dayLabel = (int) $c['days'] > 1 ? 'اليوم ' . $day . '/' . $c['days'] : '';
-        if (!$c['provider'] || $c['provider'] === 'manual') {
-            $title = $dayLabel !== '' ? 'جاهزة للإرسال: ' . $dayLabel : 'حان موعد الحملة';
-            notify($ownerId, $title, $count . ' رسالة جاهزة — افتح الحملة واضغط "إرسال"', 'info', $c['account_name']);
-        } elseif ($c['paused']) {
+        if ($c['paused']) {
             notify($ownerId, 'حان موعد حملة موقوفة مؤقتاً' . ($dayLabel !== '' ? ': ' . $dayLabel : ''), $count . ' رسالة بانتظارك — اضغط "استئناف" بصفحة الحملة حتى تنرسل', 'info', $c['account_name']);
-        } elseif ($c['api_state'] === 'connected') {
+        } elseif ($c['provider'] === 'self' && $c['api_state'] === 'connected') {
             $title = $dayLabel !== '' ? 'بدأ الإرسال التلقائي: ' . $dayLabel : 'بدأ إرسال الحملة تلقائياً';
             notify($ownerId, $title, $count . ' رسالة تنرسل تلقائياً وحدة وحدة', 'info', $c['account_name']);
         } else {

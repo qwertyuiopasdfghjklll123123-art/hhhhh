@@ -11,8 +11,8 @@
  */
 
 define('WASEL_ROOT', dirname(__DIR__));
-define('WASEL_VERSION', '3.1.0');
-define('WASEL_SCHEMA_VERSION', 4);
+define('WASEL_VERSION', '3.2.0');
+define('WASEL_SCHEMA_VERSION', 5);
 
 // =====================================================================
 // بيانات دخول أدمن المنصة — ثابتة بالكود عمداً.
@@ -26,17 +26,16 @@ define('ADMIN_DEFAULT_NAME', 'أدمن المنصة');
 define('DEFAULT_SITE_NAME', 'واصل');
 define('DEFAULT_COUNTRY_CODE', '964');      // العراق — يُضاف تلقائياً لأي رقم ما يبدأ فيه
 define('DEFAULT_MESSAGE', 'هلوو');
-define('DEFAULT_DELAY', 10);                // مهلة (ثواني) قبل ما يجهز الرقم الجاي — تحمي الرقم من الحظر
+define('DEFAULT_DELAY', 10);                // مهلة (ثواني) بين رسالة والثانية من نفس الرقم — تحمي الرقم من الحظر
 define('MIN_DELAY', 0);
 define('DEFAULT_SPLIT_TIME', '10:00');
 define('MAX_NUMBERS_PER_CAMPAIGN', 5000);
-define('SEND_LOCK_SECONDS', 120);           // الرقم المعروض بجهاز يبقى محجوز له هالمدة (حتى ما ينرسل مرتين من جهازين)
-define('UNDO_SECONDS', 1800);               // يمكن التراجع عن "انرسلت" خلال نص ساعة
+define('SEND_LOCK_SECONDS', 120);           // رسالة محجوزة (قيد الإرسال) تتحرر بعد هالمدة إذا التشغيل انقطع
 define('SESSION_REMEMBER_SECONDS', 30 * 86400);
 define('SESSION_IDLE_SECONDS', 12 * 3600);
 define('LOGO_MAX_BYTES', 2 * 1024 * 1024);
 
-// الإرسال التلقائي: عبر البوابة الخاصة على استضافتك (بدون اشتراك) أو خدمة واتساب API (Green-API / UltraMsg)
+// الإرسال التلقائي عبر البوابة الخاصة على استضافتك (بدون أي اشتراك)
 define('AUTO_MIN_DELAY', 5);                // أقل مهلة (ثواني) بين رسالة والثانية بنفس الرقم مهما كانت مهلة الحملة
 define('AUTO_MAX_ATTEMPTS', 3);             // محاولات الرسالة الوحدة إذا الخدمة ما ردّت
 define('AUTO_TICK_BUDGET', 20);             // ثواني إرسال لكل طلب من المتصفح (لما ما فيه Cron)
@@ -176,7 +175,7 @@ function wasel_schema()
             owner_id INT UNSIGNED NOT NULL,
             name VARCHAR(190) NOT NULL,
             phone VARCHAR(20) NULL,
-            provider VARCHAR(16) NOT NULL DEFAULT 'manual',
+            provider VARCHAR(16) NOT NULL DEFAULT 'self',
             api_url VARCHAR(190) NULL,
             api_instance VARCHAR(64) NULL,
             api_token VARCHAR(190) NULL,
@@ -272,13 +271,13 @@ function wasel_migrate()
     foreach (wasel_schema() as $sql) {
         db()->exec($sql);
     }
-    // ترقية قواعد بيانات النسخ السابقة: 2.0 (إضافة كروم) ← 2.1 (الإرسال بالضغط) ← 3.0 (الإرسال التلقائي عبر API)
+    // ترقية قواعد بيانات النسخ السابقة: 2.0 (إضافة كروم) ← 2.1 (الإرسال بالضغط) ← 3.x (الإرسال التلقائي)
     $columns = [
         ['wa_accounts', 'phone', 'VARCHAR(20) NULL AFTER name'],
         ['campaigns', 'notified_day', 'SMALLINT UNSIGNED NOT NULL DEFAULT 0 AFTER status'],
         ['campaign_messages', 'locked_by', 'VARCHAR(40) NULL AFTER locked_at'],
         ['campaign_messages', 'skips', 'TINYINT UNSIGNED NOT NULL DEFAULT 0 AFTER locked_by'],
-        ['wa_accounts', 'provider', "VARCHAR(16) NOT NULL DEFAULT 'manual' AFTER phone"],
+        ['wa_accounts', 'provider', "VARCHAR(16) NOT NULL DEFAULT 'self' AFTER phone"],
         ['wa_accounts', 'api_url', 'VARCHAR(190) NULL AFTER provider'],
         ['wa_accounts', 'api_instance', 'VARCHAR(64) NULL AFTER api_url'],
         ['wa_accounts', 'api_token', 'VARCHAR(190) NULL AFTER api_instance'],
@@ -302,6 +301,18 @@ function wasel_migrate()
         }
     }
     q("UPDATE campaign_messages SET status = 'pending', locked_at = NULL WHERE status = 'sending'");
+    // 3.2: الإرسال صار عبر البوابة الخاصة بس (انحذف الإرسال اليدوي و Green-API و UltraMsg) —
+    // كل رقم قديم يتحوّل للبوابة ويحتاج ربط (مسح QR) مرة وحدة
+    db()->exec("ALTER TABLE wa_accounts ALTER COLUMN provider SET DEFAULT 'self'");
+    foreach (q_all("SELECT id FROM wa_accounts WHERE provider <> 'self' OR api_instance IS NULL OR api_instance = ''") as $old) {
+        q(
+            "UPDATE wa_accounts SET provider = 'self', api_instance = ?, api_url = NULL, api_token = NULL, api_state = NULL,
+             api_note = NULL, api_checked_at = NULL, api_phone = NULL, next_send_at = NULL, sync_at = NULL WHERE id = ?",
+            ['acc' . (int) $old['id'] . '-' . bin2hex(random_bytes(4)), (int) $old['id']]
+        );
+    }
+    // حجوزات أجهزة الإرسال اليدوي القديمة
+    q("UPDATE campaign_messages SET locked_at = NULL, locked_by = NULL WHERE status = 'pending' AND locked_by IS NOT NULL AND locked_by <> 'auto'");
     q('INSERT IGNORE INTO site_settings (id, site_name, schema_version, updated_at) VALUES (1, ?, 0, ?)', [DEFAULT_SITE_NAME, now_dt()]);
     // مفتاح سري لتشغيل الإرسال التلقائي من رابط (cron.php?key=...) لمن ما يستخدم Cron الاستضافة
     q('UPDATE site_settings SET cron_key = ? WHERE id = 1 AND (cron_key IS NULL OR cron_key = \'\')', [bin2hex(random_bytes(16))]);
@@ -966,9 +977,3 @@ function owned_account($user, $accountId, $allowAdmin = false)
     return null;
 }
 
-/** رمز يميّز كل تبويب مفتوح (يولّده المتصفح) — لحجز الرقم المعروض حتى ما ينرسل مرتين من جهازين. */
-function sender_token($raw)
-{
-    $raw = (string) $raw;
-    return preg_match('/^[A-Za-z0-9]{16,40}$/', $raw) ? $raw : null;
-}

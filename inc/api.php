@@ -22,7 +22,6 @@ function api_dispatch($action)
         'account_api_status' => ['GET', 'api_account_api_status', false],
         'account_api_pair' => ['POST', 'api_account_api_pair', false],
         'account_api_logout' => ['POST', 'api_account_api_logout', false],
-        'account_api_remove' => ['POST', 'api_account_api_remove', false],
         'autosend' => ['POST', 'api_autosend', false],
         'campaign_pause' => ['POST', 'api_campaign_pause', false],
         'campaigns' => ['GET', 'api_campaigns', false],
@@ -30,8 +29,6 @@ function api_dispatch($action)
         'campaign_create' => ['POST', 'api_campaign_create', false],
         'campaign_cancel' => ['POST', 'api_campaign_cancel', false],
         'campaign_cancel_day' => ['POST', 'api_campaign_cancel_day', false],
-        'send_next' => ['GET', 'api_send_next', false],
-        'send_mark' => ['POST', 'api_send_mark', false],
         'events' => ['GET', 'api_events', false],
         'event_read' => ['POST', 'api_event_read', false],
         'events_read_all' => ['POST', 'api_events_read_all', false],
@@ -100,8 +97,7 @@ function generate_password($length = 10)
 
 function account_public(array $a, array $stats = [])
 {
-    $provider = !empty($a['provider']) ? $a['provider'] : 'manual';
-    $auto = $provider !== 'manual';
+    $state = isset($a['api_state']) && (string) $a['api_state'] !== '' ? $a['api_state'] : 'qr';
     return [
         'id' => (int) $a['id'],
         'name' => $a['name'],
@@ -111,17 +107,17 @@ function account_public(array $a, array $stats = [])
         'sent_today' => (int) ($stats['sent_today'] ?? 0),
         'campaigns_active' => (int) ($stats['campaigns_active'] ?? 0),
         'created_at' => substr($a['created_at'], 0, 16),
-        // الإرسال التلقائي: الخدمة وحالة الربط (الرمز السري ما يطلع للمتصفح أبداً — بس آخر 4 أحرف)
-        'provider' => $provider,
-        'auto' => $auto,
-        'provider_name' => $auto ? gw_provider_name($provider) : null,
-        'api_state' => $auto ? ((string) $a['api_state'] !== '' ? $a['api_state'] : 'error') : null,
-        'api_note' => $auto ? (string) $a['api_note'] : '',
-        'api_instance' => $auto && $provider !== 'self' ? $a['api_instance'] : null,
-        'api_url' => $auto && $provider === 'greenapi' ? $a['api_url'] : null,
-        'api_token_hint' => $auto && !empty($a['api_token']) ? '••••' . substr((string) $a['api_token'], -4) : null,
-        'api_phone' => $auto ? $a['api_phone'] : null,
+        // حالة الربط بالبوابة الخاصة: connected، qr (يحتاج ربط)، starting، error، auth_error
+        'api_state' => $state,
+        'api_note' => gw_note_for($state, (string) ($a['api_note'] ?? '')),
+        'api_phone' => isset($a['api_phone']) ? $a['api_phone'] : null,
     ];
+}
+
+/** اسم جلسة الرقم بالبوابة الخاصة (ثابت للحساب — مخفي عن المتصفح). */
+function new_session_id($accountId)
+{
+    return 'acc' . (int) $accountId . '-' . bin2hex(random_bytes(4));
 }
 
 function api_accounts(array $user)
@@ -162,9 +158,11 @@ function api_account_create(array $user)
             json_fail('رقم الواتساب غير صحيح — اكتبه مثل 07701234567');
         }
     }
-    q('INSERT INTO wa_accounts (owner_id, name, phone, created_at) VALUES (?, ?, ?, ?)', [$user['id'], $name, $phone, now_dt()]);
-    $acc = q_row('SELECT * FROM wa_accounts WHERE id = ?', [(int) db()->lastInsertId()]);
-    json_out(['ok' => true, 'account' => account_public($acc)]);
+    q("INSERT INTO wa_accounts (owner_id, name, phone, provider, created_at) VALUES (?, ?, ?, 'self', ?)", [$user['id'], $name, $phone, now_dt()]);
+    $id = (int) db()->lastInsertId();
+    q('UPDATE wa_accounts SET api_instance = ? WHERE id = ?', [new_session_id($id), $id]);
+    $acc = q_row('SELECT * FROM wa_accounts WHERE id = ?', [$id]);
+    json_out(['ok' => true, 'account' => account_public($acc), 'gateway_ready' => self_ready()]);
 }
 
 function delete_accounts_data(array $accountIds)
@@ -198,93 +196,37 @@ function api_account_delete(array $user)
 
 // --------------------------------------------------------------- الإرسال التلقائي (ربط الحساب بخدمة API)
 
-/** يحفظ بيانات خدمة الواتساب (بعد ما يجرّب الاتصال فيها) — ويرجّع رمز QR إذا الرقم يحتاج ربط. */
+/**
+ * يبدأ ربط الرقم بالبوابة الخاصة: يتأكد إن البوابة شغّالة ويرجّع حالة الرقم،
+ * ومعها رمز QR إذا الرقم يحتاج ربط.
+ */
 function api_account_api_save(array $user)
 {
     $acc = owned_account($user, input_int('id'));
     if (!$acc) {
         json_fail('حساب غير موجود', 404);
     }
-    $provider = input_str('provider', 16);
-    if (!array_key_exists($provider, gw_providers())) {
-        json_fail('اختر خدمة الإرسال');
+    if (!self_ready()) {
+        json_fail('البوابة الخاصة مو مفعّلة بعد — ' . ($user['is_admin'] ? 'فعّلها من لوحة التحكم ← البوابة الخاصة' : 'اطلب من أدمن المنصة يفعّلها من لوحة التحكم'));
     }
-    $instance = preg_replace('/\s+/', '', input_str('instance', 80));
-    $token = preg_replace('/\s+/', '', input_str('token', 200));
-    if ($token === '' && $acc['provider'] === $provider && !empty($acc['api_token'])) {
-        $token = $acc['api_token'];   // تعديل بدون إعادة كتابة الرمز
+    if ($acc['provider'] !== 'self' || empty($acc['api_instance'])) {
+        q("UPDATE wa_accounts SET provider = 'self', api_instance = ?, api_url = NULL, api_token = NULL, api_phone = NULL, next_send_at = NULL WHERE id = ?", [new_session_id($acc['id']), $acc['id']]);
+        $acc = q_row('SELECT * FROM wa_accounts WHERE id = ?', [$acc['id']]);
     }
-    if ($provider === 'self') {
-        // البوابة الخاصة: ما تحتاج أي بيانات — كل رقم له جلسة باسم ثابت بالبوابة
-        if (!self_ready()) {
-            json_fail('البوابة الخاصة مو مفعّلة بعد — ' . ($user['is_admin'] ? 'فعّلها من لوحة التحكم ← البوابة الخاصة' : 'اطلب من أدمن المنصة يفعّلها من لوحة التحكم'));
-        }
-        $instance = $acc['provider'] === 'self' && !empty($acc['api_instance']) ? $acc['api_instance'] : 'acc' . (int) $acc['id'] . '-' . bin2hex(random_bytes(4));
-        $token = null;
-    } elseif ($provider === 'greenapi') {
-        if (!preg_match('/^\d{6,15}$/', $instance)) {
-            json_fail('رقم idInstance لازم يكون أرقام فقط — انسخه من لوحة Green-API');
-        }
-    } else {
-        if (preg_match('/^\d+$/', $instance)) {
-            $instance = 'instance' . $instance;
-        }
-        if (!preg_match('/^[A-Za-z0-9_-]{3,64}$/', $instance)) {
-            json_fail('رقم الـ Instance غير صحيح (مثل instance12345) — انسخه من لوحة UltraMsg');
-        }
+    $st = gw_check_state($acc);
+    if ($st['state'] === 'auth_error' || $st['state'] === 'error') {
+        account_store_state($acc, $st, false);
+        json_fail(gw_note_for($st['state'], $st['note']));
     }
-    if ($provider !== 'self' && !preg_match('/^[A-Za-z0-9_-]{8,190}$/', $token)) {
-        json_fail('الرمز (Token) غير صحيح — انسخه كامل من لوحة الخدمة');
-    }
-    $candidates = [null];
-    if ($provider === 'greenapi') {
-        $url = green_api_url_normalize(input_str('api_url', 190));
-        if ($url === null) {
-            json_fail('رابط apiUrl غير صحيح — انسخه من لوحة Green-API (مثل https://7103.api.greenapi.com)');
-        }
-        $candidates = $url !== '' ? [$url] : green_api_url_candidates($instance);
-    }
-
-    // نجرّب الاتصال قبل الحفظ حتى نكتشف أي خطأ بالبيانات فوراً
-    $test = array_merge($acc, ['provider' => $provider, 'api_instance' => $instance, 'api_token' => $token]);
-    $st = null;
-    $apiUrl = null;
-    foreach ($candidates as $u) {
-        $test['api_url'] = $u;
-        $st = gw_check_state($test);
-        $apiUrl = $u;
-        if ($st['state'] !== 'error') {
-            break;   // وصلنا للخدمة — هذا الرابط الصحيح
-        }
-    }
-    if ($st['state'] === 'auth_error') {
-        json_fail($provider === 'self' ? $st['note'] : $st['note'] . ' — تأكد إنك نسخته كامل من لوحة ' . gw_provider_name($provider));
-    }
-    if ($st['state'] === 'error') {
-        json_fail($st['note']);
-    }
-
-    $changed = $acc['provider'] !== $provider || (string) $acc['api_instance'] !== $instance;
-    q(
-        'UPDATE wa_accounts SET provider = ?, api_url = ?, api_instance = ?, api_token = ?, api_state = ?, api_note = ?, api_checked_at = ?, next_send_at = NULL'
-        . ($changed ? ', api_phone = NULL' : '') . ' WHERE id = ?',
-        [$provider, $apiUrl, $instance, $token, $st['state'], str_cut($st['note'], 255), now_dt(), $acc['id']]
-    );
-    $acc = q_row('SELECT * FROM wa_accounts WHERE id = ?', [$acc['id']]);
     $out = ['ok' => true, 'state' => $st['state'], 'note' => $st['note'], 'qr' => null];
-    if ($st['state'] === 'connected') {
-        $acc = account_store_state($acc, $st, false);   // يجيب رقم الواتساب المربوط
-    } elseif ($st['state'] === 'qr') {
+    if ($st['state'] === 'qr') {
         $qr = gw_qr($acc);
         $out['qr'] = $qr['qr'];
-        if ($qr['state'] !== 'qr') {
-            $acc = account_store_state($acc, $qr, false);
-            $out['state'] = $qr['state'];
-            $out['note'] = $qr['note'];
-        } elseif ($qr['note'] !== '') {
-            $out['note'] = $qr['note'];
-        }
+        $st = gw_state($qr['state'], $qr['note'] !== '' ? $qr['note'] : $st['note']);
+        $out['state'] = $st['state'];
+        $out['note'] = $st['note'];
     }
+    account_store_state($acc, $st, false);
     $out['account'] = account_public(q_row('SELECT * FROM wa_accounts WHERE id = ?', [$acc['id']]));
     json_out($out);
 }
@@ -296,8 +238,8 @@ function api_account_api_status(array $user)
     if (!$acc) {
         json_fail('حساب غير موجود', 404);
     }
-    if ($acc['provider'] === 'manual') {
-        json_out(['ok' => true, 'state' => null, 'note' => '', 'qr' => null, 'account' => account_public($acc)]);
+    if ($acc['provider'] !== 'self' || empty($acc['api_instance'])) {
+        json_out(['ok' => true, 'state' => 'qr', 'note' => '', 'qr' => null, 'account' => account_public($acc)]);
     }
     $st = gw_check_state($acc);
     $out = ['ok' => true, 'state' => $st['state'], 'note' => $st['note'], 'qr' => null];
@@ -312,6 +254,7 @@ function api_account_api_status(array $user)
     if ($st['state'] !== 'error' || $acc['api_state'] !== 'connected') {
         $acc = account_store_state($acc, $st, false);
     }
+    $out['note'] = gw_note_for($out['state'], $out['note']);
     $out['account'] = account_public(q_row('SELECT * FROM wa_accounts WHERE id = ?', [$acc['id']]));
     json_out($out);
 }
@@ -320,7 +263,7 @@ function api_account_api_status(array $user)
 function api_account_api_pair(array $user)
 {
     $acc = owned_account($user, input_int('id'));
-    if (!$acc || $acc['provider'] === 'manual') {
+    if (!$acc || $acc['provider'] !== 'self' || empty($acc['api_instance'])) {
         json_fail('حساب غير موجود', 404);
     }
     $phone = clean_number(input_str('phone', 30), DEFAULT_COUNTRY_CODE);
@@ -329,7 +272,7 @@ function api_account_api_pair(array $user)
     }
     $r = gw_pair_code($acc, $phone);
     if (!$r['ok']) {
-        json_fail($r['note']);
+        json_fail(gw_note_for($r['state'], $r['note']));
     }
     if (empty($acc['phone'])) {
         q('UPDATE wa_accounts SET phone = ? WHERE id = ?', [$phone, $acc['id']]);
@@ -341,30 +284,15 @@ function api_account_api_pair(array $user)
 function api_account_api_logout(array $user)
 {
     $acc = owned_account($user, input_int('id'));
-    if (!$acc || $acc['provider'] === 'manual') {
+    if (!$acc || $acc['provider'] !== 'self' || empty($acc['api_instance'])) {
         json_fail('حساب غير موجود', 404);
     }
     if (!gw_logout($acc)) {
-        json_fail('تعذّر فصل الرقم من الخدمة — حاول مرة ثانية أو افصله من لوحة ' . gw_provider_name($acc['provider']));
+        json_fail('تعذّر فصل الرقم — حاول مرة ثانية، أو افصله من جوالك: واتساب ← الأجهزة المرتبطة');
     }
     q('UPDATE wa_accounts SET api_phone = NULL WHERE id = ?', [$acc['id']]);
     $acc['api_phone'] = null;
     account_store_state($acc, gw_state('qr', 'تم فصل الرقم — امسح رمز QR لربط رقم'), false);
-    json_out(['ok' => true, 'account' => account_public(q_row('SELECT * FROM wa_accounts WHERE id = ?', [$acc['id']]))]);
-}
-
-/** يرجّع الحساب للإرسال اليدوي ويمسح بيانات الخدمة من الموقع. */
-function api_account_api_remove(array $user)
-{
-    $acc = owned_account($user, input_int('id'));
-    if (!$acc) {
-        json_fail('حساب غير موجود', 404);
-    }
-    q(
-        "UPDATE wa_accounts SET provider = 'manual', api_url = NULL, api_instance = NULL, api_token = NULL, api_state = NULL,
-         api_note = NULL, api_checked_at = NULL, api_phone = NULL, next_send_at = NULL, sync_at = NULL WHERE id = ?",
-        [$acc['id']]
-    );
     json_out(['ok' => true, 'account' => account_public(q_row('SELECT * FROM wa_accounts WHERE id = ?', [$acc['id']]))]);
 }
 
@@ -441,66 +369,9 @@ function api_campaign(array $user)
         [$c['id']]
     );
     $data['can_cancel'] = $c['status'] === 'active';
-    $data['can_send'] = $c['status'] === 'active' && (int) $c['owner_id'] === (int) $user['id'] && manual_send_allowed($c);
-    $data['can_pause'] = $c['status'] === 'active' && $data['auto'];
+    $data['can_pause'] = $c['status'] === 'active';
     $data['ok'] = true;
     json_out($data);
-}
-
-/**
- * الإرسال بالضغط مسموح للحسابات اليدوية، وللحسابات التلقائية بس إذا الرقم
- * انفصل عن الخدمة (حتى ما يوقف شغل الفرع) — وإلا السيرفر هو اللي يرسل.
- */
-function manual_send_allowed(array $c)
-{
-    if (empty($c['account_provider']) || $c['account_provider'] === 'manual') {
-        return true;
-    }
-    return $c['account_state'] !== 'connected' && empty($c['paused']);
-}
-
-/** حملة يملكها المستخدم نفسه — الإرسال يتم فقط من حساب صاحب الحملة. */
-function own_campaign(array $user, $id)
-{
-    $c = visible_campaign($user, $id);
-    return ($c && (int) $c['owner_id'] === (int) $user['id']) ? $c : null;
-}
-
-function api_send_next(array $user)
-{
-    $c = own_campaign($user, (int) ($_GET['id'] ?? 0));
-    if (!$c) {
-        json_fail('حملة غير موجودة', 404);
-    }
-    if (!manual_send_allowed($c)) {
-        json_fail('هذه الحملة تنرسل تلقائياً من السيرفر — ما تحتاج تضغط شي', 409);
-    }
-    $token = sender_token($_GET['tok'] ?? '');
-    if (!$token) {
-        json_fail('حدّث الصفحة وحاول مرة ثانية');
-    }
-    json_out(sender_state($c, $token));
-}
-
-function api_send_mark(array $user)
-{
-    $c = own_campaign($user, input_int('id'));
-    if (!$c) {
-        json_fail('حملة غير موجودة', 404);
-    }
-    if (!manual_send_allowed($c)) {
-        json_fail('الرقم رجع مربوط بالخدمة — الإرسال صار تلقائي من السيرفر', 409);
-    }
-    $token = sender_token(input_str('tok', 40));
-    if (!$token) {
-        json_fail('حدّث الصفحة وحاول مرة ثانية');
-    }
-    $error = sender_mark($c, input_int('message_id'), input_str('result', 10), $token);
-    if ($error !== null) {
-        json_fail($error);
-    }
-    $c = own_campaign($user, $c['id']);   // الحالة يمكن تغيّرت (اكتملت/انفتحت من جديد)
-    json_out(sender_state($c, $token));
 }
 
 function api_campaign_create(array $user)
@@ -902,7 +773,7 @@ function api_cron_info(array $user)
     $s = site_settings(true);
     $last = $s['cron_last_run'];
     $acc = q_row(
-        "SELECT SUM(provider <> 'manual') AS auto_total, SUM(provider <> 'manual' AND api_state = 'connected') AS connected FROM wa_accounts"
+        "SELECT COUNT(*) AS auto_total, SUM(provider = 'self' AND api_state = 'connected') AS connected FROM wa_accounts"
     );
     json_out([
         'ok' => true,
@@ -954,6 +825,9 @@ function gateway_payload($test = true)
     ];
     if ($test && $out['configured']) {
         $out['status'] = self_info();
+        if (!empty($out['status']['ok'])) {
+            gateway_recheck_accounts(5);
+        }
     }
     return $out;
 }
